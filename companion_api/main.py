@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from typing import Any
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from mangum import Mangum
 
 from app.services.food_llm_router import route_food_query
@@ -26,6 +28,7 @@ from companion_api.models import (
     SendMessageRequest,
 )
 from companion_api.reminders import ReminderScheduler
+from companion_api.secrets import secret_or_env
 
 app = FastAPI(title="Companion API", version="2.0.0")
 app.add_middleware(
@@ -42,6 +45,16 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "app" / "templates" / "app"
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/food/", response_class=HTMLResponse)
+def food_ui():
+    """Serve the food-agent SPA."""
+    return (_TEMPLATE_DIR / "food_ui.html").read_text()
+
+
 @app.post("/api/send-message/")
 def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
     message = payload.message.strip()
@@ -49,7 +62,7 @@ def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
         f"https://wa.me/{settings.COMPANION_WHATSAPP_CC_NUMBER}?text={quote(message)}"
     )
 
-    llm_cfg, err_detail = resolve_llm_from_env(os.getenv("FOOD_ROUTER_PROVIDER", ""))
+    llm_cfg, err_detail = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
     if err_detail:
         llm_payload: dict[str, Any] = {
             "status": "skipped" if payload.llm_optional else "error",
@@ -90,7 +103,7 @@ def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
 
 @app.post("/api/food/query/")
 def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
-    llm_cfg, err = resolve_llm_from_env(os.getenv("FOOD_ROUTER_PROVIDER", ""))
+    llm_cfg, err = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
     if err or not llm_cfg:
         raise HTTPException(status_code=503, detail=err or "LLM not configured.")
 

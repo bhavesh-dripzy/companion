@@ -4,6 +4,12 @@ import os
 from pathlib import Path
 from typing import Literal, NamedTuple
 
+try:
+    from companion_api.secrets import secret_or_env
+except Exception:
+    def secret_or_env(name: str, default: str = "") -> str:
+        return (os.getenv(name) or default).strip()
+
 
 class ResolvedLlm(NamedTuple):
     provider: Literal["gemini", "openai"]
@@ -30,7 +36,9 @@ def _gemini_api_key() -> str:
     3. GEMINI_API_KEY_FILE (path to text file containing the key)
     4. <repo-root>/.gemini_local first line (gitignored)
     """
-    env_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+    env_key = (
+        secret_or_env("GEMINI_API_KEY") or secret_or_env("GOOGLE_API_KEY")
+    ).strip()
     if env_key:
         return env_key
     fp = (os.getenv("GEMINI_API_KEY_FILE") or "").strip()
@@ -49,7 +57,7 @@ def resolve_llm_from_env(force: str = "") -> tuple[ResolvedLlm | None, str | Non
     Return (ResolvedLlm, None) when a provider is usable, otherwise (None, reason).
     """
     gemini_key = _gemini_api_key()
-    openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    openai_key = secret_or_env("OPENAI_API_KEY")
     force_l = (force or "").strip().lower()
 
     if force_l == "openai":
@@ -58,7 +66,7 @@ def resolve_llm_from_env(force: str = "") -> tuple[ResolvedLlm | None, str | Non
         return ResolvedLlm(
             "openai",
             openai_key,
-            os.getenv("OPENAI_FOOD_ROUTER_MODEL", "gpt-4o-mini"),
+            secret_or_env("OPENAI_FOOD_ROUTER_MODEL", "gpt-4o-mini"),
         ), None
     if force_l == "gemini":
         if not gemini_key:
@@ -69,20 +77,20 @@ def resolve_llm_from_env(force: str = "") -> tuple[ResolvedLlm | None, str | Non
         return ResolvedLlm(
             "gemini",
             gemini_key,
-            os.getenv("GEMINI_FOOD_ROUTER_MODEL", GEMINI_MODEL_DEFAULT),
+            secret_or_env("GEMINI_FOOD_ROUTER_MODEL", GEMINI_MODEL_DEFAULT),
         ), None
 
     if gemini_key:
         return ResolvedLlm(
             "gemini",
             gemini_key,
-            os.getenv("GEMINI_FOOD_ROUTER_MODEL", GEMINI_MODEL_DEFAULT),
+            secret_or_env("GEMINI_FOOD_ROUTER_MODEL", GEMINI_MODEL_DEFAULT),
         ), None
     if openai_key:
         return ResolvedLlm(
             "openai",
             openai_key,
-            os.getenv("OPENAI_FOOD_ROUTER_MODEL", "gpt-4o-mini"),
+            secret_or_env("OPENAI_FOOD_ROUTER_MODEL", "gpt-4o-mini"),
         ), None
     return None, (
         "No LLM key: set GEMINI_API_KEY or GOOGLE_API_KEY (preferred), "

@@ -27,6 +27,30 @@ class CompanionStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         repo_root = Path(__file__).resolve().parents[1]
+        image_excludes = [
+            ".git",
+            ".github",
+            ".home",
+            ".mcp-auth",
+            ".venv",
+            "__pycache__",
+            "app/admin.py",
+            "app/management",
+            "app/migrations",
+            "app/models",
+            "app/tests.py",
+            "app/views",
+            "cdk.out",
+            "config",
+            "db.sqlite3",
+            "deploy",
+            "env",
+            "infra/cdk.out",
+            "node_modules",
+            "staticfiles",
+            "tests",
+            "venv",
+        ]
 
         families = self._table(
             "FamiliesTable",
@@ -103,15 +127,18 @@ class CompanionStack(Stack):
             code=lambda_.DockerImageCode.from_image_asset(
                 str(repo_root),
                 cmd=["companion_api.main.scheduled_reminder_handler"],
+                exclude=image_excludes,
             ),
             architecture=lambda_.Architecture.X86_64,
             memory_size=512,
             timeout=Duration.seconds(30),
             environment={
+                "APP_SECRET_ID": app_secret.secret_name,
                 "REMINDERS_TABLE": reminders.table_name,
             },
         )
         reminders.grant_read_write_data(reminder_target_function)
+        app_secret.grant_read(reminder_target_function)
 
         scheduler_invoke_role = iam.Role(
             self,
@@ -123,11 +150,15 @@ class CompanionStack(Stack):
         api_function = lambda_.DockerImageFunction(
             self,
             "ApiFunction",
-            code=lambda_.DockerImageCode.from_image_asset(str(repo_root)),
+            code=lambda_.DockerImageCode.from_image_asset(
+                str(repo_root),
+                exclude=image_excludes,
+            ),
             architecture=lambda_.Architecture.X86_64,
             memory_size=1024,
             timeout=Duration.seconds(120),
             environment={
+                "APP_SECRET_ID": app_secret.secret_name,
                 "FAMILIES_TABLE": families.table_name,
                 "MEMBERS_TABLE": members.table_name,
                 "MESSAGES_TABLE": messages.table_name,

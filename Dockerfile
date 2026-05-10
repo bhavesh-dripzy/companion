@@ -1,7 +1,6 @@
 FROM public.ecr.aws/lambda/python:3.12
 
 RUN microdnf install -y \
-    curl \
     gzip \
     shadow-utils \
     tar \
@@ -20,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}
 
 COPY app/__init__.py ./app/__init__.py
 COPY app/services ./app/services
+COPY app/templates ./app/templates
 COPY companion_api ./companion_api
 
 ENV PYTHONUNBUFFERED=1 \
