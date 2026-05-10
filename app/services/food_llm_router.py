@@ -108,6 +108,12 @@ def normalize_tool_plan(tool_plan: list[dict[str, Any]]) -> list[dict[str, Any]]
         if not isinstance(arguments, dict):
             arguments = {}
 
+        if tool == "get_restaurants_for_keyword":
+            arguments = dict(arguments)
+            aid = arguments.get("address_id")
+            if aid is None or (isinstance(aid, str) and not str(aid).strip()):
+                arguments["address_id"] = "__ADDRESS_ID__"
+
         out.append(
             {
                 "tool": tool.strip(),

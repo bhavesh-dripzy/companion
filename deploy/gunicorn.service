@@ -1,0 +1,19 @@
+[Unit]
+Description=gunicorn daemon for interior app
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/interior-app/backend
+ExecStart=/var/www/interior-app/backend/venv/bin/gunicorn \
+          --access-logfile - \
+          --workers 3 \
+          --bind unix:/var/www/interior-app/backend/gunicorn.sock \
+          config.wsgi:application
+
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

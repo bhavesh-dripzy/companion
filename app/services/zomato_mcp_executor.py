@@ -19,6 +19,61 @@ from mcp.types import CallToolResult
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = "__ADDRESS_ID__"
+_MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
+_MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
+
+
+def _mcp_remote_config_dir(repo_root: Path) -> Path:
+    """
+    mcp-remote persists Zomato OAuth tokens under MCP_REMOTE_CONFIG_DIR
+    (default: ~/.mcp-auth). On servers, www-data's home is not your laptop — set
+    MCP_REMOTE_CONFIG_DIR to a project-owned directory and copy tokens there.
+    """
+    env = os.getenv("MCP_REMOTE_CONFIG_DIR", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    return (repo_root / ".mcp-auth").resolve()
+
+
+def _stdio_env(repo_root: Path) -> dict[str, str]:
+    cfg = _mcp_remote_config_dir(repo_root)
+    try:
+        cfg.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning("could not create MCP_REMOTE_CONFIG_DIR %s: %s", cfg, e)
+    base = {k: v for k, v in os.environ.items() if isinstance(v, str)}
+    base["MCP_REMOTE_CONFIG_DIR"] = str(cfg)
+    return base
+
+
+def _flatten_exception_group(exc: BaseException) -> list[BaseException]:
+    if isinstance(exc, BaseExceptionGroup):
+        nested: list[BaseException] = []
+        for child in exc.exceptions:
+            nested.extend(_flatten_exception_group(child))
+        return nested
+    return [exc]
+
+
+def _humanize_mcp_failure(repo_root: Path, exc: BaseException) -> str:
+    leaves = _flatten_exception_group(exc)
+    parts = [f"{type(e).__name__}: {e}" for e in leaves] or [str(exc)]
+    detail = "; ".join(parts)
+    if any(isinstance(e, TimeoutError) for e in leaves):
+        detail += (
+            " | Zomato MCP timed out while initializing or calling a tool. "
+            "This usually means OAuth/token setup is missing or the MCP server is slow."
+        )
+    if any("Connection closed" in str(e) for e in leaves) or any(
+        type(e).__name__ == "McpError" for e in leaves
+    ):
+        cfg = _mcp_remote_config_dir(repo_root)
+        detail += (
+            " | Zomato MCP uses OAuth via mcp-remote. On the server, copy your "
+            "~/.mcp-auth files from a machine where Zomato MCP already works in Cursor "
+            f"into {cfg} (or set MCP_REMOTE_CONFIG_DIR), chown to www-data, then restart gunicorn."
+        )
+    return detail
 
 
 def repo_root_from_settings() -> Path:
@@ -120,6 +175,7 @@ async def _run_session_inner(
         command=node_binary,
         args=[str(proxy_script), mcp_url],
         cwd=str(repo_root),
+        env=_stdio_env(repo_root),
     )
 
     resolved_id = (effective_address_id or "").strip() or None
@@ -127,7 +183,9 @@ async def _run_session_inner(
 
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
-            await session.initialize()
+            await asyncio.wait_for(
+                session.initialize(), timeout=_MCP_INIT_TIMEOUT_SECONDS
+            )
 
             step_index = 0
 
@@ -136,8 +194,9 @@ async def _run_session_inner(
                 if prefetch_done:
                     return
                 prefetch_done = True
-                r = await session.call_tool(
-                    "get_saved_addresses_for_user", arguments={}
+                r = await asyncio.wait_for(
+                    session.call_tool("get_saved_addresses_for_user", arguments={}),
+                    timeout=_MCP_TOOL_TIMEOUT_SECONDS,
                 )
                 envelope = _tool_result_payload(r)
                 step_results.append(
@@ -191,7 +250,10 @@ async def _run_session_inner(
                 if tool == "get_saved_addresses_for_user":
                     prefetch_done = True
 
-                result = await session.call_tool(tool, arguments=exec_args or {})
+                result = await asyncio.wait_for(
+                    session.call_tool(tool, arguments=exec_args or {}),
+                    timeout=_MCP_TOOL_TIMEOUT_SECONDS,
+                )
                 envelope = _tool_result_payload(result)
                 step_results.append(
                     {
@@ -246,12 +308,12 @@ def run_tool_plan_sync(
             )
         )
         return {"ok": True, "steps": steps, "diagnostics": diagnostics}
-    except Exception as e:
+    except BaseException as e:
         logger.exception("Zomato MCP execution failed")
         return {
             "ok": False,
             "error_class": type(e).__name__,
-            "error_detail": str(e),
+            "error_detail": _humanize_mcp_failure(root, e),
             "steps": [],
-            "diagnostics": {},
+            "diagnostics": {"mcp_remote_config_dir": str(_mcp_remote_config_dir(root))},
         }

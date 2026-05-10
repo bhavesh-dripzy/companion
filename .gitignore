@@ -15,3 +15,6 @@ env/
 
 # Cursor / local editor state
 .cursor/
+
+# mcp-remote Zomato OAuth token store (never commit)
+.mcp-auth/
