@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+from html import escape
 from datetime import datetime
 from typing import Any
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from mangum import Mangum
@@ -60,6 +61,47 @@ _TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "app" / "templates" / "
 def food_ui():
     """Serve the food-agent SPA."""
     return (_TEMPLATE_DIR / "food_ui.html").read_text()
+
+
+def _public_url(request: Request, path: str) -> str:
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or request.url.netloc
+    )
+    return f"{proto}://{host}{path}"
+
+
+def _oauth_result_page(title: str, detail: str, *, ok: bool) -> str:
+    safe_title = escape(title)
+    safe_detail = escape(detail)
+    color = "#047857" if ok else "#b91c1c"
+    badge = "Connected" if ok else "Needs attention"
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{safe_title}</title>
+  <style>
+    body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:#f6f7f9; color:#111827; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }}
+    main {{ width:min(520px, calc(100% - 32px)); background:white; border:1px solid #e5e7eb; border-radius:12px; padding:28px; box-shadow:0 18px 50px rgba(15,23,42,.08); }}
+    .badge {{ display:inline-flex; padding:5px 10px; border-radius:999px; color:{color}; background:#f9fafb; border:1px solid #e5e7eb; font-size:12px; font-weight:800; text-transform:uppercase; }}
+    h1 {{ margin:16px 0 8px; font-size:24px; }}
+    p {{ color:#4b5563; line-height:1.55; }}
+    a {{ display:inline-flex; margin-top:14px; padding:10px 14px; border-radius:8px; background:#2563eb; color:white; text-decoration:none; font-weight:700; }}
+  </style>
+</head>
+<body>
+  <main>
+    <span class="badge">{badge}</span>
+    <h1>{safe_title}</h1>
+    <p>{safe_detail}</p>
+    <a href="/">Back to Companion</a>
+  </main>
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +177,7 @@ def mcp_status(_user: str = Depends(get_current_user)):
         status = "needs_tokens"
         detail = (
             "MCP URL and bridge are configured, but no OAuth token file was found. "
-            "Authorize Zomato locally with mcp-remote, then import the complete ~/.mcp-auth directory."
+            "Use Authorize to connect Zomato through the hosted callback."
         )
 
     return {
@@ -151,33 +193,60 @@ def mcp_status(_user: str = Depends(get_current_user)):
 
 
 @app.post("/api/mcp/oauth/")
-def mcp_initiate_oauth(_user: str = Depends(get_current_user)):
-    """Run mcp-remote briefly to capture the OAuth authorization URL.
-    
-    Zomato MCP requires OAuth via browser. Since Lambda cannot host a persistent
-    localhost server to receive the OAuth callback, this endpoint runs mcp-remote
-    briefly to capture the authorization URL. The user must:
-    1. Click this to get the URL
-    2. Open it in their browser and authorize
-    3. After authorization, tokens will be in .mcp-auth on their LOCAL machine
-    4. Upload those tokens via POST /api/mcp/tokens/
+def mcp_initiate_oauth(request: Request, _user: str = Depends(get_current_user)):
+    """Start a hosted OAuth flow for Zomato MCP.
+
+    This avoids mcp-remote's localhost browser callback, which is unsuitable for
+    Lambda/API Gateway. The callback stores mcp-remote-compatible token files in
+    Secrets Manager and /tmp for the current warm Lambda instance.
     """
     from app.services.zomato_mcp_executor import (
-        capture_mcp_oauth_url,
         repo_root_from_settings,
+        start_web_oauth,
     )
 
     mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
-    node_binary = secret_or_env("NODE_BINARY", "node")
+    callback_url = _public_url(request, "/api/mcp/oauth/callback")
+    try:
+        return start_web_oauth(
+            repo_root=repo_root_from_settings(),
+            mcp_url=mcp_url,
+            callback_url=callback_url,
+        )
+    except Exception as e:
+        return {
+            "status": "oauth_unavailable",
+            "detail": f"{type(e).__name__}: {e}",
+            "mcp_url": mcp_url,
+        }
 
-    result = capture_mcp_oauth_url(
-        repo_root=repo_root_from_settings(),
-        mcp_url=mcp_url,
-        node_binary=node_binary,
-        timeout_seconds=12,
-    )
-    result["mcp_url"] = mcp_url
-    return result
+
+@app.get("/api/mcp/oauth/callback", response_class=HTMLResponse)
+def mcp_oauth_callback(
+    state: str | None = Query(default=None),
+    code: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+):
+    from app.services.zomato_mcp_executor import complete_web_oauth, repo_root_from_settings
+
+    if error:
+        return _oauth_result_page(
+            "Authorization failed",
+            f"{error}: {error_description or 'Zomato did not authorize the request.'}",
+            ok=False,
+        )
+    if not state or not code:
+        return _oauth_result_page(
+            "Authorization incomplete",
+            "The callback did not include both state and code. Start authorization again.",
+            ok=False,
+        )
+    try:
+        result = complete_web_oauth(repo_root=repo_root_from_settings(), state=state, code=code)
+        return _oauth_result_page("Zomato connected", result["detail"], ok=True)
+    except Exception as e:
+        return _oauth_result_page("Authorization could not finish", f"{type(e).__name__}: {e}", ok=False)
 
 
 @app.post("/api/mcp/test/")
@@ -210,9 +279,8 @@ def mcp_test(_user: str = Depends(get_current_user)):
         return {
             "status": "needs_tokens",
             "detail": (
-                "No OAuth tokens available. Since Lambda's filesystem is ephemeral, "
-                "upload your Zomato MCP tokens via Settings → Upload Tokens. "
-                "They'll be stored in AWS Secrets Manager and auto-restored on every cold start."
+                "No OAuth tokens are available. Use Authorize to connect Zomato; "
+                "Companion will store the session in Secrets Manager and restore it on cold starts."
             ),
             "mcp_url": mcp_url,
         }
@@ -242,54 +310,6 @@ def mcp_test(_user: str = Depends(get_current_user)):
             "detail": f"{type(e).__name__}: {e}",
             "mcp_url": mcp_url,
         }
-
-
-# ---------------------------------------------------------------------------
-# MCP token upload (for Lambda ephemeral filesystem fix)
-# ---------------------------------------------------------------------------
-
-
-class McpTokenUpload(BaseModel):
-    files: dict[str, str]  # filename → content
-
-
-@app.post("/api/mcp/tokens/")
-def mcp_upload_tokens(payload: McpTokenUpload, _user: str = Depends(get_current_user)):
-    """Upload Zomato MCP OAuth token files. Stored in Secrets Manager, auto-restored on cold starts."""
-    from app.services.zomato_mcp_executor import (
-        _mcp_remote_config_dir,
-        _safe_relative_token_path,
-        persist_mcp_auth_tokens,
-        repo_root_from_settings,
-    )
-
-    root = repo_root_from_settings()
-    cfg_dir = _mcp_remote_config_dir(root)
-    cfg_dir.mkdir(parents=True, exist_ok=True)
-
-    written = 0
-    skipped = []
-    for name, content in payload.files.items():
-        rel = _safe_relative_token_path(name)
-        if rel is None or not content:
-            skipped.append(name)
-            continue
-        dest = cfg_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content, encoding="utf-8")
-        written += 1
-
-    persisted = persist_mcp_auth_tokens(root)
-    return {
-        "status": "ok",
-        "written_locally": written,
-        "skipped": skipped,
-        "persisted_to_secrets": list(persisted.keys()),
-        "detail": (
-            f"{written} file(s) saved. Tokens are persisted and will restore on cold starts. "
-            "Test the connection to verify the Zomato session."
-        ),
-    }
 
 
 @app.get("/api/mcp/tokens/status/")

@@ -12,11 +12,16 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
+import time
+from base64 import urlsafe_b64encode
 from pathlib import Path
+from urllib.parse import urlencode, urlparse
 from typing import Any
 
 import boto3
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +30,7 @@ _TOKEN_SECRET_ID = "companion/mcp-tokens"
 _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
 _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
 _MAX_TOKEN_FILE_BYTES = 256 * 1024
+_OAUTH_PENDING_TTL_SECONDS = 15 * 60
 
 
 def _mcp_remote_config_dir(repo_root: Path) -> Path:
@@ -36,6 +42,8 @@ def _mcp_remote_config_dir(repo_root: Path) -> Path:
     env = os.getenv("MCP_REMOTE_CONFIG_DIR", "").strip()
     if env:
         return Path(env).expanduser().resolve()
+    if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        return Path("/tmp/.mcp-auth").resolve()
     return (repo_root / ".mcp-auth").resolve()
 
 
@@ -72,6 +80,17 @@ def _expected_token_paths(repo_root: Path, mcp_url: str) -> dict[str, str]:
         "client_info": str(cfg / f"{h}_client_info.json"),
         "tokens": str(cfg / f"{h}_tokens.json"),
         "code_verifier": str(cfg / f"{h}_code_verifier.txt"),
+    }
+
+
+def _mcp_remote_token_relative_paths(repo_root: Path, mcp_url: str) -> dict[str, str]:
+    version = _mcp_remote_version(repo_root)
+    prefix = f"mcp-remote-{version}/" if version else ""
+    h = _server_url_hash(mcp_url)
+    return {
+        "client_info": f"{prefix}{h}_client_info.json",
+        "tokens": f"{prefix}{h}_tokens.json",
+        "code_verifier": f"{prefix}{h}_code_verifier.txt",
     }
 
 
@@ -170,8 +189,8 @@ def _humanize_mcp_failure(repo_root: Path, exc: BaseException) -> str:
     ):
         cfg = _mcp_remote_config_dir(repo_root)
         detail += (
-            " | Zomato MCP uses OAuth via mcp-remote. Import the complete "
-            f"~/.mcp-auth directory, including the mcp-remote version subfolder, into {cfg}."
+            " | Zomato MCP uses OAuth. Use the hosted Authorize flow so Companion can "
+            f"write mcp-remote-compatible token files into {cfg} automatically."
         )
     return detail
 
@@ -403,6 +422,271 @@ def _mcp_token_secret():
         return {}
 
 
+def _write_mcp_token_secret(payload: dict[str, Any]) -> None:
+    client = boto3.client("secretsmanager")
+    raw = json.dumps(payload)
+    try:
+        client.put_secret_value(SecretId=_TOKEN_SECRET_ID, SecretString=raw)
+    except client.exceptions.ResourceNotFoundException:
+        client.create_secret(
+            Name=_TOKEN_SECRET_ID,
+            SecretString=raw,
+            Description="Zomato MCP OAuth tokens for serverless Companion",
+        )
+
+
+def _merge_mcp_token_secret(**updates: Any) -> dict[str, Any]:
+    payload = _mcp_token_secret()
+    if not isinstance(payload, dict):
+        payload = {}
+    payload.update(updates)
+    payload["updated_at"] = utc_now_iso()
+    _write_mcp_token_secret(payload)
+    return payload
+
+
+def _json_get(url: str) -> dict[str, Any] | None:
+    try:
+        resp = requests.get(url, headers={"Accept": "application/json"}, timeout=8)
+    except requests.RequestException:
+        return None
+    if not resp.ok:
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _well_known_candidates(base_url: str, suffix: str) -> list[str]:
+    parsed = urlparse(base_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    path = parsed.path.rstrip("/")
+    candidates = [f"{origin}/.well-known/{suffix}"]
+    if path:
+        candidates.append(f"{origin}/.well-known/{suffix}{path}")
+        candidates.append(f"{origin}{path}/.well-known/{suffix}")
+    seen: set[str] = set()
+    return [u for u in candidates if not (u in seen or seen.add(u))]
+
+
+def _discover_oauth_metadata(mcp_url: str) -> dict[str, Any]:
+    protected_resource = None
+    for url in _well_known_candidates(mcp_url, "oauth-protected-resource"):
+        protected_resource = _json_get(url)
+        if protected_resource:
+            break
+
+    auth_server_url = None
+    if protected_resource:
+        servers = protected_resource.get("authorization_servers")
+        if isinstance(servers, list) and servers:
+            auth_server_url = str(servers[0])
+    auth_server_url = auth_server_url or mcp_url
+
+    authorization_server = None
+    for url in _well_known_candidates(auth_server_url, "oauth-authorization-server"):
+        authorization_server = _json_get(url)
+        if authorization_server:
+            break
+    if authorization_server is None:
+        for url in _well_known_candidates(auth_server_url, "openid-configuration"):
+            authorization_server = _json_get(url)
+            if authorization_server:
+                break
+
+    if not authorization_server:
+        raise RuntimeError("Could not discover Zomato OAuth metadata from the MCP server.")
+    if not authorization_server.get("authorization_endpoint"):
+        raise RuntimeError("Zomato OAuth metadata did not include an authorization endpoint.")
+    if not authorization_server.get("token_endpoint"):
+        raise RuntimeError("Zomato OAuth metadata did not include a token endpoint.")
+
+    return {
+        "authorization_server_url": auth_server_url,
+        "protected_resource": protected_resource or {},
+        "authorization_server": authorization_server,
+    }
+
+
+def _pkce_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _oauth_scope(metadata: dict[str, Any], static_scope: str | None = None) -> str:
+    if static_scope and static_scope.strip():
+        return static_scope.strip()
+    protected = metadata.get("protected_resource") or {}
+    protected_scopes = protected.get("scopes_supported")
+    if isinstance(protected_scopes, list) and protected_scopes:
+        return " ".join(str(s) for s in protected_scopes)
+    auth = metadata.get("authorization_server") or {}
+    auth_scopes = auth.get("scopes_supported")
+    if isinstance(auth_scopes, list) and auth_scopes:
+        return " ".join(str(s) for s in auth_scopes)
+    return "openid email profile"
+
+
+def start_web_oauth(
+    *,
+    repo_root: Path | None = None,
+    mcp_url: str | None = None,
+    callback_url: str,
+) -> dict[str, Any]:
+    """Start a hosted OAuth flow and return the Zomato authorization URL."""
+    root = repo_root or repo_root_from_settings()
+    url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    metadata = _discover_oauth_metadata(url)
+    auth_server = metadata["authorization_server"]
+    registration_endpoint = auth_server.get("registration_endpoint")
+    if not registration_endpoint:
+        raise RuntimeError(
+            "Zomato OAuth does not advertise dynamic client registration. "
+            "A hosted callback cannot be created automatically for this account."
+        )
+
+    scope = _oauth_scope(metadata)
+    client_metadata = {
+        "redirect_uris": [callback_url],
+        "token_endpoint_auth_method": "none",
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "client_name": "Companion Food Agent",
+        "client_uri": callback_url.rsplit("/api/", 1)[0],
+        "software_id": "2e6dc280-f3c3-4e01-99a7-8181dbd1d23d",
+        "software_version": _mcp_remote_version(root) or "0.1.38",
+        "scope": scope,
+    }
+    reg_resp = requests.post(registration_endpoint, json=client_metadata, timeout=12)
+    if not reg_resp.ok:
+        raise RuntimeError(
+            f"Zomato OAuth client registration failed with HTTP {reg_resp.status_code}: {reg_resp.text[:300]}"
+        )
+    client_info = reg_resp.json()
+    if not isinstance(client_info, dict) or not client_info.get("client_id"):
+        raise RuntimeError("Zomato OAuth client registration did not return a client_id.")
+
+    verifier = secrets.token_urlsafe(64)
+    state = secrets.token_urlsafe(32)
+    pending = {
+        "state": state,
+        "created_at": int(time.time()),
+        "mcp_url": url,
+        "callback_url": callback_url,
+        "code_verifier": verifier,
+        "client_info": client_info,
+        "metadata": metadata,
+    }
+    secret_payload = _mcp_token_secret()
+    if not isinstance(secret_payload, dict):
+        secret_payload = {}
+    pending_map = secret_payload.get("oauth_pending")
+    if not isinstance(pending_map, dict):
+        pending_map = {}
+    now = int(time.time())
+    pending_map = {
+        k: v
+        for k, v in pending_map.items()
+        if isinstance(v, dict) and now - int(v.get("created_at", 0)) < _OAUTH_PENDING_TTL_SECONDS
+    }
+    pending_map[state] = pending
+    secret_payload["oauth_pending"] = pending_map
+    secret_payload["updated_at"] = utc_now_iso()
+    _write_mcp_token_secret(secret_payload)
+
+    params = {
+        "response_type": "code",
+        "client_id": client_info["client_id"],
+        "redirect_uri": callback_url,
+        "code_challenge": _pkce_challenge(verifier),
+        "code_challenge_method": "S256",
+        "state": state,
+        "scope": scope,
+    }
+    authorization_url = f"{auth_server['authorization_endpoint']}?{urlencode(params)}"
+    return {
+        "status": "oauth_required",
+        "authorization_url": authorization_url,
+        "detail": "Continue to Zomato and approve access. Companion will save the MCP session automatically.",
+        "mcp_url": url,
+    }
+
+
+def complete_web_oauth(
+    *,
+    repo_root: Path | None = None,
+    state: str,
+    code: str,
+) -> dict[str, Any]:
+    """Complete hosted OAuth and persist mcp-remote-compatible auth files."""
+    root = repo_root or repo_root_from_settings()
+    secret_payload = _mcp_token_secret()
+    pending_map = secret_payload.get("oauth_pending") if isinstance(secret_payload, dict) else None
+    if not isinstance(pending_map, dict):
+        raise RuntimeError("No pending OAuth session was found. Start authorization again.")
+    pending = pending_map.get(state)
+    if not isinstance(pending, dict):
+        raise RuntimeError("OAuth state was not recognized. Start authorization again.")
+    if int(time.time()) - int(pending.get("created_at", 0)) > _OAUTH_PENDING_TTL_SECONDS:
+        pending_map.pop(state, None)
+        _merge_mcp_token_secret(oauth_pending=pending_map)
+        raise RuntimeError("OAuth session expired. Start authorization again.")
+
+    metadata = pending.get("metadata") or {}
+    auth_server = metadata.get("authorization_server") or {}
+    client_info = pending.get("client_info") or {}
+    token_payload = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": pending["callback_url"],
+        "client_id": client_info["client_id"],
+        "code_verifier": pending["code_verifier"],
+    }
+    if client_info.get("client_secret"):
+        token_payload["client_secret"] = client_info["client_secret"]
+    token_resp = requests.post(
+        auth_server["token_endpoint"],
+        data=token_payload,
+        headers={"Accept": "application/json"},
+        timeout=12,
+    )
+    if not token_resp.ok:
+        raise RuntimeError(
+            f"Zomato token exchange failed with HTTP {token_resp.status_code}: {token_resp.text[:300]}"
+        )
+    tokens = token_resp.json()
+    if not isinstance(tokens, dict) or not tokens.get("access_token"):
+        raise RuntimeError("Zomato token exchange did not return an access_token.")
+
+    mcp_url = pending["mcp_url"]
+    rel_paths = _mcp_remote_token_relative_paths(root, mcp_url)
+    cfg_dir = _mcp_remote_config_dir(root)
+    files = {
+        rel_paths["client_info"]: json.dumps(client_info, indent=2),
+        rel_paths["tokens"]: json.dumps(tokens, indent=2),
+        rel_paths["code_verifier"]: str(pending["code_verifier"]),
+    }
+    for rel, content in files.items():
+        dest = cfg_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+
+    existing_files = secret_payload.get("files") if isinstance(secret_payload, dict) else None
+    if not isinstance(existing_files, dict):
+        existing_files = {}
+    existing_files.update(files)
+    pending_map.pop(state, None)
+    _merge_mcp_token_secret(files=existing_files, oauth_pending=pending_map)
+    return {
+        "status": "connected_pending_test",
+        "detail": "Zomato authorization completed. Run Test Connection to verify live MCP access.",
+        "persisted_files": list(files.keys()),
+        "mcp_url": mcp_url,
+    }
+
+
 def restore_mcp_auth_tokens(repo_root: Path | None = None) -> bool:
     """Fetch OAuth tokens from Secrets Manager and write to MCP config dir.
     Returns True if tokens were found and restored."""
@@ -439,20 +723,18 @@ def persist_mcp_auth_tokens(repo_root: Path | None = None) -> dict[str, str]:
         files_data[rel] = p.read_text(encoding="utf-8")
     if files_data:
         try:
-            client = boto3.client("secretsmanager")
-            payload = json.dumps({"files": files_data, "updated_at": utc_now_iso()})
-            client.put_secret_value(
-                SecretId=_TOKEN_SECRET_ID,
-                SecretString=payload,
-            )
+            secret_payload = _mcp_token_secret()
+            if not isinstance(secret_payload, dict):
+                secret_payload = {}
+            existing = secret_payload.get("files")
+            if not isinstance(existing, dict):
+                existing = {}
+            existing.update(files_data)
+            _merge_mcp_token_secret(files=existing)
             logger.info("Persisted %d MCP auth token file(s) to Secrets Manager.", len(files_data))
-        except client.exceptions.ResourceNotFoundException:
-            client.create_secret(
-                Name=_TOKEN_SECRET_ID,
-                SecretString=payload,
-                Description="Zomato MCP OAuth tokens for serverless Companion",
-            )
-            logger.info("Created MCP token secret with %d file(s).", len(files_data))
+        except Exception:
+            logger.exception("Persist MCP auth tokens failed")
+            raise
     return files_data
 
 
@@ -509,9 +791,7 @@ def capture_mcp_oauth_url(
         return {
             "status": "instructions",
             "detail": (
-                "Node.js not found in Lambda. To authorize Zomato MCP, run this on "
-                "your local machine: npx mcp-remote https://mcp-server.zomato.com/mcp "
-                "— then upload the resulting tokens from ~/.mcp-auth/ via the token form."
+                "Node.js not found. Use the hosted OAuth flow from the app, then retry MCP testing."
             ),
             "mcp_url": url,
         }
@@ -521,9 +801,7 @@ def capture_mcp_oauth_url(
         return {
             "status": "instructions",
             "detail": (
-                "mcp-remote bridge not found in Lambda. Run this locally: "
-                "npx mcp-remote https://mcp-server.zomato.com/mcp "
-                "— then upload tokens from ~/.mcp-auth/."
+                "mcp-remote bridge not found. Deploy with npm dependencies installed, then retry."
             ),
             "mcp_url": url,
         }
@@ -560,7 +838,7 @@ def capture_mcp_oauth_url(
     except FileNotFoundError:
         return {
             "status": "instructions",
-            "detail": f"Cannot spawn {node_path}. Run locally: npx mcp-remote {url} and import ~/.mcp-auth.",
+            "detail": f"Cannot spawn {node_path}. Use hosted OAuth from the app, then retry.",
             "mcp_url": url,
         }
     except Exception as e:
@@ -575,14 +853,23 @@ def capture_mcp_oauth_url(
         }
 
     combined_raw = "\n".join([stdout_text or "", stderr_text or ""])
-    urls = re.findall(r"https?://[^\s<>'\")]+", combined_raw)
-    auth_url = next((u for u in urls if "zomato" in u.lower()), None)
+    urls = [u.rstrip(".,;") for u in re.findall(r"https?://[^\s<>'\")]+", combined_raw)]
+    auth_url = next(
+        (
+            u
+            for u in urls
+            if "zomato" in u.lower()
+            and any(part in u.lower() for part in ("oauth", "authorize", "auth", "accounts"))
+            and not u.rstrip("/").endswith("/mcp")
+        ),
+        None,
+    )
     
     if auth_url:
         return {
             "status": "oauth_required",
             "authorization_url": auth_url,
-            "detail": "Open this URL in your browser to authorize Zomato. Then upload tokens.",
+            "detail": "Open this URL in your browser to authorize Zomato.",
             "mcp_url": url,
         }
     
@@ -598,8 +885,7 @@ def capture_mcp_oauth_url(
         "status": "instructions",
         "detail": (
             "Could not detect OAuth state automatically. Run this on your local machine: "
-            "npx mcp-remote https://mcp-server.zomato.com/mcp "
-            "— authorize in your browser — then upload tokens from ~/.mcp-auth/."
+            "npx mcp-remote https://mcp-server.zomato.com/mcp, or use hosted OAuth from the app."
         ),
         "mcp_url": url,
         "stderr_tail": "\n".join((stderr_text or "").splitlines()[-6:]),

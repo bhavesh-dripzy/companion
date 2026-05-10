@@ -268,41 +268,10 @@
             <div id="mcpGuide" class="hidden">
               <div class="divider"></div>
               <ul class="info-list">
-                <li>Run <code>npm install</code> in this repo if the bridge is missing.</li>
-                <li>Run <code>npx mcp-remote https://mcp-server.zomato.com/mcp</code> locally and finish browser authorization.</li>
-                <li>Import the full <code>~/.mcp-auth</code> folder below, including the <code>mcp-remote-&lt;version&gt;</code> directory.</li>
+                <li>The hosted OAuth callback will save the MCP session automatically. No token files need to be uploaded.</li>
+                <li>If authorization is unavailable, the panel will show the exact server-side reason from Zomato OAuth discovery.</li>
               </ul>
             </div>
-          </div>
-        </section>
-
-        <section id="tokenUpload" class="surface hidden">
-          <div class="surface-header">
-            <div class="panel-title">
-              <h2>Token Import</h2>
-              <p>Import local mcp-remote auth files into the app token store.</p>
-            </div>
-          </div>
-          <div class="panel-body">
-            <div class="dropzone">
-              <label for="tokenFolder">Select .mcp-auth files or folder</label>
-              <input id="tokenFolder" type="file" multiple webkitdirectory>
-              <p class="small-note">Folder upload keeps nested paths like <code>mcp-remote-0.1.38/hash_tokens.json</code>.</p>
-            </div>
-            <div class="field">
-              <label for="tokenFilename">Manual filename</label>
-              <input id="tokenFilename" placeholder="mcp-remote-0.1.38/&lt;hash&gt;_tokens.json">
-            </div>
-            <div class="field">
-              <label for="tokenContent">Manual file content</label>
-              <textarea id="tokenContent" placeholder="Paste token JSON or text content"></textarea>
-            </div>
-            <div class="button-row">
-              <button id="tokenAddBtn" class="secondary">Add Manual File</button>
-              <button id="tokenUploadBtn">Upload Tokens</button>
-            </div>
-            <p id="tokenStatus" class="toast"></p>
-            <ul id="tokenFileList" class="file-list"></ul>
           </div>
         </section>
 
@@ -355,16 +324,6 @@
     const mcpDetail = document.getElementById("mcpDetail");
     const mcpFacts = document.getElementById("mcpFacts");
     const mcpGuide = document.getElementById("mcpGuide");
-    const tokenUpload = document.getElementById("tokenUpload");
-    const tokenFolder = document.getElementById("tokenFolder");
-    const tokenFilename = document.getElementById("tokenFilename");
-    const tokenContent = document.getElementById("tokenContent");
-    const tokenAddBtn = document.getElementById("tokenAddBtn");
-    const tokenUploadBtn = document.getElementById("tokenUploadBtn");
-    const tokenStatus = document.getElementById("tokenStatus");
-    const tokenFileList = document.getElementById("tokenFileList");
-
-    let pendingTokens = {};
 
     function token() { return localStorage.getItem(TOKEN_KEY); }
     function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
@@ -378,13 +337,21 @@
       if (t) opts.headers.Authorization = "Bearer " + t;
       if (body) opts.body = JSON.stringify(body);
       const resp = await fetch(path, opts);
-      const data = await resp.json();
+      const text = await resp.text();
+      let data = {};
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { detail: text };
+        }
+      }
       if (resp.status === 401) {
         clearAuth();
         showLogin();
         throw new Error("Session expired. Sign in again.");
       }
-      if (!resp.ok) throw new Error(data.detail || resp.statusText);
+      if (!resp.ok) throw new Error(data.detail || data.message || resp.statusText);
       return data;
     }
 
@@ -462,7 +429,6 @@
     }
 
     function showTokenTools(visible) {
-      tokenUpload.classList.toggle("hidden", !visible);
       mcpGuide.classList.toggle("hidden", !visible);
     }
 
@@ -526,15 +492,17 @@
       try {
         const data = await api("POST", "/api/mcp/oauth/");
         if (data.status === "oauth_required" && data.authorization_url) {
-          mcpDetail.innerHTML = '<a href="' + escapeHtml(data.authorization_url) + '" target="_blank" rel="noreferrer">Open Zomato authorization</a><br><span class="small-note">After authorization, import the full .mcp-auth folder.</span>';
+          mcpDetail.textContent = "Redirecting to Zomato authorization.";
           setBadge(mcpStatusBadge, "Auth needed", "warn");
           setBadge(mcpMiniBadge, "Auth needed", "warn");
+          window.location.assign(data.authorization_url);
+          return;
         } else if (data.status === "connected") {
           mcpDetail.textContent = data.detail || "Already connected.";
           setBadge(mcpStatusBadge, "Connected", "ok");
           setBadge(mcpMiniBadge, "Connected", "ok");
         } else {
-          mcpDetail.textContent = data.detail || "Run mcp-remote locally, then import tokens.";
+          mcpDetail.textContent = data.detail || "Hosted OAuth is unavailable for this MCP server.";
           setBadge(mcpStatusBadge, "Setup needed", "warn");
           setBadge(mcpMiniBadge, "Setup needed", "warn");
         }
@@ -566,75 +534,6 @@
       }
     }
 
-    function normalizeUploadPath(file) {
-      const raw = file.webkitRelativePath || file.name;
-      const idx = raw.indexOf(".mcp-auth/");
-      return idx >= 0 ? raw.slice(idx + ".mcp-auth/".length) : raw;
-    }
-
-    function updateTokenList() {
-      tokenFileList.innerHTML = "";
-      const names = Object.keys(pendingTokens).sort();
-      for (const name of names) {
-        const li = document.createElement("li");
-        const span = document.createElement("span");
-        span.textContent = name + " (" + pendingTokens[name].length + " chars)";
-        const btn = document.createElement("button");
-        btn.className = "danger";
-        btn.textContent = "Remove";
-        btn.onclick = () => { delete pendingTokens[name]; updateTokenList(); };
-        li.appendChild(span);
-        li.appendChild(btn);
-        tokenFileList.appendChild(li);
-      }
-      tokenUploadBtn.disabled = names.length === 0;
-    }
-
-    tokenFolder.addEventListener("change", async () => {
-      const files = Array.from(tokenFolder.files || []);
-      let added = 0;
-      for (const file of files) {
-        if (file.name.endsWith("_debug.log") || file.name === ".DS_Store") continue;
-        if (file.size > 256 * 1024) continue;
-        const path = normalizeUploadPath(file);
-        pendingTokens[path] = await file.text();
-        added += 1;
-      }
-      tokenStatus.textContent = added ? "Added " + added + " file(s). Review and upload." : "No token files were added.";
-      updateTokenList();
-      tokenFolder.value = "";
-    });
-
-    tokenAddBtn.addEventListener("click", () => {
-      const name = tokenFilename.value.trim();
-      const content = tokenContent.value.trim();
-      if (!name || !content) {
-        tokenStatus.textContent = "Enter a filename and content.";
-        return;
-      }
-      pendingTokens[name] = content;
-      tokenFilename.value = "";
-      tokenContent.value = "";
-      tokenStatus.textContent = "Manual file added.";
-      updateTokenList();
-    });
-
-    tokenUploadBtn.addEventListener("click", async () => {
-      tokenUploadBtn.disabled = true;
-      tokenStatus.textContent = "Uploading token files.";
-      try {
-        const data = await api("POST", "/api/mcp/tokens/", { files: pendingTokens });
-        tokenStatus.textContent = data.detail || "Uploaded.";
-        pendingTokens = {};
-        updateTokenList();
-        await checkMcp();
-      } catch (err) {
-        tokenStatus.textContent = "Upload failed: " + (err.message || String(err));
-      } finally {
-        tokenUploadBtn.disabled = false;
-      }
-    });
-
     function escapeHtml(value) {
       const d = document.createElement("div");
       d.textContent = String(value || "");
@@ -665,7 +564,6 @@
       });
     });
 
-    updateTokenList();
     init();
   </script>
 </body>
