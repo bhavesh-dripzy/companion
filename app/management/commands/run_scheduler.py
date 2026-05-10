@@ -3,7 +3,7 @@ import time
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from app.models import Reminder
+from app.services.reminder_scheduler import trigger_due_reminders_once
 
 
 class Command(BaseCommand):
@@ -16,8 +16,25 @@ class Command(BaseCommand):
             default=10,
             help="Polling interval in seconds for scheduler loop.",
         )
+        parser.add_argument(
+            "--once",
+            action="store_true",
+            help="Run one scheduler tick and exit. Use this for EventBridge/Lambda.",
+        )
 
     def handle(self, *args, **options):
+        def run_tick() -> None:
+            now = timezone.now()
+            updated_count = trigger_due_reminders_once(now=now)
+            if updated_count:
+                self.stdout.write(
+                    f"[{now.isoformat()}] Triggered {updated_count} reminder(s)."
+                )
+
+        if options["once"]:
+            run_tick()
+            return
+
         interval = max(1, options["interval"])
         self.stdout.write(
             self.style.SUCCESS(
@@ -26,17 +43,5 @@ class Command(BaseCommand):
         )
 
         while True:
-            now = timezone.now()
-            due_reminders = Reminder.objects.filter(
-                status=Reminder.Status.ACTIVE,
-                is_triggered=False,
-                next_trigger__lte=now,
-            )
-            updated_count = due_reminders.update(is_triggered=True, updated_at=now)
-
-            if updated_count:
-                self.stdout.write(
-                    f"[{now.isoformat()}] Triggered {updated_count} reminder(s)."
-                )
-
+            run_tick()
             time.sleep(interval)

@@ -1,0 +1,240 @@
+from pathlib import Path
+
+import aws_cdk as cdk
+from aws_cdk import (
+    Duration,
+    RemovalPolicy,
+    Stack,
+    aws_apigatewayv2 as apigwv2,
+    aws_dynamodb as dynamodb,
+    aws_iam as iam,
+    aws_lambda as lambda_,
+    aws_scheduler as scheduler,
+    aws_secretsmanager as secretsmanager,
+)
+from constructs import Construct
+
+
+class CompanionStack(Stack):
+    def __init__(
+        self,
+        scope: Construct,
+        construct_id: str,
+        *,
+        project_name: str,
+        **kwargs,
+    ) -> None:
+        super().__init__(scope, construct_id, **kwargs)
+
+        repo_root = Path(__file__).resolve().parents[1]
+
+        families = self._table(
+            "FamiliesTable",
+            f"{project_name}-families",
+            partition_key="family_id",
+        )
+        members = self._table(
+            "MembersTable",
+            f"{project_name}-members",
+            partition_key="member_id",
+        )
+        members.add_global_secondary_index(
+            index_name="phone-number-index",
+            partition_key=dynamodb.Attribute(
+                name="phone_number", type=dynamodb.AttributeType.STRING
+            ),
+        )
+        members.add_global_secondary_index(
+            index_name="family-index",
+            partition_key=dynamodb.Attribute(
+                name="family_id", type=dynamodb.AttributeType.STRING
+            ),
+        )
+        messages = dynamodb.Table(
+            self,
+            "MessagesTable",
+            table_name=f"{project_name}-messages",
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            partition_key=dynamodb.Attribute(
+                name="member_id", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="created_at_message_id", type=dynamodb.AttributeType.STRING
+            ),
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True
+            ),
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+        reminders = dynamodb.Table(
+            self,
+            "RemindersTable",
+            table_name=f"{project_name}-reminders",
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            partition_key=dynamodb.Attribute(
+                name="member_id", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="reminder_id", type=dynamodb.AttributeType.STRING
+            ),
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True
+            ),
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+
+        app_secret = secretsmanager.Secret(
+            self,
+            "AppSecret",
+            secret_name=f"{project_name}/app",
+            description="Companion API secrets such as LLM provider keys.",
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+
+        scheduler_group = scheduler.CfnScheduleGroup(
+            self,
+            "ReminderScheduleGroup",
+            name=f"{project_name}-reminders",
+        )
+
+        reminder_target_function = lambda_.DockerImageFunction(
+            self,
+            "ReminderTargetFunction",
+            code=lambda_.DockerImageCode.from_image_asset(
+                str(repo_root),
+                cmd=["companion_api.main.scheduled_reminder_handler"],
+            ),
+            architecture=lambda_.Architecture.X86_64,
+            memory_size=512,
+            timeout=Duration.seconds(30),
+            environment={
+                "REMINDERS_TABLE": reminders.table_name,
+            },
+        )
+        reminders.grant_read_write_data(reminder_target_function)
+
+        scheduler_invoke_role = iam.Role(
+            self,
+            "SchedulerInvokeRole",
+            assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
+        )
+        reminder_target_function.grant_invoke(scheduler_invoke_role)
+
+        api_function = lambda_.DockerImageFunction(
+            self,
+            "ApiFunction",
+            code=lambda_.DockerImageCode.from_image_asset(str(repo_root)),
+            architecture=lambda_.Architecture.X86_64,
+            memory_size=1024,
+            timeout=Duration.seconds(120),
+            environment={
+                "FAMILIES_TABLE": families.table_name,
+                "MEMBERS_TABLE": members.table_name,
+                "MESSAGES_TABLE": messages.table_name,
+                "REMINDERS_TABLE": reminders.table_name,
+                "REMINDER_TARGET_ARN": reminder_target_function.function_arn,
+                "SCHEDULER_ROLE_ARN": scheduler_invoke_role.role_arn,
+                "SCHEDULER_GROUP_NAME": scheduler_group.name,
+                "ZOMATO_MCP_URL": "https://mcp-server.zomato.com/mcp",
+                "EXECUTE_ZOMATO_BY_DEFAULT": "false",
+            },
+        )
+        for table in (families, members, messages, reminders):
+            table.grant_read_write_data(api_function)
+        app_secret.grant_read(api_function)
+        reminder_target_function.grant_invoke(api_function)
+        api_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "scheduler:CreateSchedule",
+                    "scheduler:UpdateSchedule",
+                    "scheduler:DeleteSchedule",
+                    "scheduler:GetSchedule",
+                ],
+                resources=[
+                    f"arn:{cdk.Aws.PARTITION}:scheduler:{cdk.Aws.REGION}:"
+                    f"{cdk.Aws.ACCOUNT_ID}:schedule/{scheduler_group.name}/*"
+                ],
+            )
+        )
+        api_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["iam:PassRole"],
+                resources=[scheduler_invoke_role.role_arn],
+            )
+        )
+
+        api = apigwv2.CfnApi(
+            self,
+            "HttpApi",
+            name=f"{project_name}-api",
+            protocol_type="HTTP",
+            cors_configuration=apigwv2.CfnApi.CorsProperty(
+                allow_headers=["content-type", "authorization"],
+                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                allow_origins=["*"],
+                max_age=3600,
+            ),
+        )
+        integration = apigwv2.CfnIntegration(
+            self,
+            "ApiIntegration",
+            api_id=api.ref,
+            integration_type="AWS_PROXY",
+            integration_uri=api_function.function_arn,
+            payload_format_version="2.0",
+        )
+        apigwv2.CfnRoute(
+            self,
+            "DefaultRoute",
+            api_id=api.ref,
+            route_key="$default",
+            target=f"integrations/{integration.ref}",
+        )
+        apigwv2.CfnStage(
+            self,
+            "DefaultStage",
+            api_id=api.ref,
+            stage_name="$default",
+            auto_deploy=True,
+        )
+        lambda_.CfnPermission(
+            self,
+            "ApiInvokePermission",
+            action="lambda:InvokeFunction",
+            function_name=api_function.function_name,
+            principal="apigateway.amazonaws.com",
+            source_arn=(
+                f"arn:{cdk.Aws.PARTITION}:execute-api:{cdk.Aws.REGION}:"
+                f"{cdk.Aws.ACCOUNT_ID}:{api.ref}/*/*"
+            ),
+        )
+
+        cdk.CfnOutput(
+            self,
+            "HttpApiEndpoint",
+            value=f"https://{api.ref}.execute-api.{cdk.Aws.REGION}.amazonaws.com",
+        )
+        cdk.CfnOutput(self, "AppSecretName", value=app_secret.secret_name)
+        cdk.CfnOutput(self, "RemindersTableName", value=reminders.table_name)
+
+    def _table(
+        self,
+        construct_id: str,
+        table_name: str,
+        *,
+        partition_key: str,
+    ) -> dynamodb.Table:
+        return dynamodb.Table(
+            self,
+            construct_id,
+            table_name=table_name,
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            partition_key=dynamodb.Attribute(
+                name=partition_key, type=dynamodb.AttributeType.STRING
+            ),
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True
+            ),
+            removal_policy=RemovalPolicy.RETAIN,
+        )

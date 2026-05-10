@@ -1,4 +1,38 @@
-# Companion — Zomato MCP setup
+# Companion — Serverless Food and Reminder Assistant
+
+This project is being revamped into a native AWS serverless application:
+
+- **API Gateway HTTP API** for public HTTP traffic
+- **Lambda container** running a small FastAPI app
+- **DynamoDB** for families, members, messages, and reminders
+- **EventBridge Scheduler** for one-time reminder triggers
+- **Secrets Manager / environment configuration** for provider keys
+- **GitHub Actions + CDK** for CI/CD
+
+The old VM/Django/MySQL deployment path is being phased out.
+
+## Local API tests
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest
+```
+
+## Deploy shape
+
+Infrastructure lives in `infra/` and is deployed with AWS CDK. Do not deploy
+from root credentials; use an IAM role or GitHub OIDC deploy role.
+
+```bash
+cd infra
+pip install -r requirements.txt
+cdk synth
+cdk deploy
+```
+
+## Zomato MCP setup
 
 This repo is wired so **Cursor** can talk to **Zomato’s MCP server** (search restaurants, browse menus, cart, checkout, etc.) through your Zomato account.
 
