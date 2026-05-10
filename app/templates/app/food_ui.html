@@ -105,29 +105,38 @@
 
       <!-- MCP -->
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:14px 0" />
-      <p><strong>Zomato MCP:</strong> <span id="mcpStatusBadge" class="badge warn">unknown</span></p>
+      <p><strong>Zomato MCP</strong> <span id="mcpStatusBadge" class="badge warn">unknown</span></p>
       <p id="mcpDetail" style="font-size:0.82rem;color:#6b7280;"></p>
       <div class="row">
-        <button id="mcpCheckBtn" class="secondary">Check Status</button>
+        <button id="mcpCheckBtn" class="secondary">Refresh Status</button>
         <button id="mcpTestBtn" class="green">Test Connection</button>
       </div>
 
-      <!-- Token upload -->
+      <!-- Step-by-step guide (shown when tokens needed) -->
+      <div id="mcpGuide" class="hidden" style="margin-top:12px;padding:12px;background:#fff7ed;border-radius:8px;border:1px solid #fed7aa">
+        <p style="font-weight:600;margin:0 0 6px;font-size:0.85rem">&#x1F4E6; How to connect Zomato MCP</p>
+        <ol style="margin:0;padding-left:18px;font-size:0.82rem;color:#4b5563;line-height:1.7">
+          <li>On your laptop where Zomato MCP <strong>already works in Cursor</strong>, run in terminal:
+            <br><code style="background:#fed7aa;padding:2px 6px;border-radius:4px">ls ~/.mcp-auth/</code>
+          </li>
+          <li>For each file shown, copy its content:
+            <br><code style="background:#fed7aa;padding:2px 6px;border-radius:4px">cat ~/.mcp-auth/&lt;filename&gt;</code>
+          </li>
+          <li>Paste the filename and content into the form below.</li>
+          <li>Click <strong>Upload All</strong> — tokens go to AWS Secrets Manager.</li>
+          <li>Click <strong>Test Connection</strong> — Lambda auto-restores tokens and tries Zomato.</li>
+        </ol>
+      </div>
+
+      <!-- Token upload form -->
       <div id="tokenUpload" class="hidden" style="margin-top:12px">
-        <p style="font-size:0.82rem;color:#4b5563;">
-          <strong>Lambda filesystem is ephemeral.</strong> Upload your Zomato OAuth tokens here.
-          They'll be stored in AWS Secrets Manager and auto-restored on cold starts.
-        </p>
-        <p style="font-size:0.78rem;color:#6b7280;">
-          On a machine where Zomato MCP works: <code>cat ~/.mcp-auth/*</code> — paste each file's content below.
-        </p>
-        <label style="font-size:0.82rem;font-weight:600">Filename</label>
-        <input id="tokenFilename" placeholder="e.g. oauth-tokens.json" style="margin-bottom:6px" />
-        <label style="font-size:0.82rem;font-weight:600">Content</label>
-        <textarea id="tokenContent" rows="4" style="width:100%;font-family:monospace;font-size:13px;padding:8px;border-radius:6px;border:1px solid #d1d5db;margin-bottom:8px" placeholder='{"access_token":"..."}'></textarea>
+        <label style="font-size:0.8rem;font-weight:600">Filename</label>
+        <input id="tokenFilename" placeholder="e.g. oauth-tokens.json" style="width:100%;margin-bottom:6px" />
+        <label style="font-size:0.8rem;font-weight:600">Content</label>
+        <textarea id="tokenContent" rows="5" style="width:100%;font-family:monospace;font-size:12px;padding:8px;border-radius:6px;border:1px solid #d1d5db;margin-bottom:8px;resize:vertical" placeholder='Paste the file contents here...'></textarea>
         <div class="row">
           <button id="tokenAddBtn" class="secondary">Add File</button>
-          <button id="tokenUploadBtn" class="green">Upload All</button>
+          <button id="tokenUploadBtn" class="green">Upload All to AWS</button>
         </div>
         <p id="tokenStatus" style="font-size:0.78rem;margin-top:6px"></p>
         <ul id="tokenFileList" style="font-size:0.78rem;padding-left:18px;color:#374151"></ul>
@@ -256,7 +265,12 @@
     document.getElementById("password").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
     document.getElementById("username").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("password").focus(); });
     logoutBtn.addEventListener("click", doLogout);
-    settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
+    settingsBtn.addEventListener("click", () => {
+      settingsPanel.classList.toggle("hidden");
+      if (!settingsPanel.classList.contains("hidden")) {
+        checkMcp(); // auto-refresh on open
+      }
+    });
 
     // provider save
     saveProviderBtn.addEventListener("click", () => {
@@ -291,6 +305,8 @@
     // -----------------------------------------------------------------------
     // MCP
     // -----------------------------------------------------------------------
+    const mcpGuide = document.getElementById("mcpGuide");
+
     async function checkMcp() {
       mcpCheckBtn.disabled = true;
       mcpStatusBadge.textContent = "checking...";
@@ -301,12 +317,23 @@
         if (data.status === "ready") {
           mcpStatusBadge.textContent = "ready";
           mcpStatusBadge.className = "badge ok";
-        } else if (data.status === "needs_auth") {
-          mcpStatusBadge.textContent = "needs auth";
+          mcpGuide.classList.add("hidden");
+          tokenUpload.classList.add("hidden");
+        } else if (data.status === "ready_pending") {
+          mcpStatusBadge.textContent = "stored";
+          mcpStatusBadge.className = "badge ok";
+          mcpGuide.classList.add("hidden");
+          tokenUpload.classList.add("hidden");
+        } else if (data.status === "needs_tokens") {
+          mcpStatusBadge.textContent = "needs tokens";
           mcpStatusBadge.className = "badge err";
+          mcpGuide.classList.remove("hidden");
+          tokenUpload.classList.remove("hidden");
         } else {
-          mcpStatusBadge.textContent = "not configured";
+          mcpStatusBadge.textContent = data.status || "unknown";
           mcpStatusBadge.className = "badge err";
+          mcpGuide.classList.add("hidden");
+          tokenUpload.classList.add("hidden");
         }
         mcpDetail.innerHTML = escapeHtml(data.detail || "")
           + (data.mcp_url ? "<br>URL: <code>" + escapeHtml(data.mcp_url) + "</code>" : "");
@@ -407,19 +434,7 @@
       }
     });
 
-    // Show/hide upload based on MCP status
-    const origCheckMcp = checkMcp;
-    checkMcp = async function() {
-      await origCheckMcp();
-      if (lastMcpStatus === "needs_tokens") tokenUpload.classList.remove("hidden");
-    };
-    // Store last status from checkMcp
-    const origApi = api;
-    window.api = async function(method, path, body) {
-      const result = await origApi(method, path, body);
-      if (path === "/api/mcp/status/" && result.status) lastMcpStatus = result.status;
-      return result;
-    };
+    // Show/hide upload based on MCP status (handled directly in checkMcp now)
 
     function escapeHtml(s) {
       const d = document.createElement("div");
