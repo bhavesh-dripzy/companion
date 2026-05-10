@@ -45,9 +45,10 @@ Respond with ONLY a single JSON object (no markdown fences) shaped exactly like 
       "arguments": { }
     }
   ],
-  "constraints": {
-    "requires_address_resolution": true | false,
-    "inferred_keyword": "<string|null>",
+    "constraints": {
+        "requires_address_resolution": true | false,
+        "requested_location_text": "<explicit area/locality/city if user named one, else null>",
+        "inferred_keyword": "<string|null>",
     "price_max_inr": <number|null>,
     "price_min_inr": <number|null>,
     "min_rating": <number|null>,
@@ -141,6 +142,7 @@ def _finalize_from_parsed_json(
 
     if constraints is None or not isinstance(constraints, dict):
         constraints = {}
+    constraints.setdefault("requested_location_text", None)
 
     normalized: dict[str, Any] = {
         "intent": str(data.get("intent", "") or "unknown"),

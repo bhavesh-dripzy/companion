@@ -4,6 +4,7 @@ from app.services.llm_config import ResolvedLlm
 from companion_api.main import app
 from companion_api import main as api_main
 from app.services import zomato_mcp_executor as mcp_exec
+from app.services.tool_runtime import execute_tool_plan_sync
 
 
 client = TestClient(app)
@@ -138,3 +139,44 @@ def test_food_query_executes_requested_tool_plan(monkeypatch):
     assert calls["tool_plan"] == plan["tool_plan"]
     assert response.json()["tool_execution"]["routed_providers"] == ["zomato"]
     assert response.json()["zomato_summary"]["error"] is None
+
+
+def test_tool_provider_listing_includes_zomato_mcp():
+    token_response = client.post(
+        "/api/login/",
+        json={"username": "admin", "password": "admin112###"},
+    )
+    assert token_response.status_code == 200
+    token = token_response.json()["access_token"]
+
+    response = client.get(
+        "/api/tools/providers/",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    providers = response.json()["providers"]
+    assert providers[0]["id"] == "zomato"
+    assert providers[0]["label"] == "Zomato MCP"
+
+
+def test_explicit_far_location_does_not_use_default_saved_address(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("should not call Zomato with default saved address")
+
+    monkeypatch.setattr("app.services.tool_runtime.run_tool_plan_sync", fail_if_called)
+    result = execute_tool_plan_sync(
+        [
+            {"tool": "get_saved_addresses_for_user", "arguments": {}},
+            {
+                "tool": "get_restaurants_for_keyword",
+                "arguments": {"keyword": "pizza", "address_id": "__ADDRESS_ID__"},
+            },
+        ],
+        user_message="Find pizza near Saket Delhi",
+        constraints={"requested_location_text": "Saket, Delhi"},
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "zomato_requires_saved_address_for_requested_location"
+    assert result["provider_results"]["zomato"]["diagnostics"]["requested_location"] == "Saket, Delhi"

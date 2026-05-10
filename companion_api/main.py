@@ -26,7 +26,7 @@ from app.services.food_response_builder import (
     build_zomato_summary,
 )
 from app.services.llm_config import resolve_llm_from_env
-from app.services.tool_runtime import execute_tool_plan_sync
+from app.services.tool_runtime import execute_tool_plan_sync, list_tool_providers
 from app.services.zomato_mcp_executor import run_tool_plan_sync
 from companion_api import settings
 from companion_api.dynamodb import ReminderRepository
@@ -488,6 +488,11 @@ def mcp_tokens_status(_user: str = Depends(get_current_user)):
     return get_mcp_token_status(repo_root_from_settings(), mcp_url=mcp_url)
 
 
+@app.get("/api/tools/providers/")
+def tool_providers(_user: str = Depends(get_current_user)):
+    return {"providers": list_tool_providers()}
+
+
 # ---------------------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------------------
@@ -575,9 +580,15 @@ def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
     tool_execution: dict[str, Any] | None = None
     if execute_tools:
         tool_plan = plan.get("tool_plan") if isinstance(plan, dict) else []
+        enabled_providers = None
+        if payload.tool_provider:
+            enabled_providers = {payload.tool_provider.strip()}
         tool_execution = execute_tool_plan_sync(
             tool_plan if isinstance(tool_plan, list) else [],
             address_id=payload.address_id,
+            user_message=payload.message,
+            constraints=plan.get("constraints") if isinstance(plan, dict) else {},
+            enabled_providers=enabled_providers,
         )
         provider_results = tool_execution.get("provider_results")
         if isinstance(provider_results, dict):

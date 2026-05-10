@@ -97,6 +97,20 @@ def _fallback_assistant_message(
                 + " Zomato MCP was not executed for this request. "
                 + "Connect MCP, run Test, then retry the search."
             )
+        if detail == "zomato_requires_saved_address_for_requested_location":
+            requested = (
+                (zomato_summary.get("diagnostics") or {}).get("requested_location")
+                if isinstance(zomato_summary.get("diagnostics"), dict)
+                else None
+            )
+            place = f" for {requested}" if requested else ""
+            return (
+                "I understood your request"
+                + (f": {summary}." if summary else ".")
+                + f" Zomato MCP needs a saved delivery address{place} before it can "
+                "return serviceable restaurants. I did not use your default saved address "
+                "because that would show the wrong locality."
+            )
         return (
             "I understood your request"
             + (f": {summary}." if summary else ".")
