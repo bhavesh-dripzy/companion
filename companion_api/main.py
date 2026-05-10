@@ -26,6 +26,7 @@ from companion_api.models import (
     SendMessageRequest,
 )
 from companion_api.reminders import ReminderScheduler
+from companion_api.secrets import secret_or_env
 
 app = FastAPI(title="Companion API", version="2.0.0")
 app.add_middleware(
@@ -49,7 +50,7 @@ def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
         f"https://wa.me/{settings.COMPANION_WHATSAPP_CC_NUMBER}?text={quote(message)}"
     )
 
-    llm_cfg, err_detail = resolve_llm_from_env(os.getenv("FOOD_ROUTER_PROVIDER", ""))
+    llm_cfg, err_detail = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
     if err_detail:
         llm_payload: dict[str, Any] = {
             "status": "skipped" if payload.llm_optional else "error",
@@ -90,7 +91,7 @@ def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
 
 @app.post("/api/food/query/")
 def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
-    llm_cfg, err = resolve_llm_from_env(os.getenv("FOOD_ROUTER_PROVIDER", ""))
+    llm_cfg, err = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
     if err or not llm_cfg:
         raise HTTPException(status_code=503, detail=err or "LLM not configured.")
 

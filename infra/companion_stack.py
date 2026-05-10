@@ -108,10 +108,12 @@ class CompanionStack(Stack):
             memory_size=512,
             timeout=Duration.seconds(30),
             environment={
+                "APP_SECRET_ID": app_secret.secret_name,
                 "REMINDERS_TABLE": reminders.table_name,
             },
         )
         reminders.grant_read_write_data(reminder_target_function)
+        app_secret.grant_read(reminder_target_function)
 
         scheduler_invoke_role = iam.Role(
             self,
@@ -128,6 +130,7 @@ class CompanionStack(Stack):
             memory_size=1024,
             timeout=Duration.seconds(120),
             environment={
+                "APP_SECRET_ID": app_secret.secret_name,
                 "FAMILIES_TABLE": families.table_name,
                 "MEMBERS_TABLE": members.table_name,
                 "MESSAGES_TABLE": messages.table_name,
