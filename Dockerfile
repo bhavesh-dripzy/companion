@@ -1,7 +1,6 @@
 FROM public.ecr.aws/lambda/python:3.12
 
 RUN microdnf install -y \
-    curl \
     gzip \
     shadow-utils \
     tar \
