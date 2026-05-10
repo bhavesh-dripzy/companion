@@ -173,6 +173,19 @@ class CompanionStack(Stack):
         for table in (families, members, messages, reminders):
             table.grant_read_write_data(api_function)
         app_secret.grant_read(api_function)
+        api_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:PutSecretValue",
+                    "secretsmanager:CreateSecret",
+                ],
+                resources=[
+                    f"arn:{cdk.Aws.PARTITION}:secretsmanager:{cdk.Aws.REGION}:"
+                    f"{cdk.Aws.ACCOUNT_ID}:secret:{project_name}/*",
+                ],
+            )
+        )
         reminder_target_function.grant_invoke(api_function)
         api_function.add_to_role_policy(
             iam.PolicyStatement(

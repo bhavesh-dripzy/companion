@@ -111,6 +111,27 @@
         <button id="mcpCheckBtn" class="secondary">Check Status</button>
         <button id="mcpTestBtn" class="green">Test Connection</button>
       </div>
+
+      <!-- Token upload -->
+      <div id="tokenUpload" class="hidden" style="margin-top:12px">
+        <p style="font-size:0.82rem;color:#4b5563;">
+          <strong>Lambda filesystem is ephemeral.</strong> Upload your Zomato OAuth tokens here.
+          They'll be stored in AWS Secrets Manager and auto-restored on cold starts.
+        </p>
+        <p style="font-size:0.78rem;color:#6b7280;">
+          On a machine where Zomato MCP works: <code>cat ~/.mcp-auth/*</code> — paste each file's content below.
+        </p>
+        <label style="font-size:0.82rem;font-weight:600">Filename</label>
+        <input id="tokenFilename" placeholder="e.g. oauth-tokens.json" style="margin-bottom:6px" />
+        <label style="font-size:0.82rem;font-weight:600">Content</label>
+        <textarea id="tokenContent" rows="4" style="width:100%;font-family:monospace;font-size:13px;padding:8px;border-radius:6px;border:1px solid #d1d5db;margin-bottom:8px" placeholder='{"access_token":"..."}'></textarea>
+        <div class="row">
+          <button id="tokenAddBtn" class="secondary">Add File</button>
+          <button id="tokenUploadBtn" class="green">Upload All</button>
+        </div>
+        <p id="tokenStatus" style="font-size:0.78rem;margin-top:6px"></p>
+        <ul id="tokenFileList" style="font-size:0.78rem;padding-left:18px;color:#374151"></ul>
+      </div>
     </div>
   </div>
 
@@ -329,6 +350,76 @@
 
     mcpCheckBtn.addEventListener("click", checkMcp);
     mcpTestBtn.addEventListener("click", testMcp);
+
+    // -----------------------------------------------------------------------
+    // Token upload
+    // -----------------------------------------------------------------------
+    const tokenUpload    = document.getElementById("tokenUpload");
+    const tokenFilename  = document.getElementById("tokenFilename");
+    const tokenContent   = document.getElementById("tokenContent");
+    const tokenAddBtn    = document.getElementById("tokenAddBtn");
+    const tokenUploadBtn = document.getElementById("tokenUploadBtn");
+    const tokenStatus    = document.getElementById("tokenStatus");
+    const tokenFileList  = document.getElementById("tokenFileList");
+
+    let pendingTokens = {};
+    let lastMcpStatus = null;
+
+    function updateTokenList() {
+      tokenFileList.innerHTML = "";
+      const names = Object.keys(pendingTokens);
+      for (const n of names) {
+        const li = document.createElement("li");
+        li.textContent = n + " (" + pendingTokens[n].length + " chars)";
+        const del = document.createElement("button");
+        del.textContent = "x";
+        del.style.cssText = "margin-left:8px;font-size:11px;padding:1px 6px;background:#dc2626;color:white;border:none;border-radius:4px;cursor:pointer";
+        del.onclick = () => { delete pendingTokens[n]; updateTokenList(); };
+        li.appendChild(del);
+        tokenFileList.appendChild(li);
+      }
+      tokenUploadBtn.disabled = names.length === 0;
+    }
+
+    tokenAddBtn.addEventListener("click", () => {
+      const name = tokenFilename.value.trim();
+      const content = tokenContent.value.trim();
+      if (!name || !content) { tokenStatus.textContent = "Fill both fields."; return; }
+      pendingTokens[name] = content;
+      tokenFilename.value = "";
+      tokenContent.value = "";
+      tokenStatus.textContent = "Added. Click 'Upload All' when ready.";
+      updateTokenList();
+    });
+
+    tokenUploadBtn.addEventListener("click", async () => {
+      tokenUploadBtn.disabled = true;
+      tokenStatus.textContent = "Uploading...";
+      try {
+        const data = await api("POST", "/api/mcp/tokens/", { files: pendingTokens });
+        tokenStatus.textContent = data.detail || "Uploaded.";
+        pendingTokens = {};
+        updateTokenList();
+      } catch (err) {
+        tokenStatus.textContent = "Upload failed: " + (err.message || String(err));
+      } finally {
+        tokenUploadBtn.disabled = false;
+      }
+    });
+
+    // Show/hide upload based on MCP status
+    const origCheckMcp = checkMcp;
+    checkMcp = async function() {
+      await origCheckMcp();
+      if (lastMcpStatus === "needs_tokens") tokenUpload.classList.remove("hidden");
+    };
+    // Store last status from checkMcp
+    const origApi = api;
+    window.api = async function(method, path, body) {
+      const result = await origApi(method, path, body);
+      if (path === "/api/mcp/status/" && result.status) lastMcpStatus = result.status;
+      return result;
+    };
 
     function escapeHtml(s) {
       const d = document.createElement("div");

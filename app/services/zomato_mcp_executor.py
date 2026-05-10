@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+import boto3
+
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import CallToolResult
@@ -19,6 +21,7 @@ from mcp.types import CallToolResult
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = "__ADDRESS_ID__"
+_TOKEN_SECRET_ID = "companion/mcp-tokens"
 _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
 _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
 
@@ -276,6 +279,96 @@ async def _run_session_inner(
 
     diagnostics["resolved_address_id"] = resolved_id
     return step_results, diagnostics
+
+
+# ---------------------------------------------------------------------------
+# Token persistence (Lambda is ephemeral — store in Secrets Manager)
+# ---------------------------------------------------------------------------
+
+
+def _mcp_token_secret():
+    """Return the raw JSON from companion/mcp-tokens, or {}."""
+    try:
+        client = boto3.client("secretsmanager")
+        resp = client.get_secret_value(SecretId=_TOKEN_SECRET_ID)
+        raw = resp.get("SecretString") or "{}"
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def restore_mcp_auth_tokens(repo_root: Path | None = None) -> bool:
+    """Fetch OAuth tokens from Secrets Manager and write to MCP config dir.
+    Returns True if tokens were found and restored."""
+    root = repo_root or repo_root_from_settings()
+    cfg_dir = _mcp_remote_config_dir(root)
+    secret = _mcp_token_secret()
+    files_data = secret.get("files") if isinstance(secret, dict) else None
+    if not isinstance(files_data, dict) or not files_data:
+        return False
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    for name, content in files_data.items():
+        safe = os.path.basename(name)
+        (cfg_dir / safe).write_text(str(content), encoding="utf-8")
+    logger.info("Restored %d MCP auth token file(s) from Secrets Manager.", len(files_data))
+    return True
+
+
+def persist_mcp_auth_tokens(repo_root: Path | None = None) -> dict[str, str]:
+    """Read OAuth tokens from MCP config dir and store in Secrets Manager.
+    Returns the files that were persisted."""
+    root = repo_root or repo_root_from_settings()
+    cfg_dir = _mcp_remote_config_dir(root)
+    files_data: dict[str, str] = {}
+    if cfg_dir.is_dir():
+        for p in cfg_dir.iterdir():
+            if p.is_file():
+                files_data[p.name] = p.read_text(encoding="utf-8")
+    if files_data:
+        try:
+            client = boto3.client("secretsmanager")
+            payload = json.dumps({"files": files_data, "updated_at": utc_now_iso()})
+            client.put_secret_value(
+                SecretId=_TOKEN_SECRET_ID,
+                SecretString=payload,
+            )
+            logger.info("Persisted %d MCP auth token file(s) to Secrets Manager.", len(files_data))
+        except client.exceptions.ResourceNotFoundException:
+            client.create_secret(
+                Name=_TOKEN_SECRET_ID,
+                SecretString=payload,
+                Description="Zomato MCP OAuth tokens for serverless Companion",
+            )
+            logger.info("Created MCP token secret with %d file(s).", len(files_data))
+    return files_data
+
+
+def get_mcp_token_status(repo_root: Path | None = None) -> dict[str, Any]:
+    """Return a summary of MCP token state."""
+    root = repo_root or repo_root_from_settings()
+    cfg_dir = _mcp_remote_config_dir(root)
+    local_files = (
+        [p.name for p in cfg_dir.iterdir() if p.is_file()]
+        if cfg_dir.is_dir() else []
+    )
+    secret = _mcp_token_secret()
+    secret_files = list((secret.get("files") or {}).keys())
+    return {
+        "config_dir": str(cfg_dir),
+        "local_files": local_files,
+        "secret_files": secret_files,
+        "has_local_tokens": len(local_files) > 0,
+        "has_secret_tokens": len(secret_files) > 0,
+    }
+
+
+def _utc_now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+# alias so the import in main.py resolves cleanly
+utc_now_iso = _utc_now_iso
 
 
 def run_tool_plan_sync(
