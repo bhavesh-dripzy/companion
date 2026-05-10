@@ -362,6 +362,110 @@ def get_mcp_token_status(repo_root: Path | None = None) -> dict[str, Any]:
     }
 
 
+def capture_mcp_oauth_url(
+    repo_root: Path | None = None,
+    mcp_url: str | None = None,
+    node_binary: str | None = None,
+    timeout_seconds: int = 15,
+) -> dict[str, Any]:
+    """Run mcp-remote briefly and try to capture an OAuth authorization URL from its stderr.
+    
+    Zomato MCP uses mcp-remote for OAuth. When no tokens exist, mcp-remote
+    starts an HTTP server on localhost and prints the authorization URL to stderr.
+    We capture that URL so the user can open it in their browser.
+    
+    NOTE: This cannot complete OAuth in Lambda (no persistent localhost).
+    It only captures the URL for the user to manually open.
+    """
+    import subprocess
+    import tempfile
+    
+    root = repo_root or repo_root_from_settings()
+    url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    node = node_binary or os.getenv("NODE_BINARY", "node")
+    
+    proxy_script = root / "node_modules/mcp-remote/dist/proxy.js"
+    if not proxy_script.is_file():
+        return {"status": "error", "detail": "mcp-remote is not installed — run npm install at the repo root."}
+    
+    cfg = _mcp_remote_config_dir(root)
+    cfg.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        proc = subprocess.Popen(
+            [node, str(proxy_script), url],
+            cwd=str(root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={**os.environ, "MCP_REMOTE_CONFIG_DIR": str(cfg)},
+        )
+        
+        import time
+        deadline = time.time() + timeout_seconds
+        stderr_lines: list[str] = []
+        stdout_lines: list[str] = []
+        auth_url: str | None = None
+        
+        while time.time() < deadline:
+            # Check stderr for OAuth URL patterns
+            line = proc.stderr.readline() if proc.stderr else ""
+            if line:
+                stderr_lines.append(line)
+                # mcp-remote typical patterns:
+                # "Authorization URL: https://..."
+                # or it prints the URL directly
+                for keyword in ("authorization_url", "Authorization URL", "https://mcp-server.zomato.com/oauth", "https://accounts.zomato.com"):
+                    if keyword in line:
+                        auth_url = line.strip()
+                        break
+                if auth_url:
+                    break
+            
+            # Check stdout too
+            line = proc.stdout.readline() if proc.stdout else ""
+            if line:
+                stdout_lines.append(line)
+            
+            if proc.poll() is not None:
+                break
+            
+            time.sleep(0.2)
+        
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        
+        if auth_url:
+            return {
+                "status": "oauth_required",
+                "authorization_url": auth_url,
+                "detail": "Open this URL in your browser to authorize Zomato MCP. After authorization, upload the resulting tokens via the token form.",
+            }
+        
+        # Maybe mcp-remote connected successfully (tokens already present)
+        combined = "".join(stdout_lines + stderr_lines)
+        if any(kw in combined.lower() for kw in ("connected", "ready", "session")):
+            return {
+                "status": "connected",
+                "detail": "mcp-remote appears to have connected successfully. Tokens are likely already present.",
+            }
+        
+        return {
+            "status": "unknown",
+            "detail": "Could not determine MCP state.",
+            "stderr_tail": "".join(stderr_lines[-5:]) if stderr_lines else "",
+            "stdout_tail": "".join(stdout_lines[-5:]) if stdout_lines else "",
+        }
+    
+    except FileNotFoundError:
+        return {"status": "error", "detail": f"Node.js not found at {node}. Ensure Node.js is installed."}
+    except Exception as e:
+        return {"status": "error", "detail": f"{type(e).__name__}: {e}"}
+
+
 def _utc_now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()

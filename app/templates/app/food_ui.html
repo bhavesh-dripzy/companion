@@ -109,6 +109,7 @@
       <p id="mcpDetail" style="font-size:0.82rem;color:#6b7280;"></p>
       <div class="row">
         <button id="mcpCheckBtn" class="secondary">Refresh Status</button>
+        <button id="mcpOauthBtn" class="secondary">Get OAuth URL</button>
         <button id="mcpTestBtn" class="green">Test Connection</button>
       </div>
 
@@ -116,15 +117,13 @@
       <div id="mcpGuide" class="hidden" style="margin-top:12px;padding:12px;background:#fff7ed;border-radius:8px;border:1px solid #fed7aa">
         <p style="font-weight:600;margin:0 0 6px;font-size:0.85rem">&#x1F4E6; How to connect Zomato MCP</p>
         <ol style="margin:0;padding-left:18px;font-size:0.82rem;color:#4b5563;line-height:1.7">
-          <li>On your laptop where Zomato MCP <strong>already works in Cursor</strong>, run in terminal:
-            <br><code style="background:#fed7aa;padding:2px 6px;border-radius:4px">ls ~/.mcp-auth/</code>
-          </li>
-          <li>For each file shown, copy its content:
-            <br><code style="background:#fed7aa;padding:2px 6px;border-radius:4px">cat ~/.mcp-auth/&lt;filename&gt;</code>
-          </li>
-          <li>Paste the filename and content into the form below.</li>
-          <li>Click <strong>Upload All</strong> — tokens go to AWS Secrets Manager.</li>
-          <li>Click <strong>Test Connection</strong> — Lambda auto-restores tokens and tries Zomato.</li>
+          <li>Click <strong>Get OAuth URL</strong> above — this tries mcp-remote and captures the Zomato authorization link.</li>
+          <li>Open the URL in your browser and approve Zomato access.</li>
+          <li>After authorization, tokens are saved to <code>~/.mcp-auth/</code> on <em>your local machine</em>.</li>
+          <li>On your machine: <code style="background:#fed7aa;padding:2px 6px;border-radius:4px">ls ~/.mcp-auth/</code> and <code style="background:#fed7aa;padding:2px 6px;border-radius:4px">cat ~/.mcp-auth/&lt;file&gt;</code></li>
+          <li>Paste each filename and its content into the form below.</li>
+          <li>Click <strong>Upload All to AWS</strong> — tokens stored in Secrets Manager.</li>
+          <li>Click <strong>Test Connection</strong> — Lambda restores tokens and connects to Zomato.</li>
         </ol>
       </div>
 
@@ -377,6 +376,33 @@
 
     mcpCheckBtn.addEventListener("click", checkMcp);
     mcpTestBtn.addEventListener("click", testMcp);
+
+    const mcpOauthBtn = document.getElementById("mcpOauthBtn");
+    mcpOauthBtn.addEventListener("click", async () => {
+      mcpOauthBtn.disabled = true;
+      mcpDetail.textContent = "Starting mcp-remote to capture OAuth URL...";
+      try {
+        const data = await api("POST", "/api/mcp/oauth/");
+        if (data.status === "oauth_required" && data.authorization_url) {
+          mcpDetail.innerHTML = '<a href="' + escapeHtml(data.authorization_url) + '" target="_blank" style="color:#2563eb">&#x1F517; Open Authorization URL</a><br><span style="font-size:0.78rem;color:#6b7280">Authorize in your browser, then upload tokens from ~/.mcp-auth/</span>';
+          mcpStatusBadge.textContent = "oauth ready";
+          mcpStatusBadge.className = "badge warn";
+          tokenUpload.classList.remove("hidden");
+        } else if (data.status === "connected") {
+          mcpDetail.textContent = data.detail || "Already connected.";
+          mcpStatusBadge.textContent = "connected";
+          mcpStatusBadge.className = "badge ok";
+        } else {
+          mcpDetail.textContent = data.detail || "Could not detect OAuth state. Try uploading tokens manually.";
+          mcpStatusBadge.textContent = "unknown";
+          mcpStatusBadge.className = "badge warn";
+        }
+      } catch (err) {
+        mcpDetail.textContent = "OAuth capture failed: " + (err.message || String(err));
+      } finally {
+        mcpOauthBtn.disabled = false;
+      }
+    });
 
     // -----------------------------------------------------------------------
     // Token upload

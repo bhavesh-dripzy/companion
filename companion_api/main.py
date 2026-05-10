@@ -137,6 +137,36 @@ def mcp_status(_user: str = Depends(get_current_user)):
     }
 
 
+@app.post("/api/mcp/oauth/")
+def mcp_initiate_oauth(_user: str = Depends(get_current_user)):
+    """Run mcp-remote briefly to capture the OAuth authorization URL.
+    
+    Zomato MCP requires OAuth via browser. Since Lambda cannot host a persistent
+    localhost server to receive the OAuth callback, this endpoint runs mcp-remote
+    briefly to capture the authorization URL. The user must:
+    1. Click this to get the URL
+    2. Open it in their browser and authorize
+    3. After authorization, tokens will be in .mcp-auth on their LOCAL machine
+    4. Upload those tokens via POST /api/mcp/tokens/
+    """
+    from app.services.zomato_mcp_executor import (
+        capture_mcp_oauth_url,
+        repo_root_from_settings,
+    )
+
+    mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    node_binary = secret_or_env("NODE_BINARY", "node")
+
+    result = capture_mcp_oauth_url(
+        repo_root=repo_root_from_settings(),
+        mcp_url=mcp_url,
+        node_binary=node_binary,
+        timeout_seconds=12,
+    )
+    result["mcp_url"] = mcp_url
+    return result
+
+
 @app.post("/api/mcp/test/")
 def mcp_test(_user: str = Depends(get_current_user)):
     """Auto-restore tokens from Secrets Manager, then test connection."""
