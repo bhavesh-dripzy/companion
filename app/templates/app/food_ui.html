@@ -277,14 +277,18 @@
       mcpDetail.textContent = "";
       try {
         const data = await api("GET", "/api/mcp/status/");
-        if (data.configured) {
-          mcpStatusBadge.textContent = "configured";
+        if (data.status === "ready") {
+          mcpStatusBadge.textContent = "ready";
           mcpStatusBadge.className = "badge ok";
+        } else if (data.status === "needs_auth") {
+          mcpStatusBadge.textContent = "needs auth";
+          mcpStatusBadge.className = "badge err";
         } else {
           mcpStatusBadge.textContent = "not configured";
           mcpStatusBadge.className = "badge err";
         }
-        mcpDetail.innerHTML = "URL: <code>" + escapeHtml(data.mcp_url) + "</code>";
+        mcpDetail.innerHTML = escapeHtml(data.detail || "")
+          + (data.mcp_url ? "<br>URL: <code>" + escapeHtml(data.mcp_url) + "</code>" : "");
       } catch (err) {
         mcpStatusBadge.textContent = "error";
         mcpStatusBadge.className = "badge err";

@@ -98,12 +98,40 @@ def auth_status(user: str = Depends(get_current_user)):
 
 @app.get("/api/mcp/status/")
 def mcp_status(_user: str = Depends(get_current_user)):
+    from app.services.zomato_mcp_executor import _mcp_remote_config_dir, repo_root_from_settings
+
     mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     node_binary = secret_or_env("NODE_BINARY", "node")
+
+    cfg_dir = _mcp_remote_config_dir(repo_root_from_settings())
+    token_files: list[str] = []
+    if cfg_dir.exists():
+        token_files = [p.name for p in cfg_dir.iterdir() if p.is_file()]
+
+    has_tokens = len(token_files) > 0
+    url_set = bool(mcp_url.strip())
+
+    if has_tokens:
+        status = "ready"
+        detail = "MCP URL configured and OAuth tokens present — ready to connect."
+    elif url_set:
+        status = "needs_auth"
+        detail = (
+            "MCP URL is set but no OAuth tokens found. Copy ~/.mcp-auth from a "
+            "machine where Zomato MCP works in Cursor into this server's .mcp-auth "
+            "directory, then redeploy."
+        )
+    else:
+        status = "not_configured"
+        detail = "ZOMATO_MCP_URL is not set. Add it to the APP_SECRETS_JSON secret."
+
     return {
-        "mcp_url": mcp_url,
+        "status": status,
+        "detail": detail,
+        "mcp_url": mcp_url if url_set else None,
         "node_binary": node_binary,
-        "configured": bool(mcp_url.strip()),
+        "has_oauth_tokens": has_tokens,
+        "mcp_remote_config_dir": str(cfg_dir),
     }
 
 
