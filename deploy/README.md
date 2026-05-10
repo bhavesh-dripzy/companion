@@ -1,20 +1,22 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Deploying Companion on a Debian / GCP VM
 
-# Run and deploy your AI Studio app
+This folder only contains automation for this Django project.
 
-This contains everything you need to run your app locally.
+## What to run on the server
 
-View your app in AI Studio: https://ai.studio/apps/drive/1oP8eH1jxi91WW-96fU8CN7qZ4X7lwIOB
+Copy the repository to `/var/www/companion-app` (including `manage.py` and `requirements.txt`), then on the VM:
 
-## Run Locally
+```bash
+sudo EXTERNAL_IP=YOUR_PUBLIC_IP bash /var/www/companion-app/deploy/companion-setup-vm.sh
+```
 
-**Prerequisites:**  Node.js
+The script installs system packages, Python venv + dependencies, `npm install` at the repo root (for Zomato `mcp-remote`), runs migrations and `collectstatic`, writes `gunicorn-companion` and nginx `companion-app` site configs, creates `/var/www/companion-app/.mcp-auth`, and restarts services.
 
+## Zomato MCP (OAuth tokens)
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Copy your local `~/.mcp-auth/mcp-remote-<version>/` files into `/var/www/companion-app/.mcp-auth/` on the VM, matching the `mcp-remote` version folder your server uses (`node_modules/mcp-remote/package.json`). Ownership must be readable by `www-data`. Optionally set `MCP_REMOTE_CONFIG_DIR` in `.env` (see `.env.example`).
+
+## After deploy
+
+- Health: `curl http://YOUR_IP/api/`
+- Food UI: open `http://YOUR_IP/` in a browser.
