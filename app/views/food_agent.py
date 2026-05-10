@@ -6,6 +6,10 @@ from django.views.decorators.csrf import csrf_exempt
 
 from app.services.food_llm_router import route_food_query
 from app.services.llm_config import resolve_llm_from_env
+from app.services.food_response_builder import (
+    build_assistant_message_with_llm,
+    build_zomato_summary,
+)
 from app.services.zomato_mcp_executor import run_tool_plan_sync
 
 
@@ -45,6 +49,7 @@ def food_agent_full(request):
     execute_zomato = payload.get("execute_zomato", True)
     if not isinstance(execute_zomato, bool):
         execute_zomato = str(execute_zomato).lower() in ("1", "true", "yes")
+    include_raw_zomato = payload.get("include_raw_zomato", False) is True
 
     llm_cfg, err = resolve_llm_from_env(os.getenv("FOOD_ROUTER_PROVIDER", ""))
     if err or not llm_cfg:
@@ -82,16 +87,32 @@ def food_agent_full(request):
         "status": "success",
         "provider": llm_cfg.provider,
         "food_routing_plan": plan,
-        "zomato": None,
+        "zomato_summary": None,
+        "assistant_message": "",
     }
+    zomato_raw: dict | None = None
 
     if execute_zomato:
         tool_plan = plan.get("tool_plan") or []
         if not isinstance(tool_plan, list):
             tool_plan = []
-        out["zomato"] = run_tool_plan_sync(
+        zomato_raw = run_tool_plan_sync(
             tool_plan,
             address_id=address_id,
         )
+        out["zomato_summary"] = build_zomato_summary(zomato_raw)
+    else:
+        out["zomato_summary"] = build_zomato_summary(None)
+
+    out["assistant_message"] = build_assistant_message_with_llm(
+        user_message=message,
+        plan=plan,
+        zomato_summary=out.get("zomato_summary") or {},
+        provider=llm_cfg.provider,
+        api_key=llm_cfg.api_key,
+        model=llm_cfg.model,
+    )
+    if include_raw_zomato:
+        out["zomato_raw"] = zomato_raw
 
     return JsonResponse(out)
