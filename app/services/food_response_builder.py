@@ -90,6 +90,13 @@ def _fallback_assistant_message(
     summary = str((plan or {}).get("summary") or "").strip()
     if not zomato_summary.get("ok"):
         detail = str(zomato_summary.get("error") or "Unknown tool execution error.")
+        if detail == "zomato_not_executed":
+            return (
+                "I understood your request"
+                + (f": {summary}." if summary else ".")
+                + " Zomato MCP was not executed for this request. "
+                + "Connect MCP, run Test, then retry the search."
+            )
         return (
             "I understood your request"
             + (f": {summary}." if summary else ".")

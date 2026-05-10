@@ -542,7 +542,7 @@
       sendBtn.disabled = true;
       output.textContent = "Working...";
       try {
-        const body = { message: msg };
+        const body = { message: msg, execute_tools: true };
         if (providerSelect.value !== "auto") body.provider = providerSelect.value;
         const data = await api("POST", "/api/food/query/", body);
         output.textContent = JSON.stringify(data, null, 2);

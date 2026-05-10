@@ -26,6 +26,7 @@ from app.services.food_response_builder import (
     build_zomato_summary,
 )
 from app.services.llm_config import resolve_llm_from_env
+from app.services.tool_runtime import execute_tool_plan_sync
 from app.services.zomato_mcp_executor import run_tool_plan_sync
 from companion_api import settings
 from companion_api.dynamodb import ReminderRepository
@@ -561,18 +562,28 @@ def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"{type(e).__name__}: {e}") from e
 
-    execute_zomato = (
-        settings.EXECUTE_ZOMATO_BY_DEFAULT
-        if payload.execute_zomato is None
-        else payload.execute_zomato
+    execute_tools = (
+        payload.execute_tools
+        if payload.execute_tools is not None
+        else (
+            payload.execute_zomato
+            if payload.execute_zomato is not None
+            else settings.EXECUTE_TOOLS_BY_DEFAULT
+        )
     )
     zomato_raw: dict[str, Any] | None = None
-    if execute_zomato:
+    tool_execution: dict[str, Any] | None = None
+    if execute_tools:
         tool_plan = plan.get("tool_plan") if isinstance(plan, dict) else []
-        zomato_raw = run_tool_plan_sync(
+        tool_execution = execute_tool_plan_sync(
             tool_plan if isinstance(tool_plan, list) else [],
             address_id=payload.address_id,
         )
+        provider_results = tool_execution.get("provider_results")
+        if isinstance(provider_results, dict):
+            zraw = provider_results.get("zomato")
+            if isinstance(zraw, dict):
+                zomato_raw = zraw
         zomato_summary = build_zomato_summary(zomato_raw)
     else:
         zomato_summary = build_zomato_summary(None)
@@ -581,6 +592,16 @@ def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
         "status": "success",
         "provider": llm_cfg.provider,
         "food_routing_plan": plan,
+        "tool_execution": {
+            "requested": bool(execute_tools),
+            "routed_providers": (
+                tool_execution.get("routed_providers", [])
+                if isinstance(tool_execution, dict)
+                else []
+            ),
+            "ok": tool_execution.get("ok") if isinstance(tool_execution, dict) else False,
+            "error": tool_execution.get("error") if isinstance(tool_execution, dict) else None,
+        },
         "zomato_summary": zomato_summary,
         "assistant_message": build_assistant_message_with_llm(
             user_message=payload.message,

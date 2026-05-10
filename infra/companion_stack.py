@@ -167,6 +167,7 @@ class CompanionStack(Stack):
                 "SCHEDULER_ROLE_ARN": scheduler_invoke_role.role_arn,
                 "SCHEDULER_GROUP_NAME": scheduler_group.name,
                 "ZOMATO_MCP_URL": "https://mcp-server.zomato.com/mcp",
+                "EXECUTE_TOOLS_BY_DEFAULT": "false",
                 "EXECUTE_ZOMATO_BY_DEFAULT": "false",
             },
         )

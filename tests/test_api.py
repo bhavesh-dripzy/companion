@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
+from app.services.llm_config import ResolvedLlm
 from companion_api.main import app
+from companion_api import main as api_main
 from app.services import zomato_mcp_executor as mcp_exec
 
 
@@ -61,3 +63,78 @@ def test_mcp_restore_preserves_nested_secret_paths(tmp_path, monkeypatch):
 
     restored = tmp_path / ".mcp-auth" / "mcp-remote-0.1.38" / "abc_tokens.json"
     assert restored.read_text(encoding="utf-8") == '{"access_token":"x"}'
+
+
+def test_food_query_is_plan_only_by_default(monkeypatch):
+    plan = {
+        "intent": "find_restaurant",
+        "summary": "Find pizza restaurants.",
+        "tool_plan": [{"tool": "get_saved_addresses_for_user", "arguments": {}}],
+        "constraints": {},
+    }
+
+    monkeypatch.setattr(
+        api_main,
+        "resolve_llm_from_env",
+        lambda *_args, **_kwargs: (
+            ResolvedLlm(provider="gemini", api_key="test", model="gemini-test"),
+            None,
+        ),
+    )
+    monkeypatch.setattr(api_main, "route_food_query", lambda **_kwargs: plan)
+    monkeypatch.setattr(
+        api_main,
+        "execute_tool_plan_sync",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected execution")),
+    )
+    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+
+    response = client.post("/api/food/query/", json={"message": "pizza near me"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["tool_execution"]["requested"] is False
+    assert payload["zomato_summary"]["error"] == "zomato_not_executed"
+
+
+def test_food_query_executes_requested_tool_plan(monkeypatch):
+    plan = {
+        "intent": "find_restaurant",
+        "summary": "Find pizza restaurants.",
+        "tool_plan": [{"tool": "get_saved_addresses_for_user", "arguments": {}}],
+        "constraints": {},
+    }
+    calls = {}
+
+    monkeypatch.setattr(
+        api_main,
+        "resolve_llm_from_env",
+        lambda *_args, **_kwargs: (
+            ResolvedLlm(provider="gemini", api_key="test", model="gemini-test"),
+            None,
+        ),
+    )
+    monkeypatch.setattr(api_main, "route_food_query", lambda **_kwargs: plan)
+
+    def fake_execute_tool_plan_sync(tool_plan, **kwargs):
+        calls["tool_plan"] = tool_plan
+        calls["kwargs"] = kwargs
+        return {
+            "ok": True,
+            "error": None,
+            "routed_providers": ["zomato"],
+            "provider_results": {"zomato": {"ok": True, "steps": [], "diagnostics": {}}},
+        }
+
+    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
+    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+
+    response = client.post(
+        "/api/food/query/",
+        json={"message": "pizza near me", "execute_tools": True},
+    )
+
+    assert response.status_code == 200
+    assert calls["tool_plan"] == plan["tool_plan"]
+    assert response.json()["tool_execution"]["routed_providers"] == ["zomato"]
+    assert response.json()["zomato_summary"]["error"] is None
