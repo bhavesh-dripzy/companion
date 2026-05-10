@@ -366,34 +366,63 @@ def capture_mcp_oauth_url(
     repo_root: Path | None = None,
     mcp_url: str | None = None,
     node_binary: str | None = None,
-    timeout_seconds: int = 15,
+    timeout_seconds: int = 10,
 ) -> dict[str, Any]:
-    """Run mcp-remote briefly and try to capture an OAuth authorization URL from its stderr.
+    """Try to detect Zomato MCP OAuth state via mcp-remote.
     
-    Zomato MCP uses mcp-remote for OAuth. When no tokens exist, mcp-remote
-    starts an HTTP server on localhost and prints the authorization URL to stderr.
-    We capture that URL so the user can open it in their browser.
-    
-    NOTE: This cannot complete OAuth in Lambda (no persistent localhost).
-    It only captures the URL for the user to manually open.
+    Returns:
+      - oauth_required: auth URL captured, user should open it
+      - connected: mcp-remote connected (tokens present)
+      - instructions: subprocess not viable (Lambda), return manual instructions
+      - error: something went wrong
     """
+    import shutil
     import subprocess
-    import tempfile
+    import time
     
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     node = node_binary or os.getenv("NODE_BINARY", "node")
     
+    # Check if node exists
+    node_path = shutil.which(node)
+    if not node_path:
+        return {
+            "status": "instructions",
+            "detail": (
+                "Node.js not found in Lambda. To authorize Zomato MCP, run this on "
+                "your local machine: npx mcp-remote https://mcp-server.zomato.com/mcp "
+                "— then upload the resulting tokens from ~/.mcp-auth/ via the token form."
+            ),
+            "mcp_url": url,
+        }
+    
     proxy_script = root / "node_modules/mcp-remote/dist/proxy.js"
     if not proxy_script.is_file():
-        return {"status": "error", "detail": "mcp-remote is not installed — run npm install at the repo root."}
+        return {
+            "status": "instructions",
+            "detail": (
+                "mcp-remote bridge not found in Lambda. Run this locally: "
+                "npx mcp-remote https://mcp-server.zomato.com/mcp "
+                "— then upload tokens from ~/.mcp-auth/."
+            ),
+            "mcp_url": url,
+        }
     
     cfg = _mcp_remote_config_dir(root)
-    cfg.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        cfg.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    
+    stderr_lines: list[str] = []
+    stdout_lines: list[str] = []
+    auth_url: str | None = None
     
     try:
         proc = subprocess.Popen(
-            [node, str(proxy_script), url],
+            [node_path, str(proxy_script), url],
             cwd=str(root),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -401,69 +430,92 @@ def capture_mcp_oauth_url(
             env={**os.environ, "MCP_REMOTE_CONFIG_DIR": str(cfg)},
         )
         
-        import time
         deadline = time.time() + timeout_seconds
-        stderr_lines: list[str] = []
-        stdout_lines: list[str] = []
-        auth_url: str | None = None
         
+        # Use a polling loop with non-blocking reads
         while time.time() < deadline:
-            # Check stderr for OAuth URL patterns
-            line = proc.stderr.readline() if proc.stderr else ""
-            if line:
-                stderr_lines.append(line)
-                # mcp-remote typical patterns:
-                # "Authorization URL: https://..."
-                # or it prints the URL directly
-                for keyword in ("authorization_url", "Authorization URL", "https://mcp-server.zomato.com/oauth", "https://accounts.zomato.com"):
-                    if keyword in line:
-                        auth_url = line.strip()
-                        break
-                if auth_url:
-                    break
+            # Read available stderr
+            import select
+            try:
+                rlist, _, _ = select.select([proc.stderr], [], [], 0.5)
+                if proc.stderr in rlist:
+                    chunk = proc.stderr.read(4096) or ""
+                    if chunk:
+                        stderr_lines.extend(chunk.splitlines(keepends=True))
+                        for kw in ("authorization_url", "https://mcp-server.zomato.com/oauth", "https://accounts.zomato.com"):
+                            if kw in chunk.lower().replace(" ", ""):
+                                # Extract the URL
+                                for line in chunk.splitlines():
+                                    line_s = line.strip()
+                                    if line_s.startswith("http") and "zomato" in line_s.lower():
+                                        auth_url = line_s
+                                        break
+                                if auth_url:
+                                    break
+            except Exception:
+                pass
             
-            # Check stdout too
-            line = proc.stdout.readline() if proc.stdout else ""
-            if line:
-                stdout_lines.append(line)
+            if auth_url:
+                break
+            
+            # Read available stdout
+            try:
+                rlist, _, _ = select.select([proc.stdout], [], [], 0.1)
+                if proc.stdout in rlist:
+                    chunk = proc.stdout.read(4096) or ""
+                    if chunk:
+                        stdout_lines.extend(chunk.splitlines(keepends=True))
+            except Exception:
+                pass
             
             if proc.poll() is not None:
                 break
-            
-            time.sleep(0.2)
         
         proc.terminate()
         try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
+            proc.wait(timeout=2)
+        except Exception:
             proc.kill()
         
-        if auth_url:
-            return {
-                "status": "oauth_required",
-                "authorization_url": auth_url,
-                "detail": "Open this URL in your browser to authorize Zomato MCP. After authorization, upload the resulting tokens via the token form.",
-            }
-        
-        # Maybe mcp-remote connected successfully (tokens already present)
-        combined = "".join(stdout_lines + stderr_lines)
-        if any(kw in combined.lower() for kw in ("connected", "ready", "session")):
-            return {
-                "status": "connected",
-                "detail": "mcp-remote appears to have connected successfully. Tokens are likely already present.",
-            }
-        
+    except FileNotFoundError:
         return {
-            "status": "unknown",
-            "detail": "Could not determine MCP state.",
-            "stderr_tail": "".join(stderr_lines[-5:]) if stderr_lines else "",
-            "stdout_tail": "".join(stdout_lines[-5:]) if stdout_lines else "",
+            "status": "instructions",
+            "detail": f"Cannot spawn {node_path}. Run locally: npx mcp-remote {url} — then upload tokens.",
+            "mcp_url": url,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "detail": f"Subprocess error: {type(e).__name__}: {e}. Run locally: npx mcp-remote {url}",
+            "mcp_url": url,
         }
     
-    except FileNotFoundError:
-        return {"status": "error", "detail": f"Node.js not found at {node}. Ensure Node.js is installed."}
-    except Exception as e:
-        return {"status": "error", "detail": f"{type(e).__name__}: {e}"}
+    if auth_url:
+        return {
+            "status": "oauth_required",
+            "authorization_url": auth_url,
+            "detail": "Open this URL in your browser to authorize Zomato. Then upload tokens.",
+            "mcp_url": url,
+        }
+    
+    combined = "".join(stdout_lines + stderr_lines).lower()
+    if any(kw in combined for kw in ("connected", "ready", "session established")):
+        return {
+            "status": "connected",
+            "detail": "mcp-remote connected successfully. Tokens present.",
+            "mcp_url": url,
+        }
+    
+    return {
+        "status": "instructions",
+        "detail": (
+            "Could not detect OAuth state automatically. Run this on your local machine: "
+            "npx mcp-remote https://mcp-server.zomato.com/mcp "
+            "— authorize in your browser — then upload tokens from ~/.mcp-auth/."
+        ),
+        "mcp_url": url,
+        "stderr_tail": "".join(stderr_lines[-3:]) if stderr_lines else "",
+    }
 
 
 def _utc_now_iso() -> str:

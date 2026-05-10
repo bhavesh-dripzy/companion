@@ -392,10 +392,16 @@
           mcpDetail.textContent = data.detail || "Already connected.";
           mcpStatusBadge.textContent = "connected";
           mcpStatusBadge.className = "badge ok";
+        } else if (data.status === "instructions") {
+          mcpDetail.textContent = data.detail || "Run locally: npx mcp-remote https://mcp-server.zomato.com/mcp";
+          mcpStatusBadge.textContent = "needs setup";
+          mcpStatusBadge.className = "badge warn";
+          tokenUpload.classList.remove("hidden");
         } else {
-          mcpDetail.textContent = data.detail || "Could not detect OAuth state. Try uploading tokens manually.";
+          mcpDetail.textContent = data.detail || "Could not detect OAuth state.";
           mcpStatusBadge.textContent = "unknown";
           mcpStatusBadge.className = "badge warn";
+          tokenUpload.classList.remove("hidden");
         }
       } catch (err) {
         mcpDetail.textContent = "OAuth capture failed: " + (err.message || String(err));
