@@ -98,32 +98,44 @@ def auth_status(user: str = Depends(get_current_user)):
 
 @app.get("/api/mcp/status/")
 def mcp_status(_user: str = Depends(get_current_user)):
-    from app.services.zomato_mcp_executor import get_mcp_token_status, repo_root_from_settings
+    from app.services.zomato_mcp_executor import diagnose_mcp_environment, get_mcp_token_status, repo_root_from_settings
 
     mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     node_binary = secret_or_env("NODE_BINARY", "node")
     url_set = bool(mcp_url.strip())
 
-    token_status = get_mcp_token_status(repo_root_from_settings())
+    root = repo_root_from_settings()
+    token_status = get_mcp_token_status(root, mcp_url=mcp_url)
+    diagnostics = diagnose_mcp_environment(root, mcp_url=mcp_url, node_binary=node_binary)
     has_local = token_status["has_local_tokens"]
     has_secret = token_status["has_secret_tokens"]
 
     if not url_set:
         status = "not_configured"
-        detail = "ZOMATO_MCP_URL is not set. Add it in Settings → Secrets."
+        detail = "ZOMATO_MCP_URL is not set. Add it in Settings / Secrets."
+    elif not diagnostics["node_available"]:
+        status = "missing_node"
+        detail = f"Node.js is not available for NODE_BINARY={node_binary!r}. Install Node.js or set NODE_BINARY."
+    elif not diagnostics["mcp_remote_installed"]:
+        status = "missing_bridge"
+        detail = "mcp-remote is not installed. Run npm install at the repo root, then refresh status."
+    elif not diagnostics["python_mcp_sdk_available"]:
+        status = "missing_python_sdk"
+        detail = (
+            "The Python MCP SDK is not installed for this interpreter. This local shell is likely "
+            "using Python 3.9; use Python 3.10+ or the Lambda Python 3.12 runtime, then install requirements."
+        )
     elif has_local:
         status = "ready"
-        detail = "OAuth tokens present locally — MCP should connect."
+        detail = "OAuth tokens are present in the mcp-remote token store."
     elif has_secret:
         status = "ready_pending"
-        detail = "Tokens stored in Secrets Manager — will auto-restore on next MCP call."
+        detail = "Tokens are stored in Secrets Manager and will restore on the next MCP call."
     else:
         status = "needs_tokens"
         detail = (
-            "MCP URL is set but no OAuth tokens found. Since this runs on AWS Lambda "
-            "(ephemeral filesystem), you must upload tokens via the form below. "
-            "Export them from a machine where Zomato MCP works in Cursor: "
-            "zip up ~/.mcp-auth/ and upload the contents."
+            "MCP URL and bridge are configured, but no OAuth token file was found. "
+            "Authorize Zomato locally with mcp-remote, then import the complete ~/.mcp-auth directory."
         )
 
     return {
@@ -134,6 +146,7 @@ def mcp_status(_user: str = Depends(get_current_user)):
         "has_local_tokens": has_local,
         "has_secret_tokens": has_secret,
         "token_status": token_status,
+        "diagnostics": diagnostics,
     }
 
 
@@ -188,6 +201,7 @@ def mcp_test(_user: str = Depends(get_current_user)):
                 "status": "needs_tokens",
                 "detail": "Tokens found in Secrets Manager but could not be restored to disk.",
             }
+        token_status = get_mcp_token_status(root)
 
     mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     node_binary = secret_or_env("NODE_BINARY", "node")
@@ -244,6 +258,7 @@ def mcp_upload_tokens(payload: McpTokenUpload, _user: str = Depends(get_current_
     """Upload Zomato MCP OAuth token files. Stored in Secrets Manager, auto-restored on cold starts."""
     from app.services.zomato_mcp_executor import (
         _mcp_remote_config_dir,
+        _safe_relative_token_path,
         persist_mcp_auth_tokens,
         repo_root_from_settings,
     )
@@ -253,20 +268,26 @@ def mcp_upload_tokens(payload: McpTokenUpload, _user: str = Depends(get_current_
     cfg_dir.mkdir(parents=True, exist_ok=True)
 
     written = 0
+    skipped = []
     for name, content in payload.files.items():
-        safe = os.path.basename(name)
-        if safe and content:
-            (cfg_dir / safe).write_text(content, encoding="utf-8")
-            written += 1
+        rel = _safe_relative_token_path(name)
+        if rel is None or not content:
+            skipped.append(name)
+            continue
+        dest = cfg_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+        written += 1
 
     persisted = persist_mcp_auth_tokens(root)
     return {
         "status": "ok",
         "written_locally": written,
+        "skipped": skipped,
         "persisted_to_secrets": list(persisted.keys()),
         "detail": (
-            f"{written} file(s) saved. Tokens are now in Secrets Manager and will "
-            "auto-restore on Lambda cold starts. Click 'Test Connection' to verify."
+            f"{written} file(s) saved. Tokens are persisted and will restore on cold starts. "
+            "Test the connection to verify the Zomato session."
         ),
     }
 
@@ -274,7 +295,8 @@ def mcp_upload_tokens(payload: McpTokenUpload, _user: str = Depends(get_current_
 @app.get("/api/mcp/tokens/status/")
 def mcp_tokens_status(_user: str = Depends(get_current_user)):
     from app.services.zomato_mcp_executor import get_mcp_token_status, repo_root_from_settings
-    return get_mcp_token_status(repo_root_from_settings())
+    mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    return get_mcp_token_status(repo_root_from_settings(), mcp_url=mcp_url)
 
 
 # ---------------------------------------------------------------------------

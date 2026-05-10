@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "zomato-mcp": {
+      "command": "node",
+      "args": [
+        "node_modules/mcp-remote/dist/proxy.js",
+        "https://mcp-server.zomato.com/mcp"
+      ],
+      "env": {
+        "MCP_REMOTE_CONFIG_DIR": ".mcp-auth"
+      }
+    }
+  }
+}

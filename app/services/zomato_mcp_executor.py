@@ -6,17 +6,17 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
+import importlib.util
 import json
 import logging
 import os
+import re
+import shutil
 from pathlib import Path
 from typing import Any
 
 import boto3
-
-from mcp import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.types import CallToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ _PLACEHOLDER = "__ADDRESS_ID__"
 _TOKEN_SECRET_ID = "companion/mcp-tokens"
 _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
 _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
+_MAX_TOKEN_FILE_BYTES = 256 * 1024
 
 
 def _mcp_remote_config_dir(repo_root: Path) -> Path:
@@ -38,6 +39,72 @@ def _mcp_remote_config_dir(repo_root: Path) -> Path:
     return (repo_root / ".mcp-auth").resolve()
 
 
+def _mcp_remote_version(repo_root: Path) -> str | None:
+    pkg = repo_root / "node_modules" / "mcp-remote" / "package.json"
+    try:
+        data = json.loads(pkg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = data.get("version")
+    return str(version) if version else None
+
+
+def _mcp_remote_effective_config_dir(repo_root: Path) -> Path:
+    """
+    mcp-remote appends mcp-remote-<version> under MCP_REMOTE_CONFIG_DIR.
+    The app's config dir is the parent; token files live in this effective dir.
+    """
+    base = _mcp_remote_config_dir(repo_root)
+    version = _mcp_remote_version(repo_root)
+    if version:
+        return base / f"mcp-remote-{version}"
+    return base
+
+
+def _server_url_hash(mcp_url: str) -> str:
+    return hashlib.md5(mcp_url.encode("utf-8")).hexdigest()
+
+
+def _expected_token_paths(repo_root: Path, mcp_url: str) -> dict[str, str]:
+    cfg = _mcp_remote_effective_config_dir(repo_root)
+    h = _server_url_hash(mcp_url)
+    return {
+        "client_info": str(cfg / f"{h}_client_info.json"),
+        "tokens": str(cfg / f"{h}_tokens.json"),
+        "code_verifier": str(cfg / f"{h}_code_verifier.txt"),
+    }
+
+
+def _safe_relative_token_path(name: str) -> Path | None:
+    cleaned = str(name or "").replace("\\", "/").strip().lstrip("/")
+    if not cleaned:
+        return None
+    rel = Path(cleaned)
+    if rel.is_absolute() or any(part in ("", ".", "..") for part in rel.parts):
+        return None
+    if len(rel.parts) > 4:
+        return None
+    return rel
+
+
+def _iter_token_files(cfg_dir: Path) -> list[Path]:
+    if not cfg_dir.is_dir():
+        return []
+    out: list[Path] = []
+    for p in cfg_dir.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.name.endswith("_debug.log") or p.name == ".DS_Store":
+            continue
+        try:
+            if p.stat().st_size > _MAX_TOKEN_FILE_BYTES:
+                continue
+        except OSError:
+            continue
+        out.append(p)
+    return sorted(out)
+
+
 def _stdio_env(repo_root: Path) -> dict[str, str]:
     cfg = _mcp_remote_config_dir(repo_root)
     try:
@@ -47,6 +114,37 @@ def _stdio_env(repo_root: Path) -> dict[str, str]:
     base = {k: v for k, v in os.environ.items() if isinstance(v, str)}
     base["MCP_REMOTE_CONFIG_DIR"] = str(cfg)
     return base
+
+
+def diagnose_mcp_environment(
+    repo_root: Path | None = None,
+    *,
+    mcp_url: str | None = None,
+    node_binary: str | None = None,
+) -> dict[str, Any]:
+    root = repo_root or repo_root_from_settings()
+    url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    node = node_binary or os.getenv("NODE_BINARY", "node")
+    node_path = shutil.which(node)
+    proxy_script = root / "node_modules" / "mcp-remote" / "dist" / "proxy.js"
+    base_cfg = _mcp_remote_config_dir(root)
+    effective_cfg = _mcp_remote_effective_config_dir(root)
+    expected = _expected_token_paths(root, url)
+    token_status = get_mcp_token_status(root, mcp_url=url)
+    return {
+        "node_binary": node,
+        "node_path": node_path,
+        "node_available": bool(node_path),
+        "mcp_remote_installed": proxy_script.is_file(),
+        "mcp_remote_version": _mcp_remote_version(root),
+        "python_mcp_sdk_available": importlib.util.find_spec("mcp") is not None,
+        "proxy_script": str(proxy_script),
+        "config_dir": str(base_cfg),
+        "effective_config_dir": str(effective_cfg),
+        "expected_files": expected,
+        "expected_tokens_present": Path(expected["tokens"]).is_file(),
+        "token_status": token_status,
+    }
 
 
 def _flatten_exception_group(exc: BaseException) -> list[BaseException]:
@@ -72,9 +170,8 @@ def _humanize_mcp_failure(repo_root: Path, exc: BaseException) -> str:
     ):
         cfg = _mcp_remote_config_dir(repo_root)
         detail += (
-            " | Zomato MCP uses OAuth via mcp-remote. On the server, copy your "
-            "~/.mcp-auth files from a machine where Zomato MCP already works in Cursor "
-            f"into {cfg} (or set MCP_REMOTE_CONFIG_DIR), chown to www-data, then restart gunicorn."
+            " | Zomato MCP uses OAuth via mcp-remote. Import the complete "
+            f"~/.mcp-auth directory, including the mcp-remote version subfolder, into {cfg}."
         )
     return detail
 
@@ -108,7 +205,7 @@ def _mentions_placeholder(obj: Any) -> bool:
     return False
 
 
-def _tool_result_payload(result: CallToolResult) -> dict[str, Any]:
+def _tool_result_payload(result: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"is_error": bool(getattr(result, "isError", False))}
     try:
         if result.structuredContent is not None:
@@ -168,6 +265,15 @@ async def _run_session_inner(
     mcp_url: str,
     node_binary: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    try:
+        from mcp import ClientSession
+        from mcp.client.stdio import StdioServerParameters, stdio_client
+    except ImportError as e:
+        raise RuntimeError(
+            "Python MCP SDK is not installed for this interpreter. Use Python 3.10+ "
+            "and install requirements.txt, or run the Lambda Python 3.12 container."
+        ) from e
+
     step_results: list[dict[str, Any]] = []
     diagnostics: dict[str, Any] = {"requested_address_id": effective_address_id}
 
@@ -308,8 +414,13 @@ def restore_mcp_auth_tokens(repo_root: Path | None = None) -> bool:
         return False
     cfg_dir.mkdir(parents=True, exist_ok=True)
     for name, content in files_data.items():
-        safe = os.path.basename(name)
-        (cfg_dir / safe).write_text(str(content), encoding="utf-8")
+        rel = _safe_relative_token_path(name)
+        if rel is None:
+            logger.warning("Skipping unsafe MCP token path from secret: %s", name)
+            continue
+        dest = cfg_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(str(content), encoding="utf-8")
     logger.info("Restored %d MCP auth token file(s) from Secrets Manager.", len(files_data))
     return True
 
@@ -320,10 +431,12 @@ def persist_mcp_auth_tokens(repo_root: Path | None = None) -> dict[str, str]:
     root = repo_root or repo_root_from_settings()
     cfg_dir = _mcp_remote_config_dir(root)
     files_data: dict[str, str] = {}
-    if cfg_dir.is_dir():
-        for p in cfg_dir.iterdir():
-            if p.is_file():
-                files_data[p.name] = p.read_text(encoding="utf-8")
+    for p in _iter_token_files(cfg_dir):
+        try:
+            rel = p.relative_to(cfg_dir).as_posix()
+        except ValueError:
+            continue
+        files_data[rel] = p.read_text(encoding="utf-8")
     if files_data:
         try:
             client = boto3.client("secretsmanager")
@@ -343,22 +456,30 @@ def persist_mcp_auth_tokens(repo_root: Path | None = None) -> dict[str, str]:
     return files_data
 
 
-def get_mcp_token_status(repo_root: Path | None = None) -> dict[str, Any]:
+def get_mcp_token_status(
+    repo_root: Path | None = None,
+    *,
+    mcp_url: str | None = None,
+) -> dict[str, Any]:
     """Return a summary of MCP token state."""
     root = repo_root or repo_root_from_settings()
     cfg_dir = _mcp_remote_config_dir(root)
-    local_files = (
-        [p.name for p in cfg_dir.iterdir() if p.is_file()]
-        if cfg_dir.is_dir() else []
-    )
+    local_paths = [p.relative_to(cfg_dir).as_posix() for p in _iter_token_files(cfg_dir)]
     secret = _mcp_token_secret()
     secret_files = list((secret.get("files") or {}).keys())
+    expected = _expected_token_paths(
+        root,
+        mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp"),
+    )
     return {
         "config_dir": str(cfg_dir),
-        "local_files": local_files,
+        "effective_config_dir": str(_mcp_remote_effective_config_dir(root)),
+        "local_files": local_paths,
         "secret_files": secret_files,
-        "has_local_tokens": len(local_files) > 0,
+        "has_local_tokens": any(p.endswith("_tokens.json") for p in local_paths),
         "has_secret_tokens": len(secret_files) > 0,
+        "expected_files": expected,
+        "expected_tokens_present": Path(expected["tokens"]).is_file(),
     }
 
 
@@ -376,9 +497,7 @@ def capture_mcp_oauth_url(
       - instructions: subprocess not viable (Lambda), return manual instructions
       - error: something went wrong
     """
-    import shutil
     import subprocess
-    import time
     
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
@@ -416,9 +535,8 @@ def capture_mcp_oauth_url(
     except OSError:
         pass
     
-    stderr_lines: list[str] = []
-    stdout_lines: list[str] = []
-    auth_url: str | None = None
+    stdout_text = ""
+    stderr_text = ""
     
     try:
         proc = subprocess.Popen(
@@ -429,66 +547,36 @@ def capture_mcp_oauth_url(
             text=True,
             env={**os.environ, "MCP_REMOTE_CONFIG_DIR": str(cfg)},
         )
-        
-        deadline = time.time() + timeout_seconds
-        
-        # Use a polling loop with non-blocking reads
-        while time.time() < deadline:
-            # Read available stderr
-            import select
-            try:
-                rlist, _, _ = select.select([proc.stderr], [], [], 0.5)
-                if proc.stderr in rlist:
-                    chunk = proc.stderr.read(4096) or ""
-                    if chunk:
-                        stderr_lines.extend(chunk.splitlines(keepends=True))
-                        for kw in ("authorization_url", "https://mcp-server.zomato.com/oauth", "https://accounts.zomato.com"):
-                            if kw in chunk.lower().replace(" ", ""):
-                                # Extract the URL
-                                for line in chunk.splitlines():
-                                    line_s = line.strip()
-                                    if line_s.startswith("http") and "zomato" in line_s.lower():
-                                        auth_url = line_s
-                                        break
-                                if auth_url:
-                                    break
-            except Exception:
-                pass
-            
-            if auth_url:
-                break
-            
-            # Read available stdout
-            try:
-                rlist, _, _ = select.select([proc.stdout], [], [], 0.1)
-                if proc.stdout in rlist:
-                    chunk = proc.stdout.read(4096) or ""
-                    if chunk:
-                        stdout_lines.extend(chunk.splitlines(keepends=True))
-            except Exception:
-                pass
-            
-            if proc.poll() is not None:
-                break
-        
-        proc.terminate()
         try:
-            proc.wait(timeout=2)
-        except Exception:
-            proc.kill()
+            stdout_text, stderr_text = proc.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                stdout_text, stderr_text = proc.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout_text, stderr_text = proc.communicate(timeout=2)
         
     except FileNotFoundError:
         return {
             "status": "instructions",
-            "detail": f"Cannot spawn {node_path}. Run locally: npx mcp-remote {url} — then upload tokens.",
+            "detail": f"Cannot spawn {node_path}. Run locally: npx mcp-remote {url} and import ~/.mcp-auth.",
             "mcp_url": url,
         }
     except Exception as e:
+        try:
+            proc.kill()
+        except Exception:
+            pass
         return {
             "status": "error",
             "detail": f"Subprocess error: {type(e).__name__}: {e}. Run locally: npx mcp-remote {url}",
             "mcp_url": url,
         }
+
+    combined_raw = "\n".join([stdout_text or "", stderr_text or ""])
+    urls = re.findall(r"https?://[^\s<>'\")]+", combined_raw)
+    auth_url = next((u for u in urls if "zomato" in u.lower()), None)
     
     if auth_url:
         return {
@@ -498,7 +586,7 @@ def capture_mcp_oauth_url(
             "mcp_url": url,
         }
     
-    combined = "".join(stdout_lines + stderr_lines).lower()
+    combined = combined_raw.lower()
     if any(kw in combined for kw in ("connected", "ready", "session established")):
         return {
             "status": "connected",
@@ -514,7 +602,7 @@ def capture_mcp_oauth_url(
             "— authorize in your browser — then upload tokens from ~/.mcp-auth/."
         ),
         "mcp_url": url,
-        "stderr_tail": "".join(stderr_lines[-3:]) if stderr_lines else "",
+        "stderr_tail": "\n".join((stderr_text or "").splitlines()[-6:]),
     }
 
 
