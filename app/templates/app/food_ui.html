@@ -5,49 +5,210 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Companion Food Agent</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 24px; background: #f8fafc; color: #111827; }
-    .card { max-width: 860px; margin: 0 auto; background: white; border-radius: 12px; padding: 20px; box-shadow: 0 8px 28px rgba(0,0,0,0.08); }
-    h1 { margin-top: 0; font-size: 1.4rem; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; margin: 0; padding: 24px; background: #f0f2f5; color: #1a1a2e; }
+    .card { max-width: 860px; margin: 0 auto; background: white; border-radius: 14px; padding: 28px; box-shadow: 0 2px 16px rgba(0,0,0,0.06); }
+    h1 { margin: 0 0 20px; font-size: 1.35rem; display: flex; justify-content: space-between; align-items: center; }
+    .hint { color: #6b7280; font-size: 0.88rem; margin-bottom: 14px; }
     .row { display: flex; gap: 10px; margin-bottom: 12px; }
-    input, button { font-size: 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid #d1d5db; }
+    input, button, select { font-size: 14px; padding: 10px 14px; border-radius: 8px; border: 1px solid #d1d5db; }
     input { flex: 1; }
-    button { background: #2563eb; color: white; border: none; cursor: pointer; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
-    pre { background: #0b1020; color: #e5e7eb; padding: 12px; border-radius: 8px; overflow: auto; max-height: 520px; }
-    .hint { color: #4b5563; font-size: 0.9rem; margin-bottom: 12px; }
+    input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
+    button { background: #2563eb; color: white; border: none; cursor: pointer; font-weight: 500; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    button.secondary { background: #e5e7eb; color: #374151; }
+    button.secondary:hover { background: #d1d5db; }
+    button.danger { background: #dc2626; }
+    button.danger:hover { background: #b91c1c; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 8px; overflow: auto; max-height: 480px; font-size: 13px; line-height: 1.5; }
+    .hidden { display: none !important; }
+
+    /* login */
+    .login-box { max-width: 380px; margin: 80px auto; }
+    .login-box label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #374151; }
+    .login-box input { width: 100%; margin-bottom: 14px; }
+    .login-box button { width: 100%; }
+    .login-error { color: #dc2626; font-size: 0.82rem; margin-top: 8px; text-align: center; }
+
+    /* toolbar */
+    .toolbar { display: flex; gap: 8px; align-items: center; }
+    .toolbar .user-tag { font-size: 0.82rem; color: #6b7280; margin-right: auto; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
+    .badge.ok { background: #dcfce7; color: #166534; }
+    .badge.warn { background: #fef3c7; color: #92400e; }
+    .badge.err { background: #fee2e2; color: #991b1b; }
+
+    /* settings panel */
+    .panel { margin-top: 18px; padding: 16px; background: #f9fafb; border-radius: 10px; border: 1px solid #e5e7eb; }
+    .panel h3 { margin: 0 0 10px; font-size: 0.95rem; }
+    .panel p { margin: 6px 0; font-size: 0.85rem; color: #4b5563; }
+    .panel code { background: #e5e7eb; padding: 1px 6px; border-radius: 4px; font-size: 0.82rem; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Companion Food Agent</h1>
-    <div class="hint">Type your food query, then call <code>/api/food/query/</code>.</div>
+
+  <!-- ========== LOGIN ========== -->
+  <div id="loginScreen" class="card login-box">
+    <h1 style="justify-content:center">Companion</h1>
+    <label for="username">Username</label>
+    <input id="username" type="text" placeholder="admin" autocomplete="username" />
+    <label for="password">Password</label>
+    <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+    <button id="loginBtn">Sign in</button>
+    <div id="loginError" class="login-error hidden"></div>
+  </div>
+
+  <!-- ========== APP (hidden until login) ========== -->
+  <div id="appScreen" class="card hidden">
+    <h1>
+      <span>Companion Food Agent</span>
+      <span class="toolbar">
+        <span id="userTag" class="user-tag"></span>
+        <button id="settingsBtn" class="secondary" title="Settings">&#9881;</button>
+        <button id="logoutBtn" class="danger" style="font-size:12px;padding:6px 12px">Logout</button>
+      </span>
+    </h1>
+
+    <div class="hint">Type a food query, then press Search or Enter.</div>
     <div class="row">
       <input id="message" placeholder="e.g. Find pizza near MG Road Bengaluru" />
       <button id="sendBtn">Search</button>
     </div>
     <pre id="output">Result will appear here...</pre>
+
+    <!-- Settings panel -->
+    <div id="settingsPanel" class="panel hidden">
+      <h3>Settings</h3>
+      <div id="mcpSection">
+        <p><strong>Zomato MCP:</strong> <span id="mcpStatusBadge" class="badge warn">checking...</span></p>
+        <p id="mcpDetail" style="font-size:0.82rem;color:#6b7280;"></p>
+        <button id="mcpCheckBtn" class="secondary" style="margin-top:6px">Check MCP Status</button>
+      </div>
+    </div>
   </div>
 
   <script>
-    const sendBtn = document.getElementById("sendBtn");
-    const messageInput = document.getElementById("message");
-    const output = document.getElementById("output");
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    const TOKEN_KEY = "companion_token";
+    const USER_KEY  = "companion_user";
 
-    async function runQuery() {
-      const message = messageInput.value.trim();
-      if (!message) {
-        output.textContent = "Please enter a message.";
-        return;
+    const loginScreen   = document.getElementById("loginScreen");
+    const appScreen     = document.getElementById("appScreen");
+    const loginError    = document.getElementById("loginError");
+    const userTag       = document.getElementById("userTag");
+    const settingsPanel = document.getElementById("settingsPanel");
+
+    const loginBtn   = document.getElementById("loginBtn");
+    const logoutBtn  = document.getElementById("logoutBtn");
+    const settingsBtn = document.getElementById("settingsBtn");
+    const sendBtn    = document.getElementById("sendBtn");
+    const messageInput = document.getElementById("message");
+    const output     = document.getElementById("output");
+
+    const mcpCheckBtn    = document.getElementById("mcpCheckBtn");
+    const mcpStatusBadge = document.getElementById("mcpStatusBadge");
+    const mcpDetail      = document.getElementById("mcpDetail");
+
+    function token()   { return localStorage.getItem(TOKEN_KEY); }
+    function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
+    function clearAuth() { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); }
+
+    // -----------------------------------------------------------------------
+    // API helpers
+    // -----------------------------------------------------------------------
+    async function api(method, path, body) {
+      const opts = { method, headers: { "Content-Type": "application/json" } };
+      const t = token();
+      if (t) opts.headers["Authorization"] = "Bearer " + t;
+      if (body) opts.body = JSON.stringify(body);
+      const resp = await fetch(path, opts);
+      if (resp.status === 401) {
+        clearAuth();
+        showLogin();
+        throw new Error("Session expired — please login again.");
       }
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || resp.statusText);
+      return data;
+    }
+
+    // -----------------------------------------------------------------------
+    // Login / Logout
+    // -----------------------------------------------------------------------
+    async function doLogin() {
+      loginError.classList.add("hidden");
+      loginBtn.disabled = true;
+      const u = document.getElementById("username").value.trim();
+      const p = document.getElementById("password").value.trim();
+      if (!u || !p) { loginError.textContent = "Enter username and password."; loginError.classList.remove("hidden"); loginBtn.disabled = false; return; }
+      try {
+        const data = await api("POST", "/api/login/", { username: u, password: p });
+        setToken(data.access_token);
+        localStorage.setItem(USER_KEY, data.username);
+        showApp(data.username);
+      } catch (e) {
+        loginError.textContent = e.message || "Login failed.";
+        loginError.classList.remove("hidden");
+      } finally {
+        loginBtn.disabled = false;
+      }
+    }
+
+    function doLogout() {
+      clearAuth();
+      showLogin();
+    }
+
+    function showLogin() {
+      loginScreen.classList.remove("hidden");
+      appScreen.classList.add("hidden");
+      document.getElementById("username").value = "";
+      document.getElementById("password").value = "";
+      loginError.classList.add("hidden");
+    }
+
+    function showApp(username) {
+      loginScreen.classList.add("hidden");
+      appScreen.classList.remove("hidden");
+      userTag.textContent = username || localStorage.getItem(USER_KEY) || "admin";
+      settingsPanel.classList.add("hidden");
+    }
+
+    // auto-login if token exists & is valid
+    (async function init() {
+      const t = token();
+      if (t) {
+        try {
+          const s = await api("GET", "/api/auth/status/");
+          showApp(s.username);
+        } catch (e) {
+          clearAuth();
+          showLogin();
+        }
+      } else {
+        showLogin();
+      }
+    })();
+
+    loginBtn.addEventListener("click", doLogin);
+    document.getElementById("password").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+    document.getElementById("username").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("password").focus(); });
+    logoutBtn.addEventListener("click", doLogout);
+    settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
+
+    // -----------------------------------------------------------------------
+    // Food query
+    // -----------------------------------------------------------------------
+    async function runQuery() {
+      const msg = messageInput.value.trim();
+      if (!msg) { output.textContent = "Please enter a message."; return; }
       sendBtn.disabled = true;
       output.textContent = "Loading...";
       try {
-        const resp = await fetch("/api/food/query/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message })
-        });
-        const data = await resp.json();
+        const data = await api("POST", "/api/food/query/", { message: msg });
         output.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
         output.textContent = "Request failed: " + (err?.message || String(err));
@@ -57,9 +218,43 @@
     }
 
     sendBtn.addEventListener("click", runQuery);
-    messageInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") runQuery();
-    });
+    messageInput.addEventListener("keydown", e => { if (e.key === "Enter") runQuery(); });
+
+    // -----------------------------------------------------------------------
+    // MCP status
+    // -----------------------------------------------------------------------
+    async function checkMcp() {
+      mcpCheckBtn.disabled = true;
+      mcpStatusBadge.textContent = "checking...";
+      mcpStatusBadge.className = "badge warn";
+      mcpDetail.textContent = "";
+      try {
+        const data = await api("GET", "/api/mcp/status/");
+        if (data.configured) {
+          mcpStatusBadge.textContent = "configured";
+          mcpStatusBadge.className = "badge ok";
+        } else {
+          mcpStatusBadge.textContent = "not configured";
+          mcpStatusBadge.className = "badge err";
+        }
+        mcpDetail.innerHTML = "URL: <code>" + escapeHtml(data.mcp_url) + "</code><br>" +
+          escapeHtml(data.note || "");
+      } catch (err) {
+        mcpStatusBadge.textContent = "error";
+        mcpStatusBadge.className = "badge err";
+        mcpDetail.textContent = err.message || "Could not reach MCP status endpoint.";
+      } finally {
+        mcpCheckBtn.disabled = false;
+      }
+    }
+
+    mcpCheckBtn.addEventListener("click", checkMcp);
+
+    function escapeHtml(s) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
   </script>
 </body>
 </html>

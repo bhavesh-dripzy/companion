@@ -6,10 +6,18 @@ from typing import Any
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from mangum import Mangum
+from pydantic import BaseModel
+
+from companion_api.auth import (
+    create_access_token,
+    get_current_user,
+    validate_admin_login,
+)
+from companion_api.secrets import secret_or_env
 
 from app.services.food_llm_router import route_food_query
 from app.services.food_response_builder import (
@@ -28,7 +36,6 @@ from companion_api.models import (
     SendMessageRequest,
 )
 from companion_api.reminders import ReminderScheduler
-from companion_api.secrets import secret_or_env
 
 app = FastAPI(title="Companion API", version="2.0.0")
 app.add_middleware(
@@ -53,6 +60,58 @@ _TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "app" / "templates" / "
 def food_ui():
     """Serve the food-agent SPA."""
     return (_TEMPLATE_DIR / "food_ui.html").read_text()
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    username: str
+
+
+@app.post("/api/login/")
+def login(payload: LoginRequest) -> LoginResponse:
+    if not validate_admin_login(payload.username, payload.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials.")
+    token = create_access_token(payload.username)
+    return LoginResponse(access_token=token, username=payload.username)
+
+
+@app.get("/api/auth/status/")
+def auth_status(user: str = Depends(get_current_user)):
+    return {"authenticated": True, "username": user}
+
+
+# ---------------------------------------------------------------------------
+# MCP status
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/mcp/status/")
+def mcp_status(_user: str = Depends(get_current_user)):
+    mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    node_binary = secret_or_env("NODE_BINARY", "node")
+    return {
+        "mcp_url": mcp_url,
+        "node_binary": node_binary,
+        "configured": bool(mcp_url.strip()),
+        "note": "Zomato MCP requires OAuth tokens in .mcp-auth. "
+                "Copy them from a machine where Zomato MCP works in Cursor.",
+    }
+
+
+# ---------------------------------------------------------------------------
+# API routes
+# ---------------------------------------------------------------------------
 
 
 @app.post("/api/send-message/")
