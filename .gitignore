@@ -1,0 +1,17 @@
+node_modules/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Cursor / local editor state
+.cursor/

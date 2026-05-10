@@ -1,0 +1,7 @@
+{
+  "name": "companion",
+  "private": true,
+  "devDependencies": {
+    "mcp-remote": "0.1.38"
+  }
+}
