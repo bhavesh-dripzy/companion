@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from typing import Any
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from mangum import Mangum
 
 from app.services.food_llm_router import route_food_query
@@ -41,6 +43,16 @@ app.add_middleware(
 @app.get("/api/")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "app" / "templates" / "app"
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/food/", response_class=HTMLResponse)
+def food_ui():
+    """Serve the food-agent SPA."""
+    return (_TEMPLATE_DIR / "food_ui.html").read_text()
 
 
 @app.post("/api/send-message/")

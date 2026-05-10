@@ -38,7 +38,6 @@ class CompanionStack(Stack):
             "app/management",
             "app/migrations",
             "app/models",
-            "app/templates",
             "app/tests.py",
             "app/views",
             "cdk.out",
