@@ -14,7 +14,7 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-Provider = Literal["openai", "gemini"]
+Provider = Literal["openai", "gemini", "deepseek"]
 
 _ALLOWED_TOOLS = frozenset(
     {
@@ -182,43 +182,63 @@ def _json_from_llm(content: str) -> dict[str, Any]:
     return data
 
 
+def _openai_compatible_call(
+    *,
+    api_key: str,
+    model: str,
+    user_message: str,
+    base_url: str | None = None,
+) -> tuple[str, str | None]:
+    """Shared path for OpenAI and DeepSeek (both use OpenAI SDK)."""
+    kwargs: dict[str, Any] = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = OpenAI(**kwargs)
+
+    completion = client.chat.completions.create(
+        model=model,
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": user_message.strip()},
+        ],
+        response_format={"type": "json_object"},
+    )
+
+    content = completion.choices[0].message.content or "{}"
+    tid = getattr(completion, "id", None) or ""
+    resolved = getattr(completion, "model", None) or model
+    return content, tid
+
+
 def route_food_query(
     *,
     user_message: str,
     api_key: str,
     model: str,
     provider: Provider,
+    base_url: str | None = None,
 ) -> dict[str, Any]:
 
     # =========================
-    # OPENAI
+    # OPENAI  &  DEEPSEEK
     # =========================
 
-    if provider == "openai":
-        client = OpenAI(api_key=api_key)
-
-        completion = client.chat.completions.create(
+    if provider in ("openai", "deepseek"):
+        content, tid = _openai_compatible_call(
+            api_key=api_key,
             model=model,
-            temperature=0.2,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": user_message.strip()},
-            ],
-            response_format={"type": "json_object"},
+            user_message=user_message,
+            base_url=base_url if provider == "deepseek" else None,
         )
-
-        content = completion.choices[0].message.content or "{}"
 
         data = _json_from_llm(content)
 
-        tid = getattr(completion, "id", None) or ""
-        resolved = getattr(completion, "model", None) or model
-
         return _finalize_from_parsed_json(
             data,
-            provider="openai",
-            model=resolved,
-            trace_id=tid,
+            provider=provider,
+            model=model,
+            trace_id=tid or "",
         )
 
     # =========================

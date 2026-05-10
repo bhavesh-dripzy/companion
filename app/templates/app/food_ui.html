@@ -10,18 +10,21 @@
     .card { max-width: 860px; margin: 0 auto; background: white; border-radius: 14px; padding: 28px; box-shadow: 0 2px 16px rgba(0,0,0,0.06); }
     h1 { margin: 0 0 20px; font-size: 1.35rem; display: flex; justify-content: space-between; align-items: center; }
     .hint { color: #6b7280; font-size: 0.88rem; margin-bottom: 14px; }
-    .row { display: flex; gap: 10px; margin-bottom: 12px; }
+    .row { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; }
     input, button, select { font-size: 14px; padding: 10px 14px; border-radius: 8px; border: 1px solid #d1d5db; }
     input { flex: 1; }
-    input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
-    button { background: #2563eb; color: white; border: none; cursor: pointer; font-weight: 500; }
+    select { background: white; cursor: pointer; min-width: 120px; }
+    input:focus, select:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
+    button { background: #2563eb; color: white; border: none; cursor: pointer; font-weight: 500; white-space: nowrap; }
     button:hover { background: #1d4ed8; }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     button.secondary { background: #e5e7eb; color: #374151; }
     button.secondary:hover { background: #d1d5db; }
     button.danger { background: #dc2626; }
     button.danger:hover { background: #b91c1c; }
-    pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 8px; overflow: auto; max-height: 480px; font-size: 13px; line-height: 1.5; }
+    button.green { background: #16a34a; }
+    button.green:hover { background: #15803d; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 8px; overflow: auto; max-height: 480px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
     .hidden { display: none !important; }
 
     /* login */
@@ -44,6 +47,7 @@
     .panel h3 { margin: 0 0 10px; font-size: 0.95rem; }
     .panel p { margin: 6px 0; font-size: 0.85rem; color: #4b5563; }
     .panel code { background: #e5e7eb; padding: 1px 6px; border-radius: 4px; font-size: 0.82rem; }
+    .panel .row { margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -70,20 +74,42 @@
       </span>
     </h1>
 
-    <div class="hint">Type a food query, then press Search or Enter.</div>
+    <div class="hint">Type a food query, pick a model, then press Search.</div>
     <div class="row">
       <input id="message" placeholder="e.g. Find pizza near MG Road Bengaluru" />
+      <select id="providerSelect">
+        <option value="auto">Auto</option>
+        <option value="gemini">Gemini</option>
+        <option value="openai">OpenAI</option>
+        <option value="deepseek">DeepSeek</option>
+      </select>
       <button id="sendBtn">Search</button>
     </div>
-    <pre id="output">Result will appear here...</pre>
+    <pre id="output">Results will appear here...</pre>
 
     <!-- Settings panel -->
     <div id="settingsPanel" class="panel hidden">
       <h3>Settings</h3>
-      <div id="mcpSection">
-        <p><strong>Zomato MCP:</strong> <span id="mcpStatusBadge" class="badge warn">checking...</span></p>
-        <p id="mcpDetail" style="font-size:0.82rem;color:#6b7280;"></p>
-        <button id="mcpCheckBtn" class="secondary" style="margin-top:6px">Check MCP Status</button>
+
+      <!-- Model -->
+      <p><strong>Default model:</strong></p>
+      <div class="row">
+        <select id="settingsProvider" style="flex:1">
+          <option value="auto">Auto-detect</option>
+          <option value="gemini">Gemini</option>
+          <option value="openai">OpenAI</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+        <button id="saveProviderBtn" class="secondary">Save</button>
+      </div>
+
+      <!-- MCP -->
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:14px 0" />
+      <p><strong>Zomato MCP:</strong> <span id="mcpStatusBadge" class="badge warn">unknown</span></p>
+      <p id="mcpDetail" style="font-size:0.82rem;color:#6b7280;"></p>
+      <div class="row">
+        <button id="mcpCheckBtn" class="secondary">Check Status</button>
+        <button id="mcpTestBtn" class="green">Test Connection</button>
       </div>
     </div>
   </div>
@@ -92,29 +118,37 @@
     // -----------------------------------------------------------------------
     // State
     // -----------------------------------------------------------------------
-    const TOKEN_KEY = "companion_token";
-    const USER_KEY  = "companion_user";
+    const TOKEN_KEY      = "companion_token";
+    const USER_KEY       = "companion_user";
+    const PROVIDER_KEY   = "companion_provider";
 
-    const loginScreen   = document.getElementById("loginScreen");
-    const appScreen     = document.getElementById("appScreen");
-    const loginError    = document.getElementById("loginError");
-    const userTag       = document.getElementById("userTag");
-    const settingsPanel = document.getElementById("settingsPanel");
+    const loginScreen    = document.getElementById("loginScreen");
+    const appScreen      = document.getElementById("appScreen");
+    const loginError     = document.getElementById("loginError");
+    const userTag        = document.getElementById("userTag");
+    const settingsPanel  = document.getElementById("settingsPanel");
 
-    const loginBtn   = document.getElementById("loginBtn");
-    const logoutBtn  = document.getElementById("logoutBtn");
-    const settingsBtn = document.getElementById("settingsBtn");
-    const sendBtn    = document.getElementById("sendBtn");
-    const messageInput = document.getElementById("message");
-    const output     = document.getElementById("output");
+    const loginBtn       = document.getElementById("loginBtn");
+    const logoutBtn      = document.getElementById("logoutBtn");
+    const settingsBtn    = document.getElementById("settingsBtn");
+    const sendBtn        = document.getElementById("sendBtn");
+    const messageInput   = document.getElementById("message");
+    const output         = document.getElementById("output");
+    const providerSelect = document.getElementById("providerSelect");
+
+    const settingsProvider = document.getElementById("settingsProvider");
+    const saveProviderBtn  = document.getElementById("saveProviderBtn");
 
     const mcpCheckBtn    = document.getElementById("mcpCheckBtn");
+    const mcpTestBtn     = document.getElementById("mcpTestBtn");
     const mcpStatusBadge = document.getElementById("mcpStatusBadge");
     const mcpDetail      = document.getElementById("mcpDetail");
 
-    function token()   { return localStorage.getItem(TOKEN_KEY); }
-    function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
-    function clearAuth() { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); }
+    function token()      { return localStorage.getItem(TOKEN_KEY); }
+    function setToken(t)  { localStorage.setItem(TOKEN_KEY, t); }
+    function clearAuth()  { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); }
+    function provider()   { return localStorage.getItem(PROVIDER_KEY) || "auto"; }
+    function setProvider(p) { localStorage.setItem(PROVIDER_KEY, p); }
 
     // -----------------------------------------------------------------------
     // API helpers
@@ -175,6 +209,10 @@
       appScreen.classList.remove("hidden");
       userTag.textContent = username || localStorage.getItem(USER_KEY) || "admin";
       settingsPanel.classList.add("hidden");
+      // sync provider selectors
+      const p = provider();
+      providerSelect.value = p;
+      settingsProvider.value = p;
     }
 
     // auto-login if token exists & is valid
@@ -199,6 +237,12 @@
     logoutBtn.addEventListener("click", doLogout);
     settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
 
+    // provider save
+    saveProviderBtn.addEventListener("click", () => {
+      setProvider(settingsProvider.value);
+      providerSelect.value = settingsProvider.value;
+    });
+
     // -----------------------------------------------------------------------
     // Food query
     // -----------------------------------------------------------------------
@@ -208,7 +252,10 @@
       sendBtn.disabled = true;
       output.textContent = "Loading...";
       try {
-        const data = await api("POST", "/api/food/query/", { message: msg });
+        const body = { message: msg };
+        const pv = providerSelect.value;
+        if (pv && pv !== "auto") body.provider = pv;
+        const data = await api("POST", "/api/food/query/", body);
         output.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
         output.textContent = "Request failed: " + (err?.message || String(err));
@@ -221,7 +268,7 @@
     messageInput.addEventListener("keydown", e => { if (e.key === "Enter") runQuery(); });
 
     // -----------------------------------------------------------------------
-    // MCP status
+    // MCP
     // -----------------------------------------------------------------------
     async function checkMcp() {
       mcpCheckBtn.disabled = true;
@@ -237,8 +284,7 @@
           mcpStatusBadge.textContent = "not configured";
           mcpStatusBadge.className = "badge err";
         }
-        mcpDetail.innerHTML = "URL: <code>" + escapeHtml(data.mcp_url) + "</code><br>" +
-          escapeHtml(data.note || "");
+        mcpDetail.innerHTML = "URL: <code>" + escapeHtml(data.mcp_url) + "</code>";
       } catch (err) {
         mcpStatusBadge.textContent = "error";
         mcpStatusBadge.className = "badge err";
@@ -248,7 +294,37 @@
       }
     }
 
+    async function testMcp() {
+      mcpTestBtn.disabled = true;
+      mcpStatusBadge.textContent = "connecting...";
+      mcpStatusBadge.className = "badge warn";
+      mcpDetail.textContent = "Attempting MCP connection...";
+      try {
+        const data = await api("POST", "/api/mcp/test/");
+        if (data.status === "connected") {
+          mcpStatusBadge.textContent = "connected";
+          mcpStatusBadge.className = "badge ok";
+          mcpDetail.innerHTML = "&#x2705; " + escapeHtml(data.detail || "Connected.");
+        } else if (data.status === "needs_auth") {
+          mcpStatusBadge.textContent = "needs auth";
+          mcpStatusBadge.className = "badge err";
+          mcpDetail.innerHTML = "&#x26A0; " + escapeHtml(data.detail || "OAuth tokens needed.");
+        } else {
+          mcpStatusBadge.textContent = "error";
+          mcpStatusBadge.className = "badge err";
+          mcpDetail.textContent = data.detail || "Connection failed.";
+        }
+      } catch (err) {
+        mcpStatusBadge.textContent = "error";
+        mcpStatusBadge.className = "badge err";
+        mcpDetail.textContent = err.message || "Could not test MCP connection.";
+      } finally {
+        mcpTestBtn.disabled = false;
+      }
+    }
+
     mcpCheckBtn.addEventListener("click", checkMcp);
+    mcpTestBtn.addEventListener("click", testMcp);
 
     function escapeHtml(s) {
       const d = document.createElement("div");

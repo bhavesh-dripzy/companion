@@ -104,9 +104,66 @@ def mcp_status(_user: str = Depends(get_current_user)):
         "mcp_url": mcp_url,
         "node_binary": node_binary,
         "configured": bool(mcp_url.strip()),
-        "note": "Zomato MCP requires OAuth tokens in .mcp-auth. "
-                "Copy them from a machine where Zomato MCP works in Cursor.",
     }
+
+
+@app.post("/api/mcp/test/")
+def mcp_test(_user: str = Depends(get_current_user)):
+    """Actually try to connect to Zomato MCP and return a diagnostic report."""
+    from app.services.zomato_mcp_executor import _mcp_remote_config_dir, repo_root_from_settings
+
+    cfg_dir = _mcp_remote_config_dir(repo_root_from_settings())
+    has_tokens = False
+    token_files: list[str] = []
+    if cfg_dir.exists():
+        token_files = [p.name for p in cfg_dir.iterdir() if p.is_file()]
+        has_tokens = len(token_files) > 0
+
+    mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    node_binary = secret_or_env("NODE_BINARY", "node")
+
+    report: dict[str, Any] = {
+        "mcp_url": mcp_url,
+        "node_binary": node_binary,
+        "mcp_remote_config_dir": str(cfg_dir),
+        "has_oauth_tokens": has_tokens,
+    }
+
+    if not has_tokens:
+        report["status"] = "needs_auth"
+        report["detail"] = (
+            "No OAuth tokens found. On a machine where Zomato MCP works in Cursor, "
+            "copy ~/.mcp-auth (or $MCP_REMOTE_CONFIG_DIR) into the Lambda's .mcp-auth "
+            "directory. Then redeploy or set the tokens via the admin API."
+        )
+        return report
+
+    # Try a quick connection
+    try:
+        from app.services.zomato_mcp_executor import run_tool_plan_sync
+        result = run_tool_plan_sync(
+            [{"tool": "get_saved_addresses_for_user", "arguments": {}}],
+            mcp_url=mcp_url,
+            node_binary=node_binary,
+        )
+        report["test_result"] = result.get("ok", False)
+        if result.get("ok"):
+            report["status"] = "connected"
+            report["detail"] = "Successfully connected to Zomato MCP."
+            if result.get("steps"):
+                report["address_count"] = len(
+                    [s.get("result", {}).get("data", {}).get("result", {}).get("addresses", [])
+                     for s in result.get("steps", [])
+                     if s.get("tool", "").startswith("get_saved_addresses")]
+                )
+        else:
+            report["status"] = "auth_error"
+            report["detail"] = result.get("error_detail", "Unknown error during MCP connection.")
+    except Exception as e:
+        report["status"] = "error"
+        report["detail"] = f"{type(e).__name__}: {e}"
+
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +199,7 @@ def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
                     api_key=llm_cfg.api_key,
                     model=llm_cfg.model,
                     provider=llm_cfg.provider,
+                    base_url=llm_cfg.base_url,
                 ),
             }
         except ValueError as e:
@@ -162,7 +220,10 @@ def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
 
 @app.post("/api/food/query/")
 def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
-    llm_cfg, err = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
+    provider_override = (payload.provider or "").strip()
+    llm_cfg, err = resolve_llm_from_env(
+        provider_override or secret_or_env("FOOD_ROUTER_PROVIDER")
+    )
     if err or not llm_cfg:
         raise HTTPException(status_code=503, detail=err or "LLM not configured.")
 
@@ -172,6 +233,7 @@ def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
             api_key=llm_cfg.api_key,
             model=llm_cfg.model,
             provider=llm_cfg.provider,
+            base_url=llm_cfg.base_url,
         )
     except ValueError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
@@ -206,6 +268,7 @@ def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
             provider=llm_cfg.provider,
             api_key=llm_cfg.api_key,
             model=llm_cfg.model,
+            base_url=llm_cfg.base_url,
         ),
     }
     if payload.include_raw_zomato:

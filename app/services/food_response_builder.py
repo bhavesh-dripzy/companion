@@ -116,6 +116,29 @@ def _fallback_assistant_message(
     )
 
 
+def _openai_compatible_chat(
+    *,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    base_url: str | None = None,
+) -> str:
+    kwargs: dict[str, Any] = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = OpenAI(**kwargs)
+    completion = client.chat.completions.create(
+        model=model,
+        temperature=0.4,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+    return (completion.choices[0].message.content or "").strip()
+
+
 def build_assistant_message_with_llm(
     *,
     user_message: str,
@@ -124,6 +147,7 @@ def build_assistant_message_with_llm(
     provider: str,
     api_key: str,
     model: str,
+    base_url: str | None = None,
 ) -> str:
     system_prompt = (
         "You are a food ordering assistant. Convert structured tool output into a user-facing response.\n"
@@ -151,18 +175,14 @@ def build_assistant_message_with_llm(
     )
 
     try:
-        if provider == "openai":
-            client = OpenAI(api_key=api_key)
-            completion = client.chat.completions.create(
+        if provider in ("openai", "deepseek"):
+            text = _openai_compatible_chat(
+                api_key=api_key,
                 model=model,
-                temperature=0.4,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                base_url=base_url if provider == "deepseek" else None,
             )
-            text = completion.choices[0].message.content or ""
-            text = text.strip()
             if text:
                 return text
             return _fallback_assistant_message(plan=plan, zomato_summary=zomato_summary)

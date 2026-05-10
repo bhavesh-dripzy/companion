@@ -20,6 +20,7 @@ class SendMessageRequest(BaseModel):
 class FoodQueryRequest(BaseModel):
     message: str = Field(min_length=1)
     address_id: str | None = None
+    provider: str | None = None
     execute_zomato: bool | None = None
     include_raw_zomato: bool = False
 
