@@ -14,3 +14,4 @@ db.sqlite3
 staticfiles
 node_modules
 cdk.out
+infra/cdk.out
