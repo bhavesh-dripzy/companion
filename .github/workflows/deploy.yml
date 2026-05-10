@@ -48,6 +48,20 @@ jobs:
         working-directory: infra
         run: cdk deploy --require-approval never
 
+      - name: Populate app secrets
+        run: |
+          if [ -n "$APP_SECRETS_JSON" ]; then
+            aws secretsmanager put-secret-value \
+              --secret-id companion/app \
+              --secret-string "$APP_SECRETS_JSON" \
+              --region "$AWS_REGION"
+            echo "Secret companion/app updated."
+          else
+            echo "APP_SECRETS_JSON not set — skipping."
+          fi
+        env:
+          APP_SECRETS_JSON: ${{ secrets.APP_SECRETS_JSON }}
+
       - name: Smoke test
         run: |
           API_URL="$(aws cloudformation describe-stacks \
