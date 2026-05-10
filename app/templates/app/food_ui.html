@@ -261,16 +261,26 @@
             <div id="mcpDetail" class="detail">Open this panel status to inspect the MCP setup.</div>
             <div class="button-row three">
               <button id="mcpCheckBtn" class="secondary">Refresh</button>
-              <button id="mcpOauthBtn" class="secondary">Authorize</button>
+              <button id="mcpOauthBtn" class="secondary">Connect</button>
               <button id="mcpTestBtn">Test</button>
             </div>
             <ul id="mcpFacts" class="info-list"></ul>
             <div id="mcpGuide" class="hidden">
               <div class="divider"></div>
               <ul class="info-list">
-                <li>The hosted OAuth callback will save the MCP session automatically. No token files need to be uploaded.</li>
-                <li>If authorization is unavailable, the panel will show the exact server-side reason from Zomato OAuth discovery.</li>
+                <li>Run the generated command on your laptop. It opens Zomato locally and syncs the MCP session back automatically.</li>
+                <li>The command expires quickly and does not require pasting token files into the app.</li>
               </ul>
+            </div>
+            <div id="pairingPanel" class="hidden">
+              <div class="divider"></div>
+              <label for="pairingCommand">Connection command</label>
+              <pre id="pairingCommand" style="min-height:auto;max-height:180px;font-size:12px;"></pre>
+              <div class="button-row">
+                <button id="copyPairingBtn" class="secondary">Copy Command</button>
+                <button id="pollPairingBtn">Refresh Status</button>
+              </div>
+              <p class="small-note">After the command finishes, click Test to verify live Zomato MCP access.</p>
             </div>
           </div>
         </section>
@@ -324,6 +334,10 @@
     const mcpDetail = document.getElementById("mcpDetail");
     const mcpFacts = document.getElementById("mcpFacts");
     const mcpGuide = document.getElementById("mcpGuide");
+    const pairingPanel = document.getElementById("pairingPanel");
+    const pairingCommand = document.getElementById("pairingCommand");
+    const copyPairingBtn = document.getElementById("copyPairingBtn");
+    const pollPairingBtn = document.getElementById("pollPairingBtn");
 
     function token() { return localStorage.getItem(TOKEN_KEY); }
     function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
@@ -432,6 +446,12 @@
       mcpGuide.classList.toggle("hidden", !visible);
     }
 
+    function showPairingCommand(command) {
+      pairingCommand.textContent = command || "";
+      pairingPanel.classList.toggle("hidden", !command);
+      showTokenTools(Boolean(command));
+    }
+
     async function checkMcp() {
       mcpCheckBtn.disabled = true;
       mcpTopCheckBtn.disabled = true;
@@ -448,7 +468,11 @@
         setBadge(mcpMiniBadge, label, tone);
         mcpDetail.innerHTML = escapeHtml(data.detail || "No detail returned.") +
           (data.mcp_url ? "<br><code>" + escapeHtml(data.mcp_url) + "</code>" : "");
-        showTokenTools(["needs_tokens", "missing_bridge", "missing_node"].includes(status));
+        if (status === "ready" || status === "ready_pending") {
+          showPairingCommand("");
+        } else {
+          showTokenTools(["needs_tokens", "missing_bridge", "missing_node"].includes(status));
+        }
       } catch (err) {
         setBadge(mcpStatusBadge, "Error", "err");
         setBadge(mcpMiniBadge, "Error", "err");
@@ -470,7 +494,7 @@
           setBadge(mcpStatusBadge, "Connected", "ok");
           setBadge(mcpMiniBadge, "Connected", "ok");
           mcpDetail.textContent = data.detail || "Connected.";
-          showTokenTools(false);
+          showPairingCommand("");
         } else {
           setBadge(mcpStatusBadge, data.status || "Failed", "err");
           setBadge(mcpMiniBadge, data.status || "Failed", "err");
@@ -488,27 +512,22 @@
 
     async function startOauth() {
       mcpOauthBtn.disabled = true;
-      mcpDetail.textContent = "Starting mcp-remote authorization helper.";
+      mcpDetail.textContent = "Generating a secure one-time connection command.";
       try {
-        const data = await api("POST", "/api/mcp/oauth/");
-        if (data.status === "oauth_required" && data.authorization_url) {
-          mcpDetail.textContent = "Redirecting to Zomato authorization.";
-          setBadge(mcpStatusBadge, "Auth needed", "warn");
-          setBadge(mcpMiniBadge, "Auth needed", "warn");
-          window.location.assign(data.authorization_url);
-          return;
-        } else if (data.status === "connected") {
-          mcpDetail.textContent = data.detail || "Already connected.";
-          setBadge(mcpStatusBadge, "Connected", "ok");
-          setBadge(mcpMiniBadge, "Connected", "ok");
+        const data = await api("POST", "/api/mcp/pairing/");
+        if (data.status === "pairing_ready" && data.command) {
+          mcpDetail.textContent = data.detail || "Run the command below to connect Zomato.";
+          setBadge(mcpStatusBadge, "Pairing ready", "warn");
+          setBadge(mcpMiniBadge, "Pairing ready", "warn");
+          showPairingCommand(data.command);
         } else {
-          mcpDetail.textContent = data.detail || "Hosted OAuth is unavailable for this MCP server.";
+          mcpDetail.textContent = data.detail || "Could not create a pairing command.";
           setBadge(mcpStatusBadge, "Setup needed", "warn");
           setBadge(mcpMiniBadge, "Setup needed", "warn");
+          showTokenTools(true);
         }
-        showTokenTools(data.status !== "connected");
       } catch (err) {
-        mcpDetail.textContent = "Authorization helper failed: " + (err.message || String(err));
+        mcpDetail.textContent = "Could not create pairing command: " + (err.message || String(err));
       } finally {
         mcpOauthBtn.disabled = false;
       }
@@ -547,6 +566,18 @@
     mcpTopCheckBtn.addEventListener("click", checkMcp);
     mcpTestBtn.addEventListener("click", testMcp);
     mcpOauthBtn.addEventListener("click", startOauth);
+    pollPairingBtn.addEventListener("click", checkMcp);
+    copyPairingBtn.addEventListener("click", async () => {
+      const text = pairingCommand.textContent || "";
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        copyPairingBtn.textContent = "Copied";
+        setTimeout(() => { copyPairingBtn.textContent = "Copy Command"; }, 1400);
+      } catch {
+        mcpDetail.textContent = "Copy failed. Select the command text manually.";
+      }
+    });
     saveProviderBtn.addEventListener("click", () => {
       setProvider(settingsProvider.value);
       providerSelect.value = settingsProvider.value;

@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from mangum import Mangum
 from pydantic import BaseModel
 
@@ -104,6 +104,121 @@ def _oauth_result_page(title: str, detail: str, *, ok: bool) -> str:
 </html>"""
 
 
+def _pairing_script(*, base_url: str, code: str, mcp_url: str, mcp_remote_version: str) -> str:
+    return f'''#!/usr/bin/env python3
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
+
+API_BASE = {base_url!r}
+PAIRING_CODE = {code!r}
+MCP_URL = {mcp_url!r}
+MCP_REMOTE_VERSION = {mcp_remote_version!r}
+TIMEOUT_SECONDS = 240
+MAX_FILE_BYTES = 256 * 1024
+
+def fail(message):
+    print("Companion MCP pairing failed: " + message, file=sys.stderr)
+    sys.exit(1)
+
+if shutil.which("npx") is None:
+    fail("npx was not found. Install Node.js 20+ and retry.")
+
+config_dir = tempfile.mkdtemp(prefix="companion-mcp-auth-")
+env = os.environ.copy()
+env["MCP_REMOTE_CONFIG_DIR"] = config_dir
+cmd = [
+    "npx",
+    "-y",
+    "mcp-remote@" + MCP_REMOTE_VERSION,
+    MCP_URL,
+    "--auth-timeout",
+    str(TIMEOUT_SECONDS),
+]
+
+print("Starting Zomato authorization through mcp-remote.")
+print("A browser window should open. Complete Zomato sign-in, then return here.")
+proc = subprocess.Popen(
+    cmd,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    env=env,
+)
+
+def stream_output():
+    if not proc.stdout:
+        return
+    for line in proc.stdout:
+        print(line.rstrip())
+
+threading.Thread(target=stream_output, daemon=True).start()
+
+token_seen = False
+deadline = time.time() + TIMEOUT_SECONDS
+while time.time() < deadline:
+    for root, _, names in os.walk(config_dir):
+        if any(name.endswith("_tokens.json") for name in names):
+            token_seen = True
+            break
+    if token_seen:
+        time.sleep(2)
+        break
+    if proc.poll() is not None:
+        time.sleep(1)
+    time.sleep(0.2)
+
+if proc.poll() is None:
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+if not token_seen:
+    fail("No mcp-remote token file appeared. Complete the browser authorization and run the command again.")
+
+files = {{}}
+for root, _, names in os.walk(config_dir):
+    for name in names:
+        if name.endswith("_debug.log") or name == ".DS_Store":
+            continue
+        path = os.path.join(root, name)
+        if os.path.getsize(path) > MAX_FILE_BYTES:
+            continue
+        rel = os.path.relpath(path, config_dir).replace(os.sep, "/")
+        with open(path, "r", encoding="utf-8") as handle:
+            files[rel] = handle.read()
+
+payload = json.dumps({{"code": PAIRING_CODE, "files": files}}).encode("utf-8")
+request = urllib.request.Request(
+    API_BASE + "/api/mcp/pairing/complete",
+    data=payload,
+    headers={{"Content-Type": "application/json", "Accept": "application/json"}},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read().decode("utf-8")
+except urllib.error.HTTPError as exc:
+    body = exc.read().decode("utf-8", errors="replace")
+    fail("server rejected the pairing: " + body)
+except Exception as exc:
+    fail(type(exc).__name__ + ": " + str(exc))
+
+print("Companion MCP pairing complete.")
+print(body)
+'''
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -118,6 +233,11 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     username: str
+
+
+class McpPairingComplete(BaseModel):
+    code: str
+    files: dict[str, str]
 
 
 @app.post("/api/login/")
@@ -177,7 +297,7 @@ def mcp_status(_user: str = Depends(get_current_user)):
         status = "needs_tokens"
         detail = (
             "MCP URL and bridge are configured, but no OAuth token file was found. "
-            "Use Authorize to connect Zomato through the hosted callback."
+            "Use Connect to generate a one-time local pairing command."
         )
 
     return {
@@ -219,6 +339,54 @@ def mcp_initiate_oauth(request: Request, _user: str = Depends(get_current_user))
             "detail": f"{type(e).__name__}: {e}",
             "mcp_url": mcp_url,
         }
+
+
+@app.post("/api/mcp/pairing/")
+def mcp_pairing(request: Request, _user: str = Depends(get_current_user)):
+    from app.services.zomato_mcp_executor import create_pairing_session, repo_root_from_settings
+
+    mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    base_url = _public_url(request, "").rstrip("/")
+    session = create_pairing_session(repo_root=repo_root_from_settings(), mcp_url=mcp_url)
+    script_url = f"{base_url}/api/mcp/pairing/script?code={quote(session['code'])}"
+    return {
+        "status": "pairing_ready",
+        "detail": (
+            "Run this command on the laptop where your browser can sign into Zomato. "
+            "It opens Zomato through mcp-remote and syncs the session back automatically."
+        ),
+        "command": f"curl -fsSL '{script_url}' | python3",
+        "expires_in_seconds": session["expires_in_seconds"],
+        "mcp_url": mcp_url,
+    }
+
+
+@app.get("/api/mcp/pairing/script", response_class=PlainTextResponse)
+def mcp_pairing_script(request: Request, code: str = Query(...)):
+    mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    base_url = _public_url(request, "").rstrip("/")
+    version = "0.1.38"
+    try:
+        from app.services.zomato_mcp_executor import repo_root_from_settings, _mcp_remote_version
+
+        version = _mcp_remote_version(repo_root_from_settings()) or version
+    except Exception:
+        pass
+    return _pairing_script(base_url=base_url, code=code, mcp_url=mcp_url, mcp_remote_version=version)
+
+
+@app.post("/api/mcp/pairing/complete")
+def mcp_pairing_complete(payload: McpPairingComplete):
+    from app.services.zomato_mcp_executor import complete_pairing_session, repo_root_from_settings
+
+    try:
+        return complete_pairing_session(
+            repo_root=repo_root_from_settings(),
+            code=payload.code,
+            files=payload.files,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}") from e
 
 
 @app.get("/api/mcp/oauth/callback", response_class=HTMLResponse)
@@ -279,7 +447,7 @@ def mcp_test(_user: str = Depends(get_current_user)):
         return {
             "status": "needs_tokens",
             "detail": (
-                "No OAuth tokens are available. Use Authorize to connect Zomato; "
+                "No OAuth tokens are available. Use Connect to pair this app with Zomato; "
                 "Companion will store the session in Secrets Manager and restore it on cold starts."
             ),
             "mcp_url": mcp_url,

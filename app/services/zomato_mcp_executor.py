@@ -31,6 +31,7 @@ _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20
 _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
 _MAX_TOKEN_FILE_BYTES = 256 * 1024
 _OAUTH_PENDING_TTL_SECONDS = 15 * 60
+_PAIRING_TTL_SECONDS = 15 * 60
 
 
 def _mcp_remote_config_dir(repo_root: Path) -> Path:
@@ -684,6 +685,89 @@ def complete_web_oauth(
         "detail": "Zomato authorization completed. Run Test Connection to verify live MCP access.",
         "persisted_files": list(files.keys()),
         "mcp_url": mcp_url,
+    }
+
+
+def create_pairing_session(
+    *,
+    repo_root: Path | None = None,
+    mcp_url: str | None = None,
+) -> dict[str, Any]:
+    root = repo_root or repo_root_from_settings()
+    url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    code = secrets.token_urlsafe(18)
+    secret_payload = _mcp_token_secret()
+    if not isinstance(secret_payload, dict):
+        secret_payload = {}
+    sessions = secret_payload.get("pairing_sessions")
+    if not isinstance(sessions, dict):
+        sessions = {}
+    now = int(time.time())
+    sessions = {
+        k: v
+        for k, v in sessions.items()
+        if isinstance(v, dict) and now - int(v.get("created_at", 0)) < _PAIRING_TTL_SECONDS
+    }
+    sessions[code] = {
+        "created_at": now,
+        "mcp_url": url,
+        "mcp_remote_version": _mcp_remote_version(root) or "0.1.38",
+    }
+    secret_payload["pairing_sessions"] = sessions
+    secret_payload["updated_at"] = utc_now_iso()
+    _write_mcp_token_secret(secret_payload)
+    return {
+        "code": code,
+        "mcp_url": url,
+        "mcp_remote_version": sessions[code]["mcp_remote_version"],
+        "expires_in_seconds": _PAIRING_TTL_SECONDS,
+    }
+
+
+def complete_pairing_session(
+    *,
+    repo_root: Path | None = None,
+    code: str,
+    files: dict[str, str],
+) -> dict[str, Any]:
+    root = repo_root or repo_root_from_settings()
+    secret_payload = _mcp_token_secret()
+    sessions = secret_payload.get("pairing_sessions") if isinstance(secret_payload, dict) else None
+    if not isinstance(sessions, dict):
+        raise RuntimeError("No pairing session was found. Generate a new connection command.")
+    session = sessions.get(code)
+    if not isinstance(session, dict):
+        raise RuntimeError("Pairing code was not recognized. Generate a new connection command.")
+    if int(time.time()) - int(session.get("created_at", 0)) > _PAIRING_TTL_SECONDS:
+        sessions.pop(code, None)
+        _merge_mcp_token_secret(pairing_sessions=sessions)
+        raise RuntimeError("Pairing code expired. Generate a new connection command.")
+
+    cfg_dir = _mcp_remote_config_dir(root)
+    written: dict[str, str] = {}
+    for name, content in files.items():
+        rel = _safe_relative_token_path(name)
+        if rel is None or not content:
+            continue
+        dest = cfg_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        text = str(content)
+        dest.write_text(text, encoding="utf-8")
+        written[rel.as_posix()] = text
+
+    if not any(name.endswith("_tokens.json") for name in written):
+        raise RuntimeError("Pairing did not receive an mcp-remote tokens file.")
+
+    existing_files = secret_payload.get("files") if isinstance(secret_payload, dict) else None
+    if not isinstance(existing_files, dict):
+        existing_files = {}
+    existing_files.update(written)
+    sessions.pop(code, None)
+    _merge_mcp_token_secret(files=existing_files, pairing_sessions=sessions)
+    return {
+        "status": "ok",
+        "detail": "Zomato MCP session synced. Return to Companion and test the connection.",
+        "persisted_files": list(written.keys()),
     }
 
 
