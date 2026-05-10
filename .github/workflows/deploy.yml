@@ -53,17 +53,46 @@ jobs:
 
       - name: Populate app secrets
         run: |
-          if [ -n "$APP_SECRETS_JSON" ]; then
+          python3 -c "
+          import json, os
+          # If APP_SECRETS_JSON override is set, use it directly.
+          override = os.getenv('APP_SECRETS_JSON', '').strip()
+          if override:
+              json.loads(override)  # validate
+              with open('/tmp/secrets.json', 'w') as f:
+                  f.write(override)
+              print('Using APP_SECRETS_JSON override.')
+          else:
+              secrets = {}
+              for key in ('DEEPSEEK_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',
+                          'OPENAI_API_KEY', 'FOOD_ROUTER_PROVIDER',
+                          'ADMIN_USERNAME', 'ADMIN_PASSWORD'):
+                  val = os.getenv(key, '').strip()
+                  if val:
+                      secrets[key] = val
+              if not secrets:
+                  print('No secrets configured — skipping.')
+                  exit(0)
+              with open('/tmp/secrets.json', 'w') as f:
+                  json.dump(secrets, f)
+              print('Built secrets from individual keys.')
+          "
+          if [ -f /tmp/secrets.json ]; then
             aws secretsmanager put-secret-value \
               --secret-id companion/app \
-              --secret-string "$APP_SECRETS_JSON" \
+              --secret-string "file:///tmp/secrets.json" \
               --region "$AWS_REGION"
             echo "Secret companion/app updated."
-          else
-            echo "APP_SECRETS_JSON not set — skipping."
           fi
         env:
           APP_SECRETS_JSON: ${{ secrets.APP_SECRETS_JSON }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FOOD_ROUTER_PROVIDER: ${{ secrets.FOOD_ROUTER_PROVIDER }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
 
       - name: Smoke test
         run: |
