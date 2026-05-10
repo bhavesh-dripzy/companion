@@ -499,7 +499,10 @@ def tool_providers(_user: str = Depends(get_current_user)):
 
 
 @app.post("/api/send-message/")
-def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
+def send_whatsapp_message(
+    payload: SendMessageRequest,
+    _user: str = Depends(get_current_user),
+) -> dict[str, Any]:
     message = payload.message.strip()
     whatsapp_url = (
         f"https://wa.me/{settings.COMPANION_WHATSAPP_CC_NUMBER}?text={quote(message)}"
@@ -546,7 +549,10 @@ def send_whatsapp_message(payload: SendMessageRequest) -> dict[str, Any]:
 
 
 @app.post("/api/food/query/")
-def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
+def food_agent_full(
+    payload: FoodQueryRequest,
+    _user: str = Depends(get_current_user),
+) -> dict[str, Any]:
     provider_override = (payload.provider or "").strip()
     llm_cfg, err = resolve_llm_from_env(
         provider_override or secret_or_env("FOOD_ROUTER_PROVIDER")
@@ -630,7 +636,10 @@ def food_agent_full(payload: FoodQueryRequest) -> dict[str, Any]:
 
 
 @app.post("/api/reminders/")
-def create_reminder(payload: ReminderCreateRequest) -> dict[str, Any]:
+def create_reminder(
+    payload: ReminderCreateRequest,
+    _user: str = Depends(get_current_user),
+) -> dict[str, Any]:
     scheduler = ReminderScheduler()
     reminder = scheduler.create_reminder(
         {
@@ -643,7 +652,10 @@ def create_reminder(payload: ReminderCreateRequest) -> dict[str, Any]:
 
 
 @app.get("/api/reminders/pending/")
-def pending_reminders(member_id: str = Query(min_length=1)) -> list[dict[str, Any]]:
+def pending_reminders(
+    member_id: str = Query(min_length=1),
+    _user: str = Depends(get_current_user),
+) -> list[dict[str, Any]]:
     reminders = ReminderRepository().list_pending(member_id)
     return [
         {
@@ -659,7 +671,10 @@ def pending_reminders(member_id: str = Query(min_length=1)) -> list[dict[str, An
 
 
 @app.post("/api/reminders/respond/")
-def respond_reminder(payload: ReminderResponseRequest) -> dict[str, Any]:
+def respond_reminder(
+    payload: ReminderResponseRequest,
+    _user: str = Depends(get_current_user),
+) -> dict[str, Any]:
     try:
         reminder = ReminderScheduler().respond(
             member_id=payload.member_id,

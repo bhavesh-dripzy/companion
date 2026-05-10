@@ -10,6 +10,15 @@ from app.services.tool_runtime import execute_tool_plan_sync
 client = TestClient(app)
 
 
+def auth_headers() -> dict[str, str]:
+    response = client.post(
+        "/api/login/",
+        json={"username": "admin", "password": "admin112###"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 def test_health_check_returns_ok():
     response = client.get("/api/")
     assert response.status_code == 200
@@ -24,6 +33,7 @@ def test_send_message_optional_llm_returns_whatsapp_url(monkeypatch):
     response = client.post(
         "/api/send-message/",
         json={"message": "Dawai le aana", "llm_optional": True},
+        headers=auth_headers(),
     )
 
     assert response.status_code == 200
@@ -90,7 +100,11 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
     )
     monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
 
-    response = client.post("/api/food/query/", json={"message": "pizza near me"})
+    response = client.post(
+        "/api/food/query/",
+        json={"message": "pizza near me"},
+        headers=auth_headers(),
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -133,6 +147,7 @@ def test_food_query_executes_requested_tool_plan(monkeypatch):
     response = client.post(
         "/api/food/query/",
         json={"message": "pizza near me", "execute_tools": True},
+        headers=auth_headers(),
     )
 
     assert response.status_code == 200
@@ -142,16 +157,9 @@ def test_food_query_executes_requested_tool_plan(monkeypatch):
 
 
 def test_tool_provider_listing_includes_zomato_mcp():
-    token_response = client.post(
-        "/api/login/",
-        json={"username": "admin", "password": "admin112###"},
-    )
-    assert token_response.status_code == 200
-    token = token_response.json()["access_token"]
-
     response = client.get(
         "/api/tools/providers/",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=auth_headers(),
     )
 
     assert response.status_code == 200
@@ -180,3 +188,18 @@ def test_explicit_far_location_does_not_use_default_saved_address(monkeypatch):
     assert result["ok"] is False
     assert result["error"] == "zomato_requires_saved_address_for_requested_location"
     assert result["provider_results"]["zomato"]["diagnostics"]["requested_location"] == "Saket, Delhi"
+
+
+def test_operational_apis_require_auth():
+    checks = [
+        client.post("/api/send-message/", json={"message": "hi", "llm_optional": True}),
+        client.post("/api/food/query/", json={"message": "pizza"}),
+        client.get("/api/tools/providers/"),
+        client.get("/api/mcp/status/"),
+        client.post(
+            "/api/reminders/respond/",
+            json={"member_id": "m", "reminder_id": "r", "response": "yes"},
+        ),
+    ]
+
+    assert all(response.status_code == 401 for response in checks)
