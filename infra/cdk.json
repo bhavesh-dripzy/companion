@@ -1,0 +1,7 @@
+{
+  "app": "python app.py",
+  "context": {
+    "projectName": "companion",
+    "defaultRegion": "ap-south-1"
+  }
+}

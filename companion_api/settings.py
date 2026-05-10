@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+load_dotenv(BASE_DIR / ".env")
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
+
+FAMILIES_TABLE = os.getenv("FAMILIES_TABLE", "companion-families")
+MEMBERS_TABLE = os.getenv("MEMBERS_TABLE", "companion-members")
+MESSAGES_TABLE = os.getenv("MESSAGES_TABLE", "companion-messages")
+REMINDERS_TABLE = os.getenv("REMINDERS_TABLE", "companion-reminders")
+
+REMINDER_TARGET_ARN = os.getenv("REMINDER_TARGET_ARN", "")
+SCHEDULER_ROLE_ARN = os.getenv("SCHEDULER_ROLE_ARN", "")
+SCHEDULER_GROUP_NAME = os.getenv("SCHEDULER_GROUP_NAME", "companion-reminders")
+
+COMPANION_WHATSAPP_CC_NUMBER = os.getenv("COMPANION_WHATSAPP_CC_NUMBER", "919773687877")
+ZOMATO_MCP_URL = os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+NODE_BINARY = os.getenv("NODE_BINARY", "node")
+EXECUTE_ZOMATO_BY_DEFAULT = env_bool("EXECUTE_ZOMATO_BY_DEFAULT", False)

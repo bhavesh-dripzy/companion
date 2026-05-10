@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+venv
+ENV
+env
+__pycache__
+*.pyc
+*.pyo
+.env
+.env.*
+.mcp-auth
+db.sqlite3
+staticfiles
+node_modules
+cdk.out

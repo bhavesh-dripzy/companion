@@ -77,9 +77,12 @@ def _humanize_mcp_failure(repo_root: Path, exc: BaseException) -> str:
 
 
 def repo_root_from_settings() -> Path:
-    from django.conf import settings
+    try:
+        from django.conf import settings
 
-    return Path(settings.BASE_DIR)
+        return Path(settings.BASE_DIR)
+    except Exception:
+        return Path(__file__).resolve().parents[2]
 
 
 def substitute_address_id(obj: Any, address_id: str) -> Any:
