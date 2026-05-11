@@ -122,6 +122,11 @@ def _mcp_remote_token_relative_paths(repo_root: Path, mcp_url: str) -> dict[str,
     }
 
 
+def _has_token_file_for_url(paths: list[str], mcp_url: str) -> bool:
+    token_name = f"{_server_url_hash(mcp_url)}_tokens.json"
+    return any(str(path).replace("\\", "/").endswith("/" + token_name) or str(path) == token_name for path in paths)
+
+
 def _safe_relative_token_path(name: str) -> Path | None:
     cleaned = str(name or "").replace("\\", "/").strip().lstrip("/")
     if not cleaned:
@@ -1019,8 +1024,8 @@ def get_mcp_token_status(
         "effective_config_dir": str(_mcp_remote_effective_config_dir(root, user_id=user_id)),
         "local_files": local_paths,
         "secret_files": secret_files,
-        "has_local_tokens": expected_token_rel in local_paths,
-        "has_secret_tokens": expected_token_rel in secret_files,
+        "has_local_tokens": expected_token_rel in local_paths or _has_token_file_for_url(local_paths, url),
+        "has_secret_tokens": expected_token_rel in secret_files or _has_token_file_for_url(secret_files, url),
         "expected_files": expected,
         "expected_secret_files": expected_rel,
         "expected_tokens_present": Path(expected["tokens"]).is_file(),

@@ -213,6 +213,26 @@ def test_mcp_token_status_is_scoped_to_selected_provider(tmp_path, monkeypatch):
     assert zepto["has_secret_tokens"] is False
 
 
+def test_mcp_token_status_accepts_prior_mcp_remote_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(mcp_exec, "_mcp_remote_config_dir", lambda _root, user_id=None: tmp_path)
+    monkeypatch.setattr(mcp_exec, "_mcp_remote_version", lambda _root: "0.1.38")
+    token_hash = mcp_exec._server_url_hash("https://mcp-server.zomato.com/mcp")
+    old_version_rel = f"mcp-remote-0.1.37/{token_hash}_tokens.json"
+    monkeypatch.setattr(
+        mcp_exec,
+        "_mcp_token_secret",
+        lambda _user_id=None: {"files": {old_version_rel: '{"access_token":"zomato"}'}},
+    )
+
+    status = mcp_exec.get_mcp_token_status(
+        tmp_path,
+        mcp_url="https://mcp-server.zomato.com/mcp",
+        user_id="admin_aashish",
+    )
+
+    assert status["has_secret_tokens"] is True
+
+
 def test_food_query_is_plan_only_by_default(monkeypatch):
     plan = {
         "intent": "find_restaurant",
