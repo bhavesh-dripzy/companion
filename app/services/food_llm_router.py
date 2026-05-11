@@ -199,7 +199,38 @@ RULES:
 """
 
 
-def _system_prompt_for_tool_provider(tool_provider: str | None) -> str:
+def _system_prompt_for_tool_provider(
+    tool_provider: str | None,
+    *,
+    tool_provider_label: str | None = None,
+    tool_provider_tools: list[str] | None = None,
+) -> str:
+    if tool_provider_tools:
+        tools = "\n".join(f"- {tool}" for tool in tool_provider_tools)
+        label = tool_provider_label or tool_provider or "Custom MCP"
+        return f"""\
+You translate the user's message into a machine-ready plan for {label}.
+
+Respond with ONLY a single JSON object shaped exactly like this:
+{{
+  "intent": "<short snake_case intent label>",
+  "summary": "<one sentence what the user wants>",
+  "tool_plan": [
+    {{"tool": "<exact tool name>", "arguments": {{}}}}
+  ],
+  "constraints": {{"requires_address_resolution": false, "requested_location_text": null, "inferred_keyword": null}},
+  "execution_notes_for_downstream": "<optional hints>"
+}}
+
+TOOLS (use ONLY these exact tool strings):
+{tools}
+
+RULES:
+1. Use the smallest useful chain of tools.
+2. Never invent opaque IDs. If a later tool needs an ID, use a placeholder like "__ITEM_ID__", "__ORDER_ID__", "__CART_ID__", or "__RESTAURANT_ID__" only after an earlier tool can return it.
+3. Do not call destructive or purchasing tools unless the user explicitly confirms that action.
+4. Return ONLY valid JSON.
+"""
     if tool_provider == "swiggy_food":
         return _SWIGGY_FOOD_SYSTEM_PROMPT
     if tool_provider == "swiggy_instamart":
@@ -340,7 +371,11 @@ def _ensure_prerequisites(
     return out
 
 
-def normalize_tool_plan(tool_plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_tool_plan(
+    tool_plan: list[dict[str, Any]],
+    *,
+    allowed_tools: set[str] | None = None,
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
 
     for step in tool_plan:
@@ -353,7 +388,7 @@ def normalize_tool_plan(tool_plan: list[dict[str, Any]]) -> list[dict[str, Any]]
         if not isinstance(tool, str):
             continue
 
-        if tool not in _ALLOWED_TOOLS:
+        if tool not in (allowed_tools or _ALLOWED_TOOLS):
             continue
 
         if not isinstance(arguments, dict):
@@ -402,11 +437,13 @@ def _finalize_from_parsed_json(
     model: str,
     trace_id: str,
     tool_provider: str | None = None,
+    allowed_tools: set[str] | None = None,
 ) -> dict[str, Any]:
     tool_plan_raw = data.get("tool_plan")
 
     tool_plan = normalize_tool_plan(
-        tool_plan_raw if isinstance(tool_plan_raw, list) else []
+        tool_plan_raw if isinstance(tool_plan_raw, list) else [],
+        allowed_tools=allowed_tools,
     )
 
     constraints = data.get("constraints")
@@ -504,12 +541,23 @@ def route_food_query(
     base_url: str | None = None,
     tool_provider: str | None = None,
     tool_providers: set[str] | None = None,
+    tool_provider_label: str | None = None,
+    tool_provider_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     if tool_providers:
         comparison = _comparison_plan(user_message, tool_providers)
         if comparison is not None:
             return comparison
-    system_prompt = _system_prompt_for_tool_provider(tool_provider)
+    allowed_tools = (
+        {tool for tool in tool_provider_tools if isinstance(tool, str) and tool.strip()}
+        if tool_provider_tools
+        else None
+    )
+    system_prompt = _system_prompt_for_tool_provider(
+        tool_provider,
+        tool_provider_label=tool_provider_label,
+        tool_provider_tools=sorted(allowed_tools) if allowed_tools else None,
+    )
 
     # =========================
     # OPENAI  &  DEEPSEEK
@@ -532,6 +580,7 @@ def route_food_query(
             model=model,
             trace_id=tid or "",
             tool_provider=tool_provider,
+            allowed_tools=allowed_tools,
         )
 
     # =========================
@@ -567,4 +616,5 @@ USER:
         model=model,
         trace_id="",
         tool_provider=tool_provider,
+        allowed_tools=allowed_tools,
     )

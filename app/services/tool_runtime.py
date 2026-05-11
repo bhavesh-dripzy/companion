@@ -3,9 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import re
+import time
 from typing import Any
 
-from app.services.zomato_mcp_executor import run_tool_plan_sync
+from app.services.zomato_mcp_executor import (
+    _mcp_token_secret,
+    _merge_mcp_token_secret,
+    run_tool_plan_sync,
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +22,7 @@ class ToolProvider:
     default_mcp_url: str | None = None
     available: bool = True
     notes: str = ""
+    custom: bool = False
 
 
 ZOMATO_PROVIDER = ToolProvider(
@@ -124,13 +130,14 @@ ZEPTO_PROVIDER = ToolProvider(
     ),
 )
 
-PROVIDERS = (
+BUILTIN_PROVIDERS = (
     ZOMATO_PROVIDER,
     SWIGGY_FOOD_PROVIDER,
     SWIGGY_INSTAMART_PROVIDER,
     BLINKIT_PROVIDER,
     ZEPTO_PROVIDER,
 )
+PROVIDERS = BUILTIN_PROVIDERS
 
 _SAVED_LOCATION_WORDS = {
     "me",
@@ -146,24 +153,224 @@ _SAVED_LOCATION_WORDS = {
 }
 
 
+def _slugify_provider_id(label: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    if not slug:
+        slug = "custom_mcp"
+    if not slug.startswith("custom_"):
+        slug = f"custom_{slug}"
+    return slug[:48]
+
+
+def _custom_provider_records() -> dict[str, dict[str, Any]]:
+    payload = _mcp_token_secret()
+    records = payload.get("custom_providers") if isinstance(payload, dict) else None
+    if not isinstance(records, dict):
+        return {}
+    return {
+        str(pid): record
+        for pid, record in records.items()
+        if isinstance(record, dict)
+    }
+
+
+def _custom_providers() -> tuple[ToolProvider, ...]:
+    providers: list[ToolProvider] = []
+    for pid, record in _custom_provider_records().items():
+        label = str(record.get("label") or pid).strip() or pid
+        mcp_url = str(record.get("mcp_url") or "").strip()
+        if not mcp_url:
+            continue
+        raw_tools = record.get("tools")
+        tools = (
+            frozenset(str(tool).strip() for tool in raw_tools if str(tool).strip())
+            if isinstance(raw_tools, list)
+            else frozenset()
+        )
+        providers.append(
+            ToolProvider(
+                name=pid,
+                label=label,
+                tools=tools,
+                default_mcp_url=mcp_url,
+                available=True,
+                notes=str(record.get("notes") or "Custom MCP added from the UI.").strip(),
+                custom=True,
+            )
+        )
+    return tuple(providers)
+
+
+def all_tool_providers() -> tuple[ToolProvider, ...]:
+    return BUILTIN_PROVIDERS + _custom_providers()
+
+
+def save_custom_tool_provider(
+    *,
+    label: str,
+    mcp_url: str,
+    tools: list[str] | None = None,
+    provider_id: str | None = None,
+) -> dict[str, Any]:
+    clean_label = label.strip()
+    clean_url = mcp_url.strip()
+    if not clean_label:
+        raise ValueError("MCP name is required.")
+    if not clean_url.startswith(("https://", "http://")):
+        raise ValueError("MCP URL must start with https:// or http://.")
+    pid = provider_id.strip() if provider_id else _slugify_provider_id(clean_label)
+    builtin_ids = {provider.name for provider in BUILTIN_PROVIDERS}
+    if pid in builtin_ids:
+        pid = f"custom_{pid}"
+    records = _custom_provider_records()
+    base = pid
+    counter = 2
+    while pid in records and records[pid].get("mcp_url") != clean_url:
+        pid = f"{base}_{counter}"
+        counter += 1
+    records[pid] = {
+        "id": pid,
+        "label": clean_label,
+        "mcp_url": clean_url,
+        "tools": sorted({str(tool).strip() for tool in (tools or []) if str(tool).strip()}),
+        "notes": "Custom MCP added from the UI.",
+        "updated_at": int(time.time()),
+    }
+    _merge_mcp_token_secret(custom_providers=records)
+    return provider_to_dict(get_tool_provider(pid) or _custom_providers()[-1])
+
+
+def update_custom_provider_tools(provider_id: str, tools: list[str]) -> None:
+    records = _custom_provider_records()
+    record = records.get(provider_id)
+    if not isinstance(record, dict):
+        return
+    record["tools"] = sorted({str(tool).strip() for tool in tools if str(tool).strip()})
+    record["updated_at"] = int(time.time())
+    records[provider_id] = record
+    _merge_mcp_token_secret(custom_providers=records)
+
+
+def delete_custom_tool_provider(provider_id: str) -> bool:
+    records = _custom_provider_records()
+    if provider_id not in records:
+        return False
+    records.pop(provider_id, None)
+    _merge_mcp_token_secret(custom_providers=records)
+    return True
+
+
+def provider_to_dict(provider: ToolProvider) -> dict[str, Any]:
+    return {
+        "id": provider.name,
+        "label": provider.label,
+        "available": provider.available,
+        "custom": provider.custom,
+        "mcp_url": provider.default_mcp_url if provider.custom else None,
+        "tool_count": len(provider.tools),
+        "tools": sorted(provider.tools),
+        "notes": provider.notes,
+    }
+
+
 def list_tool_providers() -> list[dict[str, Any]]:
-    return [
-        {
-            "id": provider.name,
-            "label": provider.label,
-            "available": provider.available,
-            "tool_count": len(provider.tools),
-            "tools": sorted(provider.tools),
-            "notes": provider.notes,
-        }
-        for provider in PROVIDERS
-    ]
+    return [provider_to_dict(provider) for provider in all_tool_providers()]
+
+
+def select_tool_providers_for_message(message: str) -> set[str]:
+    text = f" {message.lower()} "
+    providers = {provider.name: provider for provider in all_tool_providers() if provider.available}
+
+    asks_compare = any(token in text for token in (" compare ", " vs ", " versus ", " cheaper ", " faster ", " better "))
+    mentions_zomato = "zomato" in text
+    mentions_swiggy = "swiggy" in text
+    mentions_instamart = "instamart" in text
+    mentions_zepto = "zepto" in text
+
+    selected: set[str] = set()
+    if asks_compare and (mentions_zomato or mentions_swiggy):
+        if "zomato" in providers:
+            selected.add("zomato")
+        if "swiggy_food" in providers:
+            selected.add("swiggy_food")
+        if selected:
+            return selected
+
+    grocery_words = {
+        "grocery",
+        "groceries",
+        "milk",
+        "bread",
+        "eggs",
+        "egg",
+        "atta",
+        "rice",
+        "dal",
+        "vegetables",
+        "fruits",
+        "snacks",
+        "household",
+        "cart",
+    }
+    restaurant_words = {
+        "restaurant",
+        "restaurants",
+        "pizza",
+        "biryani",
+        "dosa",
+        "burger",
+        "dinner",
+        "lunch",
+        "breakfast",
+        "menu",
+        "food",
+        "cuisine",
+    }
+
+    if mentions_zepto and "zepto" in providers:
+        selected.add("zepto")
+    if mentions_instamart and "swiggy_instamart" in providers:
+        selected.add("swiggy_instamart")
+    elif mentions_swiggy and any(word in text for word in grocery_words) and "swiggy_instamart" in providers:
+        selected.add("swiggy_instamart")
+    elif mentions_swiggy and "swiggy_food" in providers:
+        selected.add("swiggy_food")
+
+    if mentions_zomato and "zomato" in providers:
+        selected.add("zomato")
+
+    if selected:
+        return selected
+
+    for provider in providers.values():
+        if provider.custom and provider.label.lower() in text:
+            selected.add(provider.name)
+    if selected:
+        return selected
+
+    if any(word in text for word in grocery_words):
+        if "zepto" in providers:
+            return {"zepto"}
+        if "swiggy_instamart" in providers:
+            return {"swiggy_instamart"}
+
+    if any(word in text for word in restaurant_words):
+        if asks_compare and "zomato" in providers and "swiggy_food" in providers:
+            return {"zomato", "swiggy_food"}
+        if "zomato" in providers:
+            return {"zomato"}
+        if "swiggy_food" in providers:
+            return {"swiggy_food"}
+
+    if "zomato" in providers:
+        return {"zomato"}
+    return {next(iter(providers.keys()))} if providers else set()
 
 
 def provider_for_tool(tool_name: str, enabled_providers: set[str] | None = None) -> str | None:
-    providers = PROVIDERS
+    providers = all_tool_providers()
     if enabled_providers is not None:
-        providers = tuple(provider for provider in PROVIDERS if provider.name in enabled_providers)
+        providers = tuple(provider for provider in all_tool_providers() if provider.name in enabled_providers)
     for provider in providers:
         if tool_name in provider.tools:
             return provider.name
@@ -172,7 +379,7 @@ def provider_for_tool(tool_name: str, enabled_providers: set[str] | None = None)
 
 def get_tool_provider(name: str) -> ToolProvider | None:
     needle = name.strip()
-    for provider in PROVIDERS:
+    for provider in all_tool_providers():
         if provider.name == needle:
             return provider
     return None
@@ -189,6 +396,10 @@ def route_tool_plan(
             continue
         tool_name = str(step.get("tool") or "").strip()
         provider = provider_for_tool(tool_name, enabled_providers=enabled_providers)
+        if not provider and enabled_providers and len(enabled_providers) == 1:
+            only = get_tool_provider(next(iter(enabled_providers)))
+            if only and only.custom:
+                provider = only.name
         if not provider:
             routed.setdefault("_unsupported", []).append(step)
             continue
@@ -316,7 +527,8 @@ def execute_tool_plan_sync(
             address_id=address_id,
         )
 
-    for name in ("swiggy_food", "swiggy_instamart", "zepto"):
+    routed_names = tuple(name for name in sorted(routed.keys()) if name != "zomato")
+    for name in routed_names:
         if name not in routed:
             continue
         provider = get_tool_provider(name)

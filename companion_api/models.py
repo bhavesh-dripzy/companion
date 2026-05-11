@@ -19,6 +19,7 @@ class SendMessageRequest(BaseModel):
 
 class FoodQueryRequest(BaseModel):
     message: str = Field(min_length=1)
+    history: list[dict[str, str]] | None = None
     address_id: str | None = None
     provider: str | None = None
     tool_provider: str | None = None
@@ -26,6 +27,12 @@ class FoodQueryRequest(BaseModel):
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
     include_raw_zomato: bool = False
+
+
+class CustomMcpProviderRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    mcp_url: str = Field(min_length=8, max_length=500)
+    tools: list[str] | None = None
 
 
 class ReminderCreateRequest(BaseModel):

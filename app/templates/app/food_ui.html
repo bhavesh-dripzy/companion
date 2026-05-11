@@ -137,7 +137,14 @@
     .surface-header h2, .panel-title h2 { margin: 0; font-size: 16px; }
     .surface-header p, .panel-title p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
     .workspace-body { padding: 20px; }
-    .query-grid { display: grid; grid-template-columns: minmax(0, 1fr) 150px 104px; gap: 10px; margin-bottom: 16px; }
+    .query-grid { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 10px; margin-top: 14px; }
+    .chat-log { min-height: 420px; max-height: 58vh; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px 4px 14px; }
+    .message { max-width: min(760px, 88%); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; line-height: 1.5; font-size: 14px; white-space: pre-wrap; }
+    .message.user { align-self: flex-end; background: #111827; color: white; border-color: #111827; }
+    .message.assistant { align-self: flex-start; background: var(--panel-soft); color: var(--text); }
+    .message.meta { align-self: flex-start; max-width: 100%; background: white; color: var(--muted); font-size: 12px; border-style: dashed; }
+    .chat-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .mini-pill { display: inline-flex; align-items: center; border-radius: 999px; background: #eef2f7; color: #374151; padding: 3px 8px; font-size: 11px; font-weight: 700; }
     .quick-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
     .chip { border: 1px solid var(--line); color: #374151; background: white; min-height: 34px; padding: 7px 10px; font-weight: 600; font-size: 12px; }
     .chip:hover { background: #f9fafb; }
@@ -167,6 +174,14 @@
     .file-list button { min-height: 26px; padding: 2px 8px; font-size: 12px; }
     .small-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 8px 0 0; }
     .setting-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .custom-mcp-grid { display: grid; gap: 8px; }
+    .provider-list { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+    .provider-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px 12px; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 8px; }
+    .provider-list strong { display: block; font-size: 13px; }
+    .provider-list span { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; margin-top: 2px; }
+    .provider-list button { min-height: 32px; padding: 5px 9px; font-size: 12px; }
+    .diagnostics { margin-top: 12px; }
+    .diagnostics summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 700; }
     .divider { height: 1px; background: var(--line); margin: 16px 0; }
     .toast { color: #374151; font-size: 13px; margin-top: 10px; line-height: 1.45; }
     @media (max-width: 980px) {
@@ -220,25 +235,22 @@
       <section class="surface">
         <div class="surface-header">
           <div>
-            <h2>Food Search</h2>
-            <p>Route a request, choose the tool provider, and execute the selected MCP when available.</p>
+            <h2>Chat</h2>
+            <p>Ask naturally. Companion chooses the right MCP and keeps context across turns.</p>
           </div>
           <span id="mcpMiniBadge" class="badge neutral">Unknown</span>
         </div>
         <div class="workspace-body">
-          <div class="query-grid">
-            <input id="message" placeholder="Find pizza near MG Road Bengaluru">
-            <select id="toolProviderSelect">
-              <option value="zomato">Zomato MCP</option>
-            </select>
-            <button id="sendBtn">Search</button>
-          </div>
+          <div id="chatLog" class="chat-log"></div>
           <div class="quick-row">
-            <button class="chip" data-query="Find good biryani near my saved address">Biryani near me</button>
-            <button class="chip" data-query="Search for pizza restaurants near my saved address">Pizza search</button>
-            <button class="chip" data-query="Find budget-friendly dinner options nearby">Dinner options</button>
+            <button class="chip" data-query="Find good biryani near my saved address">Biryani</button>
+            <button class="chip" data-query="Compare pizza on Zomato vs Swiggy near me">Compare pizza</button>
+            <button class="chip" data-query="Search milk and brown bread on Zepto">Groceries</button>
           </div>
-          <pre id="output">Results will appear here.</pre>
+          <div class="query-grid">
+            <input id="message" placeholder="Ask for restaurants, groceries, carts, orders, or comparisons">
+            <button id="sendBtn">Send</button>
+          </div>
         </div>
       </section>
 
@@ -247,7 +259,7 @@
           <div class="surface-header">
             <div class="panel-title">
               <h2>MCP Connection</h2>
-              <p>Bridge, token store, and live Zomato session.</p>
+              <p>Bridge, token store, and live MCP session.</p>
             </div>
           </div>
           <div class="panel-body">
@@ -255,17 +267,26 @@
               <strong>Status</strong>
               <span id="mcpStatusBadge" class="badge neutral">Unknown</span>
             </div>
+            <div class="field">
+              <label for="toolProviderSelect">Configure MCP</label>
+              <select id="toolProviderSelect">
+                <option value="zomato">Zomato MCP</option>
+              </select>
+            </div>
             <div id="mcpDetail" class="detail">Open this panel status to inspect the MCP setup.</div>
             <div class="button-row three">
               <button id="mcpCheckBtn" class="secondary">Refresh</button>
               <button id="mcpOauthBtn" class="secondary">Connect</button>
               <button id="mcpTestBtn">Test</button>
             </div>
-            <ul id="mcpFacts" class="info-list"></ul>
+            <details class="diagnostics">
+              <summary>Diagnostics</summary>
+              <ul id="mcpFacts" class="info-list"></ul>
+            </details>
             <div id="mcpGuide" class="hidden">
               <div class="divider"></div>
               <ul class="info-list">
-                <li>Run the generated command on your laptop. It opens Zomato locally and syncs the MCP session back automatically.</li>
+                <li>Run the generated command on your laptop. It opens the selected provider locally and syncs the MCP session back automatically.</li>
                 <li>The command expires quickly and does not require pasting token files into the app.</li>
               </ul>
             </div>
@@ -277,8 +298,32 @@
                 <button id="copyPairingBtn" class="secondary">Copy Command</button>
                 <button id="pollPairingBtn">Refresh Status</button>
               </div>
-              <p class="small-note">After the command finishes, click Test to verify live Zomato MCP access.</p>
+              <p class="small-note">After the command finishes, click Test to verify live MCP access and discover tools.</p>
             </div>
+          </div>
+        </section>
+
+        <section class="surface">
+          <div class="surface-header">
+            <div class="panel-title">
+              <h2>Add MCP</h2>
+              <p>Register any MCP endpoint and connect it with the same flow.</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="custom-mcp-grid">
+              <div>
+                <label for="customMcpName">Name</label>
+                <input id="customMcpName" placeholder="My MCP">
+              </div>
+              <div>
+                <label for="customMcpUrl">MCP URL</label>
+                <input id="customMcpUrl" placeholder="https://example.com/mcp">
+              </div>
+              <button id="addCustomMcpBtn" class="secondary">Add MCP</button>
+            </div>
+            <div id="customMcpToast" class="toast"></div>
+            <ul id="customMcpList" class="provider-list"></ul>
           </div>
         </section>
 
@@ -319,7 +364,7 @@
     const logoutBtn = document.getElementById("logoutBtn");
     const sendBtn = document.getElementById("sendBtn");
     const messageInput = document.getElementById("message");
-    const output = document.getElementById("output");
+    const chatLog = document.getElementById("chatLog");
     const toolProviderSelect = document.getElementById("toolProviderSelect");
     const settingsProvider = document.getElementById("settingsProvider");
     const saveProviderBtn = document.getElementById("saveProviderBtn");
@@ -336,6 +381,13 @@
     const pairingCommand = document.getElementById("pairingCommand");
     const copyPairingBtn = document.getElementById("copyPairingBtn");
     const pollPairingBtn = document.getElementById("pollPairingBtn");
+    const customMcpName = document.getElementById("customMcpName");
+    const customMcpUrl = document.getElementById("customMcpUrl");
+    const addCustomMcpBtn = document.getElementById("addCustomMcpBtn");
+    const customMcpToast = document.getElementById("customMcpToast");
+    const customMcpList = document.getElementById("customMcpList");
+    let knownProviders = [];
+    let chatHistory = [];
 
     function token() { return localStorage.getItem(TOKEN_KEY); }
     function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
@@ -344,13 +396,11 @@
     function setProvider(p) { localStorage.setItem(PROVIDER_KEY, p); }
     function toolProvider() { return localStorage.getItem(TOOL_PROVIDER_KEY) || "zomato"; }
     function setToolProvider(p) { localStorage.setItem(TOOL_PROVIDER_KEY, p); }
-    function selectedToolProviders() {
-      if (toolProviderSelect.value === "compare_food") return ["zomato", "swiggy_food"];
-      return [toolProviderSelect.value];
-    }
     function primaryToolProvider() {
-      const providers = selectedToolProviders();
-      return providers[0] || "zomato";
+      return toolProviderSelect.value || "zomato";
+    }
+    function selectedProviderMeta() {
+      return knownProviders.find(p => p.id === primaryToolProvider()) || null;
     }
 
     async function api(method, path, body) {
@@ -413,8 +463,10 @@
       userTag.textContent = username || localStorage.getItem(USER_KEY) || "admin";
       toolProviderSelect.value = toolProvider();
       settingsProvider.value = provider();
-      checkMcp();
-      loadToolProviders();
+      if (!chatHistory.length) {
+        appendMessage("assistant", "Tell me what you need. I can use Zomato, Swiggy, Zepto, Instamart, or a custom MCP you connect.");
+      }
+      loadToolProviders().then(checkMcp);
     }
 
     async function init() {
@@ -431,6 +483,29 @@
     function setBadge(el, label, tone) {
       el.textContent = label;
       el.className = "badge " + (tone || "neutral");
+    }
+
+    function appendMessage(role, content, meta) {
+      const node = document.createElement("div");
+      node.className = "message " + role;
+      node.textContent = content;
+      if (meta && meta.length) {
+        const row = document.createElement("div");
+        row.className = "chat-meta";
+        for (const item of meta) {
+          const pill = document.createElement("span");
+          pill.className = "mini-pill";
+          pill.textContent = item;
+          row.appendChild(pill);
+        }
+        node.appendChild(row);
+      }
+      chatLog.appendChild(node);
+      chatLog.scrollTop = chatLog.scrollHeight;
+      if (role === "user" || role === "assistant") {
+        chatHistory.push({ role, content });
+        chatHistory = chatHistory.slice(-16);
+      }
     }
 
     function renderFacts(data) {
@@ -455,12 +530,9 @@
       try {
         const data = await api("GET", "/api/tools/providers/");
         const providers = Array.isArray(data.providers) ? data.providers : [];
+        knownProviders = providers;
         const current = toolProvider();
         toolProviderSelect.innerHTML = "";
-        const compareOption = document.createElement("option");
-        compareOption.value = "compare_food";
-        compareOption.textContent = "Compare Zomato + Swiggy";
-        toolProviderSelect.appendChild(compareOption);
         for (const provider of providers) {
           const option = document.createElement("option");
           option.value = provider.id;
@@ -478,8 +550,37 @@
         }
         toolProviderSelect.value = [...toolProviderSelect.options].some(o => o.value === current && !o.disabled) ? current : toolProviderSelect.options[0].value;
         setToolProvider(toolProviderSelect.value);
+        renderCustomProviders();
       } catch {
         toolProviderSelect.innerHTML = '<option value="zomato">Zomato MCP</option>';
+        knownProviders = [];
+      }
+    }
+
+    function renderCustomProviders() {
+      const custom = knownProviders.filter(p => p.custom);
+      customMcpList.innerHTML = "";
+      for (const provider of custom) {
+        const li = document.createElement("li");
+        const meta = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = provider.label || provider.id;
+        const detail = document.createElement("span");
+        detail.textContent = (provider.mcp_url || "") + " · " + String(provider.tool_count || 0) + " tools";
+        meta.appendChild(title);
+        meta.appendChild(detail);
+        const remove = document.createElement("button");
+        remove.className = "ghost";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => removeCustomMcp(provider.id));
+        li.appendChild(meta);
+        li.appendChild(remove);
+        customMcpList.appendChild(li);
+      }
+      if (!custom.length) {
+        const li = document.createElement("li");
+        li.innerHTML = "<div><strong>No custom MCPs yet</strong><span>Add an endpoint above, then select it and use Connect.</span></div>";
+        customMcpList.appendChild(li);
       }
     }
 
@@ -528,7 +629,7 @@
       mcpTestBtn.disabled = true;
       setBadge(mcpStatusBadge, "Connecting", "warn");
       setBadge(mcpMiniBadge, "Connecting", "warn");
-      mcpDetail.textContent = "Testing live Zomato MCP access.";
+      mcpDetail.textContent = "Testing live MCP access.";
       try {
         const data = await api("POST", "/api/mcp/test/?provider=" + encodeURIComponent(primaryToolProvider()));
         if (data.status === "connected") {
@@ -536,6 +637,7 @@
           setBadge(mcpMiniBadge, "Connected", "ok");
           mcpDetail.textContent = data.detail || "Connected.";
           showPairingCommand("");
+          await loadToolProviders();
         } else {
           setBadge(mcpStatusBadge, data.status || "Failed", "err");
           setBadge(mcpMiniBadge, data.status || "Failed", "err");
@@ -557,7 +659,7 @@
       try {
         const data = await api("POST", "/api/mcp/pairing/?provider=" + encodeURIComponent(primaryToolProvider()));
         if (data.status === "pairing_ready" && data.command) {
-          mcpDetail.textContent = data.detail || "Run the command below to connect Zomato.";
+          mcpDetail.textContent = data.detail || "Run the command below to connect the selected MCP.";
           setBadge(mcpStatusBadge, "Pairing ready", "warn");
           setBadge(mcpMiniBadge, "Pairing ready", "warn");
           showPairingCommand(data.command);
@@ -574,29 +676,71 @@
       }
     }
 
+    async function addCustomMcp() {
+      const label = customMcpName.value.trim();
+      const mcp_url = customMcpUrl.value.trim();
+      customMcpToast.textContent = "";
+      if (!label || !mcp_url) {
+        customMcpToast.textContent = "Enter a name and MCP URL.";
+        return;
+      }
+      addCustomMcpBtn.disabled = true;
+      try {
+        const data = await api("POST", "/api/tools/providers/custom/", { label, mcp_url });
+        const provider = data.provider || {};
+        customMcpName.value = "";
+        customMcpUrl.value = "";
+        customMcpToast.textContent = "Added. Select it, click Connect, then Test to discover tools.";
+        await loadToolProviders();
+        if (provider.id) {
+          toolProviderSelect.value = provider.id;
+          setToolProvider(provider.id);
+          await checkMcp();
+        }
+      } catch (err) {
+        customMcpToast.textContent = err.message || "Could not add MCP.";
+      } finally {
+        addCustomMcpBtn.disabled = false;
+      }
+    }
+
+    async function removeCustomMcp(providerId) {
+      if (!providerId) return;
+      customMcpToast.textContent = "";
+      try {
+        await api("DELETE", "/api/tools/providers/custom/" + encodeURIComponent(providerId));
+        if (toolProviderSelect.value === providerId) setToolProvider("zomato");
+        await loadToolProviders();
+        customMcpToast.textContent = "Removed custom MCP.";
+        await checkMcp();
+      } catch (err) {
+        customMcpToast.textContent = err.message || "Could not remove MCP.";
+      }
+    }
+
     async function runQuery() {
       const msg = messageInput.value.trim();
       if (!msg) {
-        output.textContent = "Enter a food request first.";
+        appendMessage("meta", "Enter a message first.");
         return;
       }
       sendBtn.disabled = true;
-      output.textContent = "Working...";
+      messageInput.value = "";
+      appendMessage("user", msg);
       try {
-        const body = { message: msg, execute_tools: true };
-        if (toolProviderSelect.value === "compare_food") {
-          body.tool_providers = selectedToolProviders();
-        } else {
-          body.tool_provider = toolProviderSelect.value;
-        }
+        const body = { message: msg, execute_tools: true, history: chatHistory.slice(0, -1) };
         const selectedModelProvider = provider();
         if (selectedModelProvider && selectedModelProvider !== "auto") body.provider = selectedModelProvider;
         const data = await api("POST", "/api/food/query/", body);
-        output.textContent = JSON.stringify(data, null, 2);
+        const assistant = data.assistant_message || "I handled the request.";
+        const routed = Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : [];
+        const ok = data.tool_execution && data.tool_execution.ok === true ? "tools ok" : data.tool_execution && data.tool_execution.error ? data.tool_execution.error : "";
+        appendMessage("assistant", assistant, [...routed, ok].filter(Boolean));
       } catch (err) {
-        output.textContent = "Request failed: " + (err.message || String(err));
+        appendMessage("assistant", "Request failed: " + (err.message || String(err)));
       } finally {
         sendBtn.disabled = false;
+        messageInput.focus();
       }
     }
 
@@ -613,6 +757,7 @@
     mcpTopCheckBtn.addEventListener("click", checkMcp);
     mcpTestBtn.addEventListener("click", testMcp);
     mcpOauthBtn.addEventListener("click", startOauth);
+    addCustomMcpBtn.addEventListener("click", addCustomMcp);
     toolProviderSelect.addEventListener("change", () => {
       setToolProvider(toolProviderSelect.value);
       checkMcp();

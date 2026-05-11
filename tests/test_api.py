@@ -6,7 +6,11 @@ from companion_api import main as api_main
 from app.services import zomato_mcp_executor as mcp_exec
 from app.services.food_llm_router import _finalize_from_parsed_json
 from app.services.food_llm_router import route_food_query
-from app.services.tool_runtime import execute_tool_plan_sync, list_tool_providers
+from app.services.tool_runtime import (
+    execute_tool_plan_sync,
+    list_tool_providers,
+    select_tool_providers_for_message,
+)
 
 
 client = TestClient(app)
@@ -273,6 +277,15 @@ def test_compare_zomato_swiggy_uses_both_provider_plans():
     assert plan["constraints"]["comparison_providers"] == ["swiggy_food", "zomato"]
 
 
+def test_provider_selection_is_inferred_from_message():
+    assert select_tool_providers_for_message("Compare pizza on Zomato vs Swiggy near me") == {
+        "zomato",
+        "swiggy_food",
+    }
+    assert select_tool_providers_for_message("Search milk and brown bread") == {"zepto"}
+    assert select_tool_providers_for_message("Find biryani near me") == {"zomato"}
+
+
 def test_compare_query_executes_multiple_tool_providers(monkeypatch):
     calls = {}
 
@@ -323,11 +336,52 @@ def test_zepto_provider_uses_official_endpoint_tooling():
     assert "search_products" in providers["zepto"]["tools"]
 
 
+def test_custom_mcp_can_be_added_listed_and_removed(monkeypatch):
+    store = {}
+
+    def fake_secret():
+        return dict(store)
+
+    def fake_merge(**updates):
+        store.update(updates)
+        return dict(store)
+
+    monkeypatch.setattr("app.services.tool_runtime._mcp_token_secret", fake_secret)
+    monkeypatch.setattr("app.services.tool_runtime._merge_mcp_token_secret", fake_merge)
+
+    response = client.post(
+        "/api/tools/providers/custom/",
+        json={"label": "Linear MCP", "mcp_url": "https://linear.example.com/mcp"},
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    provider_id = response.json()["provider"]["id"]
+    assert provider_id.startswith("custom_linear_mcp")
+
+    listed = client.get("/api/tools/providers/", headers=auth_headers())
+    providers = {provider["id"]: provider for provider in listed.json()["providers"]}
+    assert providers[provider_id]["custom"] is True
+    assert providers[provider_id]["mcp_url"] == "https://linear.example.com/mcp"
+
+    deleted = client.delete(
+        f"/api/tools/providers/custom/{provider_id}",
+        headers=auth_headers(),
+    )
+    assert deleted.status_code == 200
+    assert provider_id not in store.get("custom_providers", {})
+
+
 def test_operational_apis_require_auth():
     checks = [
         client.post("/api/send-message/", json={"message": "hi", "llm_optional": True}),
         client.post("/api/food/query/", json={"message": "pizza"}),
         client.get("/api/tools/providers/"),
+        client.post(
+            "/api/tools/providers/custom/",
+            json={"label": "X", "mcp_url": "https://example.com/mcp"},
+        ),
+        client.get("/api/mcp/tools/?provider=zomato"),
         client.get("/api/mcp/status/"),
         client.post(
             "/api/reminders/respond/",

@@ -806,6 +806,21 @@ def create_pairing_session(
     }
 
 
+def get_pairing_session_info(code: str) -> dict[str, Any] | None:
+    secret_payload = _mcp_token_secret()
+    sessions = secret_payload.get("pairing_sessions") if isinstance(secret_payload, dict) else None
+    if not isinstance(sessions, dict):
+        return None
+    session = sessions.get(code)
+    if not isinstance(session, dict):
+        return None
+    if int(time.time()) - int(session.get("created_at", 0)) > _PAIRING_TTL_SECONDS:
+        sessions.pop(code, None)
+        _merge_mcp_token_secret(pairing_sessions=sessions)
+        return None
+    return dict(session)
+
+
 def complete_pairing_session(
     *,
     repo_root: Path | None = None,
@@ -848,7 +863,7 @@ def complete_pairing_session(
     _merge_mcp_token_secret(files=existing_files, pairing_sessions=sessions)
     return {
         "status": "ok",
-        "detail": "Zomato MCP session synced. Return to Companion and test the connection.",
+        "detail": "MCP session synced. Return to Companion and test the connection.",
         "persisted_files": list(written.keys()),
     }
 
@@ -1114,4 +1129,70 @@ def run_tool_plan_sync(
             "error_detail": _humanize_mcp_failure(root, e),
             "steps": [],
             "diagnostics": {"mcp_remote_config_dir": str(_mcp_remote_config_dir(root))},
+        }
+
+
+async def _list_tools_inner(
+    repo_root: Path,
+    mcp_url: str,
+    node_binary: str,
+) -> list[dict[str, Any]]:
+    try:
+        from mcp import ClientSession
+        from mcp.client.stdio import StdioServerParameters, stdio_client
+    except ImportError as e:
+        raise RuntimeError(
+            "Python MCP SDK is not installed for this interpreter. Use Python 3.10+ "
+            "and install requirements.txt, or run the Lambda Python 3.12 runtime."
+        ) from e
+
+    proxy_script = repo_root / "node_modules/mcp-remote/dist/proxy.js"
+    if not proxy_script.is_file():
+        raise RuntimeError("mcp-remote is not installed — run npm install at the repo root.")
+
+    params = StdioServerParameters(
+        command=node_binary,
+        args=[str(proxy_script), mcp_url],
+        cwd=str(repo_root),
+        env=_stdio_env(repo_root),
+    )
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await asyncio.wait_for(session.initialize(), timeout=_MCP_INIT_TIMEOUT_SECONDS)
+            result = await asyncio.wait_for(session.list_tools(), timeout=_MCP_TOOL_TIMEOUT_SECONDS)
+            tools = getattr(result, "tools", None) or []
+            out: list[dict[str, Any]] = []
+            for tool in tools:
+                name = str(getattr(tool, "name", "") or "").strip()
+                if not name:
+                    continue
+                out.append(
+                    {
+                        "name": name,
+                        "description": str(getattr(tool, "description", "") or ""),
+                    }
+                )
+            return out
+
+
+def list_mcp_tools_sync(
+    *,
+    repo_root: Path | None = None,
+    mcp_url: str | None = None,
+    node_binary: str | None = None,
+) -> dict[str, Any]:
+    root = repo_root or repo_root_from_settings()
+    url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    node = node_binary or os.getenv("NODE_BINARY", "node")
+    try:
+        tools = asyncio.run(_list_tools_inner(root, url, node))
+        return {"ok": True, "tools": tools, "mcp_url": url}
+    except BaseException as e:
+        logger.exception("MCP tool listing failed")
+        return {
+            "ok": False,
+            "error_class": type(e).__name__,
+            "error_detail": _humanize_mcp_failure(root, e),
+            "tools": [],
+            "mcp_url": url,
         }
