@@ -539,14 +539,6 @@ def _mcp_token_secret(user_id: str | None = None):
             if key in payload
         }
         return legacy
-    # General fallback: any user can access root-level token data
-    if isinstance(payload, dict):
-        fallback = {
-            key: payload[key]
-            for key in ("files", "custom_providers", "pairing_sessions", "oauth_pending")
-            if key in payload
-        }
-        return fallback
     return {}
 
 

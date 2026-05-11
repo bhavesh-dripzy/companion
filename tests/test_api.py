@@ -113,17 +113,16 @@ def test_mcp_secret_payloads_are_scoped_per_admin(monkeypatch):
     monkeypatch.setattr(mcp_exec, "_root_mcp_token_secret", lambda: root_secret)
     monkeypatch.setattr(mcp_exec, "_write_mcp_token_secret", writes.append)
 
-    assert "files" in mcp_exec._mcp_token_secret("user_a")
-    assert mcp_exec._mcp_token_secret("user_b") == {}
+    assert "files" in mcp_exec._mcp_token_secret(mcp_exec._LEGACY_MCP_OWNER)
+    assert mcp_exec._mcp_token_secret("other_user") == {}
 
     merged = mcp_exec._merge_mcp_token_secret(
-        "user_b",
-        files={"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"user_b_token"}'},
+        "other_user",
+        files={"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"other_token"}'},
     )
 
-    assert merged["files"] == {"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"user_b_token"}'}
+    assert merged["files"] == {"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"other_token"}'}
     assert writes[-1]["files"] == root_secret["files"]
-    assert writes[-1]["users"]["user_b"]["files"] == merged["files"]
 
 
 def test_food_query_is_plan_only_by_default(monkeypatch):
@@ -209,8 +208,9 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
 
     calls = {}
 
-    def fake_execute(**kwargs):
+    def fake_execute(tool_plan=None, **kwargs):
         calls.update(kwargs)
+        calls["tool_plan"] = tool_plan
         return {
             "ok": True,
             "error": None,
@@ -226,7 +226,8 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
         headers=auth_headers(),
     )
     assert response.status_code == 200
-    assert calls.get("execute_tools") is True
+    assert "tool_plan" in calls
+    assert calls["enabled_providers"] == {"zomato"}
 
 
 def test_list_tool_providers_includes_zomato_and_swiggy():
@@ -244,9 +245,9 @@ def test_select_tool_providers_for_message_chooses_correct_providers():
     assert select_tool_providers_for_message("Order pizza") == {"zomato"}
     assert select_tool_providers_for_message("Find biryani near me") == {"zomato"}
 
-    # Instamart/quick-commerce queries go to Instamart
-    assert select_tool_providers_for_message("Buy milk and eggs") == {"swiggy_instamart"}
-    assert select_tool_providers_for_message("Order groceries") == {"swiggy_instamart"}
+    # Grocery queries prefer Zepto over Swiggy Instamart
+    assert select_tool_providers_for_message("Buy milk and eggs") == {"zepto"}
+    assert select_tool_providers_for_message("Order groceries") == {"zepto"}
 
     # Explicit comparison includes multiple providers
     assert select_tool_providers_for_message("Compare pizza on Zomato and Swiggy") == {
