@@ -59,6 +59,43 @@ def _extract_restaurants(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
     return found
 
 
+def _extract_menu_items(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(zomato, dict):
+        return []
+
+    found: list[dict[str, Any]] = []
+    for step in zomato.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if step.get("tool") not in (
+            "get_restaurant_menu_by_categories",
+            "get_menu_items_listing",
+        ):
+            continue
+        payload = ((step.get("result") or {}).get("data") or {})
+        for obj in _walk_payload(payload):
+            if not isinstance(obj, dict):
+                continue
+            name = obj.get("name") or obj.get("item_name") or obj.get("title")
+            if not name:
+                continue
+            price = obj.get("price") or obj.get("display_price") or obj.get("item_price")
+            found.append({"name": str(name), "price": price})
+            if len(found) >= 12:
+                return found
+    return found
+
+
+def _walk_payload(obj: Any):
+    if isinstance(obj, dict):
+        yield obj
+        for value in obj.values():
+            yield from _walk_payload(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from _walk_payload(value)
+
+
 def build_zomato_summary(zomato: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(zomato, dict):
         return {
@@ -66,16 +103,19 @@ def build_zomato_summary(zomato: dict[str, Any] | None) -> dict[str, Any]:
             "error": "zomato_not_executed",
             "address": None,
             "top_restaurants": [],
+            "menu_items": [],
             "count": 0,
             "diagnostics": {},
         }
 
     restaurants = _extract_restaurants(zomato)
+    menu_items = _extract_menu_items(zomato)
     summary: dict[str, Any] = {
         "ok": bool(zomato.get("ok")),
         "error": None if zomato.get("ok") else str(zomato.get("error_detail") or "unknown_error"),
         "address": _extract_primary_address(zomato),
         "top_restaurants": restaurants[:8],
+        "menu_items": menu_items[:8],
         "count": len(restaurants),
         "diagnostics": zomato.get("diagnostics") if isinstance(zomato.get("diagnostics"), dict) else {},
     }
@@ -111,6 +151,13 @@ def _fallback_assistant_message(
                 "return serviceable restaurants. I did not use your default saved address "
                 "because that would show the wrong locality."
             )
+        if detail == "tool_plan_incomplete":
+            return (
+                "I found part of what was needed"
+                + (f": {summary}." if summary else ".")
+                + " The next Zomato tool needs an ID that was not present in the earlier result. "
+                "Pick a restaurant or item from the results and I can continue."
+            )
         return (
             "I understood your request"
             + (f": {summary}." if summary else ".")
@@ -119,6 +166,16 @@ def _fallback_assistant_message(
         )
 
     restaurants = zomato_summary.get("top_restaurants") or []
+    menu_items = zomato_summary.get("menu_items") or []
+    if menu_items:
+        names = ", ".join(str(r.get("name") or "Unknown") for r in menu_items[:5])
+        return (
+            "I found matching menu items"
+            + (f": {summary}." if summary else ".")
+            + f" Options include: {names}. "
+            + "Which one should I inspect or add next?"
+        )
+
     if not restaurants:
         return (
             "I understood your request"

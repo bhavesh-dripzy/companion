@@ -1,7 +1,8 @@
 """
-Maps free-text food requests → a JSON plan typed for downstream Zomato MCP tool calls.
+Maps free-text food requests to a JSON plan typed for downstream MCP tool calls.
 
-Downstream replaces the placeholder __ADDRESS_ID__ with an address_id from get_saved_addresses_for_user.
+Downstream can resolve placeholders such as __ADDRESS_ID__ and __RESTAURANT_ID__
+from earlier tool results in the same plan.
 """
 
 from __future__ import annotations
@@ -32,8 +33,13 @@ _ALLOWED_TOOLS = frozenset(
     }
 )
 
+_ADDRESS_TOOLS = {"get_restaurants_for_keyword"}
+_RESTAURANT_TOOLS = {"get_restaurant_menu_by_categories", "get_menu_items_listing"}
+_ORDER_TOOLS = {"get_order_tracking_info"}
+
 _SYSTEM_PROMPT = """\
-You translate the user's message into a machine-ready plan for the Zomato MCP server tools.
+You translate the user's message into a machine-ready plan for available MCP tools.
+Today the available provider is Zomato MCP.
 
 Respond with ONLY a single JSON object (no markdown fences) shaped exactly like this:
 {
@@ -61,33 +67,101 @@ Respond with ONLY a single JSON object (no markdown fences) shaped exactly like 
 }
 
 TOOLS (use ONLY these exact tool strings):
-- get_saved_addresses_for_user
-- get_restaurants_for_keyword
-- get_restaurant_menu_by_categories
-- get_menu_items_listing
-- create_cart
-- get_cart_offers
-- checkout_cart
-- get_order_history
-- get_order_tracking_info
-- bind_user_number
-- bind_user_number_verify_code
+- get_saved_addresses_for_user: returns the user's saved delivery addresses and address_id values.
+- get_restaurants_for_keyword: accepts keyword and address_id. Use "__ADDRESS_ID__" when it should come from saved addresses.
+- get_restaurant_menu_by_categories: accepts restaurant_id or res_id. Use "__RESTAURANT_ID__" only after a restaurant-search step.
+- get_menu_items_listing: accepts restaurant_id or res_id. Use "__RESTAURANT_ID__" only after a restaurant-search step.
+- create_cart: use only when the user has chosen a concrete restaurant and item/variant from earlier results or supplied exact IDs.
+- get_cart_offers: use only after a cart exists.
+- checkout_cart: use only when the user explicitly confirms checkout/payment.
+- get_order_history: use for past orders.
+- get_order_tracking_info: use only when the user gives an order id or after order history can provide one.
+- bind_user_number: use only when the user asks to bind a phone number.
+- bind_user_number_verify_code: use only when the user provides the verification code.
+
+PLACEHOLDERS:
+- "__ADDRESS_ID__" may be resolved from get_saved_addresses_for_user.
+- "__RESTAURANT_ID__" may be resolved from get_restaurants_for_keyword.
+- "__MENU_ITEM_ID__", "__ITEM_ID__", "__VARIANT_ID__", "__CART_ID__", and "__ORDER_ID__" may be resolved only from earlier matching tool output.
 
 RULES:
-1. Typical flow for discovery:
+1. Typical flow for restaurant discovery:
    get_saved_addresses_for_user
    THEN
-   get_restaurants_for_keyword
+   get_restaurants_for_keyword with {"keyword": "<cuisine/dish>", "address_id": "__ADDRESS_ID__"}
 
-2. If user asks for food near them:
+2. If user asks for food near them, near home, nearby, or without a named city/locality:
    ALWAYS include BOTH tools.
 
-3. Use "__ADDRESS_ID__" placeholder.
+3. If user names a far-off city/locality such as "Saket Delhi" or "MG Road Bengaluru",
+   still set constraints.requested_location_text, but do not pretend Zomato can geocode it.
+   Zomato restaurant discovery needs a saved delivery address_id. The app will ask the user
+   to save/select that delivery address instead of using their default address.
 
-4. Never invent restaurant IDs or variant IDs.
+4. For menu questions without a known restaurant id, plan:
+   get_saved_addresses_for_user
+   get_restaurants_for_keyword
+   get_restaurant_menu_by_categories with {"restaurant_id": "__RESTAURANT_ID__"}
 
-5. Return ONLY valid JSON.
+5. For item searches inside one restaurant, use get_menu_items_listing after restaurant discovery.
+
+6. Never invent address IDs, restaurant IDs, menu item IDs, variant IDs, cart IDs, or order IDs.
+
+7. Prefer useful multi-step plans over a single tool when later tools can consume IDs from earlier tools.
+
+8. Return ONLY valid JSON.
 """
+
+
+def _has_tool(tool_plan: list[dict[str, Any]], tool_name: str) -> bool:
+    return any(isinstance(step, dict) and step.get("tool") == tool_name for step in tool_plan)
+
+
+def _constraint_text(constraints: dict[str, Any], key: str) -> str | None:
+    val = constraints.get(key)
+    if isinstance(val, str) and val.strip():
+        return val.strip()
+    return None
+
+
+def _default_keyword(data: dict[str, Any], constraints: dict[str, Any]) -> str:
+    keyword = _constraint_text(constraints, "inferred_keyword")
+    if keyword:
+        return keyword
+    summary = str(data.get("summary") or "").strip()
+    return summary or "restaurant"
+
+
+def _ensure_prerequisites(
+    tool_plan: list[dict[str, Any]],
+    *,
+    data: dict[str, Any],
+    constraints: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not tool_plan:
+        return tool_plan
+
+    needs_address = any(step.get("tool") in _ADDRESS_TOOLS for step in tool_plan)
+    needs_restaurant = any(step.get("tool") in _RESTAURANT_TOOLS for step in tool_plan)
+
+    out = list(tool_plan)
+    if (needs_address or needs_restaurant) and not _has_tool(out, "get_saved_addresses_for_user"):
+        out.insert(0, {"tool": "get_saved_addresses_for_user", "arguments": {}})
+
+    if needs_restaurant and not _has_tool(out, "get_restaurants_for_keyword"):
+        insert_at = 1 if _has_tool(out, "get_saved_addresses_for_user") else 0
+        out.insert(
+            insert_at,
+            {
+                "tool": "get_restaurants_for_keyword",
+                "arguments": {
+                    "keyword": _default_keyword(data, constraints),
+                    "address_id": "__ADDRESS_ID__",
+                },
+            },
+        )
+
+    return out
 
 
 def normalize_tool_plan(tool_plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -114,6 +188,26 @@ def normalize_tool_plan(tool_plan: list[dict[str, Any]]) -> list[dict[str, Any]]
             aid = arguments.get("address_id")
             if aid is None or (isinstance(aid, str) and not str(aid).strip()):
                 arguments["address_id"] = "__ADDRESS_ID__"
+            keyword = arguments.get("keyword")
+            if keyword is None or (isinstance(keyword, str) and not keyword.strip()):
+                arguments["keyword"] = "restaurant"
+
+        if tool in _RESTAURANT_TOOLS:
+            arguments = dict(arguments)
+            restaurant_id = (
+                arguments.get("restaurant_id")
+                or arguments.get("res_id")
+                or arguments.get("restaurantId")
+                or arguments.get("resId")
+            )
+            if restaurant_id is None or (isinstance(restaurant_id, str) and not restaurant_id.strip()):
+                arguments["restaurant_id"] = "__RESTAURANT_ID__"
+
+        if tool in _ORDER_TOOLS:
+            arguments = dict(arguments)
+            order_id = arguments.get("order_id") or arguments.get("orderId")
+            if order_id is None or (isinstance(order_id, str) and not order_id.strip()):
+                arguments["order_id"] = "__ORDER_ID__"
 
         out.append(
             {
@@ -143,6 +237,11 @@ def _finalize_from_parsed_json(
     if constraints is None or not isinstance(constraints, dict):
         constraints = {}
     constraints.setdefault("requested_location_text", None)
+    tool_plan = _ensure_prerequisites(tool_plan, data=data, constraints=constraints)
+    constraints.setdefault(
+        "requires_address_resolution",
+        any(step.get("tool") in _ADDRESS_TOOLS for step in tool_plan),
+    )
 
     normalized: dict[str, Any] = {
         "intent": str(data.get("intent", "") or "unknown"),

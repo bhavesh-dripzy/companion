@@ -26,6 +26,21 @@ import requests
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = "__ADDRESS_ID__"
+_PLACEHOLDER_ALIASES: dict[str, tuple[str, ...]] = {
+    "__ADDRESS_ID__": ("address_id", "addressId"),
+    "__RESTAURANT_ID__": (
+        "restaurant_id",
+        "restaurantId",
+        "res_id",
+        "resId",
+        "restaurantIdString",
+    ),
+    "__MENU_ITEM_ID__": ("menu_item_id", "menuItemId", "item_id", "itemId"),
+    "__ITEM_ID__": ("item_id", "itemId", "menu_item_id", "menuItemId"),
+    "__VARIANT_ID__": ("variant_id", "variantId"),
+    "__CART_ID__": ("cart_id", "cartId"),
+    "__ORDER_ID__": ("order_id", "orderId"),
+}
 _TOKEN_SECRET_ID = "companion/mcp-tokens"
 _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
 _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
@@ -215,14 +230,37 @@ def substitute_address_id(obj: Any, address_id: str) -> Any:
     return obj
 
 
+def substitute_placeholders(obj: Any, values: dict[str, str]) -> Any:
+    if isinstance(obj, str) and obj in values:
+        return values[obj]
+    if isinstance(obj, dict):
+        return {k: substitute_placeholders(v, values) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [substitute_placeholders(i, values) for i in obj]
+    return obj
+
+
 def _mentions_placeholder(obj: Any) -> bool:
-    if obj == _PLACEHOLDER:
+    if isinstance(obj, str) and obj in _PLACEHOLDER_ALIASES:
         return True
     if isinstance(obj, dict):
         return any(_mentions_placeholder(v) for v in obj.values())
     if isinstance(obj, list):
         return any(_mentions_placeholder(i) for i in obj)
     return False
+
+
+def _unresolved_placeholders(obj: Any) -> list[str]:
+    found: list[str] = []
+    if isinstance(obj, str) and obj in _PLACEHOLDER_ALIASES:
+        return [obj]
+    if isinstance(obj, dict):
+        for value in obj.values():
+            found.extend(_unresolved_placeholders(value))
+    elif isinstance(obj, list):
+        for value in obj:
+            found.extend(_unresolved_placeholders(value))
+    return sorted(set(found))
 
 
 def _tool_result_payload(result: Any) -> dict[str, Any]:
@@ -278,6 +316,37 @@ def _first_address_id_from_saved_payload(tool_payload: dict[str, Any]) -> str | 
     return None
 
 
+def _walk_json(obj: Any):
+    if isinstance(obj, dict):
+        yield obj
+        for value in obj.values():
+            yield from _walk_json(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from _walk_json(value)
+
+
+def _learn_placeholders_from_payload(
+    values: dict[str, str],
+    tool_payload: dict[str, Any],
+) -> None:
+    data = tool_payload.get("data")
+    for obj in _walk_json(data):
+        if not isinstance(obj, dict):
+            continue
+        for placeholder, aliases in _PLACEHOLDER_ALIASES.items():
+            if placeholder in values:
+                continue
+            for alias in aliases:
+                val = obj.get(alias)
+                if val is None:
+                    continue
+                text = str(val).strip()
+                if text:
+                    values[placeholder] = text
+                    break
+
+
 async def _run_session_inner(
     tool_plan: list[dict[str, Any]],
     effective_address_id: str | None,
@@ -311,6 +380,9 @@ async def _run_session_inner(
     )
 
     resolved_id = (effective_address_id or "").strip() or None
+    placeholder_values: dict[str, str] = {}
+    if resolved_id:
+        placeholder_values["__ADDRESS_ID__"] = resolved_id
     prefetch_done = False
 
     async with stdio_client(params) as (read, write):
@@ -343,11 +415,14 @@ async def _run_session_inner(
                 nid = _first_address_id_from_saved_payload(envelope)
                 if nid:
                     resolved_id = nid
+                    placeholder_values["__ADDRESS_ID__"] = nid
                     diagnostics["resolved_address_id"] = resolved_id
                 else:
                     diagnostics["auto_address_failure"] = (
                         "Could not extract address_id from Zomato response."
                     )
+                _learn_placeholders_from_payload(placeholder_values, envelope)
+                diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
 
             for raw in tool_plan:
                 if not isinstance(raw, dict):
@@ -359,23 +434,26 @@ async def _run_session_inner(
                     prefetch_done = True
                 base_args = copy.deepcopy(raw.get("arguments") or {})
 
-                if resolved_id:
-                    exec_args = substitute_address_id(copy.deepcopy(base_args), resolved_id)
-                else:
-                    exec_args = base_args
+                exec_args = substitute_placeholders(copy.deepcopy(base_args), placeholder_values)
 
                 if tool != "get_saved_addresses_for_user" and _mentions_placeholder(
                     exec_args
                 ):
-                    await prefetch_addresses()
-                    if resolved_id:
-                        exec_args = substitute_address_id(
-                            copy.deepcopy(base_args), resolved_id
+                    unresolved = _unresolved_placeholders(exec_args)
+                    if "__ADDRESS_ID__" in unresolved:
+                        await prefetch_addresses()
+                        exec_args = substitute_placeholders(
+                            copy.deepcopy(base_args), placeholder_values
                         )
 
                 if _mentions_placeholder(exec_args):
+                    unresolved = _unresolved_placeholders(exec_args)
                     diagnostics.setdefault("skipped_tools", []).append(
-                        {"tool": tool, "reason": "address_id_unknown"}
+                        {
+                            "tool": tool,
+                            "reason": "placeholder_unresolved",
+                            "placeholders": unresolved,
+                        }
                     )
                     continue
 
@@ -401,9 +479,13 @@ async def _run_session_inner(
                     nid = _first_address_id_from_saved_payload(envelope)
                     if nid:
                         resolved_id = nid
+                        placeholder_values["__ADDRESS_ID__"] = nid
                         diagnostics["resolved_address_id"] = resolved_id
+                _learn_placeholders_from_payload(placeholder_values, envelope)
+                diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
 
     diagnostics["resolved_address_id"] = resolved_id
+    diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
     return step_results, diagnostics
 
 
@@ -1017,7 +1099,13 @@ def run_tool_plan_sync(
                 cleaned, address_id.strip() if address_id else None, root, url, node
             )
         )
-        return {"ok": True, "steps": steps, "diagnostics": diagnostics}
+        skipped = bool(diagnostics.get("skipped_tools"))
+        return {
+            "ok": not skipped,
+            "error_detail": "tool_plan_incomplete" if skipped else None,
+            "steps": steps,
+            "diagnostics": diagnostics,
+        }
     except BaseException as e:
         logger.exception("Zomato MCP execution failed")
         return {

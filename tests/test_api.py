@@ -4,6 +4,7 @@ from app.services.llm_config import ResolvedLlm
 from companion_api.main import app
 from companion_api import main as api_main
 from app.services import zomato_mcp_executor as mcp_exec
+from app.services.food_llm_router import _finalize_from_parsed_json
 from app.services.tool_runtime import execute_tool_plan_sync
 
 
@@ -188,6 +189,64 @@ def test_explicit_far_location_does_not_use_default_saved_address(monkeypatch):
     assert result["ok"] is False
     assert result["error"] == "zomato_requires_saved_address_for_requested_location"
     assert result["provider_results"]["zomato"]["diagnostics"]["requested_location"] == "Saket, Delhi"
+
+
+def test_menu_plan_gets_prerequisite_search_steps():
+    plan = _finalize_from_parsed_json(
+        {
+            "intent": "inspect_menu",
+            "summary": "Show pizza menu options.",
+            "tool_plan": [
+                {"tool": "get_restaurant_menu_by_categories", "arguments": {}},
+            ],
+            "constraints": {"inferred_keyword": "pizza"},
+        },
+        provider="gemini",
+        model="gemini-test",
+        trace_id="trace",
+    )
+
+    assert [step["tool"] for step in plan["tool_plan"]] == [
+        "get_saved_addresses_for_user",
+        "get_restaurants_for_keyword",
+        "get_restaurant_menu_by_categories",
+    ]
+    assert plan["tool_plan"][1]["arguments"]["address_id"] == "__ADDRESS_ID__"
+    assert plan["tool_plan"][2]["arguments"]["restaurant_id"] == "__RESTAURANT_ID__"
+    assert plan["constraints"]["requires_address_resolution"] is True
+
+
+def test_mcp_executor_learns_downstream_placeholders_from_prior_output():
+    values = {}
+    mcp_exec._learn_placeholders_from_payload(
+        values,
+        {
+            "data": {
+                "results": [
+                    {
+                        "restaurant_id": "res-123",
+                        "items": [{"item_id": "item-9", "variant_id": "var-1"}],
+                    }
+                ],
+                "cart_id": "cart-7",
+            }
+        },
+    )
+
+    assert mcp_exec.substitute_placeholders(
+        {
+            "restaurant_id": "__RESTAURANT_ID__",
+            "item": "__ITEM_ID__",
+            "variant": "__VARIANT_ID__",
+            "cart_id": "__CART_ID__",
+        },
+        values,
+    ) == {
+        "restaurant_id": "res-123",
+        "item": "item-9",
+        "variant": "var-1",
+        "cart_id": "cart-7",
+    }
 
 
 def test_operational_apis_require_auth():
