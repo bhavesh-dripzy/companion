@@ -853,6 +853,7 @@ def create_pairing_session(
         "created_at": now,
         "mcp_url": url,
         "mcp_remote_version": _mcp_remote_version(root) or "0.1.38",
+        "user_id": user_id,
     }
     _merge_mcp_token_secret(user_id, pairing_sessions=sessions)
     return {
@@ -875,7 +876,27 @@ def get_pairing_session_info(code: str, user_id: str | None = None) -> dict[str,
         sessions.pop(code, None)
         _merge_mcp_token_secret(user_id, pairing_sessions=sessions)
         return None
-    return dict(session)
+    result = dict(session)
+    if user_id is not None:
+        result["user_id"] = user_id
+    return result
+
+
+def find_pairing_session_info(code: str) -> dict[str, Any] | None:
+    session = get_pairing_session_info(code)
+    if session:
+        return session
+
+    payload = _root_mcp_token_secret()
+    users = payload.get("users") if isinstance(payload, dict) else None
+    if not isinstance(users, dict):
+        return None
+
+    for user_id in users:
+        session = get_pairing_session_info(code, user_id=str(user_id))
+        if session:
+            return session
+    return None
 
 
 def complete_pairing_session(

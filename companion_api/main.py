@@ -497,16 +497,13 @@ def mcp_pairing_script(request: Request, code: str = Query(...)):
     version = "0.1.38"
     try:
         from app.services.zomato_mcp_executor import (
-            get_pairing_session_info,
+            find_pairing_session_info,
             repo_root_from_settings,
             _mcp_remote_version,
         )
 
         version = _mcp_remote_version(repo_root_from_settings()) or version
-        session = get_pairing_session_info(code)
-        if not session:
-            # Try admin-scoped session as fallback
-            session = get_pairing_session_info(code, user_id=None)
+        session = find_pairing_session_info(code)
         if not session:
             return "# Pairing code expired. Generate a new Connect command from Companion.\n"
         mcp_url = str(session.get("mcp_url") or "").strip()
@@ -523,10 +520,8 @@ def mcp_pairing_complete(payload: McpPairingComplete):
     try:
         session = None
         try:
-            from app.services.zomato_mcp_executor import get_pairing_session_info
-            session = get_pairing_session_info(payload.code)
-            if not session:
-                session = get_pairing_session_info(payload.code, user_id=None)
+            from app.services.zomato_mcp_executor import find_pairing_session_info
+            session = find_pairing_session_info(payload.code)
             if session:
                 return complete_pairing_session(
                     repo_root=repo_root_from_settings(),

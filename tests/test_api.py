@@ -1,4 +1,5 @@
 import os
+import time
 
 os.environ["LEGACY_ADMIN_USERNAME"] = "local_admin"
 os.environ["LEGACY_ADMIN_PASSWORD"] = "test_password_123"
@@ -153,6 +154,30 @@ def test_mcp_secret_payloads_are_scoped_per_admin(monkeypatch):
 
     assert merged["files"] == {"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"other_token"}'}
     assert writes[-1]["files"] == root_secret["files"]
+
+
+def test_pairing_session_lookup_finds_user_scoped_code(monkeypatch):
+    root_secret = {
+        "users": {
+            "admin_aashish": {
+                "pairing_sessions": {
+                    "pair-code": {
+                        "created_at": int(time.time()),
+                        "mcp_url": "https://mcp-server.zomato.com/mcp",
+                        "mcp_remote_version": "0.1.38",
+                    }
+                }
+            }
+        }
+    }
+
+    monkeypatch.setattr(mcp_exec, "_root_mcp_token_secret", lambda: root_secret)
+
+    session = mcp_exec.find_pairing_session_info("pair-code")
+
+    assert session is not None
+    assert session["user_id"] == "admin_aashish"
+    assert session["mcp_url"] == "https://mcp-server.zomato.com/mcp"
 
 
 def test_food_query_is_plan_only_by_default(monkeypatch):
