@@ -670,7 +670,9 @@
         const status = data.status || "unknown";
         const tone = status === "ready" || status === "ready_pending" ? "ok" :
           status === "needs_tokens" || status === "missing_bridge" || status === "missing_node" || status === "missing_python_sdk" ? "err" : "warn";
-        const label = status.replace(/_/g, " ");
+        const label = status === "ready" || status === "ready_pending"
+          ? "Connected"
+          : status.replace(/_/g, " ");
         setBadge(mcpStatusBadge, label, tone);
         setBadge(mcpMiniBadge, label, tone);
         mcpDetail.innerHTML = escapeHtml(data.detail || "No detail returned.") +

@@ -111,12 +111,16 @@ def test_mcp_token_status_detects_nested_mcp_remote_tokens(tmp_path, monkeypatch
     (pkg / "package.json").write_text('{"version":"0.1.38"}', encoding="utf-8")
     token_dir = tmp_path / ".mcp-auth" / "mcp-remote-0.1.38"
     token_dir.mkdir(parents=True)
-    (token_dir / "abc_tokens.json").write_text('{"access_token":"x"}', encoding="utf-8")
+    token_rel = mcp_exec._mcp_remote_token_relative_paths(
+        root,
+        "https://mcp-server.zomato.com/mcp",
+    )["tokens"]
+    (tmp_path / ".mcp-auth" / token_rel).write_text('{"access_token":"x"}', encoding="utf-8")
 
     status = mcp_exec.get_mcp_token_status(root, mcp_url="https://mcp-server.zomato.com/mcp")
 
     assert status["has_local_tokens"] is True
-    assert status["local_files"] == ["mcp-remote-0.1.38/abc_tokens.json"]
+    assert status["local_files"] == [token_rel]
     assert status["effective_config_dir"].endswith(".mcp-auth/mcp-remote-0.1.38")
 
 
@@ -178,6 +182,35 @@ def test_pairing_session_lookup_finds_user_scoped_code(monkeypatch):
     assert session is not None
     assert session["user_id"] == "admin_aashish"
     assert session["mcp_url"] == "https://mcp-server.zomato.com/mcp"
+
+
+def test_mcp_token_status_is_scoped_to_selected_provider(tmp_path, monkeypatch):
+    monkeypatch.setattr(mcp_exec, "_mcp_remote_config_dir", lambda _root, user_id=None: tmp_path)
+    monkeypatch.setattr(mcp_exec, "_mcp_remote_version", lambda _root: "0.1.38")
+
+    zomato_rel = mcp_exec._mcp_remote_token_relative_paths(
+        tmp_path,
+        "https://mcp-server.zomato.com/mcp",
+    )["tokens"]
+    monkeypatch.setattr(
+        mcp_exec,
+        "_mcp_token_secret",
+        lambda _user_id=None: {"files": {zomato_rel: '{"access_token":"zomato"}'}},
+    )
+
+    zomato = mcp_exec.get_mcp_token_status(
+        tmp_path,
+        mcp_url="https://mcp-server.zomato.com/mcp",
+        user_id="admin_aashish",
+    )
+    zepto = mcp_exec.get_mcp_token_status(
+        tmp_path,
+        mcp_url="https://mcp.zepto.co.in/mcp",
+        user_id="admin_aashish",
+    )
+
+    assert zomato["has_secret_tokens"] is True
+    assert zepto["has_secret_tokens"] is False
 
 
 def test_food_query_is_plan_only_by_default(monkeypatch):

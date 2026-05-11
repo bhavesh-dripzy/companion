@@ -1006,23 +1006,23 @@ def get_mcp_token_status(
 ) -> dict[str, Any]:
     """Return a summary of MCP token state."""
     root = repo_root or repo_root_from_settings()
+    url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     cfg_dir = _mcp_remote_config_dir(root, user_id=user_id)
     local_paths = [p.relative_to(cfg_dir).as_posix() for p in _iter_token_files(cfg_dir)]
     secret = _mcp_token_secret(user_id)
     secret_files = list((secret.get("files") or {}).keys())
-    expected = _expected_token_paths(
-        root,
-        mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp"),
-        user_id=user_id,
-    )
+    expected = _expected_token_paths(root, url, user_id=user_id)
+    expected_rel = _mcp_remote_token_relative_paths(root, url)
+    expected_token_rel = expected_rel["tokens"]
     return {
         "config_dir": str(cfg_dir),
         "effective_config_dir": str(_mcp_remote_effective_config_dir(root, user_id=user_id)),
         "local_files": local_paths,
         "secret_files": secret_files,
-        "has_local_tokens": any(p.endswith("_tokens.json") for p in local_paths),
-        "has_secret_tokens": len(secret_files) > 0,
+        "has_local_tokens": expected_token_rel in local_paths,
+        "has_secret_tokens": expected_token_rel in secret_files,
         "expected_files": expected,
+        "expected_secret_files": expected_rel,
         "expected_tokens_present": Path(expected["tokens"]).is_file(),
     }
 
