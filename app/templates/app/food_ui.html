@@ -139,10 +139,21 @@
     .workspace-body { padding: 20px; }
     .query-grid { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 10px; margin-top: 14px; }
     .chat-log { min-height: 420px; max-height: 58vh; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px 4px 14px; }
-    .message { max-width: min(760px, 88%); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; line-height: 1.5; font-size: 14px; white-space: pre-wrap; }
+    .message { max-width: min(760px, 88%); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; line-height: 1.5; font-size: 14px; white-space: normal; }
     .message.user { align-self: flex-end; background: #111827; color: white; border-color: #111827; }
     .message.assistant { align-self: flex-start; background: var(--panel-soft); color: var(--text); }
     .message.meta { align-self: flex-start; max-width: 100%; background: white; color: var(--muted); font-size: 12px; border-style: dashed; }
+    .message p { margin: 0 0 8px; }
+    .message p:last-child { margin-bottom: 0; }
+    .message ul, .message ol { margin: 8px 0 0; padding-left: 20px; }
+    .message li { margin: 3px 0; }
+    .message code { background: rgba(15, 23, 42, 0.08); }
+    .message.user code { background: rgba(255,255,255,0.16); }
+    .thinking { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 650; }
+    .thinking-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--muted-2); animation: pulse 1s infinite ease-in-out; }
+    .thinking-dot:nth-child(2) { animation-delay: 0.15s; }
+    .thinking-dot:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes pulse { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
     .chat-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .mini-pill { display: inline-flex; align-items: center; border-radius: 999px; background: #eef2f7; color: #374151; padding: 3px 8px; font-size: 11px; font-weight: 700; }
     .quick-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -204,7 +215,7 @@
       </div>
       <div class="field">
         <label for="username">Username</label>
-        <input id="username" type="text" placeholder="admin" autocomplete="username">
+        <input id="username" type="text" placeholder="admin_aashish" autocomplete="username">
       </div>
       <div class="field">
         <label for="password">Password</label>
@@ -221,7 +232,7 @@
         <div class="brand-mark">C</div>
         <div>
           <h1>Companion</h1>
-          <p>Zomato MCP and food routing</p>
+          <p>Food MCP routing and account connections</p>
         </div>
       </div>
       <div class="top-actions">
@@ -259,7 +270,7 @@
           <div class="surface-header">
             <div class="panel-title">
               <h2>MCP Connection</h2>
-              <p>Bridge, token store, and live MCP session.</p>
+              <p>Account-scoped MCP connections and live session checks.</p>
             </div>
           </div>
           <div class="panel-body">
@@ -485,10 +496,42 @@
       el.className = "badge " + (tone || "neutral");
     }
 
+    function renderMarkdown(value) {
+      let text = String(value || "");
+      text = escapeHtml(text);
+      text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+      text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      const lines = text.split(/\n/);
+      const out = [];
+      let inList = false;
+      for (const line of lines) {
+        const item = line.match(/^\s*[-*]\s+(.+)$/);
+        if (item) {
+          if (!inList) {
+            out.push("<ul>");
+            inList = true;
+          }
+          out.push("<li>" + item[1] + "</li>");
+          continue;
+        }
+        if (inList) {
+          out.push("</ul>");
+          inList = false;
+        }
+        if (line.trim()) out.push("<p>" + line + "</p>");
+      }
+      if (inList) out.push("</ul>");
+      return out.join("");
+    }
+
     function appendMessage(role, content, meta) {
       const node = document.createElement("div");
       node.className = "message " + role;
-      node.textContent = content;
+      if (role === "assistant") {
+        node.innerHTML = renderMarkdown(content);
+      } else {
+        node.textContent = content;
+      }
       if (meta && meta.length) {
         const row = document.createElement("div");
         row.className = "chat-meta";
@@ -506,6 +549,28 @@
         chatHistory.push({ role, content });
         chatHistory = chatHistory.slice(-16);
       }
+    }
+
+    function appendThinking() {
+      const node = document.createElement("div");
+      node.className = "message assistant";
+      const stages = [
+        "Understanding request",
+        "Choosing MCP",
+        "Planning tool calls",
+        "Checking live results",
+        "Drafting reply"
+      ];
+      let index = 0;
+      node.innerHTML = '<span class="thinking"><span class="thinking-label"></span><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></span>';
+      const label = node.querySelector(".thinking-label");
+      const render = () => { label.textContent = stages[index % stages.length]; index += 1; };
+      render();
+      const timer = window.setInterval(render, 1400);
+      node.cleanup = () => window.clearInterval(timer);
+      chatLog.appendChild(node);
+      chatLog.scrollTop = chatLog.scrollHeight;
+      return node;
     }
 
     function renderFacts(data) {
@@ -727,6 +792,7 @@
       sendBtn.disabled = true;
       messageInput.value = "";
       appendMessage("user", msg);
+      const thinkingNode = appendThinking();
       try {
         const body = { message: msg, execute_tools: true, history: chatHistory.slice(0, -1) };
         const selectedModelProvider = provider();
@@ -735,8 +801,12 @@
         const assistant = data.assistant_message || "I handled the request.";
         const routed = Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : [];
         const ok = data.tool_execution && data.tool_execution.ok === true ? "tools ok" : data.tool_execution && data.tool_execution.error ? data.tool_execution.error : "";
+        thinkingNode.cleanup && thinkingNode.cleanup();
+        thinkingNode.remove();
         appendMessage("assistant", assistant, [...routed, ok].filter(Boolean));
       } catch (err) {
+        thinkingNode.cleanup && thinkingNode.cleanup();
+        thinkingNode.remove();
         appendMessage("assistant", "Request failed: " + (err.message || String(err)));
       } finally {
         sendBtn.disabled = false;

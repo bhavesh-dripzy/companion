@@ -47,20 +47,32 @@ _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30
 _MAX_TOKEN_FILE_BYTES = 256 * 1024
 _OAUTH_PENDING_TTL_SECONDS = 15 * 60
 _PAIRING_TTL_SECONDS = 15 * 60
+_LEGACY_MCP_OWNER = "admin_aashish"
 
 
-def _mcp_remote_config_dir(repo_root: Path) -> Path:
+def _safe_user_id(user_id: str | None) -> str | None:
+    if not user_id:
+        return None
+    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", user_id.strip())
+    return safe[:80] or None
+
+
+def _mcp_remote_config_dir(repo_root: Path, user_id: str | None = None) -> Path:
     """
     mcp-remote persists Zomato OAuth tokens under MCP_REMOTE_CONFIG_DIR
     (default: ~/.mcp-auth). On servers, www-data's home is not your laptop — set
     MCP_REMOTE_CONFIG_DIR to a project-owned directory and copy tokens there.
     """
     env = os.getenv("MCP_REMOTE_CONFIG_DIR", "").strip()
+    safe_user = _safe_user_id(user_id)
     if env:
-        return Path(env).expanduser().resolve()
+        base = Path(env).expanduser().resolve()
+        return (base / "users" / safe_user).resolve() if safe_user else base
     if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
-        return Path("/tmp/.mcp-auth").resolve()
-    return (repo_root / ".mcp-auth").resolve()
+        base = Path("/tmp/.mcp-auth").resolve()
+        return (base / "users" / safe_user).resolve() if safe_user else base
+    base = (repo_root / ".mcp-auth").resolve()
+    return (base / "users" / safe_user).resolve() if safe_user else base
 
 
 def _mcp_remote_version(repo_root: Path) -> str | None:
@@ -73,12 +85,12 @@ def _mcp_remote_version(repo_root: Path) -> str | None:
     return str(version) if version else None
 
 
-def _mcp_remote_effective_config_dir(repo_root: Path) -> Path:
+def _mcp_remote_effective_config_dir(repo_root: Path, user_id: str | None = None) -> Path:
     """
     mcp-remote appends mcp-remote-<version> under MCP_REMOTE_CONFIG_DIR.
     The app's config dir is the parent; token files live in this effective dir.
     """
-    base = _mcp_remote_config_dir(repo_root)
+    base = _mcp_remote_config_dir(repo_root, user_id=user_id)
     version = _mcp_remote_version(repo_root)
     if version:
         return base / f"mcp-remote-{version}"
@@ -89,8 +101,8 @@ def _server_url_hash(mcp_url: str) -> str:
     return hashlib.md5(mcp_url.encode("utf-8")).hexdigest()
 
 
-def _expected_token_paths(repo_root: Path, mcp_url: str) -> dict[str, str]:
-    cfg = _mcp_remote_effective_config_dir(repo_root)
+def _expected_token_paths(repo_root: Path, mcp_url: str, user_id: str | None = None) -> dict[str, str]:
+    cfg = _mcp_remote_effective_config_dir(repo_root, user_id=user_id)
     h = _server_url_hash(mcp_url)
     return {
         "client_info": str(cfg / f"{h}_client_info.json"),
@@ -140,8 +152,8 @@ def _iter_token_files(cfg_dir: Path) -> list[Path]:
     return sorted(out)
 
 
-def _stdio_env(repo_root: Path) -> dict[str, str]:
-    cfg = _mcp_remote_config_dir(repo_root)
+def _stdio_env(repo_root: Path, user_id: str | None = None) -> dict[str, str]:
+    cfg = _mcp_remote_config_dir(repo_root, user_id=user_id)
     try:
         cfg.mkdir(parents=True, exist_ok=True)
     except OSError as e:
@@ -156,16 +168,17 @@ def diagnose_mcp_environment(
     *,
     mcp_url: str | None = None,
     node_binary: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     node = node_binary or os.getenv("NODE_BINARY", "node")
     node_path = shutil.which(node)
     proxy_script = root / "node_modules" / "mcp-remote" / "dist" / "proxy.js"
-    base_cfg = _mcp_remote_config_dir(root)
-    effective_cfg = _mcp_remote_effective_config_dir(root)
-    expected = _expected_token_paths(root, url)
-    token_status = get_mcp_token_status(root, mcp_url=url)
+    base_cfg = _mcp_remote_config_dir(root, user_id=user_id)
+    effective_cfg = _mcp_remote_effective_config_dir(root, user_id=user_id)
+    expected = _expected_token_paths(root, url, user_id=user_id)
+    token_status = get_mcp_token_status(root, mcp_url=url, user_id=user_id)
     return {
         "node_binary": node,
         "node_path": node_path,
@@ -353,6 +366,7 @@ async def _run_session_inner(
     repo_root: Path,
     mcp_url: str,
     node_binary: str,
+    user_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -376,7 +390,7 @@ async def _run_session_inner(
         command=node_binary,
         args=[str(proxy_script), mcp_url],
         cwd=str(repo_root),
-        env=_stdio_env(repo_root),
+        env=_stdio_env(repo_root, user_id=user_id),
     )
 
     resolved_id = (effective_address_id or "").strip() or None
@@ -494,8 +508,7 @@ async def _run_session_inner(
 # ---------------------------------------------------------------------------
 
 
-def _mcp_token_secret():
-    """Return the raw JSON from companion/mcp-tokens, or {}."""
+def _root_mcp_token_secret() -> dict[str, Any]:
     try:
         client = boto3.client("secretsmanager")
         resp = client.get_secret_value(SecretId=_TOKEN_SECRET_ID)
@@ -503,6 +516,30 @@ def _mcp_token_secret():
         return json.loads(raw)
     except Exception:
         return {}
+
+
+def _mcp_token_secret(user_id: str | None = None):
+    """Return MCP token payload, scoped to user_id when supplied."""
+    payload = _root_mcp_token_secret()
+    if not user_id:
+        return payload
+    safe_user = _safe_user_id(user_id)
+    if not safe_user:
+        return {}
+    users = payload.get("users") if isinstance(payload, dict) else None
+    if not isinstance(users, dict):
+        users = {}
+    user_payload = users.get(safe_user)
+    if isinstance(user_payload, dict):
+        return user_payload
+    if safe_user == _LEGACY_MCP_OWNER and isinstance(payload, dict):
+        legacy = {
+            key: payload[key]
+            for key in ("files", "custom_providers", "pairing_sessions", "oauth_pending")
+            if key in payload
+        }
+        return legacy
+    return {}
 
 
 def _write_mcp_token_secret(payload: dict[str, Any]) -> None:
@@ -518,7 +555,28 @@ def _write_mcp_token_secret(payload: dict[str, Any]) -> None:
         )
 
 
-def _merge_mcp_token_secret(**updates: Any) -> dict[str, Any]:
+def _merge_mcp_token_secret(user_id: str | None = None, **updates: Any) -> dict[str, Any]:
+    if user_id:
+        payload = _root_mcp_token_secret()
+        if not isinstance(payload, dict):
+            payload = {}
+        users = payload.get("users")
+        if not isinstance(users, dict):
+            users = {}
+        safe_user = _safe_user_id(user_id) or user_id
+        current = users.get(safe_user)
+        if not isinstance(current, dict):
+            current = _mcp_token_secret(user_id)
+            if not isinstance(current, dict):
+                current = {}
+        current.update(updates)
+        current["updated_at"] = utc_now_iso()
+        users[safe_user] = current
+        payload["users"] = users
+        payload["updated_at"] = utc_now_iso()
+        _write_mcp_token_secret(payload)
+        return current
+
     payload = _mcp_token_secret()
     if not isinstance(payload, dict):
         payload = {}
@@ -774,11 +832,12 @@ def create_pairing_session(
     *,
     repo_root: Path | None = None,
     mcp_url: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     code = secrets.token_urlsafe(18)
-    secret_payload = _mcp_token_secret()
+    secret_payload = _mcp_token_secret(user_id)
     if not isinstance(secret_payload, dict):
         secret_payload = {}
     sessions = secret_payload.get("pairing_sessions")
@@ -795,9 +854,7 @@ def create_pairing_session(
         "mcp_url": url,
         "mcp_remote_version": _mcp_remote_version(root) or "0.1.38",
     }
-    secret_payload["pairing_sessions"] = sessions
-    secret_payload["updated_at"] = utc_now_iso()
-    _write_mcp_token_secret(secret_payload)
+    _merge_mcp_token_secret(user_id, pairing_sessions=sessions)
     return {
         "code": code,
         "mcp_url": url,
@@ -806,8 +863,8 @@ def create_pairing_session(
     }
 
 
-def get_pairing_session_info(code: str) -> dict[str, Any] | None:
-    secret_payload = _mcp_token_secret()
+def get_pairing_session_info(code: str, user_id: str | None = None) -> dict[str, Any] | None:
+    secret_payload = _mcp_token_secret(user_id)
     sessions = secret_payload.get("pairing_sessions") if isinstance(secret_payload, dict) else None
     if not isinstance(sessions, dict):
         return None
@@ -816,7 +873,7 @@ def get_pairing_session_info(code: str) -> dict[str, Any] | None:
         return None
     if int(time.time()) - int(session.get("created_at", 0)) > _PAIRING_TTL_SECONDS:
         sessions.pop(code, None)
-        _merge_mcp_token_secret(pairing_sessions=sessions)
+        _merge_mcp_token_secret(user_id, pairing_sessions=sessions)
         return None
     return dict(session)
 
@@ -826,9 +883,10 @@ def complete_pairing_session(
     repo_root: Path | None = None,
     code: str,
     files: dict[str, str],
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
-    secret_payload = _mcp_token_secret()
+    secret_payload = _mcp_token_secret(user_id)
     sessions = secret_payload.get("pairing_sessions") if isinstance(secret_payload, dict) else None
     if not isinstance(sessions, dict):
         raise RuntimeError("No pairing session was found. Generate a new connection command.")
@@ -837,10 +895,10 @@ def complete_pairing_session(
         raise RuntimeError("Pairing code was not recognized. Generate a new connection command.")
     if int(time.time()) - int(session.get("created_at", 0)) > _PAIRING_TTL_SECONDS:
         sessions.pop(code, None)
-        _merge_mcp_token_secret(pairing_sessions=sessions)
+        _merge_mcp_token_secret(user_id, pairing_sessions=sessions)
         raise RuntimeError("Pairing code expired. Generate a new connection command.")
 
-    cfg_dir = _mcp_remote_config_dir(root)
+    cfg_dir = _mcp_remote_config_dir(root, user_id=user_id)
     written: dict[str, str] = {}
     for name, content in files.items():
         rel = _safe_relative_token_path(name)
@@ -860,7 +918,7 @@ def complete_pairing_session(
         existing_files = {}
     existing_files.update(written)
     sessions.pop(code, None)
-    _merge_mcp_token_secret(files=existing_files, pairing_sessions=sessions)
+    _merge_mcp_token_secret(user_id, files=existing_files, pairing_sessions=sessions)
     return {
         "status": "ok",
         "detail": "MCP session synced. Return to Companion and test the connection.",
@@ -868,12 +926,12 @@ def complete_pairing_session(
     }
 
 
-def restore_mcp_auth_tokens(repo_root: Path | None = None) -> bool:
+def restore_mcp_auth_tokens(repo_root: Path | None = None, user_id: str | None = None) -> bool:
     """Fetch OAuth tokens from Secrets Manager and write to MCP config dir.
     Returns True if tokens were found and restored."""
     root = repo_root or repo_root_from_settings()
-    cfg_dir = _mcp_remote_config_dir(root)
-    secret = _mcp_token_secret()
+    cfg_dir = _mcp_remote_config_dir(root, user_id=user_id)
+    secret = _mcp_token_secret(user_id)
     files_data = secret.get("files") if isinstance(secret, dict) else None
     if not isinstance(files_data, dict) or not files_data:
         return False
@@ -890,11 +948,11 @@ def restore_mcp_auth_tokens(repo_root: Path | None = None) -> bool:
     return True
 
 
-def persist_mcp_auth_tokens(repo_root: Path | None = None) -> dict[str, str]:
+def persist_mcp_auth_tokens(repo_root: Path | None = None, user_id: str | None = None) -> dict[str, str]:
     """Read OAuth tokens from MCP config dir and store in Secrets Manager.
     Returns the files that were persisted."""
     root = repo_root or repo_root_from_settings()
-    cfg_dir = _mcp_remote_config_dir(root)
+    cfg_dir = _mcp_remote_config_dir(root, user_id=user_id)
     files_data: dict[str, str] = {}
     for p in _iter_token_files(cfg_dir):
         try:
@@ -904,14 +962,14 @@ def persist_mcp_auth_tokens(repo_root: Path | None = None) -> dict[str, str]:
         files_data[rel] = p.read_text(encoding="utf-8")
     if files_data:
         try:
-            secret_payload = _mcp_token_secret()
+            secret_payload = _mcp_token_secret(user_id)
             if not isinstance(secret_payload, dict):
                 secret_payload = {}
             existing = secret_payload.get("files")
             if not isinstance(existing, dict):
                 existing = {}
             existing.update(files_data)
-            _merge_mcp_token_secret(files=existing)
+            _merge_mcp_token_secret(user_id, files=existing)
             logger.info("Persisted %d MCP auth token file(s) to Secrets Manager.", len(files_data))
         except Exception:
             logger.exception("Persist MCP auth tokens failed")
@@ -923,20 +981,22 @@ def get_mcp_token_status(
     repo_root: Path | None = None,
     *,
     mcp_url: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Return a summary of MCP token state."""
     root = repo_root or repo_root_from_settings()
-    cfg_dir = _mcp_remote_config_dir(root)
+    cfg_dir = _mcp_remote_config_dir(root, user_id=user_id)
     local_paths = [p.relative_to(cfg_dir).as_posix() for p in _iter_token_files(cfg_dir)]
-    secret = _mcp_token_secret()
+    secret = _mcp_token_secret(user_id)
     secret_files = list((secret.get("files") or {}).keys())
     expected = _expected_token_paths(
         root,
         mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp"),
+        user_id=user_id,
     )
     return {
         "config_dir": str(cfg_dir),
-        "effective_config_dir": str(_mcp_remote_effective_config_dir(root)),
+        "effective_config_dir": str(_mcp_remote_effective_config_dir(root, user_id=user_id)),
         "local_files": local_paths,
         "secret_files": secret_files,
         "has_local_tokens": any(p.endswith("_tokens.json") for p in local_paths),
@@ -1089,6 +1149,7 @@ def run_tool_plan_sync(
     repo_root: Path | None = None,
     mcp_url: str | None = None,
     node_binary: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv(
@@ -1111,7 +1172,12 @@ def run_tool_plan_sync(
     try:
         steps, diagnostics = asyncio.run(
             _run_session_inner(
-                cleaned, address_id.strip() if address_id else None, root, url, node
+                cleaned,
+                address_id.strip() if address_id else None,
+                root,
+                url,
+                node,
+                user_id,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))
@@ -1128,7 +1194,7 @@ def run_tool_plan_sync(
             "error_class": type(e).__name__,
             "error_detail": _humanize_mcp_failure(root, e),
             "steps": [],
-            "diagnostics": {"mcp_remote_config_dir": str(_mcp_remote_config_dir(root))},
+            "diagnostics": {"mcp_remote_config_dir": str(_mcp_remote_config_dir(root, user_id=user_id))},
         }
 
 
@@ -1136,6 +1202,7 @@ async def _list_tools_inner(
     repo_root: Path,
     mcp_url: str,
     node_binary: str,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -1154,7 +1221,7 @@ async def _list_tools_inner(
         command=node_binary,
         args=[str(proxy_script), mcp_url],
         cwd=str(repo_root),
-        env=_stdio_env(repo_root),
+        env=_stdio_env(repo_root, user_id=user_id),
     )
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -1180,12 +1247,13 @@ def list_mcp_tools_sync(
     repo_root: Path | None = None,
     mcp_url: str | None = None,
     node_binary: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     node = node_binary or os.getenv("NODE_BINARY", "node")
     try:
-        tools = asyncio.run(_list_tools_inner(root, url, node))
+        tools = asyncio.run(_list_tools_inner(root, url, node, user_id=user_id))
         return {"ok": True, "tools": tools, "mcp_url": url}
     except BaseException as e:
         logger.exception("MCP tool listing failed")

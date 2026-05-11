@@ -162,8 +162,8 @@ def _slugify_provider_id(label: str) -> str:
     return slug[:48]
 
 
-def _custom_provider_records() -> dict[str, dict[str, Any]]:
-    payload = _mcp_token_secret()
+def _custom_provider_records(user_id: str | None = None) -> dict[str, dict[str, Any]]:
+    payload = _mcp_token_secret(user_id)
     records = payload.get("custom_providers") if isinstance(payload, dict) else None
     if not isinstance(records, dict):
         return {}
@@ -174,9 +174,9 @@ def _custom_provider_records() -> dict[str, dict[str, Any]]:
     }
 
 
-def _custom_providers() -> tuple[ToolProvider, ...]:
+def _custom_providers(user_id: str | None = None) -> tuple[ToolProvider, ...]:
     providers: list[ToolProvider] = []
-    for pid, record in _custom_provider_records().items():
+    for pid, record in _custom_provider_records(user_id).items():
         label = str(record.get("label") or pid).strip() or pid
         mcp_url = str(record.get("mcp_url") or "").strip()
         if not mcp_url:
@@ -201,8 +201,8 @@ def _custom_providers() -> tuple[ToolProvider, ...]:
     return tuple(providers)
 
 
-def all_tool_providers() -> tuple[ToolProvider, ...]:
-    return BUILTIN_PROVIDERS + _custom_providers()
+def all_tool_providers(user_id: str | None = None) -> tuple[ToolProvider, ...]:
+    return BUILTIN_PROVIDERS + _custom_providers(user_id)
 
 
 def save_custom_tool_provider(
@@ -211,6 +211,7 @@ def save_custom_tool_provider(
     mcp_url: str,
     tools: list[str] | None = None,
     provider_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     clean_label = label.strip()
     clean_url = mcp_url.strip()
@@ -222,7 +223,7 @@ def save_custom_tool_provider(
     builtin_ids = {provider.name for provider in BUILTIN_PROVIDERS}
     if pid in builtin_ids:
         pid = f"custom_{pid}"
-    records = _custom_provider_records()
+    records = _custom_provider_records(user_id)
     base = pid
     counter = 2
     while pid in records and records[pid].get("mcp_url") != clean_url:
@@ -236,27 +237,27 @@ def save_custom_tool_provider(
         "notes": "Custom MCP added from the UI.",
         "updated_at": int(time.time()),
     }
-    _merge_mcp_token_secret(custom_providers=records)
-    return provider_to_dict(get_tool_provider(pid) or _custom_providers()[-1])
+    _merge_mcp_token_secret(user_id, custom_providers=records)
+    return provider_to_dict(get_tool_provider(pid, user_id=user_id) or _custom_providers(user_id)[-1])
 
 
-def update_custom_provider_tools(provider_id: str, tools: list[str]) -> None:
-    records = _custom_provider_records()
+def update_custom_provider_tools(provider_id: str, tools: list[str], user_id: str | None = None) -> None:
+    records = _custom_provider_records(user_id)
     record = records.get(provider_id)
     if not isinstance(record, dict):
         return
     record["tools"] = sorted({str(tool).strip() for tool in tools if str(tool).strip()})
     record["updated_at"] = int(time.time())
     records[provider_id] = record
-    _merge_mcp_token_secret(custom_providers=records)
+    _merge_mcp_token_secret(user_id, custom_providers=records)
 
 
-def delete_custom_tool_provider(provider_id: str) -> bool:
-    records = _custom_provider_records()
+def delete_custom_tool_provider(provider_id: str, user_id: str | None = None) -> bool:
+    records = _custom_provider_records(user_id)
     if provider_id not in records:
         return False
     records.pop(provider_id, None)
-    _merge_mcp_token_secret(custom_providers=records)
+    _merge_mcp_token_secret(user_id, custom_providers=records)
     return True
 
 
@@ -273,13 +274,13 @@ def provider_to_dict(provider: ToolProvider) -> dict[str, Any]:
     }
 
 
-def list_tool_providers() -> list[dict[str, Any]]:
-    return [provider_to_dict(provider) for provider in all_tool_providers()]
+def list_tool_providers(user_id: str | None = None) -> list[dict[str, Any]]:
+    return [provider_to_dict(provider) for provider in all_tool_providers(user_id)]
 
 
-def select_tool_providers_for_message(message: str) -> set[str]:
+def select_tool_providers_for_message(message: str, user_id: str | None = None) -> set[str]:
     text = f" {message.lower()} "
-    providers = {provider.name: provider for provider in all_tool_providers() if provider.available}
+    providers = {provider.name: provider for provider in all_tool_providers(user_id) if provider.available}
 
     asks_compare = any(token in text for token in (" compare ", " vs ", " versus ", " cheaper ", " faster ", " better "))
     mentions_zomato = "zomato" in text
@@ -367,19 +368,23 @@ def select_tool_providers_for_message(message: str) -> set[str]:
     return {next(iter(providers.keys()))} if providers else set()
 
 
-def provider_for_tool(tool_name: str, enabled_providers: set[str] | None = None) -> str | None:
-    providers = all_tool_providers()
+def provider_for_tool(
+    tool_name: str,
+    enabled_providers: set[str] | None = None,
+    user_id: str | None = None,
+) -> str | None:
+    providers = all_tool_providers(user_id)
     if enabled_providers is not None:
-        providers = tuple(provider for provider in all_tool_providers() if provider.name in enabled_providers)
+        providers = tuple(provider for provider in providers if provider.name in enabled_providers)
     for provider in providers:
         if tool_name in provider.tools:
             return provider.name
     return None
 
 
-def get_tool_provider(name: str) -> ToolProvider | None:
+def get_tool_provider(name: str, user_id: str | None = None) -> ToolProvider | None:
     needle = name.strip()
-    for provider in all_tool_providers():
+    for provider in all_tool_providers(user_id):
         if provider.name == needle:
             return provider
     return None
@@ -389,15 +394,20 @@ def route_tool_plan(
     tool_plan: list[dict[str, Any]],
     *,
     enabled_providers: set[str] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     routed: dict[str, list[dict[str, Any]]] = {}
     for step in tool_plan:
         if not isinstance(step, dict):
             continue
         tool_name = str(step.get("tool") or "").strip()
-        provider = provider_for_tool(tool_name, enabled_providers=enabled_providers)
+        provider = provider_for_tool(
+            tool_name,
+            enabled_providers=enabled_providers,
+            user_id=user_id,
+        )
         if not provider and enabled_providers and len(enabled_providers) == 1:
-            only = get_tool_provider(next(iter(enabled_providers)))
+            only = get_tool_provider(next(iter(enabled_providers)), user_id=user_id)
             if only and only.custom:
                 provider = only.name
         if not provider:
@@ -455,8 +465,13 @@ def execute_tool_plan_sync(
     user_message: str = "",
     constraints: dict[str, Any] | None = None,
     enabled_providers: set[str] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
-    routed = route_tool_plan(tool_plan, enabled_providers=enabled_providers)
+    routed = route_tool_plan(
+        tool_plan,
+        enabled_providers=enabled_providers,
+        user_id=user_id,
+    )
     unsupported = routed.pop("_unsupported", [])
     if enabled_providers is not None:
         disabled = sorted(set(routed.keys()) - enabled_providers)
@@ -471,7 +486,7 @@ def execute_tool_plan_sync(
     provider_results: dict[str, Any] = {}
 
     for name in sorted(routed.keys()):
-        provider = get_tool_provider(name)
+        provider = get_tool_provider(name, user_id=user_id)
         if provider and not provider.available:
             provider_results[name] = {
                 "ok": False,
@@ -525,13 +540,14 @@ def execute_tool_plan_sync(
         provider_results["zomato"] = run_tool_plan_sync(
             routed["zomato"],
             address_id=address_id,
+            user_id=user_id,
         )
 
     routed_names = tuple(name for name in sorted(routed.keys()) if name != "zomato")
     for name in routed_names:
         if name not in routed:
             continue
-        provider = get_tool_provider(name)
+        provider = get_tool_provider(name, user_id=user_id)
         if not provider or not provider.default_mcp_url:
             continue
         provider_results[name] = run_tool_plan_sync(
@@ -543,6 +559,7 @@ def execute_tool_plan_sync(
                 else ""
             )
             or provider.default_mcp_url,
+            user_id=user_id,
         )
 
     ok = all(

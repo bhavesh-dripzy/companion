@@ -19,7 +19,7 @@ client = TestClient(app)
 def auth_headers() -> dict[str, str]:
     response = client.post(
         "/api/login/",
-        json={"username": "admin", "password": "admin112###"},
+        json={"username": "admin_aashish", "password": "admin_aashish445*"},
     )
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
@@ -29,6 +29,23 @@ def test_health_check_returns_ok():
     response = client.get("/api/")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_login_supports_named_admin_accounts():
+    for username in ("admin_aashish", "admin_bhavesh", "admin_kshitij"):
+        response = client.post(
+            "/api/login/",
+            json={"username": username, "password": f"{username}445*"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["access_token"]
+
+    legacy = client.post(
+        "/api/login/",
+        json={"username": "admin", "password": "admin112###"},
+    )
+    assert legacy.status_code == 401
 
 
 def test_send_message_optional_llm_returns_whatsapp_url(monkeypatch):
@@ -51,7 +68,7 @@ def test_send_message_optional_llm_returns_whatsapp_url(monkeypatch):
 
 def test_mcp_token_status_detects_nested_mcp_remote_tokens(tmp_path, monkeypatch):
     monkeypatch.setenv("MCP_REMOTE_CONFIG_DIR", str(tmp_path / ".mcp-auth"))
-    monkeypatch.setattr(mcp_exec, "_mcp_token_secret", lambda: {})
+    monkeypatch.setattr(mcp_exec, "_mcp_token_secret", lambda _user_id=None: {})
 
     root = tmp_path / "repo"
     pkg = root / "node_modules" / "mcp-remote"
@@ -73,13 +90,36 @@ def test_mcp_restore_preserves_nested_secret_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(
         mcp_exec,
         "_mcp_token_secret",
-        lambda: {"files": {"mcp-remote-0.1.38/abc_tokens.json": '{"access_token":"x"}'}},
+        lambda _user_id=None: {"files": {"mcp-remote-0.1.38/abc_tokens.json": '{"access_token":"x"}'}},
     )
 
     assert mcp_exec.restore_mcp_auth_tokens(tmp_path) is True
 
     restored = tmp_path / ".mcp-auth" / "mcp-remote-0.1.38" / "abc_tokens.json"
     assert restored.read_text(encoding="utf-8") == '{"access_token":"x"}'
+
+
+def test_mcp_secret_payloads_are_scoped_per_admin(monkeypatch):
+    root_secret = {
+        "files": {"mcp-remote-0.1.38/legacy_tokens.json": '{"access_token":"aashish"}'},
+        "custom_providers": {"custom_legacy": {"label": "Legacy", "mcp_url": "https://legacy.example/mcp"}},
+    }
+    writes = []
+
+    monkeypatch.setattr(mcp_exec, "_root_mcp_token_secret", lambda: root_secret)
+    monkeypatch.setattr(mcp_exec, "_write_mcp_token_secret", writes.append)
+
+    assert "files" in mcp_exec._mcp_token_secret("admin_aashish")
+    assert mcp_exec._mcp_token_secret("admin_bhavesh") == {}
+
+    merged = mcp_exec._merge_mcp_token_secret(
+        "admin_bhavesh",
+        files={"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"bhavesh"}'},
+    )
+
+    assert merged["files"] == {"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"bhavesh"}'}
+    assert writes[-1]["files"] == root_secret["files"]
+    assert writes[-1]["users"]["admin_bhavesh"]["files"] == merged["files"]
 
 
 def test_food_query_is_plan_only_by_default(monkeypatch):
@@ -339,10 +379,10 @@ def test_zepto_provider_uses_official_endpoint_tooling():
 def test_custom_mcp_can_be_added_listed_and_removed(monkeypatch):
     store = {}
 
-    def fake_secret():
+    def fake_secret(_user_id=None):
         return dict(store)
 
-    def fake_merge(**updates):
+    def fake_merge(_user_id=None, **updates):
         store.update(updates)
         return dict(store)
 

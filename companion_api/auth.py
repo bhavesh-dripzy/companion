@@ -1,9 +1,6 @@
 """JWT-based authentication for Companion API.
 
-Admin credentials are resolved via the same secret_or_env chain as LLM keys:
-  1. ADMIN_USERNAME / ADMIN_PASSWORD env vars
-  2. companion/app secret in AWS Secrets Manager
-  3. Hard fallback defaults (admin / admin112###)
+Admin credentials are multi-account by default.
 
 A JWT_SECRET is derived from the admin password by default.
 """
@@ -25,19 +22,16 @@ from companion_api.secrets import secret_or_env
 # Credentials
 # ---------------------------------------------------------------------------
 
-DEFAULT_ADMIN_USERNAME = "admin"
-DEFAULT_ADMIN_PASSWORD = "admin112###"
+DEFAULT_ADMINS = {
+    "admin_aashish": "admin_aashish445*",
+    "admin_bhavesh": "admin_bhavesh445*",
+    "admin_kshitij": "admin_kshitij445*",
+}
 
 
 @lru_cache(maxsize=1)
-def _admin_credentials() -> tuple[str, str]:
-    username = (
-        secret_or_env("ADMIN_USERNAME").strip() or DEFAULT_ADMIN_USERNAME
-    )
-    password = (
-        secret_or_env("ADMIN_PASSWORD").strip() or DEFAULT_ADMIN_PASSWORD
-    )
-    return username, password
+def _admin_credentials() -> dict[str, str]:
+    return dict(DEFAULT_ADMINS)
 
 
 def _jwt_secret() -> str:
@@ -45,8 +39,8 @@ def _jwt_secret() -> str:
     explicit = secret_or_env("JWT_SECRET").strip()
     if explicit:
         return explicit
-    _, password = _admin_credentials()
-    return hashlib.sha256(f"companion:{password}".encode()).hexdigest()
+    seed = "|".join(f"{u}:{p}" for u, p in sorted(_admin_credentials().items()))
+    return hashlib.sha256(f"companion:{seed}".encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +63,8 @@ def verify_access_token(token: str) -> str | None:
     """Return username if valid, None otherwise."""
     try:
         payload = jwt.decode(token, _jwt_secret(), algorithms=["HS256"])
-        return payload.get("sub")
+        username = payload.get("sub")
+        return username if username in _admin_credentials() else None
     except jwt.PyJWTError:
         return None
 
@@ -99,5 +94,4 @@ def get_current_user(
 
 
 def validate_admin_login(username: str, password: str) -> bool:
-    expected_user, expected_pass = _admin_credentials()
-    return username == expected_user and password == expected_pass
+    return _admin_credentials().get(username) == password
