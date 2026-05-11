@@ -139,6 +139,35 @@ def test_mcp_restore_preserves_nested_secret_paths(tmp_path, monkeypatch):
     assert restored.read_text(encoding="utf-8") == '{"access_token":"x"}'
 
 
+def test_mcp_restore_aliases_prior_mcp_remote_version(tmp_path, monkeypatch):
+    monkeypatch.setenv("MCP_REMOTE_CONFIG_DIR", str(tmp_path / ".mcp-auth"))
+    root = tmp_path / "repo"
+    pkg = root / "node_modules" / "mcp-remote"
+    pkg.mkdir(parents=True)
+    (pkg / "package.json").write_text('{"version":"0.1.38"}', encoding="utf-8")
+    token_hash = mcp_exec._server_url_hash("https://mcp.swiggy.com/food")
+    old_rel = f"mcp-remote-0.1.37/{token_hash}_tokens.json"
+    monkeypatch.setattr(
+        mcp_exec,
+        "_mcp_token_secret",
+        lambda _user_id=None: {"files": {old_rel: '{"access_token":"swiggy"}'}},
+    )
+
+    assert mcp_exec.restore_mcp_auth_tokens(root, user_id="admin_aashish") is True
+
+    restored_old = tmp_path / ".mcp-auth" / "users" / "admin_aashish" / old_rel
+    restored_current = (
+        tmp_path
+        / ".mcp-auth"
+        / "users"
+        / "admin_aashish"
+        / "mcp-remote-0.1.38"
+        / f"{token_hash}_tokens.json"
+    )
+    assert restored_old.read_text(encoding="utf-8") == '{"access_token":"swiggy"}'
+    assert restored_current.read_text(encoding="utf-8") == '{"access_token":"swiggy"}'
+
+
 def test_mcp_secret_payloads_are_scoped_per_admin(monkeypatch):
     root_secret = {
         "files": {"mcp-remote-0.1.38/legacy_tokens.json": '{"access_token":"user_a_token"}'},

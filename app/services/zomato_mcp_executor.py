@@ -127,6 +127,17 @@ def _has_token_file_for_url(paths: list[str], mcp_url: str) -> bool:
     return any(str(path).replace("\\", "/").endswith("/" + token_name) or str(path) == token_name for path in paths)
 
 
+def _current_version_token_alias(repo_root: Path, rel: Path) -> Path | None:
+    version = _mcp_remote_version(repo_root)
+    if not version or not rel.parts:
+        return None
+    first = rel.parts[0]
+    current_first = f"mcp-remote-{version}"
+    if not first.startswith("mcp-remote-") or first == current_first:
+        return None
+    return Path(current_first, *rel.parts[1:])
+
+
 def _safe_relative_token_path(name: str) -> Path | None:
     cleaned = str(name or "").replace("\\", "/").strip().lstrip("/")
     if not cleaned:
@@ -209,21 +220,25 @@ def _flatten_exception_group(exc: BaseException) -> list[BaseException]:
     return [exc]
 
 
-def _humanize_mcp_failure(repo_root: Path, exc: BaseException) -> str:
+def _humanize_mcp_failure(repo_root: Path, exc: BaseException, mcp_url: str | None = None) -> str:
     leaves = _flatten_exception_group(exc)
     parts = [f"{type(e).__name__}: {e}" for e in leaves] or [str(exc)]
     detail = "; ".join(parts)
+    provider_name = "MCP"
+    if mcp_url:
+        host = urlparse(mcp_url).netloc or mcp_url
+        provider_name = host.replace("mcp.", "").split(".")[0].title() + " MCP"
     if any(isinstance(e, TimeoutError) for e in leaves):
         detail += (
-            " | Zomato MCP timed out while initializing or calling a tool. "
-            "This usually means OAuth/token setup is missing or the MCP server is slow."
+            f" | {provider_name} timed out while initializing or calling a tool. "
+            "This usually means OAuth/token setup is missing, tokens were not restored into the active mcp-remote version directory, or the MCP server is slow."
         )
     if any("Connection closed" in str(e) for e in leaves) or any(
         type(e).__name__ == "McpError" for e in leaves
     ):
         cfg = _mcp_remote_config_dir(repo_root)
         detail += (
-            " | Zomato MCP uses OAuth. Use the hosted Authorize flow so Companion can "
+            f" | {provider_name} uses OAuth. Use the hosted Authorize flow so Companion can "
             f"write mcp-remote-compatible token files into {cfg} automatically."
         )
     return detail
@@ -967,9 +982,15 @@ def restore_mcp_auth_tokens(repo_root: Path | None = None, user_id: str | None =
         if rel is None:
             logger.warning("Skipping unsafe MCP token path from secret: %s", name)
             continue
-        dest = cfg_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(str(content), encoding="utf-8")
+        text = str(content)
+        targets = [rel]
+        alias = _current_version_token_alias(root, rel)
+        if alias is not None:
+            targets.append(alias)
+        for target in targets:
+            dest = cfg_dir / target
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(text, encoding="utf-8")
     logger.info("Restored %d MCP auth token file(s) from Secrets Manager.", len(files_data))
     return True
 
@@ -1214,11 +1235,11 @@ def run_tool_plan_sync(
             "diagnostics": diagnostics,
         }
     except BaseException as e:
-        logger.exception("Zomato MCP execution failed")
+        logger.exception("MCP execution failed for %s", url)
         return {
             "ok": False,
             "error_class": type(e).__name__,
-            "error_detail": _humanize_mcp_failure(root, e),
+            "error_detail": _humanize_mcp_failure(root, e, url),
             "steps": [],
             "diagnostics": {"mcp_remote_config_dir": str(_mcp_remote_config_dir(root, user_id=user_id))},
         }
@@ -1286,7 +1307,7 @@ def list_mcp_tools_sync(
         return {
             "ok": False,
             "error_class": type(e).__name__,
-            "error_detail": _humanize_mcp_failure(root, e),
+            "error_detail": _humanize_mcp_failure(root, e, url),
             "tools": [],
             "mcp_url": url,
         }
