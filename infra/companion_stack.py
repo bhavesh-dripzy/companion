@@ -82,7 +82,6 @@ class CompanionStack(Stack):
             auth_flows=cognito.AuthFlow(
                 user_password=True,
                 user_srp=True,
-                refresh_token=True,
             ),
             generate_secret=False,
             o_auth=cognito.OAuthSettings(
