@@ -5,7 +5,8 @@ from companion_api.main import app
 from companion_api import main as api_main
 from app.services import zomato_mcp_executor as mcp_exec
 from app.services.food_llm_router import _finalize_from_parsed_json
-from app.services.tool_runtime import execute_tool_plan_sync
+from app.services.food_llm_router import route_food_query
+from app.services.tool_runtime import execute_tool_plan_sync, list_tool_providers
 
 
 client = TestClient(app)
@@ -167,6 +168,11 @@ def test_tool_provider_listing_includes_zomato_mcp():
     providers = response.json()["providers"]
     assert providers[0]["id"] == "zomato"
     assert providers[0]["label"] == "Zomato MCP"
+    ids = {provider["id"]: provider for provider in providers}
+    assert ids["swiggy_food"]["available"] is True
+    assert ids["swiggy_instamart"]["available"] is True
+    assert ids["zepto"]["available"] is True
+    assert ids["blinkit"]["available"] is False
 
 
 def test_explicit_far_location_does_not_use_default_saved_address(monkeypatch):
@@ -247,6 +253,74 @@ def test_mcp_executor_learns_downstream_placeholders_from_prior_output():
         "variant": "var-1",
         "cart_id": "cart-7",
     }
+
+
+def test_compare_zomato_swiggy_uses_both_provider_plans():
+    plan = route_food_query(
+        user_message="Compare pizza on Zomato vs Swiggy near me",
+        api_key="unused",
+        model="unused",
+        provider="gemini",
+        tool_providers={"zomato", "swiggy_food"},
+    )
+
+    assert plan["intent"] == "compare_restaurant_providers"
+    assert [step["tool"] for step in plan["tool_plan"]] == [
+        "get_saved_addresses_for_user",
+        "get_restaurants_for_keyword",
+        "search_restaurants",
+    ]
+    assert plan["constraints"]["comparison_providers"] == ["swiggy_food", "zomato"]
+
+
+def test_compare_query_executes_multiple_tool_providers(monkeypatch):
+    calls = {}
+
+    monkeypatch.setattr(
+        api_main,
+        "resolve_llm_from_env",
+        lambda *_args, **_kwargs: (
+            ResolvedLlm(provider="gemini", api_key="test", model="gemini-test"),
+            None,
+        ),
+    )
+    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+
+    def fake_execute_tool_plan_sync(tool_plan, **kwargs):
+        calls["tool_plan"] = tool_plan
+        calls["kwargs"] = kwargs
+        return {
+            "ok": True,
+            "error": None,
+            "routed_providers": ["swiggy_food", "zomato"],
+            "provider_results": {
+                "zomato": {"ok": True, "steps": [], "diagnostics": {}},
+                "swiggy_food": {"ok": True, "steps": [], "diagnostics": {}},
+            },
+        }
+
+    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
+
+    response = client.post(
+        "/api/food/query/",
+        json={
+            "message": "Compare pizza on Zomato vs Swiggy near me",
+            "execute_tools": True,
+            "tool_providers": ["zomato", "swiggy_food"],
+        },
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    assert calls["kwargs"]["enabled_providers"] == {"zomato", "swiggy_food"}
+    assert response.json()["tool_execution"]["routed_providers"] == ["swiggy_food", "zomato"]
+    assert set(response.json()["provider_summaries"]) == {"zomato", "swiggy_food"}
+
+
+def test_zepto_provider_uses_official_endpoint_tooling():
+    providers = {provider["id"]: provider for provider in list_tool_providers()}
+    assert providers["zepto"]["available"] is True
+    assert "search_products" in providers["zepto"]["tools"]
 
 
 def test_operational_apis_require_auth():

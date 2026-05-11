@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import re
 from typing import Any
 
@@ -12,11 +13,17 @@ class ToolProvider:
     name: str
     label: str
     tools: frozenset[str]
+    mcp_url_env: str | None = None
+    default_mcp_url: str | None = None
+    available: bool = True
+    notes: str = ""
 
 
 ZOMATO_PROVIDER = ToolProvider(
     name="zomato",
     label="Zomato MCP",
+    mcp_url_env="ZOMATO_MCP_URL",
+    default_mcp_url="https://mcp-server.zomato.com/mcp",
     tools=frozenset(
         {
             "get_saved_addresses_for_user",
@@ -34,7 +41,96 @@ ZOMATO_PROVIDER = ToolProvider(
     ),
 )
 
-PROVIDERS = (ZOMATO_PROVIDER,)
+SWIGGY_FOOD_PROVIDER = ToolProvider(
+    name="swiggy_food",
+    label="Swiggy Food MCP",
+    mcp_url_env="SWIGGY_FOOD_MCP_URL",
+    default_mcp_url="https://mcp.swiggy.com/food",
+    tools=frozenset(
+        {
+            "search_restaurants",
+            "get_restaurant_menu",
+            "search_menu_items",
+            "get_user_addresses",
+            "get_cart",
+            "add_item_to_cart",
+            "update_cart_item",
+            "remove_cart_item",
+            "clear_cart",
+            "get_cart_offers",
+            "place_order",
+            "get_order_history",
+            "get_order_details",
+        }
+    ),
+)
+
+SWIGGY_INSTAMART_PROVIDER = ToolProvider(
+    name="swiggy_instamart",
+    label="Swiggy Instamart MCP",
+    mcp_url_env="SWIGGY_INSTAMART_MCP_URL",
+    default_mcp_url="https://mcp.swiggy.com/im",
+    tools=frozenset(
+        {
+            "search_products",
+            "get_product_details",
+            "get_user_addresses",
+            "get_cart",
+            "add_item_to_cart",
+            "update_cart_item",
+            "remove_cart_item",
+            "clear_cart",
+            "get_cart_offers",
+            "place_order",
+            "get_order_history",
+            "get_order_details",
+        }
+    ),
+)
+
+BLINKIT_PROVIDER = ToolProvider(
+    name="blinkit",
+    label="Blinkit MCP",
+    tools=frozenset(),
+    available=False,
+    notes="No verified public Blinkit MCP endpoint/tool schema is configured yet.",
+)
+
+ZEPTO_PROVIDER = ToolProvider(
+    name="zepto",
+    label="Zepto MCP",
+    mcp_url_env="ZEPTO_MCP_URL",
+    default_mcp_url="https://mcp.zepto.co.in/mcp",
+    tools=frozenset(
+        {
+            "search_products",
+            "get_product_details",
+            "get_user_preferences",
+            "get_cart",
+            "add_item_to_cart",
+            "update_cart_item",
+            "remove_cart_item",
+            "clear_cart",
+            "get_cart_offers",
+            "checkout",
+            "place_order",
+            "get_order_history",
+            "get_order_details",
+        }
+    ),
+    notes=(
+        "Official Zepto MCP endpoint. Tool names are mapped to the public shopping "
+        "flows documented by Zepto: search, cart, checkout, and order history."
+    ),
+)
+
+PROVIDERS = (
+    ZOMATO_PROVIDER,
+    SWIGGY_FOOD_PROVIDER,
+    SWIGGY_INSTAMART_PROVIDER,
+    BLINKIT_PROVIDER,
+    ZEPTO_PROVIDER,
+)
 
 _SAVED_LOCATION_WORDS = {
     "me",
@@ -55,27 +151,44 @@ def list_tool_providers() -> list[dict[str, Any]]:
         {
             "id": provider.name,
             "label": provider.label,
+            "available": provider.available,
             "tool_count": len(provider.tools),
             "tools": sorted(provider.tools),
+            "notes": provider.notes,
         }
         for provider in PROVIDERS
     ]
 
 
-def provider_for_tool(tool_name: str) -> str | None:
-    for provider in PROVIDERS:
+def provider_for_tool(tool_name: str, enabled_providers: set[str] | None = None) -> str | None:
+    providers = PROVIDERS
+    if enabled_providers is not None:
+        providers = tuple(provider for provider in PROVIDERS if provider.name in enabled_providers)
+    for provider in providers:
         if tool_name in provider.tools:
             return provider.name
     return None
 
 
-def route_tool_plan(tool_plan: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+def get_tool_provider(name: str) -> ToolProvider | None:
+    needle = name.strip()
+    for provider in PROVIDERS:
+        if provider.name == needle:
+            return provider
+    return None
+
+
+def route_tool_plan(
+    tool_plan: list[dict[str, Any]],
+    *,
+    enabled_providers: set[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     routed: dict[str, list[dict[str, Any]]] = {}
     for step in tool_plan:
         if not isinstance(step, dict):
             continue
         tool_name = str(step.get("tool") or "").strip()
-        provider = provider_for_tool(tool_name)
+        provider = provider_for_tool(tool_name, enabled_providers=enabled_providers)
         if not provider:
             routed.setdefault("_unsupported", []).append(step)
             continue
@@ -132,7 +245,7 @@ def execute_tool_plan_sync(
     constraints: dict[str, Any] | None = None,
     enabled_providers: set[str] | None = None,
 ) -> dict[str, Any]:
-    routed = route_tool_plan(tool_plan)
+    routed = route_tool_plan(tool_plan, enabled_providers=enabled_providers)
     unsupported = routed.pop("_unsupported", [])
     if enabled_providers is not None:
         disabled = sorted(set(routed.keys()) - enabled_providers)
@@ -145,6 +258,22 @@ def execute_tool_plan_sync(
                 "provider_results": {},
             }
     provider_results: dict[str, Any] = {}
+
+    for name in sorted(routed.keys()):
+        provider = get_tool_provider(name)
+        if provider and not provider.available:
+            provider_results[name] = {
+                "ok": False,
+                "error_detail": "provider_unavailable",
+                "steps": [],
+                "diagnostics": {"provider": provider.label, "notes": provider.notes},
+            }
+            return {
+                "ok": False,
+                "error": "provider_unavailable",
+                "routed_providers": sorted(provider_results.keys()),
+                "provider_results": provider_results,
+            }
 
     if unsupported:
         return {
@@ -185,6 +314,23 @@ def execute_tool_plan_sync(
         provider_results["zomato"] = run_tool_plan_sync(
             routed["zomato"],
             address_id=address_id,
+        )
+
+    for name in ("swiggy_food", "swiggy_instamart", "zepto"):
+        if name not in routed:
+            continue
+        provider = get_tool_provider(name)
+        if not provider or not provider.default_mcp_url:
+            continue
+        provider_results[name] = run_tool_plan_sync(
+            routed[name],
+            address_id=address_id,
+            mcp_url=(
+                os.getenv(provider.mcp_url_env, "").strip()
+                if provider.mcp_url_env
+                else ""
+            )
+            or provider.default_mcp_url,
         )
 
     ok = all(

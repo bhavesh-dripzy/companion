@@ -22,6 +22,7 @@ class FoodQueryRequest(BaseModel):
     address_id: str | None = None
     provider: str | None = None
     tool_provider: str | None = None
+    tool_providers: list[str] | None = None
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
     include_raw_zomato: bool = False

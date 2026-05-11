@@ -33,10 +33,12 @@ def _extract_restaurants(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
     for step in zomato.get("steps") or []:
         if not isinstance(step, dict):
             continue
-        if step.get("tool") != "get_restaurants_for_keyword":
+        if step.get("tool") not in ("get_restaurants_for_keyword", "search_restaurants"):
             continue
         payload = ((step.get("result") or {}).get("data") or {})
         results = payload.get("results") if isinstance(payload, dict) else None
+        if results is None and isinstance(payload, dict):
+            results = payload.get("restaurants")
         if not isinstance(results, list):
             continue
         for r in results:
@@ -70,6 +72,10 @@ def _extract_menu_items(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
         if step.get("tool") not in (
             "get_restaurant_menu_by_categories",
             "get_menu_items_listing",
+            "get_restaurant_menu",
+            "search_menu_items",
+            "search_products",
+            "get_product_details",
         ):
             continue
         payload = ((step.get("result") or {}).get("data") or {})
