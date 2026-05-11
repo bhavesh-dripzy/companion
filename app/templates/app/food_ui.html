@@ -835,8 +835,7 @@
         const body = {
           message: msg,
           execute_tools: true,
-          history: chatHistory.slice(0, -1),
-          tool_provider: primaryToolProvider()
+          history: chatHistory.slice(0, -1)
         };
         const selectedModelProvider = provider();
         if (selectedModelProvider && selectedModelProvider !== "auto") body.provider = selectedModelProvider;

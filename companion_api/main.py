@@ -273,16 +273,21 @@ def _tool_execution_trace(
     ]
     tool_plan = plan.get("tool_plan") if isinstance(plan, dict) else []
     if isinstance(tool_plan, list):
+        planned_tools = [
+            str(step.get("tool") or "")
+            for step in tool_plan
+            if isinstance(step, dict) and step.get("tool")
+        ]
         trace.append(
             {
                 "stage": "tool_plan",
                 "status": "ok" if tool_plan else "skipped",
-                "detail": f"Planned {len(tool_plan)} tool call(s).",
-                "tools": [
-                    str(step.get("tool") or "")
-                    for step in tool_plan
-                    if isinstance(step, dict) and step.get("tool")
-                ],
+                "detail": (
+                    f"Planned {len(tool_plan)} tool call(s)."
+                    if tool_plan
+                    else "No executable MCP tool call was planned."
+                ),
+                "tools": planned_tools,
             }
         )
     if not isinstance(tool_execution, dict):
@@ -319,6 +324,14 @@ def _tool_execution_trace(
                     ],
                 }
             )
+    elif tool_plan:
+        trace.append(
+            {
+                "stage": "provider_execution",
+                "status": "skipped",
+                "detail": "No provider returned execution results.",
+            }
+        )
     trace.append(
         {
             "stage": "final_response",

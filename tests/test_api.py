@@ -477,6 +477,63 @@ def test_food_query_honors_single_selected_tool_provider(monkeypatch):
     assert response.json()["observable_trace"][0]["providers"] == ["zepto"]
 
 
+def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
+    calls = {}
+
+    monkeypatch.setattr(
+        api_main,
+        "resolve_llm_from_env",
+        lambda *_args, **_kwargs: (
+            ResolvedLlm(provider="gemini", api_key="test", model="gemini-test"),
+            None,
+        ),
+    )
+    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+    monkeypatch.setattr(
+        api_main,
+        "route_food_query",
+        lambda **kwargs: _finalize_from_parsed_json(
+            {
+                "intent": "get_order_history",
+                "summary": "zepto order history",
+                "tool_plan": [{"tool": "get_order_history", "arguments": {}}],
+                "constraints": {},
+            },
+            provider="gemini",
+            model="gemini-test",
+            trace_id="trace-message-routing",
+        ),
+    )
+
+    def fake_execute_tool_plan_sync(tool_plan, **kwargs):
+        calls["kwargs"] = kwargs
+        return {
+            "ok": False,
+            "error": "provider_execution_failed",
+            "routed_providers": ["zepto"],
+            "provider_results": {
+                "zepto": {
+                    "ok": False,
+                    "error_detail": "tool_plan_incomplete",
+                    "steps": [{"tool": "get_order_history"}],
+                    "diagnostics": {},
+                }
+            },
+        }
+
+    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
+
+    response = client.post(
+        "/api/food/query/",
+        json={"message": "What was my last order from zepto", "execute_tools": True},
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    assert calls["kwargs"]["enabled_providers"] == {"zepto"}
+    assert response.json()["selected_tool_providers"] == ["zepto"]
+
+
 def test_zepto_provider_uses_official_endpoint_tooling():
     providers = {provider["id"]: provider for provider in list_tool_providers()}
     assert providers["zepto"]["available"] is True
