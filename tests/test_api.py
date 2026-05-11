@@ -52,6 +52,36 @@ def test_login_fails_with_wrong_credentials():
     assert response.status_code == 401
 
 
+def test_login_uses_cognito_when_enabled(monkeypatch):
+    class FakeCognitoClient:
+        def initiate_auth(self, **kwargs):
+            assert kwargs == {
+                "ClientId": "client-1",
+                "AuthFlow": "USER_PASSWORD_AUTH",
+                "AuthParameters": {
+                    "USERNAME": "admin_aashish",
+                    "PASSWORD": "password-1",
+                },
+            }
+            return {"AuthenticationResult": {"AccessToken": "cognito-token"}}
+
+    monkeypatch.setattr(api_main, "cognito_enabled", lambda: True)
+    monkeypatch.setenv("COGNITO_CLIENT_ID", "client-1")
+    monkeypatch.setattr(api_main.boto3, "client", lambda *_args, **_kwargs: FakeCognitoClient())
+
+    response = client.post(
+        "/api/login/",
+        json={"username": "admin_aashish", "password": "password-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "access_token": "cognito-token",
+        "token_type": "bearer",
+        "username": "admin_aashish",
+    }
+
+
 def test_send_message_optional_llm_returns_whatsapp_url(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)

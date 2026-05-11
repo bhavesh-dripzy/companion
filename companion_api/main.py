@@ -7,7 +7,9 @@ from typing import Any
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+import boto3
+from botocore.exceptions import ClientError
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from mangum import Mangum
@@ -251,14 +253,53 @@ class McpPairingComplete(BaseModel):
     files: dict[str, str]
 
 
+def _cognito_password_login(username: str, password: str) -> LoginResponse:
+    client_id = os.getenv("COGNITO_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cognito client is not configured.",
+        )
+
+    client = boto3.client("cognito-idp", region_name=settings.AWS_REGION)
+    try:
+        response = client.initiate_auth(
+            ClientId=client_id,
+            AuthFlow="USER_PASSWORD_AUTH",
+            AuthParameters={"USERNAME": username, "PASSWORD": password},
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in {
+            "NotAuthorizedException",
+            "UserNotFoundException",
+            "PasswordResetRequiredException",
+            "UserNotConfirmedException",
+        }:
+            raise HTTPException(status_code=401, detail="Invalid credentials.") from exc
+        raise
+
+    challenge = response.get("ChallengeName")
+    if challenge:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Cognito challenge required: {challenge}.",
+        )
+
+    auth = response.get("AuthenticationResult") or {}
+    access_token = auth.get("AccessToken")
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Cognito did not return an access token.",
+        )
+    return LoginResponse(access_token=access_token, username=username)
+
+
 @app.post("/api/login/")
 def login(payload: LoginRequest) -> LoginResponse:
     if cognito_enabled():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cognito is enabled — use the Cognito hosted UI or "
-                   "GET /api/auth/cognito/config/ for client SDK setup.",
-        )
+        return _cognito_password_login(payload.username, payload.password)
     if not validate_admin_login(payload.username, payload.password):
         raise HTTPException(status_code=401, detail="Invalid credentials.")
     token = create_access_token(payload.username)
