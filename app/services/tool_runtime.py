@@ -401,11 +401,18 @@ def route_tool_plan(
         if not isinstance(step, dict):
             continue
         tool_name = str(step.get("tool") or "").strip()
-        provider = provider_for_tool(
-            tool_name,
-            enabled_providers=enabled_providers,
-            user_id=user_id,
-        )
+        provider_hint = str(step.get("provider") or "").strip()
+        provider = None
+        if provider_hint and (enabled_providers is None or provider_hint in enabled_providers):
+            hinted = get_tool_provider(provider_hint, user_id=user_id)
+            if hinted and tool_name in hinted.tools:
+                provider = hinted.name
+        if provider is None:
+            provider = provider_for_tool(
+                tool_name,
+                enabled_providers=enabled_providers,
+                user_id=user_id,
+            )
         if not provider and enabled_providers and len(enabled_providers) == 1:
             only = get_tool_provider(next(iter(enabled_providers)), user_id=user_id)
             if only and only.custom:
@@ -467,6 +474,14 @@ def execute_tool_plan_sync(
     enabled_providers: set[str] | None = None,
     user_id: str | None = None,
 ) -> dict[str, Any]:
+    if not any(isinstance(step, dict) and str(step.get("tool") or "").strip() for step in tool_plan):
+        return {
+            "ok": False,
+            "error": "no_tool_plan",
+            "routed_providers": [],
+            "provider_results": {},
+        }
+
     routed = route_tool_plan(
         tool_plan,
         enabled_providers=enabled_providers,

@@ -55,6 +55,7 @@ _RESTAURANT_TOOLS = {
     "search_menu_items",
 }
 _ORDER_TOOLS = {"get_order_tracking_info", "get_order_details"}
+_ORDER_HISTORY_PROVIDERS = {"zomato", "swiggy_food", "swiggy_instamart", "zepto"}
 
 _SYSTEM_PROMPT = """\
 You translate the user's message into a machine-ready plan for available MCP tools.
@@ -150,8 +151,9 @@ RULES:
 1. For discovery, use search_restaurants with the user's cuisine/dish/locality text.
 2. For menu questions without a restaurant id, use search_restaurants then get_restaurant_menu with "__RESTAURANT_ID__".
 3. For ordering/cart changes, do not invent item, variant, restaurant, cart, or address IDs.
-4. Prefer multi-step plans when a later tool can consume IDs from earlier output.
-5. Return ONLY valid JSON.
+4. If the user asks for last/recent/past orders or order history, ALWAYS use get_order_history.
+5. Prefer multi-step plans when a later tool can consume IDs from earlier output.
+6. Return ONLY valid JSON.
 """
 
 _SWIGGY_INSTAMART_SYSTEM_PROMPT = """\
@@ -172,7 +174,8 @@ RULES:
 1. For grocery discovery, use search_products with the user's product terms.
 2. For product detail questions, use search_products then get_product_details with "__ITEM_ID__".
 3. For cart/order flows, do not invent product, variant, cart, address, or order IDs.
-4. Return ONLY valid JSON.
+4. If the user asks for last/recent/past orders or order history, ALWAYS use get_order_history.
+5. Return ONLY valid JSON.
 """
 
 _ZEPTO_SYSTEM_PROMPT = """\
@@ -195,7 +198,8 @@ RULES:
 3. For product detail questions, use search_products then get_product_details with "__ITEM_ID__".
 4. Never invent product, variant, cart, address, or order IDs.
 5. Zepto orders are real orders. Do not checkout/place_order without explicit confirmation.
-6. Return ONLY valid JSON.
+6. If the user asks for last/recent/past orders or order history, ALWAYS use get_order_history.
+7. Return ONLY valid JSON.
 """
 
 
@@ -301,6 +305,45 @@ def _comparison_plan(user_message: str, tool_providers: set[str]) -> dict[str, A
             "tool_count": len(plan),
             "dropped_unknown_tool_steps": 0,
             "resolved_model": "deterministic-comparison-router",
+            "completion_id": "",
+            "provider": "system",
+        },
+    }
+
+
+def _order_history_plan(user_message: str, tool_providers: set[str]) -> dict[str, Any] | None:
+    text = f" {user_message.lower()} "
+    order_terms = (" order ", " orders ", " ordered ", " history ", " recent ", " last ", " past ")
+    if not any(term in text for term in order_terms):
+        return None
+
+    providers = sorted(tool_providers & _ORDER_HISTORY_PROVIDERS)
+    if not providers:
+        return None
+
+    plan = [{"provider": provider_name, "tool": "get_order_history", "arguments": {}} for provider_name in providers]
+    return {
+        "intent": "get_order_history",
+        "summary": "Fetch recent order history from " + ", ".join(providers) + ".",
+        "tool_plan": plan,
+        "constraints": {
+            "requires_address_resolution": False,
+            "requested_location_text": None,
+            "inferred_keyword": None,
+            "price_max_inr": None,
+            "price_min_inr": None,
+            "min_rating": None,
+            "near_and_fast": None,
+            "vegetarian_only": None,
+            "party_size_estimate": None,
+            "health_constraints": None,
+            "order_history_providers": providers,
+        },
+        "execution_notes_for_downstream": "Run get_order_history for the selected provider(s).",
+        "validation": {
+            "tool_count": len(plan),
+            "dropped_unknown_tool_steps": 0,
+            "resolved_model": "deterministic-order-history-router",
             "completion_id": "",
             "provider": "system",
         },
@@ -420,12 +463,14 @@ def normalize_tool_plan(
             if order_id is None or (isinstance(order_id, str) and not order_id.strip()):
                 arguments["order_id"] = "__ORDER_ID__"
 
-        out.append(
-            {
-                "tool": tool.strip(),
-                "arguments": arguments,
-            }
-        )
+        normalized_step = {
+            "tool": tool.strip(),
+            "arguments": arguments,
+        }
+        provider_hint = step.get("provider")
+        if isinstance(provider_hint, str) and provider_hint.strip():
+            normalized_step["provider"] = provider_hint.strip()
+        out.append(normalized_step)
 
     return out
 
@@ -545,6 +590,9 @@ def route_food_query(
     tool_provider_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     if tool_providers:
+        order_history = _order_history_plan(user_message, tool_providers)
+        if order_history is not None:
+            return order_history
         comparison = _comparison_plan(user_message, tool_providers)
         if comparison is not None:
             return comparison

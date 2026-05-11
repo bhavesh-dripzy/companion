@@ -15,6 +15,7 @@ from app.services.food_llm_router import route_food_query
 from app.services.tool_runtime import (
     execute_tool_plan_sync,
     list_tool_providers,
+    route_tool_plan,
     select_tool_providers_for_message,
 )
 
@@ -366,6 +367,45 @@ def test_select_tool_providers_for_message_chooses_correct_providers():
     # Zepto queries
     assert select_tool_providers_for_message("Search milk and brown bread") == {"zepto"}
     assert select_tool_providers_for_message("Find biryani near me") == {"zomato"}
+
+
+def test_empty_tool_plan_is_not_success():
+    result = execute_tool_plan_sync([], enabled_providers={"swiggy_food"})
+
+    assert result["ok"] is False
+    assert result["error"] == "no_tool_plan"
+    assert result["routed_providers"] == []
+
+
+def test_provider_hints_route_shared_tool_names():
+    routed = route_tool_plan(
+        [
+            {"provider": "zomato", "tool": "get_order_history", "arguments": {}},
+            {"provider": "swiggy_food", "tool": "get_order_history", "arguments": {}},
+        ],
+        enabled_providers={"zomato", "swiggy_food"},
+    )
+
+    assert set(routed) == {"zomato", "swiggy_food"}
+    assert len(routed["zomato"]) == 1
+    assert len(routed["swiggy_food"]) == 1
+
+
+def test_order_history_router_uses_deterministic_provider_plan():
+    plan = route_food_query(
+        user_message="Check where did I last order from in both Swiggy and Zomato",
+        api_key="unused",
+        model="unused",
+        provider="gemini",
+        tool_providers={"zomato", "swiggy_food"},
+    )
+
+    assert plan["intent"] == "get_order_history"
+    assert plan["validation"]["resolved_model"] == "deterministic-order-history-router"
+    assert plan["tool_plan"] == [
+        {"provider": "swiggy_food", "tool": "get_order_history", "arguments": {}},
+        {"provider": "zomato", "tool": "get_order_history", "arguments": {}},
+    ]
 
 
 def test_compare_query_executes_multiple_tool_providers(monkeypatch):
