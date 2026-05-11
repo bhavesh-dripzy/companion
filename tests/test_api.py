@@ -390,6 +390,71 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
     assert calls["kwargs"]["enabled_providers"] == {"zomato", "swiggy_food"}
     assert response.json()["tool_execution"]["routed_providers"] == ["swiggy_food", "zomato"]
     assert set(response.json()["provider_summaries"]) == {"zomato", "swiggy_food"}
+    trace = response.json()["observable_trace"]
+    assert trace[0]["stage"] == "provider_selection"
+    assert trace[0]["providers"] == ["swiggy_food", "zomato"]
+    assert any(item["stage"] == "provider_execution" for item in trace)
+
+
+def test_food_query_honors_single_selected_tool_provider(monkeypatch):
+    calls = {}
+
+    monkeypatch.setattr(
+        api_main,
+        "resolve_llm_from_env",
+        lambda *_args, **_kwargs: (
+            ResolvedLlm(provider="gemini", api_key="test", model="gemini-test"),
+            None,
+        ),
+    )
+    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+    monkeypatch.setattr(
+        api_main,
+        "route_food_query",
+        lambda **kwargs: _finalize_from_parsed_json(
+            {
+                "intent": "find_products",
+                "summary": "milk search",
+                "tool_plan": [{"tool": "search_products", "arguments": {"query": "milk"}}],
+                "constraints": {},
+            },
+            provider="gemini",
+            model="gemini-test",
+            trace_id="trace-selected-provider",
+        ),
+    )
+
+    def fake_execute_tool_plan_sync(tool_plan, **kwargs):
+        calls["kwargs"] = kwargs
+        return {
+            "ok": True,
+            "error": None,
+            "routed_providers": ["zepto"],
+            "provider_results": {
+                "zepto": {
+                    "ok": True,
+                    "steps": [{"tool": "search_products"}],
+                    "diagnostics": {},
+                }
+            },
+        }
+
+    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
+
+    response = client.post(
+        "/api/food/query/",
+        json={
+            "message": "Search milk",
+            "execute_tools": True,
+            "tool_provider": "zepto",
+        },
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    assert calls["kwargs"]["enabled_providers"] == {"zepto"}
+    assert response.json()["selected_tool_providers"] == ["zepto"]
+    assert response.json()["observable_trace"][0]["providers"] == ["zepto"]
 
 
 def test_zepto_provider_uses_official_endpoint_tooling():

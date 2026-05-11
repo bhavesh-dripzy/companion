@@ -156,6 +156,10 @@
     @keyframes pulse { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
     .chat-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .mini-pill { display: inline-flex; align-items: center; border-radius: 999px; background: #eef2f7; color: #374151; padding: 3px 8px; font-size: 11px; font-weight: 700; }
+    .trace-list { display: grid; gap: 6px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .trace-item { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 12px; color: var(--muted); }
+    .trace-item strong { color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
+    .trace-item span { overflow-wrap: anywhere; }
     .quick-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
     .chip { border: 1px solid var(--line); color: #374151; background: white; min-height: 34px; padding: 7px 10px; font-weight: 600; font-size: 12px; }
     .chip:hover { background: #f9fafb; }
@@ -551,6 +555,38 @@
       }
     }
 
+    function renderTrace(trace) {
+      if (!Array.isArray(trace) || !trace.length) return null;
+      const list = document.createElement("div");
+      list.className = "trace-list";
+      for (const item of trace) {
+        if (!item || typeof item !== "object") continue;
+        const row = document.createElement("div");
+        row.className = "trace-item";
+        const title = document.createElement("strong");
+        const stage = String(item.stage || "step").replace(/_/g, " ");
+        title.textContent = item.provider ? item.provider : stage;
+        const detail = document.createElement("span");
+        const tools = Array.isArray(item.tools) && item.tools.length
+          ? " · " + item.tools.filter(Boolean).join(", ")
+          : "";
+        detail.textContent = (item.status ? String(item.status).toUpperCase() + ": " : "") + (item.detail || stage) + tools;
+        row.appendChild(title);
+        row.appendChild(detail);
+        list.appendChild(row);
+      }
+      return list.childElementCount ? list : null;
+    }
+
+    function appendAssistantWithTrace(content, meta, trace) {
+      appendMessage("assistant", content, meta);
+      const traceNode = renderTrace(trace);
+      if (traceNode) {
+        const last = chatLog.lastElementChild;
+        if (last) last.appendChild(traceNode);
+      }
+    }
+
     function appendThinking() {
       const node = document.createElement("div");
       node.className = "message assistant";
@@ -796,7 +832,12 @@
       appendMessage("user", msg);
       const thinkingNode = appendThinking();
       try {
-        const body = { message: msg, execute_tools: true, history: chatHistory.slice(0, -1) };
+        const body = {
+          message: msg,
+          execute_tools: true,
+          history: chatHistory.slice(0, -1),
+          tool_provider: primaryToolProvider()
+        };
         const selectedModelProvider = provider();
         if (selectedModelProvider && selectedModelProvider !== "auto") body.provider = selectedModelProvider;
         const data = await api("POST", "/api/food/query/", body);
@@ -805,7 +846,7 @@
         const ok = data.tool_execution && data.tool_execution.ok === true ? "tools ok" : data.tool_execution && data.tool_execution.error ? data.tool_execution.error : "";
         thinkingNode.cleanup && thinkingNode.cleanup();
         thinkingNode.remove();
-        appendMessage("assistant", assistant, [...routed, ok].filter(Boolean));
+        appendAssistantWithTrace(assistant, [...routed, ok].filter(Boolean), data.observable_trace);
       } catch (err) {
         thinkingNode.cleanup && thinkingNode.cleanup();
         thinkingNode.remove();
