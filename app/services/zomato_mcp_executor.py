@@ -47,7 +47,7 @@ _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30
 _MAX_TOKEN_FILE_BYTES = 256 * 1024
 _OAUTH_PENDING_TTL_SECONDS = 15 * 60
 _PAIRING_TTL_SECONDS = 15 * 60
-_LEGACY_MCP_OWNER = "admin_aashish"
+_LEGACY_MCP_OWNER: str | None = os.getenv("LEGACY_ADMIN_USERNAME", "").strip() or None
 
 
 def _safe_user_id(user_id: str | None) -> str | None:
@@ -539,6 +539,14 @@ def _mcp_token_secret(user_id: str | None = None):
             if key in payload
         }
         return legacy
+    # General fallback: any user can access root-level token data
+    if isinstance(payload, dict):
+        fallback = {
+            key: payload[key]
+            for key in ("files", "custom_providers", "pairing_sessions", "oauth_pending")
+            if key in payload
+        }
+        return fallback
     return {}
 
 

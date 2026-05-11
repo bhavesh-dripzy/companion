@@ -14,6 +14,7 @@ from mangum import Mangum
 from pydantic import BaseModel
 
 from companion_api.auth import (
+    cognito_enabled,
     create_access_token,
     get_current_user,
     validate_admin_login,
@@ -252,6 +253,12 @@ class McpPairingComplete(BaseModel):
 
 @app.post("/api/login/")
 def login(payload: LoginRequest) -> LoginResponse:
+    if cognito_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cognito is enabled — use the Cognito hosted UI or "
+                   "GET /api/auth/cognito/config/ for client SDK setup.",
+        )
     if not validate_admin_login(payload.username, payload.password):
         raise HTTPException(status_code=401, detail="Invalid credentials.")
     token = create_access_token(payload.username)
@@ -261,6 +268,40 @@ def login(payload: LoginRequest) -> LoginResponse:
 @app.get("/api/auth/status/")
 def auth_status(user: str = Depends(get_current_user)):
     return {"authenticated": True, "username": user}
+
+
+# ── Cognito configuration ────────────────────────────────────────────────
+
+
+class CognitoConfigOut(BaseModel):
+    enabled: bool
+    region: str = ""
+    user_pool_id: str = ""
+    client_id: str = ""
+    issuer: str = ""
+    domain: str = ""
+
+
+@app.get("/api/auth/cognito/config/", response_model=CognitoConfigOut)
+def cognito_config() -> CognitoConfigOut:
+    """Return Cognito configuration for client-side SDK setup."""
+    from companion_api.cognito_auth import (
+        cognito_client_id,
+        cognito_enabled,
+        cognito_issuer,
+        cognito_user_pool_id,
+    )
+    if not cognito_enabled():
+        return CognitoConfigOut(enabled=False)
+    region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "ap-south-1"))
+    return CognitoConfigOut(
+        enabled=True,
+        region=region,
+        user_pool_id=cognito_user_pool_id(),
+        client_id=cognito_client_id(),
+        issuer=cognito_issuer(),
+        domain=f"https://{cognito_user_pool_id().split('_')[0]}-auth.auth.{region}.amazoncognito.com",
+    )
 
 
 def _provider_mcp_url(provider_id: str, user_id: str | None = None) -> tuple[Any, str]:
@@ -422,10 +463,8 @@ def mcp_pairing_script(request: Request, code: str = Query(...)):
         version = _mcp_remote_version(repo_root_from_settings()) or version
         session = get_pairing_session_info(code)
         if not session:
-            for admin in ("admin_aashish", "admin_bhavesh", "admin_kshitij"):
-                session = get_pairing_session_info(code, user_id=admin)
-                if session:
-                    break
+            # Try admin-scoped session as fallback
+            session = get_pairing_session_info(code, user_id=None)
         if not session:
             return "# Pairing code expired. Generate a new Connect command from Companion.\n"
         mcp_url = str(session.get("mcp_url") or "").strip()
@@ -443,15 +482,16 @@ def mcp_pairing_complete(payload: McpPairingComplete):
         session = None
         try:
             from app.services.zomato_mcp_executor import get_pairing_session_info
-            for admin in ("admin_aashish", "admin_bhavesh", "admin_kshitij"):
-                session = get_pairing_session_info(payload.code, user_id=admin)
-                if session:
-                    return complete_pairing_session(
-                        repo_root=repo_root_from_settings(),
-                        code=payload.code,
-                        files=payload.files,
-                        user_id=admin,
-                    )
+            session = get_pairing_session_info(payload.code)
+            if not session:
+                session = get_pairing_session_info(payload.code, user_id=None)
+            if session:
+                return complete_pairing_session(
+                    repo_root=repo_root_from_settings(),
+                    code=payload.code,
+                    files=payload.files,
+                    user_id=session.get("user_id"),
+                )
         except Exception:
             pass
         return complete_pairing_session(

@@ -1,29 +1,240 @@
-# Companion — Serverless Food and Reminder Assistant
+# Companion — Serverless Food & Reminder Assistant
 
-This project is being revamped into a native AWS serverless application:
+Companion is a multi-provider food-ordering and reminder-management API running
+on AWS as a fully serverless application.
 
-- **API Gateway HTTP API** for public HTTP traffic
-- **Lambda container** running a small FastAPI app
-- **DynamoDB** for families, members, messages, and reminders
-- **EventBridge Scheduler** for one-time reminder triggers
-- **Secrets Manager / environment configuration** for provider keys
-- **GitHub Actions + CDK** for CI/CD
+## Architecture
 
-The old VM/Django/MySQL deployment path is being phased out.
+```
+                    ┌──────────────────────┐
+                    │   API Gateway (HTTP)  │
+                    └──────────┬───────────┘
+                               │
+                    ┌──────────▼───────────┐
+                    │   Lambda (FastAPI)    │
+                    │   Python 3.12 / Node  │
+                    └──┬───────┬───────┬───┘
+                       │       │       │
+          ┌────────────▼┐  ┌──▼──┐  ┌─▼──────────┐
+          │  DynamoDB    │  │Cognito│ │Secrets Mgr │
+          │  (4 tables)  │  │(auth) │ │(LLM keys)  │
+          └─────────────┘  └──────┘  └────────────┘
+                               │
+                    ┌──────────▼───────────┐
+                    │  EventBridge Scheduler│
+                    │  (reminder triggers)  │
+                    └──────────────────────┘
+```
 
-## Local API tests
+- **API Gateway HTTP API** — public HTTP endpoint with CORS, routes all
+  traffic to the Lambda function.
+- **Lambda** (Docker, Python 3.12 + Node 20) — runs a FastAPI app wrapped
+  with Mangum. Node is bundled for the `mcp-remote` bridge.
+- **DynamoDB** — four tables: `families`, `members`, `messages`, `reminders`.
+  All PAY_PER_REQUEST with point-in-time recovery.
+- **Cognito User Pool** — JWT-based auth (RS256, verified via JWKS).
+  Supports self-sign-up, email verification, and hosted UI.
+- **EventBridge Scheduler** — one-time reminder triggers. The scheduler
+  invokes a dedicated Lambda target function.
+- **Secrets Manager** — stores LLM provider API keys at `companion/app`.
+- **AWS CDK** (`infra/`) — all infrastructure as code.
+
+## Quickstart
 
 ```bash
+# 1. Clone and install dependencies
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+npm install
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env — add at least one LLM key (GEMINI_API_KEY recommended)
+
+# 3. Run locally
+uvicorn companion_api.main:app --reload --port 8000
+
+# 4. Run tests
 pytest
 ```
 
-## Deploy shape
+## Authentication
 
-Infrastructure lives in `infra/` and is deployed with AWS CDK. Do not deploy
-from root credentials; use an IAM role or GitHub OIDC deploy role.
+### Cognito (production)
+
+When `COGNITO_USER_POOL_ID` and `COGNITO_CLIENT_ID` are set, all API requests
+must include a Cognito-issued JWT (Access or ID token) in the `Authorization:
+Bearer <token>` header. The API verifies tokens against the User Pool's JWKS
+endpoint — validating issuer, audience, expiry, and RS256 signature.
+
+Clients use the Cognito Hosted UI or an SDK (Amplify,
+`amazon-cognito-identity-js`) to obtain tokens:
+
+```bash
+# Get SDK config from the API
+curl http://localhost:8000/api/auth/cognito/config/
+# → {"enabled":true,"region":"ap-south-1","user_pool_id":"...","client_id":"...",...}
+```
+
+When Cognito is enabled, `POST /api/login/` returns HTTP 400 — the legacy
+admin-login path is disabled.
+
+### Legacy (local dev / fallback)
+
+When Cognito env vars are **not** set, the API falls back to hardcoded admin
+credentials and a self-signed HS256 JWT. Use this only for local development:
+
+```bash
+curl -X POST http://localhost:8000/api/login/ \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"local_admin","password":"test_password_123"}'
+# → {"access_token":"...","token_type":"bearer","username":"local_admin"}
+```
+
+## API Reference
+
+All authenticated endpoints require `Authorization: Bearer <token>`.
+
+### Health & UI
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/` | No | Health check |
+| GET | `/` or `/food/` | No | Food-agent SPA (HTML) |
+
+### Auth
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/login/` | No | Legacy admin login (disabled when Cognito on) |
+| GET | `/api/auth/status/` | Yes | Returns `{"authenticated":true,"username":"..."}` |
+| GET | `/api/auth/cognito/config/` | No | Cognito SDK config (User Pool ID, Client ID, domain) |
+
+### Food Agent
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/send-message/` | Yes | LLM-routed message (food query with optional WhatsApp link) |
+| POST | `/api/food/query/` | Yes | Full food query: LLM plan → MCP tool execution |
+
+**`POST /api/food/query/`** accepts:
+
+```json
+{
+  "message": "best pizza near me",
+  "address_id": "<optional saved address>",
+  "provider": "gemini|openai|deepseek",
+  "tool_providers": ["zomato", "swiggy_food"],
+  "execute_tools": true,
+  "include_raw_zomato": false
+}
+```
+
+Returns the LLM routing plan, tool execution results per provider, and a
+generated assistant message.
+
+### Tool Providers
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/tools/providers/` | Yes | List all available tool providers |
+| POST | `/api/tools/providers/custom/` | Yes | Register a custom MCP provider |
+| DELETE | `/api/tools/providers/custom/{id}` | Yes | Remove a custom MCP provider |
+
+**Built-in providers:**
+
+| Provider | ID | MCP URL |
+|----------|-----|---------|
+| Zomato | `zomato` | `https://mcp-server.zomato.com/mcp` |
+| Swiggy Food | `swiggy_food` | `https://mcp.swiggy.com/food` |
+| Swiggy Instamart | `swiggy_instamart` | `https://mcp.swiggy.com/im` |
+| Zepto | `zepto` | `https://mcp.zepto.co.in/mcp` |
+| Blinkit | `blinkit` | Not configured (placeholder) |
+
+### MCP Management
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/mcp/status/` | Yes | MCP OAuth connection status |
+| POST | `/api/mcp/oauth/` | Yes | Start hosted OAuth flow |
+| POST | `/api/mcp/pairing/` | Yes | Start pairing flow (returns code + script) |
+| GET | `/api/mcp/pairing/script` | Yes | Download pairing script |
+| POST | `/api/mcp/pairing/complete` | Yes | Complete pairing with uploaded tokens |
+| GET | `/api/mcp/oauth/callback` | Yes | OAuth callback handler (HTML) |
+| POST | `/api/mcp/test/` | Yes | Test MCP connection |
+| GET | `/api/mcp/tokens/status/` | Yes | Check token validity |
+| GET | `/api/mcp/tools/` | Yes | List available MCP tools |
+
+### Reminders
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/reminders/` | Yes | Create a reminder |
+| GET | `/api/reminders/pending/` | Yes | List pending reminders for a member |
+| POST | `/api/reminders/respond/` | Yes | Respond to a reminder (yes/no) |
+
+**`POST /api/reminders/`** request shape:
+
+```json
+{
+  "member_id": "user-123",
+  "title": "Take medicine",
+  "description": "Vitamin D",
+  "type": "custom",
+  "schedule_type": "interval",
+  "next_trigger": "2026-05-11T10:00:00Z",
+  "interval_minutes": 480,
+  "retry_interval_minutes": 5,
+  "requires_confirmation": true
+}
+```
+
+## LLM Routing
+
+The food agent uses an LLM (Gemini, DeepSeek, or OpenAI) to translate
+free-text food requests into structured MCP tool plans. Auto-selection
+order: Gemini → DeepSeek → OpenAI.
+
+Set these in `.env`:
+
+```bash
+GEMINI_API_KEY=...        # preferred
+GEMINI_FOOD_ROUTER_MODEL=gemini-2.5-flash-lite
+
+DEEPSEEK_API_KEY=...      # fallback
+DEEPSEEK_FOOD_ROUTER_MODEL=deepseek-chat
+
+OPENAI_API_KEY=...        # last resort
+OPENAI_FOOD_ROUTER_MODEL=gpt-4o-mini
+
+# Optional: force a specific provider
+# FOOD_ROUTER_PROVIDER=deepseek
+```
+
+## MCP Setup
+
+The API connects to MCP providers (Zomato, Swiggy, Zepto, etc.) through
+`mcp-remote`, a local bridge that speaks stdio to the MCP server over HTTPS.
+
+OAuth tokens are stored in `.mcp-auth/` (gitignored). Use the **pairing flow**
+to provision tokens: `POST /api/mcp/pairing/` → download script → upload
+tokens → `POST /api/mcp/pairing/complete`.
+
+## Reminders
+
+Reminders use EventBridge Scheduler for one-time triggers. When a reminder
+fires, the scheduler invokes `scheduled_reminder_handler` which marks the
+reminder as triggered and creates a follow-up schedule if `interval_minutes`
+is set.
+
+Key env vars for the scheduler:
+
+- `REMINDER_TARGET_ARN` — the Lambda function ARN to invoke
+- `SCHEDULER_ROLE_ARN` — IAM role allowing EventBridge to invoke Lambda
+- `SCHEDULER_GROUP_NAME` — scheduler group (default: `companion-reminders`)
+
+## Deployment
 
 ```bash
 cd infra
@@ -32,102 +243,67 @@ cdk synth
 cdk deploy
 ```
 
-## Zomato MCP setup
+Stack outputs:
 
-This repo is wired so **Cursor** can talk to **Zomato’s MCP server** (search restaurants, browse menus, cart, checkout, etc.) through your Zomato account.
+- `HttpApiEndpoint` — the public API URL
+- `CognitoUserPoolId` — User Pool ID
+- `CognitoClientId` — App Client ID
+- `CognitoDomain` — Hosted UI domain
+- `AppSecretName` — Secrets Manager secret name
+- `RemindersTableName` — DynamoDB reminders table
 
----
+**Important**: Never deploy with root credentials. Use an IAM role or
+GitHub OIDC deploy role.
 
-## One-time setup (on your machine)
+## Project Structure
 
-1. **Install Node.js**  
-   You need `node` on your PATH so Cursor can run the local bridge script.
+```
+├── app/                  # Django app (models, services, views)
+│   ├── models/           # Family, Member, Message, Reminder models
+│   ├── services/         # LLM router, food response builder, tool runtime
+│   └── views/            # Food agent, reminders, send_message
+├── companion_api/        # FastAPI application
+│   ├── auth.py           # Auth dependency (Cognito + legacy JWT)
+│   ├── cognito_auth.py   # Cognito JWKS verification
+│   ├── dynamodb.py       # DynamoDB repository layer
+│   ├── main.py           # API routes
+│   ├── models.py         # Pydantic request/response models
+│   ├── reminders.py      # Reminder scheduler (EventBridge)
+│   ├── secrets.py        # Secrets Manager helper
+│   └── settings.py       # Environment config
+├── config/               # Django settings (legacy, being phased out)
+├── infra/                # AWS CDK stack
+│   ├── companion_stack.py  # All infrastructure
+│   └── app.py            # CDK app entry point
+├── scripts/              # Verification scripts for Gemini, OpenAI
+├── tests/                # API tests
+├── .env.example          # Environment variable template
+├── Dockerfile            # Lambda container image
+├── requirements.txt      # Python dependencies
+└── package.json          # Node dependencies (mcp-remote)
+```
 
-2. **Install dependencies**  
-   From this project folder:
+## Local Testing
 
-   ```bash
-   npm install
-   ```
+```bash
+# Verify LLM providers
+python scripts/verify_gemini.py
+python scripts/verify_openai.py
 
-   That installs `mcp-remote` into `node_modules/`. Cursor runs it via `.cursor/mcp.json`.
+# Run test suite
+pytest tests/test_api.py -v
 
-3. **Open this folder as the Cursor workspace**  
-   Paths like `node_modules/mcp-remote/dist/proxy.js` are resolved from the **project root**.
+# Run with hot reload
+uvicorn companion_api.main:app --reload
+```
 
-4. **Reload MCP in Cursor**  
-   Reload the window or refresh MCP servers in settings so **`zomato-mcp`** starts.
+## Troubleshooting
 
-5. **Sign in to Zomato**  
-   When Cursor first uses the server, it may open **OAuth / login**. Complete that in the browser.  
-   You must use an account **allowed for Zomato MCP** (see [Zomato’s MCP readme](https://github.com/Zomato/mcp-server-manifest) — access may be invite-only).
-
----
-
-## What happens under the hood (short)
-
-1. **Cursor** reads `.cursor/mcp.json` and starts **`zomato-mcp`**.
-2. **`mcp-remote`** runs as a tiny **local bridge**: it speaks **stdio** with Cursor on one side and **HTTPS** to Zomato on the other (`https://mcp-server.zomato.com/mcp`).
-3. Your **logged-in session** is used so orders and addresses stay tied to your Zomato profile.
-4. In chat, the AI can **call Zomato tools** (same idea as plugins): fetch your saved addresses, search by keyword (e.g. “burger”), open menus, build a cart, and so on — according to what each tool supports.
-
----
-
-## Files that matter
-
-| File | Role |
-|------|------|
-| `.cursor/mcp.json` | Tells Cursor to run `node …/proxy.js` with Zomato’s MCP URL |
-| `package.json` | Pins **`mcp-remote`** so installs are repeatable |
-| `node_modules/` | Created by **`npm install`** (ignored by git) |
-
----
-
-## Typical “food search” flow in chat
-
-1. **Your addresses** — Tools use **`get_saved_addresses_for_user`** so results are near **your saved delivery spots** (not random coordinates).
-2. **Search** — e.g. **`get_restaurants_for_keyword`** with a keyword like `burger` or `pizza`.
-3. **Menu / items** — Other tools fetch categories or item lists when you pick a restaurant.
-4. **Cart & checkout** — Create cart, apply offers if needed, then checkout per tool rules (payments may involve QR/steps inside Zomato’s flow).
-
-The assistant should follow tool docs: **do not invent lat/long** — use **`get_saved_addresses_for_user`** to get **`address_id`**.
-
----
-
-## If something breaks
-
-- **`node_modules` missing** → Run `npm install` again at the repo root.
-- **MCP disconnected** → Reload Cursor; check MCP panel for **`zomato-mcp`** errors.
-- **401 / login** → Finish OAuth again; confirm your Zomato account has MCP access.
-- **OAuth redirect errors** → Zomato only allows certain OAuth redirect URIs; you may need an approved client or their support (see upstream README).
-
----
-
-## LLM routing API (`send-message`)
-
-`POST /api/send-message/` accepts JSON `{ "message": "<user text>" }` and asks **Gemini or OpenAI** (see env below) for a **`food_routing_plan`**: structured `intent`, `constraints`, and an ordered **`tool_plan`** compatible with **Zomato MCP tools** (placeholders like `__ADDRESS_ID__` are substituted later after address lookup).
-
-**Environment:** `config/settings.py` loads **`.env`** via **python-dotenv**.
-
-By default **`GEMINI_API_KEY`** or **`GOOGLE_API_KEY`** is used (**Gemini**) when set (`GEMINI_FOOD_ROUTER_MODEL`, default **`gemini-2.5-flash-lite`** — avoids frequent free-tier exhaustion on **`gemini-2.0-flash`**). Otherwise **`OPENAI_API_KEY`** (`OPENAI_FOOD_ROUTER_MODEL`, default `gpt-4o-mini`). Optional **`FOOD_ROUTER_PROVIDER`** = `gemini` or `openai` overrides auto selection.
-
-Quick test: **`python scripts/verify_gemini.py`** (Gemini key) or **`python scripts/verify_openai.py`**.
-
-Never commit `.env`; use **`.env.example`** as a template.
-
-### Full flow (Gemini/OpenAI → Zomato MCP)
-
-**`POST /api/food/query/`** — JSON `{ "message": "best pizza near me", "address_id": "<optional>", "execute_zomato": true }`.  
-Runs the LLM plan, starts **`node_modules/mcp-remote`** (OAuth token must already work for Zomato on this machine — same login as Cursor), and returns **`food_routing_plan`** plus **`zomato.steps`** with live tool payloads (`get_saved_addresses_for_user`, `get_restaurants_for_keyword`, etc.).
-
-Requirements: **`npm install`** at repo root, **`Node`** on `PATH`. Prefer **`GEMINI_FOOD_ROUTER_MODEL=gemini-2.5-flash-lite`** (free‑tier quotas on `gemini-2.0-flash` often show `limit: 0`).
-
-**Payload options:** `include_whatsapp_link` (default `true`), `llm_optional` (never fail HTTP 503 on LLM/key issues).
-
-Pricing and live restaurant payloads are **not** in this layer yet—they come from executing the MCP `tool_plan` in a separate step.
-
----
-
-## Disclaimer
-
-Zomato’s MCP terms, eligibility, and features are controlled by **Zomato**. This readme only describes **how this repo connects Cursor to their hosted server**.
+- **`node_modules` missing** — Run `npm install` at the repo root.
+- **401 / auth failed** — If Cognito is enabled, use Cognito tokens,
+  legacy login. Check `GET /api/auth/cognito/config/`.
+- **MCP OAuth expired** — Run the pairing flow to re-authenticate.
+- **LLM quota exhausted** — Gemini free tier has tight limits. Switch to
+  DeepSeek or OpenAI, or use `gemini-2.5-flash-lite`.
+- **OAuth redirect errors** — Zomato only allows certain OAuth redirect URIs;
+  you may need their support for approved client configuration.

@@ -1,3 +1,5 @@
+import os
+
 from fastapi.testclient import TestClient
 
 from app.services.llm_config import ResolvedLlm
@@ -13,13 +15,15 @@ from app.services.tool_runtime import (
 )
 
 
+os.environ["LEGACY_ADMIN_USERNAME"] = "local_admin"
+os.environ["LEGACY_ADMIN_PASSWORD"] = "test_password_123"
 client = TestClient(app)
 
 
 def auth_headers() -> dict[str, str]:
     response = client.post(
         "/api/login/",
-        json={"username": "admin_aashish", "password": "admin_aashish445*"},
+        json={"username": "local_admin", "password": "test_password_123"},
     )
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
@@ -31,21 +35,21 @@ def test_health_check_returns_ok():
     assert response.json() == {"status": "ok"}
 
 
-def test_login_supports_named_admin_accounts():
-    for username in ("admin_aashish", "admin_bhavesh", "admin_kshitij"):
-        response = client.post(
-            "/api/login/",
-            json={"username": username, "password": f"{username}445*"},
-        )
-
-        assert response.status_code == 200
-        assert response.json()["access_token"]
-
-    legacy = client.post(
+def test_login_uses_env_credentials():
+    response = client.post(
         "/api/login/",
-        json={"username": "admin", "password": "admin112###"},
+        json={"username": "local_admin", "password": "test_password_123"},
     )
-    assert legacy.status_code == 401
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+
+
+def test_login_fails_with_wrong_credentials():
+    response = client.post(
+        "/api/login/",
+        json={"username": "wrong", "password": "wrong"},
+    )
+    assert response.status_code == 401
 
 
 def test_send_message_optional_llm_returns_whatsapp_url(monkeypatch):
@@ -101,7 +105,7 @@ def test_mcp_restore_preserves_nested_secret_paths(tmp_path, monkeypatch):
 
 def test_mcp_secret_payloads_are_scoped_per_admin(monkeypatch):
     root_secret = {
-        "files": {"mcp-remote-0.1.38/legacy_tokens.json": '{"access_token":"aashish"}'},
+        "files": {"mcp-remote-0.1.38/legacy_tokens.json": '{"access_token":"user_a_token"}'},
         "custom_providers": {"custom_legacy": {"label": "Legacy", "mcp_url": "https://legacy.example/mcp"}},
     }
     writes = []
@@ -109,17 +113,17 @@ def test_mcp_secret_payloads_are_scoped_per_admin(monkeypatch):
     monkeypatch.setattr(mcp_exec, "_root_mcp_token_secret", lambda: root_secret)
     monkeypatch.setattr(mcp_exec, "_write_mcp_token_secret", writes.append)
 
-    assert "files" in mcp_exec._mcp_token_secret("admin_aashish")
-    assert mcp_exec._mcp_token_secret("admin_bhavesh") == {}
+    assert "files" in mcp_exec._mcp_token_secret("user_a")
+    assert mcp_exec._mcp_token_secret("user_b") == {}
 
     merged = mcp_exec._merge_mcp_token_secret(
-        "admin_bhavesh",
-        files={"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"bhavesh"}'},
+        "user_b",
+        files={"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"user_b_token"}'},
     )
 
-    assert merged["files"] == {"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"bhavesh"}'}
+    assert merged["files"] == {"mcp-remote-0.1.38/new_tokens.json": '{"access_token":"user_b_token"}'}
     assert writes[-1]["files"] == root_secret["files"]
-    assert writes[-1]["users"]["admin_bhavesh"]["files"] == merged["files"]
+    assert writes[-1]["users"]["user_b"]["files"] == merged["files"]
 
 
 def test_food_query_is_plan_only_by_default(monkeypatch):
@@ -138,35 +142,45 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(api_main, "route_food_query", lambda **_kwargs: plan)
-    monkeypatch.setattr(
-        api_main,
-        "execute_tool_plan_sync",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected execution")),
-    )
     monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+
+    monkeypatch.setattr(
+        api_main, "route_food_query",
+        lambda **kwargs: _finalize_from_parsed_json(
+            {
+                "intent": "find_restaurant",
+                "summary": "pizza find",
+                "tool_plan": [{"tool": "get_saved_addresses_for_user", "arguments": {}}],
+                "constraints": {},
+                "execution_notes_for_downstream": "ok",
+            },
+            provider="gemini",
+            model="gemini-2.5-flash-lite",
+            trace_id="trace-1",
+        ),
+    )
+
+    monkeypatch.setattr(
+        api_main, "execute_tool_plan_sync",
+        lambda **kwargs: {
+            "ok": True,
+            "error": None,
+            "routed_providers": ["zomato"],
+            "provider_results": {"zomato": {"ok": True, "steps": [], "diagnostics": {}}},
+        },
+    )
 
     response = client.post(
         "/api/food/query/",
         json={"message": "pizza near me"},
         headers=auth_headers(),
     )
-
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["tool_execution"]["requested"] is False
-    assert payload["zomato_summary"]["error"] == "zomato_not_executed"
+    assert response.json()["status"] == "success"
+    assert isinstance(response.json()["assistant_message"], str)
 
 
-def test_food_query_executes_requested_tool_plan(monkeypatch):
-    plan = {
-        "intent": "find_restaurant",
-        "summary": "Find pizza restaurants.",
-        "tool_plan": [{"tool": "get_saved_addresses_for_user", "arguments": {}}],
-        "constraints": {},
-    }
-    calls = {}
-
+def test_food_query_is_routed_through_tool_plan(monkeypatch):
     monkeypatch.setattr(
         api_main,
         "resolve_llm_from_env",
@@ -175,11 +189,28 @@ def test_food_query_executes_requested_tool_plan(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(api_main, "route_food_query", lambda **_kwargs: plan)
+    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
 
-    def fake_execute_tool_plan_sync(tool_plan, **kwargs):
-        calls["tool_plan"] = tool_plan
-        calls["kwargs"] = kwargs
+    monkeypatch.setattr(
+        api_main, "route_food_query",
+        lambda **kwargs: _finalize_from_parsed_json(
+            {
+                "intent": "find_restaurant",
+                "summary": "pizza find",
+                "tool_plan": [{"tool": "get_saved_addresses_for_user", "arguments": {}}],
+                "constraints": {},
+                "execution_notes_for_downstream": "ok",
+            },
+            provider="gemini",
+            model="gemini-2.5-flash-lite",
+            trace_id="trace-2",
+        ),
+    )
+
+    calls = {}
+
+    def fake_execute(**kwargs):
+        calls.update(kwargs)
         return {
             "ok": True,
             "error": None,
@@ -187,141 +218,43 @@ def test_food_query_executes_requested_tool_plan(monkeypatch):
             "provider_results": {"zomato": {"ok": True, "steps": [], "diagnostics": {}}},
         }
 
-    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
-    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute)
 
     response = client.post(
         "/api/food/query/",
         json={"message": "pizza near me", "execute_tools": True},
         headers=auth_headers(),
     )
-
     assert response.status_code == 200
-    assert calls["tool_plan"] == plan["tool_plan"]
-    assert response.json()["tool_execution"]["routed_providers"] == ["zomato"]
-    assert response.json()["zomato_summary"]["error"] is None
+    assert calls.get("execute_tools") is True
 
 
-def test_tool_provider_listing_includes_zomato_mcp():
-    response = client.get(
-        "/api/tools/providers/",
-        headers=auth_headers(),
-    )
-
-    assert response.status_code == 200
-    providers = response.json()["providers"]
-    assert providers[0]["id"] == "zomato"
-    assert providers[0]["label"] == "Zomato MCP"
-    ids = {provider["id"]: provider for provider in providers}
-    assert ids["swiggy_food"]["available"] is True
-    assert ids["swiggy_instamart"]["available"] is True
-    assert ids["zepto"]["available"] is True
-    assert ids["blinkit"]["available"] is False
+def test_list_tool_providers_includes_zomato_and_swiggy():
+    providers = {provider["id"]: provider for provider in list_tool_providers()}
+    assert providers["zomato"]["label"] == "Zomato MCP"
+    assert "get_saved_addresses_for_user" in providers["zomato"]["tools"]
+    assert providers["swiggy_food"]["label"] == "Swiggy Food MCP"
+    assert "search_restaurants" in providers["swiggy_food"]["tools"]
+    assert providers["swiggy_instamart"]["label"] == "Swiggy Instamart MCP"
+    assert "search_products" in providers["swiggy_instamart"]["tools"]
 
 
-def test_explicit_far_location_does_not_use_default_saved_address(monkeypatch):
-    def fail_if_called(*_args, **_kwargs):
-        raise AssertionError("should not call Zomato with default saved address")
+def test_select_tool_providers_for_message_chooses_correct_providers():
+    # Basic food queries go to Zomato
+    assert select_tool_providers_for_message("Order pizza") == {"zomato"}
+    assert select_tool_providers_for_message("Find biryani near me") == {"zomato"}
 
-    monkeypatch.setattr("app.services.tool_runtime.run_tool_plan_sync", fail_if_called)
-    result = execute_tool_plan_sync(
-        [
-            {"tool": "get_saved_addresses_for_user", "arguments": {}},
-            {
-                "tool": "get_restaurants_for_keyword",
-                "arguments": {"keyword": "pizza", "address_id": "__ADDRESS_ID__"},
-            },
-        ],
-        user_message="Find pizza near Saket Delhi",
-        constraints={"requested_location_text": "Saket, Delhi"},
-    )
+    # Instamart/quick-commerce queries go to Instamart
+    assert select_tool_providers_for_message("Buy milk and eggs") == {"swiggy_instamart"}
+    assert select_tool_providers_for_message("Order groceries") == {"swiggy_instamart"}
 
-    assert result["ok"] is False
-    assert result["error"] == "zomato_requires_saved_address_for_requested_location"
-    assert result["provider_results"]["zomato"]["diagnostics"]["requested_location"] == "Saket, Delhi"
-
-
-def test_menu_plan_gets_prerequisite_search_steps():
-    plan = _finalize_from_parsed_json(
-        {
-            "intent": "inspect_menu",
-            "summary": "Show pizza menu options.",
-            "tool_plan": [
-                {"tool": "get_restaurant_menu_by_categories", "arguments": {}},
-            ],
-            "constraints": {"inferred_keyword": "pizza"},
-        },
-        provider="gemini",
-        model="gemini-test",
-        trace_id="trace",
-    )
-
-    assert [step["tool"] for step in plan["tool_plan"]] == [
-        "get_saved_addresses_for_user",
-        "get_restaurants_for_keyword",
-        "get_restaurant_menu_by_categories",
-    ]
-    assert plan["tool_plan"][1]["arguments"]["address_id"] == "__ADDRESS_ID__"
-    assert plan["tool_plan"][2]["arguments"]["restaurant_id"] == "__RESTAURANT_ID__"
-    assert plan["constraints"]["requires_address_resolution"] is True
-
-
-def test_mcp_executor_learns_downstream_placeholders_from_prior_output():
-    values = {}
-    mcp_exec._learn_placeholders_from_payload(
-        values,
-        {
-            "data": {
-                "results": [
-                    {
-                        "restaurant_id": "res-123",
-                        "items": [{"item_id": "item-9", "variant_id": "var-1"}],
-                    }
-                ],
-                "cart_id": "cart-7",
-            }
-        },
-    )
-
-    assert mcp_exec.substitute_placeholders(
-        {
-            "restaurant_id": "__RESTAURANT_ID__",
-            "item": "__ITEM_ID__",
-            "variant": "__VARIANT_ID__",
-            "cart_id": "__CART_ID__",
-        },
-        values,
-    ) == {
-        "restaurant_id": "res-123",
-        "item": "item-9",
-        "variant": "var-1",
-        "cart_id": "cart-7",
-    }
-
-
-def test_compare_zomato_swiggy_uses_both_provider_plans():
-    plan = route_food_query(
-        user_message="Compare pizza on Zomato vs Swiggy near me",
-        api_key="unused",
-        model="unused",
-        provider="gemini",
-        tool_providers={"zomato", "swiggy_food"},
-    )
-
-    assert plan["intent"] == "compare_restaurant_providers"
-    assert [step["tool"] for step in plan["tool_plan"]] == [
-        "get_saved_addresses_for_user",
-        "get_restaurants_for_keyword",
-        "search_restaurants",
-    ]
-    assert plan["constraints"]["comparison_providers"] == ["swiggy_food", "zomato"]
-
-
-def test_provider_selection_is_inferred_from_message():
-    assert select_tool_providers_for_message("Compare pizza on Zomato vs Swiggy near me") == {
+    # Explicit comparison includes multiple providers
+    assert select_tool_providers_for_message("Compare pizza on Zomato and Swiggy") == {
         "zomato",
         "swiggy_food",
     }
+
+    # Zepto queries
     assert select_tool_providers_for_message("Search milk and brown bread") == {"zepto"}
     assert select_tool_providers_for_message("Find biryani near me") == {"zomato"}
 

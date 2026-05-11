@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_scheduler as scheduler,
+    aws_cognito as cognito,
     aws_secretsmanager as secretsmanager,
 )
 from constructs import Construct
@@ -51,6 +52,62 @@ class CompanionStack(Stack):
             "tests",
             "venv",
         ]
+
+        # ── Cognito User Pool ──────────────────────────────────────────
+
+        user_pool = cognito.UserPool(
+            self,
+            "UserPool",
+            user_pool_name=f"{project_name}-users",
+            self_sign_up_enabled=True,
+            sign_in_aliases=cognito.SignInAliases(email=True, username=True),
+            auto_verify=cognito.AutoVerifiedAttrs(email=True),
+            password_policy=cognito.PasswordPolicy(
+                min_length=8,
+                require_lowercase=True,
+                require_uppercase=True,
+                require_digits=True,
+                require_symbols=False,
+                temp_password_validity=Duration.days(7),
+            ),
+            account_recovery=cognito.AccountRecovery.EMAIL_ONLY,
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+
+        user_pool_client = cognito.UserPoolClient(
+            self,
+            "UserPoolClient",
+            user_pool=user_pool,
+            user_pool_client_name=f"{project_name}-api",
+            auth_flows=cognito.AuthFlow(
+                user_password=True,
+                user_srp=True,
+                refresh_token=True,
+            ),
+            generate_secret=False,
+            o_auth=cognito.OAuthSettings(
+                flows=cognito.OAuthFlows(
+                    authorization_code_grant=True,
+                    implicit_code_grant=False,
+                ),
+                scopes=[
+                    cognito.OAuthScope.OPENID,
+                    cognito.OAuthScope.EMAIL,
+                    cognito.OAuthScope.PROFILE,
+                ],
+                callback_urls=["http://localhost:8000/api/auth/callback"],
+            ),
+            prevent_user_existence_errors=True,
+        )
+
+        user_pool_domain = cognito.UserPoolDomain(
+            self,
+            "UserPoolDomain",
+            user_pool=user_pool,
+            cognito_domain=cognito.CognitoDomainOptions(
+                domain_prefix=f"{project_name}-auth"
+            ),
+        )
 
         families = self._table(
             "FamiliesTable",
@@ -169,6 +226,8 @@ class CompanionStack(Stack):
                 "ZOMATO_MCP_URL": "https://mcp-server.zomato.com/mcp",
                 "EXECUTE_TOOLS_BY_DEFAULT": "false",
                 "EXECUTE_ZOMATO_BY_DEFAULT": "false",
+                "COGNITO_USER_POOL_ID": user_pool.user_pool_id,
+                "COGNITO_CLIENT_ID": user_pool_client.user_pool_client_id,
             },
         )
         for table in (families, members, messages, reminders):
@@ -255,10 +314,21 @@ class CompanionStack(Stack):
             ),
         )
 
+        # ── Outputs ────────────────────────────────────────────────────
+
         cdk.CfnOutput(
             self,
             "HttpApiEndpoint",
             value=f"https://{api.ref}.execute-api.{cdk.Aws.REGION}.amazonaws.com",
+        )
+        cdk.CfnOutput(self, "CognitoUserPoolId", value=user_pool.user_pool_id)
+        cdk.CfnOutput(
+            self, "CognitoClientId", value=user_pool_client.user_pool_client_id
+        )
+        cdk.CfnOutput(
+            self,
+            "CognitoDomain",
+            value=f"https://{user_pool_domain.domain_name}.auth.{cdk.Aws.REGION}.amazoncognito.com",
         )
         cdk.CfnOutput(self, "AppSecretName", value=app_secret.secret_name)
         cdk.CfnOutput(self, "RemindersTableName", value=reminders.table_name)
