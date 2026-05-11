@@ -105,7 +105,7 @@ class CompanionStack(Stack):
             "UserPoolDomain",
             user_pool=user_pool,
             cognito_domain=cognito.CognitoDomainOptions(
-                domain_prefix=f"{project_name}-auth"
+                domain_prefix=f"{project_name}-{self.account}-auth"
             ),
         )
 
@@ -228,6 +228,9 @@ class CompanionStack(Stack):
                 "EXECUTE_ZOMATO_BY_DEFAULT": "false",
                 "COGNITO_USER_POOL_ID": user_pool.user_pool_id,
                 "COGNITO_CLIENT_ID": user_pool_client.user_pool_client_id,
+                "COGNITO_DOMAIN": (
+                    f"https://{user_pool_domain.domain_name}.auth.{cdk.Aws.REGION}.amazoncognito.com"
+                ),
             },
         )
         for table in (families, members, messages, reminders):

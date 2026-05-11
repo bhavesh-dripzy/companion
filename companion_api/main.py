@@ -294,13 +294,14 @@ def cognito_config() -> CognitoConfigOut:
     if not cognito_enabled():
         return CognitoConfigOut(enabled=False)
     region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "ap-south-1"))
+    domain = os.getenv("COGNITO_DOMAIN", "")
     return CognitoConfigOut(
         enabled=True,
         region=region,
         user_pool_id=cognito_user_pool_id(),
         client_id=cognito_client_id(),
         issuer=cognito_issuer(),
-        domain=f"https://{cognito_user_pool_id().split('_')[0]}-auth.auth.{region}.amazoncognito.com",
+        domain=domain,
     )
 
 

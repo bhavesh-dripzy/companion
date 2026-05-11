@@ -1,5 +1,8 @@
 import os
 
+os.environ["LEGACY_ADMIN_USERNAME"] = "local_admin"
+os.environ["LEGACY_ADMIN_PASSWORD"] = "test_password_123"
+
 from fastapi.testclient import TestClient
 
 from app.services.llm_config import ResolvedLlm
@@ -14,9 +17,6 @@ from app.services.tool_runtime import (
     select_tool_providers_for_message,
 )
 
-
-os.environ["LEGACY_ADMIN_USERNAME"] = "local_admin"
-os.environ["LEGACY_ADMIN_PASSWORD"] = "test_password_123"
 client = TestClient(app)
 
 
