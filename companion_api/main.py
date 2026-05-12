@@ -635,13 +635,14 @@ def mcp_oauth_callback(
     code: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
+    provider: str = Query(default="zomato"),
 ):
     from app.services.zomato_mcp_executor import complete_web_oauth, repo_root_from_settings
 
     if error:
         return _oauth_result_page(
             "Authorization failed",
-            f"{error}: {error_description or 'Zomato did not authorize the request.'}",
+            f"{error}: {error_description or 'The provider did not authorize the request.'}",
             ok=False,
         )
     if not state or not code:
@@ -651,10 +652,40 @@ def mcp_oauth_callback(
             ok=False,
         )
     try:
-        result = complete_web_oauth(repo_root=repo_root_from_settings(), state=state, code=code)
-        return _oauth_result_page("Zomato connected", result["detail"], ok=True)
+        result = complete_web_oauth(
+            repo_root=repo_root_from_settings(), state=state, code=code, provider=provider
+        )
+        provider_label = result.get("provider_label") or provider.replace("_", " ").title()
+        return _oauth_result_page(f"{provider_label} connected", result["detail"], ok=True)
     except Exception as e:
         return _oauth_result_page("Authorization could not finish", f"{type(e).__name__}: {e}", ok=False)
+
+
+@app.get("/api/mcp/oauth/start")
+def mcp_oauth_start(
+    provider: str = Query(default="zomato"),
+    user: str = Depends(get_current_user),
+):
+    """Initiate OAuth authorization for any configured MCP provider."""
+    from app.services.zomato_mcp_executor import capture_mcp_oauth_url, repo_root_from_settings
+
+    tool_provider, mcp_url = _provider_mcp_url(provider, user)
+    if not tool_provider or not tool_provider.available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider '{provider}' is not available or not configured.",
+        )
+
+    result = capture_mcp_oauth_url(
+        repo_root=repo_root_from_settings(),
+        mcp_url=mcp_url,
+    )
+    result["provider"] = provider
+    result["provider_label"] = tool_provider.label
+    if not mcp_url.strip():
+        result.setdefault("detail", f"No MCP URL configured for {tool_provider.label}. Set the provider URL first.")
+        result["status"] = "not_configured"
+    return result
 
 
 @app.post("/api/mcp/test/")
@@ -769,10 +800,15 @@ def mcp_test(
 
 
 @app.get("/api/mcp/tokens/status/")
-def mcp_tokens_status(user: str = Depends(get_current_user)):
+def mcp_tokens_status(
+    provider: str = Query(default="zomato"),
+    user: str = Depends(get_current_user),
+):
     from app.services.zomato_mcp_executor import get_mcp_token_status, repo_root_from_settings
-    mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
-    return get_mcp_token_status(repo_root_from_settings(), mcp_url=mcp_url, user_id=user)
+    _, mcp_url = _provider_mcp_url(provider, user)
+    token_status = get_mcp_token_status(repo_root_from_settings(), mcp_url=mcp_url, user_id=user)
+    token_status["provider"] = provider
+    return token_status
 
 
 @app.get("/api/tools/providers/")

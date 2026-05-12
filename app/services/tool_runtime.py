@@ -565,15 +565,44 @@ def execute_tool_plan_sync(
         provider = get_tool_provider(name, user_id=user_id)
         if not provider or not provider.default_mcp_url:
             continue
+
+        resolved_url = (
+            os.getenv(provider.mcp_url_env, "").strip()
+            if provider.mcp_url_env
+            else ""
+        ) or provider.default_mcp_url
+
+        # Pre-execution token check for non-Zomato providers
+        from app.services.zomato_mcp_executor import (
+            get_mcp_token_status,
+            repo_root_from_settings,
+            restore_mcp_auth_tokens,
+        )
+        token_status = get_mcp_token_status(
+            repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
+        )
+        if not token_status["has_local_tokens"]:
+            if token_status["has_secret_tokens"]:
+                restore_mcp_auth_tokens(repo_root_from_settings(), user_id=user_id)
+                token_status = get_mcp_token_status(
+                    repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
+                )
+            if not token_status["has_local_tokens"]:
+                provider_results[name] = {
+                    "ok": False,
+                    "error_detail": (
+                        f"OAuth not connected for {provider.label}. "
+                        f"Visit /api/mcp/oauth/start?provider={name} to authorize."
+                    ),
+                    "steps": [],
+                    "diagnostics": token_status,
+                }
+                continue
+
         provider_results[name] = run_tool_plan_sync(
             routed[name],
             address_id=address_id,
-            mcp_url=(
-                os.getenv(provider.mcp_url_env, "").strip()
-                if provider.mcp_url_env
-                else ""
-            )
-            or provider.default_mcp_url,
+            mcp_url=resolved_url,
             user_id=user_id,
         )
 

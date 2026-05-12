@@ -780,6 +780,7 @@ def complete_web_oauth(
     repo_root: Path | None = None,
     state: str,
     code: str,
+    provider: str = "zomato",
 ) -> dict[str, Any]:
     """Complete hosted OAuth and persist mcp-remote-compatible auth files."""
     root = repo_root or repo_root_from_settings()
@@ -794,6 +795,9 @@ def complete_web_oauth(
         pending_map.pop(state, None)
         _merge_mcp_token_secret(oauth_pending=pending_map)
         raise RuntimeError("OAuth session expired. Start authorization again.")
+
+    # Derive provider label from pending state or fall back to provider param
+    provider_label = pending.get("provider_label") or provider.replace("_", " ").title()
 
     metadata = pending.get("metadata") or {}
     auth_server = metadata.get("authorization_server") or {}
@@ -815,11 +819,11 @@ def complete_web_oauth(
     )
     if not token_resp.ok:
         raise RuntimeError(
-            f"Zomato token exchange failed with HTTP {token_resp.status_code}: {token_resp.text[:300]}"
+            f"{provider_label} token exchange failed with HTTP {token_resp.status_code}: {token_resp.text[:300]}"
         )
     tokens = token_resp.json()
     if not isinstance(tokens, dict) or not tokens.get("access_token"):
-        raise RuntimeError("Zomato token exchange did not return an access_token.")
+        raise RuntimeError(f"{provider_label} token exchange did not return an access_token.")
 
     mcp_url = pending["mcp_url"]
     rel_paths = _mcp_remote_token_relative_paths(root, mcp_url)
@@ -1059,7 +1063,7 @@ def capture_mcp_oauth_url(
     node_binary: str | None = None,
     timeout_seconds: int = 10,
 ) -> dict[str, Any]:
-    """Try to detect Zomato MCP OAuth state via mcp-remote.
+    """Try to detect MCP OAuth state via mcp-remote.
     
     Returns:
       - oauth_required: auth URL captured, user should open it
@@ -1142,13 +1146,18 @@ def capture_mcp_oauth_url(
 
     combined_raw = "\n".join([stdout_text or "", stderr_text or ""])
     urls = [u.rstrip(".,;") for u in re.findall(r"https?://[^\s<>'\")]+", combined_raw)]
+    # Derive provider-specific domain keyword from the MCP URL for auth URL detection
+    parsed_mcp = urlparse(url)
+    mcp_host_parts = (parsed_mcp.netloc or "").split(".")
+    provider_keyword = mcp_host_parts[-2] if len(mcp_host_parts) >= 2 else (mcp_host_parts[0] if mcp_host_parts else "")
+    provider_name = parsed_mcp.netloc.replace("mcp.", "").split(".")[0].title() if parsed_mcp.netloc else "the provider"
     auth_url = next(
         (
             u
             for u in urls
-            if "zomato" in u.lower()
-            and any(part in u.lower() for part in ("oauth", "authorize", "auth", "accounts"))
+            if any(part in u.lower() for part in ("oauth", "authorize", "auth", "accounts"))
             and not u.rstrip("/").endswith("/mcp")
+            and (not provider_keyword or provider_keyword in u.lower())
         ),
         None,
     )
@@ -1157,7 +1166,7 @@ def capture_mcp_oauth_url(
         return {
             "status": "oauth_required",
             "authorization_url": auth_url,
-            "detail": "Open this URL in your browser to authorize Zomato.",
+            "detail": f"Open this URL in your browser to authorize {provider_name}.",
             "mcp_url": url,
         }
     
@@ -1172,8 +1181,8 @@ def capture_mcp_oauth_url(
     return {
         "status": "instructions",
         "detail": (
-            "Could not detect OAuth state automatically. Run this on your local machine: "
-            "npx mcp-remote https://mcp-server.zomato.com/mcp, or use hosted OAuth from the app."
+            "Could not detect OAuth state automatically. Use hosted OAuth from the app "
+            f"(/api/mcp/oauth/start), or run: npx mcp-remote {url}"
         ),
         "mcp_url": url,
         "stderr_tail": "\n".join((stderr_text or "").splitlines()[-6:]),
