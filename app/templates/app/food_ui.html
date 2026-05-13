@@ -262,6 +262,16 @@
             <button class="chip" data-query="Compare pizza on Zomato vs Swiggy near me">Compare pizza</button>
             <button class="chip" data-query="Search milk and brown bread on Zepto">Groceries</button>
           </div>
+          <div class="field" style="margin-top:4px">
+            <label for="addressSelect">Delivery address</label>
+            <div class="setting-grid" style="align-items:center; grid-template-columns: minmax(0,1fr) 120px;">
+              <select id="addressSelect">
+                <option value="">— Fetch addresses first —</option>
+              </select>
+              <button type="button" id="fetchAddressesBtn" class="secondary">Fetch</button>
+            </div>
+            <p id="addressFetchNote" class="small-note">Required for every chat message. Uses the MCP provider selected in the sidebar.</p>
+          </div>
           <div class="query-grid">
             <input id="message" placeholder="Ask for restaurants, groceries, carts, orders, or comparisons">
             <button id="sendBtn">Send</button>
@@ -401,6 +411,9 @@
     const addCustomMcpBtn = document.getElementById("addCustomMcpBtn");
     const customMcpToast = document.getElementById("customMcpToast");
     const customMcpList = document.getElementById("customMcpList");
+    const addressSelect = document.getElementById("addressSelect");
+    const fetchAddressesBtn = document.getElementById("fetchAddressesBtn");
+    const addressFetchNote = document.getElementById("addressFetchNote");
     let knownProviders = [];
     let chatHistory = [];
 
@@ -479,7 +492,7 @@
       toolProviderSelect.value = toolProvider();
       settingsProvider.value = provider();
       if (!chatHistory.length) {
-        appendMessage("assistant", "Tell me what you need. I can use Zomato, Swiggy, Zepto, Instamart, or a custom MCP you connect.");
+        appendMessage("assistant", "Sign in, connect MCP if needed, then click Fetch to load saved delivery addresses. Every chat message must include a selected address so restaurant search uses the right pin.");
       }
       loadToolProviders().then(checkMcp);
     }
@@ -779,6 +792,46 @@
       }
     }
 
+    async function fetchSavedAddresses() {
+      fetchAddressesBtn.disabled = true;
+      addressFetchNote.textContent = "Loading saved addresses…";
+      try {
+        const prov = primaryToolProvider();
+        const data = await api("GET", "/api/food/saved-addresses/?provider=" + encodeURIComponent(prov));
+        addressSelect.innerHTML = "";
+        const addrs = data.addresses || [];
+        if (!addrs.length) {
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "No addresses returned";
+          addressSelect.appendChild(opt);
+          addressFetchNote.textContent = data.detail || "Provider returned zero addresses.";
+          return;
+        }
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "— Select an address —";
+        addressSelect.appendChild(placeholder);
+        for (const a of addrs) {
+          const opt = document.createElement("option");
+          opt.value = a.address_id;
+          const label = (a.location_name || a.address_id || "").trim();
+          opt.textContent = label.length > 110 ? label.slice(0, 107) + "…" : label;
+          addressSelect.appendChild(opt);
+        }
+        addressFetchNote.textContent = "Loaded " + addrs.length + " address(es). Pick one before sending.";
+      } catch (err) {
+        addressSelect.innerHTML = "";
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "Fetch failed";
+        addressSelect.appendChild(opt);
+        addressFetchNote.textContent = err.message || "Could not load addresses.";
+      } finally {
+        fetchAddressesBtn.disabled = false;
+      }
+    }
+
     async function addCustomMcp() {
       const label = customMcpName.value.trim();
       const mcp_url = customMcpUrl.value.trim();
@@ -827,6 +880,12 @@
         appendMessage("meta", "Enter a message first.");
         return;
       }
+      const aid = (addressSelect.value || "").trim();
+      if (!aid) {
+        appendMessage("meta", "Select a delivery address first (use Fetch, then pick from the list).");
+        sendBtn.disabled = false;
+        return;
+      }
       sendBtn.disabled = true;
       messageInput.value = "";
       appendMessage("user", msg);
@@ -834,6 +893,7 @@
       try {
         const body = {
           message: msg,
+          address_id: aid,
           execute_tools: true,
           history: chatHistory.slice(0, -1)
         };
@@ -865,6 +925,7 @@
     loginBtn.addEventListener("click", doLogin);
     logoutBtn.addEventListener("click", () => { clearAuth(); showLogin(); });
     sendBtn.addEventListener("click", runQuery);
+    fetchAddressesBtn.addEventListener("click", fetchSavedAddresses);
     mcpCheckBtn.addEventListener("click", checkMcp);
     mcpTopCheckBtn.addEventListener("click", checkMcp);
     mcpTestBtn.addEventListener("click", testMcp);

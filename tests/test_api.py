@@ -309,7 +309,7 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
 
     response = client.post(
         "/api/food/query/",
-        json={"message": "pizza near me"},
+        json={"message": "pizza near me", "address_id": "saved-addr-1"},
         headers=auth_headers(),
     )
     assert response.status_code == 200
@@ -360,12 +360,71 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
 
     response = client.post(
         "/api/food/query/",
-        json={"message": "pizza near me", "execute_tools": True},
+        json={"message": "pizza near me", "execute_tools": True, "address_id": "saved-addr-1"},
         headers=auth_headers(),
     )
     assert response.status_code == 200
     assert "tool_plan" in calls
     assert calls["enabled_providers"] == {"zomato"}
+
+
+def test_food_query_requires_address_id():
+    response = client.post(
+        "/api/food/query/",
+        json={"message": "pizza near me"},
+        headers=auth_headers(),
+    )
+    assert response.status_code == 422
+
+
+def test_food_saved_addresses_returns_rows(monkeypatch):
+    monkeypatch.setattr(
+        mcp_exec,
+        "get_mcp_token_status",
+        lambda *_a, **_k: {"has_local_tokens": True, "has_secret_tokens": False},
+    )
+    monkeypatch.setattr(
+        mcp_exec,
+        "run_tool_plan_sync",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "error_detail": None,
+            "steps": [
+                {
+                    "tool": "get_saved_addresses_for_user",
+                    "arguments": {},
+                    "result": {
+                        "is_error": False,
+                        "data": {
+                            "result": {
+                                "addresses": [
+                                    {
+                                        "address_id": "111",
+                                        "location_name": "Test Tower, City",
+                                    }
+                                ],
+                                "count": 1,
+                                "success": True,
+                            }
+                        },
+                    },
+                }
+            ],
+            "diagnostics": {},
+        },
+    )
+
+    response = client.get("/api/food/saved-addresses/", headers=auth_headers())
+    assert response.status_code == 200
+    body = response.json()
+    if os.environ.get("SHOW_SAVED_ADDR_RESPONSE") == "1":
+        import json
+
+        print(json.dumps(body, indent=2))
+    assert body["status"] == "success"
+    assert body["count"] == 1
+    assert body["addresses"][0]["address_id"] == "111"
+    assert "Test Tower" in body["addresses"][0]["location_name"]
 
 
 def test_list_tool_providers_includes_zomato_and_swiggy():
@@ -471,6 +530,7 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
             "message": "Compare pizza on Zomato vs Swiggy near me",
             "execute_tools": True,
             "tool_providers": ["zomato", "swiggy_food"],
+            "address_id": "saved-addr-1",
         },
         headers=auth_headers(),
     )
@@ -536,6 +596,7 @@ def test_food_query_honors_single_selected_tool_provider(monkeypatch):
             "message": "Search milk",
             "execute_tools": True,
             "tool_provider": "zepto",
+            "address_id": "saved-addr-1",
         },
         headers=auth_headers(),
     )
@@ -594,7 +655,11 @@ def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
 
     response = client.post(
         "/api/food/query/",
-        json={"message": "What was my last order from zepto", "execute_tools": True},
+        json={
+            "message": "What was my last order from zepto",
+            "execute_tools": True,
+            "address_id": "saved-addr-1",
+        },
         headers=auth_headers(),
     )
 
@@ -648,7 +713,8 @@ def test_custom_mcp_can_be_added_listed_and_removed(monkeypatch):
 def test_operational_apis_require_auth():
     checks = [
         client.post("/api/send-message/", json={"message": "hi", "llm_optional": True}),
-        client.post("/api/food/query/", json={"message": "pizza"}),
+        client.post("/api/food/query/", json={"message": "pizza", "address_id": "x"}),
+        client.get("/api/food/saved-addresses/"),
         client.get("/api/tools/providers/"),
         client.post(
             "/api/tools/providers/custom/",

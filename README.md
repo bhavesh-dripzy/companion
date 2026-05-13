@@ -116,6 +116,7 @@ All authenticated endpoints require `Authorization: Bearer <token>`.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/api/send-message/` | Yes | LLM-routed message (food query with optional WhatsApp link) |
+| GET | `/api/food/saved-addresses/` | Yes | List saved delivery addresses for the selected MCP provider (Zomato / Swiggy-shaped) |
 | POST | `/api/food/query/` | Yes | Full food query: LLM plan → MCP tool execution |
 
 **`POST /api/food/query/`** accepts:
@@ -123,13 +124,15 @@ All authenticated endpoints require `Authorization: Bearer <token>`.
 ```json
 {
   "message": "best pizza near me",
-  "address_id": "<optional saved address>",
+  "address_id": "<required: saved delivery address id from GET /api/food/saved-addresses/>",
   "provider": "gemini|openai|deepseek",
   "tool_providers": ["zomato", "swiggy_food"],
   "execute_tools": true,
   "include_raw_zomato": false
 }
 ```
+
+Call **`GET /api/food/saved-addresses/?provider=zomato`** (or another food-capable provider) after MCP OAuth is set up; use an `address_id` from the response on every food query so restaurant search always targets the chosen pin.
 
 Returns the LLM routing plan, tool execution results per provider, and a
 generated assistant message.

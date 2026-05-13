@@ -444,6 +444,41 @@ def _provider_mcp_url(provider_id: str, user_id: str | None = None) -> tuple[Any
     return tool_provider, mcp_url
 
 
+def _extract_saved_addresses_from_mcp_step(step: dict[str, Any]) -> list[dict[str, str]]:
+    """Normalize saved-address rows from an MCP tools/call step (Zomato, Swiggy, etc.)."""
+    rows: list[dict[str, str]] = []
+    res = step.get("result") if isinstance(step, dict) else None
+    if not isinstance(res, dict) or res.get("is_error"):
+        return rows
+    payload = res.get("data")
+    candidates: list[Any] = []
+    if isinstance(payload, dict):
+        if isinstance(payload.get("addresses"), list):
+            candidates = payload["addresses"]
+        inner = payload.get("result")
+        if isinstance(inner, dict) and isinstance(inner.get("addresses"), list):
+            candidates = inner["addresses"]
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        aid = item.get("address_id") or item.get("addressId") or item.get("id")
+        if aid is None:
+            continue
+        sid = str(aid).strip()
+        if not sid:
+            continue
+        label = (
+            item.get("location_name")
+            or item.get("name")
+            or item.get("label")
+            or item.get("address_line")
+            or item.get("formatted_address")
+            or sid
+        )
+        rows.append({"address_id": sid, "location_name": str(label).strip() or sid})
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # MCP status
 # ---------------------------------------------------------------------------
@@ -931,6 +966,75 @@ def send_whatsapp_message(
     if payload.include_whatsapp_link:
         response["whatsapp_url"] = whatsapp_url
     return response
+
+
+@app.get("/api/food/saved-addresses/")
+def food_saved_addresses(
+    provider: str = Query(default="zomato"),
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """List saved delivery addresses for the authenticated user via the selected MCP provider."""
+    from app.services.zomato_mcp_executor import (
+        get_mcp_token_status,
+        repo_root_from_settings,
+        restore_mcp_auth_tokens,
+        run_tool_plan_sync,
+    )
+
+    root = repo_root_from_settings()
+    tool_provider, mcp_url = _provider_mcp_url(provider, user)
+    if not tool_provider or not tool_provider.available:
+        raise HTTPException(
+            status_code=400,
+            detail=tool_provider.notes if tool_provider else f"Unknown provider {provider!r}.",
+        )
+
+    tool_name: str | None = None
+    if "get_saved_addresses_for_user" in tool_provider.tools:
+        tool_name = "get_saved_addresses_for_user"
+    elif "get_user_addresses" in tool_provider.tools:
+        tool_name = "get_user_addresses"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider {tool_provider.name!r} has no address-listing tool (expected get_saved_addresses_for_user or get_user_addresses).",
+        )
+
+    token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
+    if not token_status["has_local_tokens"] and token_status["has_secret_tokens"]:
+        restore_mcp_auth_tokens(root, user_id=user)
+        token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
+    if not token_status["has_local_tokens"] and not token_status["has_secret_tokens"]:
+        raise HTTPException(
+            status_code=503,
+            detail="No OAuth tokens for this provider. Connect MCP (pairing or OAuth) first.",
+        )
+
+    node_binary = secret_or_env("NODE_BINARY", "node")
+    result = run_tool_plan_sync(
+        [{"tool": tool_name, "arguments": {}}],
+        mcp_url=mcp_url,
+        node_binary=node_binary,
+        repo_root=root,
+        user_id=user,
+    )
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=502,
+            detail=str(result.get("error_detail") or "MCP address fetch failed"),
+        )
+    steps = result.get("steps") if isinstance(result.get("steps"), list) else []
+    rows: list[dict[str, str]] = []
+    for step in steps:
+        if isinstance(step, dict):
+            rows.extend(_extract_saved_addresses_from_mcp_step(step))
+    return {
+        "status": "success",
+        "provider": tool_provider.name,
+        "tool": tool_name,
+        "addresses": rows,
+        "count": len(rows),
+    }
 
 
 @app.post("/api/food/query/")
