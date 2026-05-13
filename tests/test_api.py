@@ -12,6 +12,7 @@ from companion_api import main as api_main
 from app.services import zomato_mcp_executor as mcp_exec
 from app.services.food_llm_router import _finalize_from_parsed_json
 from app.services.food_llm_router import route_food_query
+from app.services.food_response_builder import build_zomato_summary
 from app.services.tool_runtime import (
     execute_tool_plan_sync,
     list_tool_providers,
@@ -729,3 +730,69 @@ def test_operational_apis_require_auth():
     ]
 
     assert all(response.status_code == 401 for response in checks)
+
+
+def test_build_zomato_summary_address_matches_resolved_id_not_first_saved():
+    """Saved-address list order must not override the address_id used for search."""
+    zomato = {
+        "ok": True,
+        "diagnostics": {
+            "resolved_address_id": "967909546",
+            "requested_address_id": "967909546",
+        },
+        "steps": [
+            {
+                "tool": "get_saved_addresses_for_user",
+                "arguments": {},
+                "result": {
+                    "data": {
+                        "result": {
+                            "addresses": [
+                                {
+                                    "address_id": "967910141",
+                                    "location_name": "HSR Layout, Bangalore",
+                                },
+                                {
+                                    "address_id": "967909546",
+                                    "location_name": "Sector 38, Gurgaon",
+                                },
+                            ]
+                        }
+                    }
+                },
+            },
+            {
+                "tool": "get_restaurants_for_keyword",
+                "arguments": {"address_id": "967909546", "keyword": "pizza"},
+                "result": {"data": {"results": []}},
+            },
+        ],
+    }
+    summary = build_zomato_summary(zomato)
+    assert summary["address"] == "Sector 38, Gurgaon"
+
+
+def test_build_zomato_summary_address_falls_back_to_first_saved_when_no_diagnostics():
+    zomato = {
+        "ok": True,
+        "diagnostics": {},
+        "steps": [
+            {
+                "tool": "get_saved_addresses_for_user",
+                "arguments": {},
+                "result": {
+                    "data": {
+                        "result": {
+                            "addresses": [
+                                {
+                                    "address_id": "967910141",
+                                    "location_name": "Only one",
+                                },
+                            ]
+                        }
+                    }
+                },
+            },
+        ],
+    }
+    assert build_zomato_summary(zomato)["address"] == "Only one"

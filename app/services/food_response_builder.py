@@ -6,9 +6,30 @@ from typing import Any
 from openai import OpenAI
 
 
+def _preferred_address_id_for_summary(zomato: dict[str, Any]) -> str | None:
+    """ID used for restaurant search — prefer executor diagnostics, then restaurant tool args."""
+    diag = zomato.get("diagnostics") if isinstance(zomato.get("diagnostics"), dict) else {}
+    for key in ("resolved_address_id", "requested_address_id"):
+        v = str(diag.get(key) or "").strip()
+        if v:
+            return v
+    for step in zomato.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if step.get("tool") not in ("get_restaurants_for_keyword", "search_restaurants"):
+            continue
+        args = step.get("arguments") if isinstance(step.get("arguments"), dict) else {}
+        aid = str(args.get("address_id") or "").strip()
+        if aid:
+            return aid
+    return None
+
+
 def _extract_primary_address(zomato: dict[str, Any] | None) -> str | None:
     if not isinstance(zomato, dict):
         return None
+
+    preferred_id = _preferred_address_id_for_summary(zomato)
 
     for step in zomato.get("steps") or []:
         if not isinstance(step, dict):
@@ -18,8 +39,21 @@ def _extract_primary_address(zomato: dict[str, Any] | None) -> str | None:
         payload = ((step.get("result") or {}).get("data") or {})
         result = payload.get("result") if isinstance(payload, dict) else {}
         addresses = result.get("addresses") if isinstance(result, dict) else None
-        if isinstance(addresses, list) and addresses and isinstance(addresses[0], dict):
-            location_name = str(addresses[0].get("location_name") or "").strip()
+        if not (isinstance(addresses, list) and addresses):
+            continue
+        if preferred_id:
+            for addr in addresses:
+                if not isinstance(addr, dict):
+                    continue
+                if str(addr.get("address_id") or "").strip() != preferred_id:
+                    continue
+                location_name = str(addr.get("location_name") or "").strip()
+                if location_name:
+                    return location_name
+        for addr in addresses:
+            if not isinstance(addr, dict):
+                continue
+            location_name = str(addr.get("location_name") or "").strip()
             if location_name:
                 return location_name
     return None
