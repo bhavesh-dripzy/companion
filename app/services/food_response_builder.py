@@ -95,6 +95,82 @@ def _extract_restaurants(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
     return found
 
 
+def _menu_item_price(obj: dict[str, Any]) -> Any:
+    for key in ("price", "display_price", "item_price", "mrp", "sp", "cost", "amount"):
+        if obj.get(key) is not None:
+            return obj.get(key)
+    return None
+
+
+def _has_menu_leaf_id(obj: dict[str, Any]) -> bool:
+    for key in (
+        "item_id",
+        "dish_id",
+        "menu_item_id",
+        "product_id",
+        "variant_id",
+        "res_item_id",
+        "catalogue_id",
+        "catalog_id",
+    ):
+        v = obj.get(key)
+        if v is None or v == "" or v == 0:
+            continue
+        return True
+    return False
+
+
+def _is_menu_category_bucket(obj: dict[str, Any]) -> bool:
+    """Skip section headers (e.g. category dict with nested items but no dish row ids)."""
+    if _has_menu_leaf_id(obj) or _menu_item_price(obj) is not None:
+        return False
+    for key in ("items", "dishes", "menu_items", "products"):
+        v = obj.get(key)
+        if isinstance(v, list) and len(v) > 0:
+            return True
+    return False
+
+
+def _menu_item_display_name(obj: dict[str, Any]) -> str | None:
+    for key in (
+        "name",
+        "item_name",
+        "title",
+        "dish_name",
+        "product_name",
+        "display_name",
+        "label",
+        "item_title",
+        "variant_name",
+        "product_title",
+        "menu_item_name",
+        "nm",
+    ):
+        v = obj.get(key)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if 0 < len(s) <= 200:
+            return s
+    for key in ("text", "description"):
+        v = obj.get(key)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if 8 < len(s) <= 120:
+            return s
+    return None
+
+
+def _normalize_menu_step_payload(raw: Any) -> Any:
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {"_raw_text": raw}
+    return raw
+
+
 def _extract_menu_items(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not isinstance(zomato, dict):
         return []
@@ -112,15 +188,17 @@ def _extract_menu_items(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
             "get_product_details",
         ):
             continue
-        payload = ((step.get("result") or {}).get("data") or {})
+        payload = _normalize_menu_step_payload(((step.get("result") or {}).get("data") or {}))
         for obj in _walk_payload(payload):
             if not isinstance(obj, dict):
                 continue
-            name = obj.get("name") or obj.get("item_name") or obj.get("title")
+            if _is_menu_category_bucket(obj):
+                continue
+            name = _menu_item_display_name(obj)
             if not name:
                 continue
-            price = obj.get("price") or obj.get("display_price") or obj.get("item_price")
-            found.append({"name": str(name), "price": price})
+            price = _menu_item_price(obj)
+            found.append({"name": name, "price": price})
             if len(found) >= 12:
                 return found
     return found
@@ -273,8 +351,11 @@ def build_assistant_message_with_llm(
         "1) Be concise and clear.\n"
         "2) Mention top options only if present.\n"
         "3) Never expose internal tool/debug data.\n"
-        "4) End with one clear next-step question.\n"
-        "5) Include 2-4 concrete suggestions the user can reply with.\n"
+        "4) If zomato_summary.menu_items is a non-empty list, list several dish names (and prices when present) "
+        "from that array — do not claim the menu is unavailable.\n"
+        "5) Use zomato_summary.address for locality when describing where results apply.\n"
+        "6) End with one clear next-step question.\n"
+        "7) Include 2-4 concrete suggestions the user can reply with.\n"
     )
 
     payload = {

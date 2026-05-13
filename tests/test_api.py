@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -796,3 +797,67 @@ def test_build_zomato_summary_address_falls_back_to_first_saved_when_no_diagnost
         ],
     }
     assert build_zomato_summary(zomato)["address"] == "Only one"
+
+
+def test_build_zomato_summary_menu_items_from_display_name_and_skips_category_buckets():
+    zomato = {
+        "ok": True,
+        "diagnostics": {},
+        "steps": [
+            {
+                "tool": "get_restaurant_menu_by_categories",
+                "arguments": {"restaurant_id": "123"},
+                "result": {
+                    "data": {
+                        "result": {
+                            "categories": [
+                                {
+                                    "name": "Burgers",
+                                    "items": [
+                                        {
+                                            "display_name": "Classic Burger",
+                                            "price": 199,
+                                        },
+                                        {
+                                            "nm": "Cheese fries",
+                                            "sp": 89,
+                                        },
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                },
+            },
+        ],
+    }
+    items = build_zomato_summary(zomato)["menu_items"]
+    names = [i["name"] for i in items]
+    assert "Classic Burger" in names
+    assert "Cheese fries" in names
+    assert "Burgers" not in names
+
+
+def test_build_zomato_summary_menu_parses_string_json_data():
+    inner = json.dumps(
+        {
+            "result": {
+                "items": [
+                    {"title": "Paneer wrap", "mrp": 149},
+                ]
+            }
+        }
+    )
+    zomato = {
+        "ok": True,
+        "steps": [
+            {
+                "tool": "get_menu_items_listing",
+                "arguments": {"restaurant_id": "1"},
+                "result": {"data": inner},
+            },
+        ],
+    }
+    items = build_zomato_summary(zomato)["menu_items"]
+    assert len(items) == 1
+    assert items[0]["name"] == "Paneer wrap"
