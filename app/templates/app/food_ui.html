@@ -259,6 +259,7 @@
           <div id="chatLog" class="chat-log"></div>
           <div class="quick-row">
             <button class="chip" data-query="Find good biryani near my saved address">Biryani</button>
+            <button class="chip" data-query="Find pizza near my saved address on Swiggy">Swiggy pizza</button>
             <button class="chip" data-query="Compare pizza on Zomato vs Swiggy near me">Compare pizza</button>
             <button class="chip" data-query="Search milk and brown bread on Zepto">Groceries</button>
           </div>
@@ -270,7 +271,7 @@
               </select>
               <button type="button" id="fetchAddressesBtn" class="secondary">Fetch</button>
             </div>
-            <p id="addressFetchNote" class="small-note">Required for every chat message. Uses the MCP provider selected in the sidebar.</p>
+            <p id="addressFetchNote" class="small-note">Required for every chat message. Uses the MCP you pick under Configure MCP (Zomato, Swiggy Food, Instamart, Zepto, or a custom MCP).</p>
           </div>
           <div class="query-grid">
             <input id="message" placeholder="Ask for restaurants, groceries, carts, orders, or comparisons">
@@ -296,6 +297,9 @@
               <label for="toolProviderSelect">Configure MCP</label>
               <select id="toolProviderSelect">
                 <option value="zomato">Zomato MCP</option>
+                <option value="swiggy_food">Swiggy Food MCP</option>
+                <option value="swiggy_instamart">Swiggy Instamart MCP</option>
+                <option value="zepto">Zepto MCP</option>
               </select>
             </div>
             <div id="mcpDetail" class="detail">Open this panel status to inspect the MCP setup.</div>
@@ -380,6 +384,29 @@
     const USER_KEY = "companion_user";
     const PROVIDER_KEY = "companion_provider";
     const TOOL_PROVIDER_KEY = "companion_tool_provider";
+    /** Shown before /api/tools/providers/ loads or if that request fails (order matches server builtins). */
+    const BUILTIN_TOOL_PROVIDER_FALLBACK = [
+      { id: "zomato", label: "Zomato MCP" },
+      { id: "swiggy_food", label: "Swiggy Food MCP" },
+      { id: "swiggy_instamart", label: "Swiggy Instamart MCP" },
+      { id: "zepto", label: "Zepto MCP" },
+    ];
+
+    function fillToolProviderSelectFromFallback() {
+      toolProviderSelect.innerHTML = "";
+      for (const row of BUILTIN_TOOL_PROVIDER_FALLBACK) {
+        const option = document.createElement("option");
+        option.value = row.id;
+        option.textContent = row.label;
+        toolProviderSelect.appendChild(option);
+      }
+    }
+
+    /** Match companion_api ``select_tool_providers_for_message`` comparison tokens — then omit ``tool_provider`` so routing can return multiple MCPs. */
+    function serverShouldPickToolProvidersFromMessage(message) {
+      const text = " " + String(message || "").toLowerCase() + " ";
+      return [" compare ", " vs ", " versus ", " cheaper ", " faster ", " better "].some(tok => text.includes(tok));
+    }
 
     const loginScreen = document.getElementById("loginScreen");
     const appScreen = document.getElementById("appScreen");
@@ -492,7 +519,7 @@
       toolProviderSelect.value = toolProvider();
       settingsProvider.value = provider();
       if (!chatHistory.length) {
-        appendMessage("assistant", "Sign in, connect MCP if needed, then click Fetch to load saved delivery addresses. Every chat message must include a selected address so restaurant search uses the right pin.");
+        appendMessage("assistant", "Sign in, pick Zomato or Swiggy (or another MCP) under Configure MCP, use Connect if tokens are missing, then Fetch to load saved addresses. Every message needs a selected address.");
       }
       loadToolProviders().then(checkMcp);
     }
@@ -657,17 +684,20 @@
           toolProviderSelect.appendChild(option);
         }
         if (!providers.length) {
-          const option = document.createElement("option");
-          option.value = "zomato";
-          option.textContent = "Zomato MCP";
-          toolProviderSelect.appendChild(option);
+          fillToolProviderSelectFromFallback();
         }
         toolProviderSelect.value = [...toolProviderSelect.options].some(o => o.value === current && !o.disabled) ? current : toolProviderSelect.options[0].value;
         setToolProvider(toolProviderSelect.value);
         renderCustomProviders();
       } catch {
-        toolProviderSelect.innerHTML = '<option value="zomato">Zomato MCP</option>';
+        fillToolProviderSelectFromFallback();
         knownProviders = [];
+        const current = toolProvider();
+        toolProviderSelect.value = [...toolProviderSelect.options].some(o => o.value === current && !o.disabled)
+          ? current
+          : toolProviderSelect.options[0].value;
+        setToolProvider(toolProviderSelect.value);
+        renderCustomProviders();
       }
     }
 
@@ -775,7 +805,11 @@
       try {
         const data = await api("POST", "/api/mcp/pairing/?provider=" + encodeURIComponent(primaryToolProvider()));
         if (data.status === "pairing_ready" && data.command) {
-          mcpDetail.textContent = data.detail || "Run the command below to connect the selected MCP.";
+          let detailHtml = escapeHtml(data.detail || "Run the command below to connect the selected MCP.");
+          if (data.mcp_url) {
+            detailHtml += "<br><span class=\"small-note\">The script below opens this MCP in your browser:</span><br><code>" + escapeHtml(String(data.mcp_url)) + "</code>";
+          }
+          mcpDetail.innerHTML = detailHtml;
           setBadge(mcpStatusBadge, "Pairing ready", "warn");
           setBadge(mcpMiniBadge, "Pairing ready", "warn");
           showPairingCommand(data.command);
@@ -865,7 +899,6 @@
       customMcpToast.textContent = "";
       try {
         await api("DELETE", "/api/tools/providers/custom/" + encodeURIComponent(providerId));
-        if (toolProviderSelect.value === providerId) setToolProvider("zomato");
         await loadToolProviders();
         customMcpToast.textContent = "Removed custom MCP.";
         await checkMcp();
@@ -897,6 +930,9 @@
           execute_tools: true,
           history: chatHistory.slice(0, -1)
         };
+        if (!serverShouldPickToolProvidersFromMessage(msg)) {
+          body.tool_provider = primaryToolProvider();
+        }
         const selectedModelProvider = provider();
         if (selectedModelProvider && selectedModelProvider !== "auto") body.provider = selectedModelProvider;
         const data = await api("POST", "/api/food/query/", body);

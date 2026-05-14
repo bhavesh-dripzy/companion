@@ -435,6 +435,8 @@ def test_list_tool_providers_includes_zomato_and_swiggy():
     assert "get_saved_addresses_for_user" in providers["zomato"]["tools"]
     assert providers["swiggy_food"]["label"] == "Swiggy Food MCP"
     assert "search_restaurants" in providers["swiggy_food"]["tools"]
+    assert "get_addresses" in providers["swiggy_food"]["tools"]
+    assert "search_menu" in providers["swiggy_food"]["tools"]
     assert providers["swiggy_instamart"]["label"] == "Swiggy Instamart MCP"
     assert "search_products" in providers["swiggy_instamart"]["tools"]
 
@@ -471,7 +473,7 @@ def test_provider_hints_route_shared_tool_names():
     routed = route_tool_plan(
         [
             {"provider": "zomato", "tool": "get_order_history", "arguments": {}},
-            {"provider": "swiggy_food", "tool": "get_order_history", "arguments": {}},
+            {"provider": "swiggy_food", "tool": "get_food_orders", "arguments": {}},
         ],
         enabled_providers={"zomato", "swiggy_food"},
     )
@@ -493,7 +495,7 @@ def test_order_history_router_uses_deterministic_provider_plan():
     assert plan["intent"] == "get_order_history"
     assert plan["validation"]["resolved_model"] == "deterministic-order-history-router"
     assert plan["tool_plan"] == [
-        {"provider": "swiggy_food", "tool": "get_order_history", "arguments": {}},
+        {"provider": "swiggy_food", "tool": "get_food_orders", "arguments": {}},
         {"provider": "zomato", "tool": "get_order_history", "arguments": {}},
     ]
 

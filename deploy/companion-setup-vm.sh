@@ -35,7 +35,7 @@ apt-get install -y \
 
 systemctl enable --now mariadb || systemctl enable --now mysql || true
 
-# Node.js 20.x (for mcp-remote / Zomato MCP bridge)
+# Node.js 20.x (for mcp-remote / Zomato + Swiggy MCP bridge)
 if ! command -v node >/dev/null 2>&1 || [ "$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)" -lt 18 ]; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y nodejs
@@ -52,7 +52,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 pip install gunicorn
 
-# Zomato MCP stdio bridge (uses node_modules/mcp-remote)
+# MCP stdio bridge (uses node_modules/mcp-remote for Zomato + Swiggy Food)
 if [ -f package.json ]; then
   npm install --omit=dev
 fi
@@ -175,7 +175,7 @@ rm -f /etc/nginx/sites-enabled/default
 chown -R www-data:www-data "$APP_DIR"
 chmod -R 755 "$APP_DIR"
 
-# Zomato MCP (mcp-remote) OAuth token directory — copy ~/.mcp-auth here from your dev machine.
+# MCP (mcp-remote) OAuth token directory — Zomato + Swiggy share this path; copy ~/.mcp-auth here or run scripts/*_mcp_prod_oauth.sh as www-data.
 mkdir -p "$APP_DIR/.mcp-auth"
 chown www-data:www-data "$APP_DIR/.mcp-auth"
 chmod 700 "$APP_DIR/.mcp-auth"
@@ -189,3 +189,7 @@ systemctl restart nginx
 echo ""
 echo "Done. Test: curl http://${EXTERNAL_IP}/api/"
 echo "Logs: journalctl -u gunicorn-companion -f"
+echo ""
+echo "MCP OAuth (optional): tokens live in ${APP_DIR}/.mcp-auth (readable by www-data)."
+echo "  Zomato:  sudo -u www-data -H bash ${APP_DIR}/scripts/zomato_mcp_prod_oauth.sh"
+echo "  Swiggy:  sudo -u www-data -H bash ${APP_DIR}/scripts/swiggy_food_mcp_prod_oauth.sh"

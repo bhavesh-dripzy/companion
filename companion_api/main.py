@@ -38,7 +38,6 @@ from app.services.tool_runtime import (
     select_tool_providers_for_message,
     update_custom_provider_tools,
 )
-from app.services.zomato_mcp_executor import run_tool_plan_sync
 from companion_api import settings
 from companion_api.dynamodb import ReminderRepository
 from companion_api.models import (
@@ -729,6 +728,7 @@ def mcp_test(
     user: str = Depends(get_current_user),
 ):
     """Auto-restore tokens from Secrets Manager, then test connection."""
+    from app.services.swiggy_mcp_executor import run_swiggy_tool_plan_sync
     from app.services.zomato_mcp_executor import (
         get_mcp_token_status,
         list_mcp_tools_sync,
@@ -808,13 +808,22 @@ def mcp_test(
             else "get_saved_addresses_for_user"
         )
         test_args = {"query": "milk"} if test_tool in ("search_products", "search_restaurants") else {}
-        result = run_tool_plan_sync(
-            [{"tool": test_tool, "arguments": test_args}],
-            mcp_url=mcp_url,
-            node_binary=node_binary,
-            repo_root=root,
-            user_id=user,
-        )
+        if provider in ("swiggy_food", "swiggy_instamart"):
+            result = run_swiggy_tool_plan_sync(
+                [{"tool": test_tool, "arguments": test_args}],
+                mcp_url=mcp_url,
+                node_binary=node_binary,
+                repo_root=root,
+                user_id=user,
+            )
+        else:
+            result = run_tool_plan_sync(
+                [{"tool": test_tool, "arguments": test_args}],
+                mcp_url=mcp_url,
+                node_binary=node_binary,
+                repo_root=root,
+                user_id=user,
+            )
         if result.get("ok"):
             return {
                 "status": "connected",
@@ -974,6 +983,7 @@ def food_saved_addresses(
     user: str = Depends(get_current_user),
 ) -> dict[str, Any]:
     """List saved delivery addresses for the authenticated user via the selected MCP provider."""
+    from app.services.swiggy_mcp_executor import run_swiggy_tool_plan_sync
     from app.services.zomato_mcp_executor import (
         get_mcp_token_status,
         repo_root_from_settings,
@@ -992,12 +1002,14 @@ def food_saved_addresses(
     tool_name: str | None = None
     if "get_saved_addresses_for_user" in tool_provider.tools:
         tool_name = "get_saved_addresses_for_user"
+    elif "get_addresses" in tool_provider.tools:
+        tool_name = "get_addresses"
     elif "get_user_addresses" in tool_provider.tools:
         tool_name = "get_user_addresses"
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Provider {tool_provider.name!r} has no address-listing tool (expected get_saved_addresses_for_user or get_user_addresses).",
+            detail=f"Provider {tool_provider.name!r} has no address-listing tool (expected get_saved_addresses_for_user, get_addresses, or get_user_addresses).",
         )
 
     token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
@@ -1011,13 +1023,22 @@ def food_saved_addresses(
         )
 
     node_binary = secret_or_env("NODE_BINARY", "node")
-    result = run_tool_plan_sync(
-        [{"tool": tool_name, "arguments": {}}],
-        mcp_url=mcp_url,
-        node_binary=node_binary,
-        repo_root=root,
-        user_id=user,
-    )
+    if tool_name in ("get_user_addresses", "get_addresses"):
+        result = run_swiggy_tool_plan_sync(
+            [{"tool": tool_name, "arguments": {}}],
+            mcp_url=mcp_url,
+            node_binary=node_binary,
+            repo_root=root,
+            user_id=user,
+        )
+    else:
+        result = run_tool_plan_sync(
+            [{"tool": tool_name, "arguments": {}}],
+            mcp_url=mcp_url,
+            node_binary=node_binary,
+            repo_root=root,
+            user_id=user,
+        )
     if not result.get("ok"):
         raise HTTPException(
             status_code=502,

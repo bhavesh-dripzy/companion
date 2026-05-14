@@ -6,6 +6,7 @@ import re
 import time
 from typing import Any
 
+from app.services.swiggy_mcp_executor import run_swiggy_tool_plan_sync
 from app.services.zomato_mcp_executor import (
     _mcp_token_secret,
     _merge_mcp_token_secret,
@@ -54,19 +55,20 @@ SWIGGY_FOOD_PROVIDER = ToolProvider(
     default_mcp_url="https://mcp.swiggy.com/food",
     tools=frozenset(
         {
+            "get_addresses",
             "search_restaurants",
+            "search_menu",
             "get_restaurant_menu",
-            "search_menu_items",
-            "get_user_addresses",
-            "get_cart",
-            "add_item_to_cart",
-            "update_cart_item",
-            "remove_cart_item",
-            "clear_cart",
-            "get_cart_offers",
-            "place_order",
-            "get_order_history",
-            "get_order_details",
+            "get_food_cart",
+            "update_food_cart",
+            "flush_food_cart",
+            "place_food_order",
+            "fetch_food_coupons",
+            "apply_food_coupon",
+            "get_food_orders",
+            "get_food_order_details",
+            "track_food_order",
+            "report_error",
         }
     ),
 )
@@ -78,18 +80,16 @@ SWIGGY_INSTAMART_PROVIDER = ToolProvider(
     default_mcp_url="https://mcp.swiggy.com/im",
     tools=frozenset(
         {
+            "get_addresses",
             "search_products",
-            "get_product_details",
-            "get_user_addresses",
+            "your_go_to_items",
             "get_cart",
-            "add_item_to_cart",
-            "update_cart_item",
-            "remove_cart_item",
+            "update_cart",
             "clear_cart",
-            "get_cart_offers",
-            "place_order",
-            "get_order_history",
-            "get_order_details",
+            "checkout",
+            "get_orders",
+            "track_order",
+            "report_error",
         }
     ),
 )
@@ -599,12 +599,20 @@ def execute_tool_plan_sync(
                 }
                 continue
 
-        provider_results[name] = run_tool_plan_sync(
-            routed[name],
-            address_id=address_id,
-            mcp_url=resolved_url,
-            user_id=user_id,
-        )
+        if name in ("swiggy_food", "swiggy_instamart"):
+            provider_results[name] = run_swiggy_tool_plan_sync(
+                routed[name],
+                address_id=address_id,
+                mcp_url=resolved_url,
+                user_id=user_id,
+            )
+        else:
+            provider_results[name] = run_tool_plan_sync(
+                routed[name],
+                address_id=address_id,
+                mcp_url=resolved_url,
+                user_id=user_id,
+            )
 
     ok = all(
         isinstance(result, dict) and result.get("ok") is True

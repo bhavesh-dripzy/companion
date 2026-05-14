@@ -32,9 +32,14 @@ _ALLOWED_TOOLS = frozenset(
         "bind_user_number_verify_code",
         "search_restaurants",
         "get_restaurant_menu",
+        "search_menu",
         "search_menu_items",
+        "get_addresses",
         "get_user_addresses",
         "get_cart",
+        "get_food_cart",
+        "update_food_cart",
+        "flush_food_cart",
         "add_item_to_cart",
         "update_cart_item",
         "remove_cart_item",
@@ -42,19 +47,38 @@ _ALLOWED_TOOLS = frozenset(
         "search_products",
         "get_product_details",
         "place_order",
+        "place_food_order",
+        "checkout",
         "get_order_details",
+        "get_food_orders",
+        "get_food_order_details",
+        "get_orders",
+        "track_food_order",
+        "track_order",
+        "fetch_food_coupons",
+        "apply_food_coupon",
+        "get_cart_offers",
+        "your_go_to_items",
+        "update_cart",
+        "report_error",
     }
 )
 
 _ADDRESS_TOOLS = {"get_restaurants_for_keyword", "search_restaurants"}
-_ZOMATO_ADDRESS_TOOLS = {"get_restaurants_for_keyword"}
 _RESTAURANT_TOOLS = {
     "get_restaurant_menu_by_categories",
     "get_menu_items_listing",
     "get_restaurant_menu",
+    "search_menu",
     "search_menu_items",
 }
-_ORDER_TOOLS = {"get_order_tracking_info", "get_order_details"}
+_ORDER_TOOLS = {
+    "get_order_tracking_info",
+    "get_order_details",
+    "get_food_order_details",
+    "track_food_order",
+    "track_order",
+}
 _ORDER_HISTORY_PROVIDERS = {"zomato", "swiggy_food", "swiggy_instamart", "zepto"}
 
 _SYSTEM_PROMPT = """\
@@ -141,17 +165,17 @@ intent, summary, tool_plan, constraints, execution_notes_for_downstream.
 TOOLS (use ONLY these exact tool strings):
 - search_restaurants: find restaurants for a cuisine/dish/local query.
 - get_restaurant_menu: fetch menu for a known restaurant id. Use "__RESTAURANT_ID__" after search_restaurants.
-- search_menu_items: search items inside a known restaurant. Use "__RESTAURANT_ID__" after search_restaurants.
-- get_user_addresses: get saved addresses when needed.
-- get_cart, add_item_to_cart, update_cart_item, remove_cart_item, clear_cart, get_cart_offers.
-- place_order only after explicit checkout confirmation.
-- get_order_history, get_order_details.
+- search_menu: search menu items inside a known restaurant. Use "__RESTAURANT_ID__" after search_restaurants.
+- get_addresses: list saved delivery addresses when needed.
+- get_food_cart, update_food_cart, flush_food_cart, fetch_food_coupons, apply_food_coupon.
+- place_food_order only after explicit checkout confirmation.
+- get_food_orders, get_food_order_details, track_food_order.
 
 RULES:
 1. For discovery, use search_restaurants with the user's cuisine/dish/locality text.
 2. For menu questions without a restaurant id, use search_restaurants then get_restaurant_menu with "__RESTAURANT_ID__".
 3. For ordering/cart changes, do not invent item, variant, restaurant, cart, or address IDs.
-4. If the user asks for last/recent/past orders or order history, ALWAYS use get_order_history.
+4. If the user asks for last/recent/past orders or order history, ALWAYS use get_food_orders.
 5. Prefer multi-step plans when a later tool can consume IDs from earlier output.
 6. Return ONLY valid JSON.
 """
@@ -164,17 +188,16 @@ intent, summary, tool_plan, constraints, execution_notes_for_downstream.
 
 TOOLS (use ONLY these exact tool strings):
 - search_products: search grocery/quick-commerce products.
-- get_product_details: fetch details for a known product id. Use "__ITEM_ID__" only after search_products.
-- get_user_addresses: get saved addresses when needed.
-- get_cart, add_item_to_cart, update_cart_item, remove_cart_item, clear_cart, get_cart_offers.
-- place_order only after explicit checkout confirmation.
-- get_order_history, get_order_details.
+- your_go_to_items: repeat or habitual SKUs when relevant.
+- get_addresses: list saved delivery addresses when needed.
+- get_cart, update_cart, clear_cart, checkout.
+- get_orders, track_order.
 
 RULES:
 1. For grocery discovery, use search_products with the user's product terms.
-2. For product detail questions, use search_products then get_product_details with "__ITEM_ID__".
+2. For product detail questions, use search_products then get_product_details with "__ITEM_ID__" if that tool is available in your tool list; otherwise rely on search_products cards only.
 3. For cart/order flows, do not invent product, variant, cart, address, or order IDs.
-4. If the user asks for last/recent/past orders or order history, ALWAYS use get_order_history.
+4. If the user asks for last/recent/past orders or order history, ALWAYS use get_orders.
 5. Return ONLY valid JSON.
 """
 
@@ -274,12 +297,13 @@ def _comparison_plan(user_message: str, tool_providers: set[str]) -> dict[str, A
 
     keyword = _infer_keyword_from_message(user_message)
     plan = [
-        {"tool": "get_saved_addresses_for_user", "arguments": {}},
+        {"provider": "zomato", "tool": "get_saved_addresses_for_user", "arguments": {}},
         {
+            "provider": "zomato",
             "tool": "get_restaurants_for_keyword",
             "arguments": {"keyword": keyword, "address_id": "__ADDRESS_ID__"},
         },
-        {"tool": "search_restaurants", "arguments": {"query": keyword}},
+        {"provider": "swiggy_food", "tool": "search_restaurants", "arguments": {"query": keyword}},
     ]
     return {
         "intent": "compare_restaurant_providers",
@@ -321,7 +345,14 @@ def _order_history_plan(user_message: str, tool_providers: set[str]) -> dict[str
     if not providers:
         return None
 
-    plan = [{"provider": provider_name, "tool": "get_order_history", "arguments": {}} for provider_name in providers]
+    plan = []
+    for provider_name in providers:
+        if provider_name == "swiggy_food":
+            plan.append({"provider": provider_name, "tool": "get_food_orders", "arguments": {}})
+        elif provider_name == "swiggy_instamart":
+            plan.append({"provider": provider_name, "tool": "get_orders", "arguments": {}})
+        else:
+            plan.append({"provider": provider_name, "tool": "get_order_history", "arguments": {}})
     return {
         "intent": "get_order_history",
         "summary": "Fetch recent order history from " + ", ".join(providers) + ".",
@@ -339,7 +370,7 @@ def _order_history_plan(user_message: str, tool_providers: set[str]) -> dict[str
             "health_constraints": None,
             "order_history_providers": providers,
         },
-        "execution_notes_for_downstream": "Run get_order_history for the selected provider(s).",
+        "execution_notes_for_downstream": "Run order-history tools for the selected provider(s) (get_food_orders / get_orders / get_order_history).",
         "validation": {
             "tool_count": len(plan),
             "dropped_unknown_tool_steps": 0,
@@ -379,18 +410,35 @@ def _ensure_prerequisites(
     if not tool_plan:
         return tool_plan
 
-    needs_address = any(step.get("tool") in _ZOMATO_ADDRESS_TOOLS for step in tool_plan)
+    needs_address = any(step.get("tool") in _ADDRESS_TOOLS for step in tool_plan)
     needs_restaurant = any(step.get("tool") in _RESTAURANT_TOOLS for step in tool_plan)
 
+    address_list_tool = (
+        "get_addresses"
+        if tool_provider in ("swiggy_food", "swiggy_instamart")
+        else "get_saved_addresses_for_user"
+    )
+
     out = list(tool_plan)
+    has_addr_prefetch = (
+        _has_tool(out, "get_saved_addresses_for_user")
+        or _has_tool(out, "get_user_addresses")
+        or _has_tool(out, "get_addresses")
+    )
     if (
         (needs_address or (needs_restaurant and tool_provider != "swiggy_food"))
-        and not _has_tool(out, "get_saved_addresses_for_user")
+        and not _has_tool(out, address_list_tool)
+        and not has_addr_prefetch
     ):
-        out.insert(0, {"tool": "get_saved_addresses_for_user", "arguments": {}})
+        out.insert(0, {"tool": address_list_tool, "arguments": {}})
 
     if needs_restaurant and not _has_tool(out, "get_restaurants_for_keyword") and not _has_tool(out, "search_restaurants"):
-        insert_at = 1 if _has_tool(out, "get_saved_addresses_for_user") else 0
+        has_address_header = (
+            _has_tool(out, "get_saved_addresses_for_user")
+            or _has_tool(out, "get_user_addresses")
+            or _has_tool(out, "get_addresses")
+        )
+        insert_at = 1 if has_address_header else 0
         if tool_provider == "swiggy_food":
             out.insert(
                 0,
@@ -452,6 +500,11 @@ def normalize_tool_plan(
         if not isinstance(tool, str):
             continue
 
+        if tool == "get_user_addresses":
+            tool = "get_addresses"
+        elif tool == "search_menu_items":
+            tool = "search_menu"
+
         if tool not in (allowed_tools or _ALLOWED_TOOLS):
             continue
 
@@ -467,10 +520,51 @@ def normalize_tool_plan(
             if keyword is None or (isinstance(keyword, str) and not keyword.strip()):
                 arguments["keyword"] = "restaurant"
 
+        if tool == "search_restaurants":
+            arguments = dict(arguments)
+            aid = arguments.get("addressId") or arguments.get("address_id")
+            if aid is None or (isinstance(aid, str) and not str(aid).strip()):
+                arguments["address_id"] = "__ADDRESS_ID__"
+                arguments["addressId"] = "__ADDRESS_ID__"
+            else:
+                s = str(aid).strip()
+                arguments["address_id"] = s
+                arguments["addressId"] = s
+            q = arguments.get("query") or arguments.get("keyword")
+            if q is None or (isinstance(q, str) and not str(q).strip()):
+                arguments["query"] = "restaurant"
+            else:
+                arguments["query"] = str(q).strip()
+            arguments.pop("keyword", None)
+
         if tool in _RESTAURANT_TOOLS:
             arguments = dict(arguments)
             if tool in ("get_menu_items_listing", "get_restaurant_menu_by_categories"):
                 arguments = _normalize_zomato_res_id_address_args(arguments)
+            elif tool in ("get_restaurant_menu", "search_menu"):
+                restaurant_id = (
+                    arguments.get("restaurant_id")
+                    or arguments.get("restaurantId")
+                    or arguments.get("res_id")
+                    or arguments.get("resId")
+                )
+                if restaurant_id is None or (
+                    isinstance(restaurant_id, str) and not restaurant_id.strip()
+                ):
+                    arguments["restaurant_id"] = "__RESTAURANT_ID__"
+                    arguments["restaurantId"] = "__RESTAURANT_ID__"
+                else:
+                    s = str(restaurant_id).strip()
+                    arguments["restaurant_id"] = s
+                    arguments["restaurantId"] = s
+                aid = arguments.get("address_id") or arguments.get("addressId")
+                if aid is None or (isinstance(aid, str) and not str(aid).strip()):
+                    arguments["address_id"] = "__ADDRESS_ID__"
+                    arguments["addressId"] = "__ADDRESS_ID__"
+                else:
+                    s = str(aid).strip()
+                    arguments["address_id"] = s
+                    arguments["addressId"] = s
             else:
                 restaurant_id = (
                     arguments.get("restaurant_id")

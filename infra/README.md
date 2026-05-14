@@ -36,10 +36,22 @@ deploy the CDK stack.
 
 Do not use root credentials for CI/CD.
 
-## Zomato MCP
+## MCP (Zomato & Swiggy Food)
 
 The default deploy sets `EXECUTE_ZOMATO_BY_DEFAULT=false`, so LLM routing works
-without requiring the Zomato OAuth token store in Lambda. The next production
-step is to replace `mcp-remote`'s local file token dependency with a managed
-token store, or mount a minimal EFS access point only for the food-ordering
-Lambda if that OAuth flow cannot be changed.
+without requiring MCP OAuth tokens in Lambda. When you enable tool execution,
+configure URLs via Lambda environment (defaults are set for Zomato and Swiggy
+Food) and/or override in **Secrets Manager** `APP_SECRET_ID` JSON (`ZOMATO_MCP_URL`,
+`SWIGGY_FOOD_MCP_URL`).
+
+**Connecting (serverless):** use the authenticated HTTP API — same flow as Zomato:
+
+- `POST /api/mcp/pairing/?provider=zomato` or `?provider=swiggy_food` (returns a one-liner to run on a laptop with a browser).
+- `GET /api/mcp/oauth/start?provider=…` / callback when hosted OAuth is used.
+
+Tokens are persisted under Secrets Manager key **`companion/mcp-tokens`** (see
+`zomato_mcp_executor`) and restored to `/tmp/.mcp-auth` on cold starts.
+
+**Connecting (VM / gunicorn):** use the repo scripts as `www-data` so tokens live
+under `/var/www/companion-app/.mcp-auth` — see `deploy/README.md` (`npm run oauth:zomato:prod`
+and `npm run oauth:swiggy:prod`).

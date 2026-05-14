@@ -34,26 +34,47 @@ def _extract_primary_address(zomato: dict[str, Any] | None) -> str | None:
     for step in zomato.get("steps") or []:
         if not isinstance(step, dict):
             continue
-        if step.get("tool") not in ("get_saved_addresses_for_user", "get_saved_addresses_for_user(auto)"):
+        if step.get("tool") not in (
+            "get_saved_addresses_for_user",
+            "get_saved_addresses_for_user(auto)",
+            "get_user_addresses",
+            "get_user_addresses(auto)",
+            "get_addresses",
+            "get_addresses(auto)",
+        ):
             continue
         payload = ((step.get("result") or {}).get("data") or {})
         result = payload.get("result") if isinstance(payload, dict) else {}
-        addresses = result.get("addresses") if isinstance(result, dict) else None
+        addresses = None
+        if isinstance(result, dict):
+            for key in ("addresses", "user_addresses", "saved_addresses"):
+                if isinstance(result.get(key), list):
+                    addresses = result[key]
+                    break
+        if addresses is None and isinstance(payload, dict):
+            for key in ("addresses", "user_addresses", "saved_addresses"):
+                if isinstance(payload.get(key), list):
+                    addresses = payload[key]
+                    break
         if not (isinstance(addresses, list) and addresses):
             continue
         if preferred_id:
             for addr in addresses:
                 if not isinstance(addr, dict):
                     continue
-                if str(addr.get("address_id") or "").strip() != preferred_id:
+                if str(addr.get("address_id") or addr.get("addressId") or addr.get("id") or "").strip() != preferred_id:
                     continue
-                location_name = str(addr.get("location_name") or "").strip()
+                location_name = (
+                    str(addr.get("location_name") or addr.get("name") or addr.get("label") or "").strip()
+                )
                 if location_name:
                     return location_name
         for addr in addresses:
             if not isinstance(addr, dict):
                 continue
-            location_name = str(addr.get("location_name") or "").strip()
+            location_name = (
+                str(addr.get("location_name") or addr.get("name") or addr.get("label") or "").strip()
+            )
             if location_name:
                 return location_name
     return None
@@ -208,6 +229,7 @@ def _extract_menu_items(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
             "get_restaurant_menu_by_categories",
             "get_menu_items_listing",
             "get_restaurant_menu",
+            "search_menu",
             "search_menu_items",
             "search_products",
             "get_product_details",

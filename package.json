@@ -1,6 +1,12 @@
 {
   "name": "companion",
   "private": true,
+  "scripts": {
+    "oauth:zomato": "bash scripts/zomato_mcp_oauth.sh",
+    "oauth:swiggy": "bash scripts/swiggy_food_mcp_oauth.sh",
+    "oauth:zomato:prod": "bash scripts/zomato_mcp_prod_oauth.sh",
+    "oauth:swiggy:prod": "bash scripts/swiggy_food_mcp_prod_oauth.sh"
+  },
   "dependencies": {
     "mcp-remote": "0.1.38"
   }
