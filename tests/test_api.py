@@ -469,6 +469,31 @@ def test_empty_tool_plan_is_not_success():
     assert result["routed_providers"] == []
 
 
+def test_finalize_fills_empty_swiggy_food_tool_plan():
+    """DeepSeek sometimes returns intent + constraints but tool_plan: []."""
+    from app.services.food_llm_router import _finalize_from_parsed_json
+
+    out = _finalize_from_parsed_json(
+        {
+            "intent": "search_menu_items",
+            "summary": "User wants burger delivery options.",
+            "tool_plan": [],
+            "constraints": {"query": "burger"},
+            "execution_notes_for_downstream": "",
+        },
+        provider="deepseek",
+        model="deepseek-chat",
+        trace_id="t-heal",
+        tool_provider="swiggy_food",
+        allowed_tools=None,
+    )
+    tools = [s.get("tool") for s in out["tool_plan"]]
+    assert "get_addresses" in tools
+    assert "search_restaurants" in tools
+    sr = next(s for s in out["tool_plan"] if s.get("tool") == "search_restaurants")
+    assert sr["arguments"].get("query") == "burger"
+
+
 def test_provider_hints_route_shared_tool_names():
     routed = route_tool_plan(
         [

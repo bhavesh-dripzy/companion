@@ -177,7 +177,8 @@ RULES:
 3. For ordering/cart changes, do not invent item, variant, restaurant, cart, or address IDs.
 4. If the user asks for last/recent/past orders or order history, ALWAYS use get_food_orders.
 5. Prefer multi-step plans when a later tool can consume IDs from earlier output.
-6. Return ONLY valid JSON.
+6. tool_plan must NEVER be an empty array. If you are unsure, output get_addresses then search_restaurants with a dish/cuisine query from the user (then get_restaurant_menu or search_menu only after you have placeholders for restaurant and address).
+7. Return ONLY valid JSON.
 """
 
 _SWIGGY_INSTAMART_SYSTEM_PROMPT = """\
@@ -199,6 +200,7 @@ RULES:
 3. For cart/order flows, do not invent product, variant, cart, address, or order IDs.
 4. If the user asks for last/recent/past orders or order history, ALWAYS use get_orders.
 5. Return ONLY valid JSON.
+6. tool_plan must NEVER be an empty array. If unsure, output get_addresses then search_products with the user's product terms.
 """
 
 _ZEPTO_SYSTEM_PROMPT = """\
@@ -398,6 +400,39 @@ def _default_keyword(data: dict[str, Any], constraints: dict[str, Any]) -> str:
         return keyword
     summary = str(data.get("summary") or "").strip()
     return summary or "restaurant"
+
+
+def _discovery_keyword_from_constraints(
+    data: dict[str, Any], constraints: dict[str, Any]
+) -> str:
+    for key in ("query", "inferred_keyword", "keyword"):
+        v = _constraint_text(constraints, key)
+        if v:
+            return v
+    return _default_keyword(data, constraints)
+
+
+def _fallback_tool_plan_swiggy_food(
+    data: dict[str, Any], constraints: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """When the LLM returns [], still run a minimal Swiggy discovery chain."""
+    q = _discovery_keyword_from_constraints(data, constraints)
+    return [
+        {"tool": "get_addresses", "arguments": {}},
+        {"tool": "search_restaurants", "arguments": {"query": q}},
+    ]
+
+
+def _fallback_tool_plan_swiggy_instamart(
+    data: dict[str, Any], constraints: dict[str, Any]
+) -> list[dict[str, Any]]:
+    q = _discovery_keyword_from_constraints(data, constraints)
+    if not q or q.strip().lower() == "restaurant":
+        q = "groceries"
+    return [
+        {"tool": "get_addresses", "arguments": {}},
+        {"tool": "search_products", "arguments": {"query": q}},
+    ]
 
 
 def _ensure_prerequisites(
@@ -622,6 +657,22 @@ def _finalize_from_parsed_json(
         constraints=constraints,
         tool_provider=tool_provider,
     )
+    if not tool_plan and tool_provider == "swiggy_food":
+        tool_plan = _fallback_tool_plan_swiggy_food(data, constraints)
+        tool_plan = _ensure_prerequisites(
+            tool_plan,
+            data=data,
+            constraints=constraints,
+            tool_provider=tool_provider,
+        )
+    elif not tool_plan and tool_provider == "swiggy_instamart":
+        tool_plan = _fallback_tool_plan_swiggy_instamart(data, constraints)
+        tool_plan = _ensure_prerequisites(
+            tool_plan,
+            data=data,
+            constraints=constraints,
+            tool_provider=tool_provider,
+        )
     constraints.setdefault(
         "requires_address_resolution",
         any(step.get("tool") in _ADDRESS_TOOLS for step in tool_plan),
