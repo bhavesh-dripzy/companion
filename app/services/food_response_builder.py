@@ -96,7 +96,16 @@ def _extract_restaurants(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 
 def _menu_item_price(obj: dict[str, Any]) -> Any:
-    for key in ("price", "display_price", "item_price", "mrp", "sp", "cost", "amount"):
+    for key in (
+        "discounted_price",
+        "price",
+        "display_price",
+        "item_price",
+        "mrp",
+        "sp",
+        "cost",
+        "amount",
+    ):
         if obj.get(key) is not None:
             return obj.get(key)
     return None

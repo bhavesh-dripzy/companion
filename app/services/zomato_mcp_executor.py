@@ -380,6 +380,121 @@ def _learn_placeholders_from_payload(
                     break
 
 
+_MAX_MENU_CATEGORY_ENRICH = 12
+
+
+def _listing_item_mappings_blob(envelope: dict[str, Any]) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+    """Return (item_mappings, inner_data dict) from a get_menu_items_listing envelope."""
+    data = envelope.get("data") if isinstance(envelope.get("data"), dict) else None
+    if not data:
+        return None, None
+    result = data.get("result") if isinstance(data.get("result"), dict) else None
+    if not result:
+        return None, None
+    inner = result.get("data") if isinstance(result.get("data"), dict) else None
+    if not inner:
+        return None, None
+    ims = inner.get("item_mappings")
+    if not isinstance(ims, list):
+        return None, inner
+    rows = [x for x in ims if isinstance(x, dict)]
+    return (rows or None), inner
+
+
+def _variant_price_map_from_category_menu(category_envelope: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    data = category_envelope.get("data") if isinstance(category_envelope.get("data"), dict) else {}
+    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    inner = result.get("data") if isinstance(result.get("data"), dict) else {}
+    items = inner.get("menu_items")
+    if not isinstance(items, list):
+        return out
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        vid = str(it.get("variant_id") or "").strip()
+        if not vid:
+            continue
+        out[vid] = {
+            "price": it.get("price"),
+            "discounted_price": it.get("discounted_price"),
+        }
+    return out
+
+
+async def _enrich_menu_listing_with_category_prices(
+    session: Any,
+    listing_envelope: dict[str, Any],
+    *,
+    res_id: Any,
+    address_id: Any,
+) -> None:
+    """
+    get_menu_items_listing does not include rupee prices (Zomato MCP design).
+    Fetch get_restaurant_menu_by_categories for deduped category names from the listing
+    and merge price + discounted_price onto each item_mapping row by variant_id.
+    """
+    if listing_envelope.get("is_error"):
+        return
+    ims, inner = _listing_item_mappings_blob(listing_envelope)
+    if not ims or inner is None:
+        return
+    rid = res_id if res_id is not None else inner.get("res_id")
+    aid = address_id if address_id is not None else inner.get("address_id")
+    if rid is None or aid is None or (isinstance(aid, str) and not str(aid).strip()):
+        return
+    cats: list[str] = []
+    seen: set[str] = set()
+    for it in ims:
+        for c in it.get("categories") or []:
+            if not isinstance(c, str):
+                continue
+            s = c.strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            cats.append(s)
+            if len(cats) >= _MAX_MENU_CATEGORY_ENRICH:
+                break
+        if len(cats) >= _MAX_MENU_CATEGORY_ENRICH:
+            break
+    if not cats:
+        return
+    try:
+        cat_args: dict[str, Any] = {
+            "res_id": int(rid) if str(rid).isdigit() else rid,
+            "address_id": str(aid).strip(),
+            "categories": cats,
+        }
+        r = await asyncio.wait_for(
+            session.call_tool("get_restaurant_menu_by_categories", arguments=cat_args),
+            timeout=_MCP_TOOL_TIMEOUT_SECONDS,
+        )
+    except Exception as e:
+        logger.info("menu price enrichment: category fetch failed: %s", e)
+        return
+    cat_env = _tool_result_payload(r)
+    if cat_env.get("is_error"):
+        return
+    vmap = _variant_price_map_from_category_menu(cat_env)
+    if not vmap:
+        return
+    merged = inner.get("item_mappings")
+    if not isinstance(merged, list):
+        return
+    for row in merged:
+        if not isinstance(row, dict):
+            continue
+        vid = str(row.get("variant_id") or "").strip()
+        if not vid or vid not in vmap:
+            continue
+        pr = vmap[vid]
+        if pr.get("price") is not None:
+            row["price"] = pr["price"]
+        if pr.get("discounted_price") is not None:
+            row["discounted_price"] = pr["discounted_price"]
+
+
 async def _run_session_inner(
     tool_plan: list[dict[str, Any]],
     effective_address_id: str | None,
@@ -508,6 +623,17 @@ async def _run_session_inner(
                     }
                 )
                 step_index += 1
+
+                if tool == "get_menu_items_listing" and not envelope.get("is_error"):
+                    try:
+                        await _enrich_menu_listing_with_category_prices(
+                            session,
+                            envelope,
+                            res_id=exec_args.get("res_id"),
+                            address_id=exec_args.get("address_id"),
+                        )
+                    except Exception as e:
+                        logger.info("menu price enrichment failed: %s", e)
 
                 if resolved_id is None and tool == "get_saved_addresses_for_user":
                     nid = _first_address_id_from_saved_payload(envelope)
