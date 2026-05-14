@@ -581,6 +581,34 @@ def test_finalize_fills_empty_swiggy_food_tool_plan():
     assert sr["arguments"].get("query") == "burger"
 
 
+def test_finalize_shortens_swiggy_search_and_appends_menu():
+    from app.services.food_llm_router import _finalize_from_parsed_json
+
+    out = _finalize_from_parsed_json(
+        {
+            "intent": "get_restaurant_menu",
+            "summary": "User wants to see the veg menu for Galaxy Pizza.",
+            "tool_plan": [
+                {"tool": "get_addresses", "arguments": {}},
+                {
+                    "tool": "search_restaurants",
+                    "arguments": {"query": "User wants to see the veg menu for Galaxy Pizza."},
+                },
+            ],
+            "constraints": {"restaurant_name": "Galaxy Pizza", "menu_type": "veg"},
+            "execution_notes_for_downstream": "",
+        },
+        provider="deepseek",
+        model="deepseek-chat",
+        trace_id="t-menu",
+        tool_provider="swiggy_food",
+        allowed_tools=None,
+    )
+    sr = next(s for s in out["tool_plan"] if s.get("tool") == "search_restaurants")
+    assert sr["arguments"].get("query") == "Galaxy Pizza"
+    assert any(s.get("tool") == "get_restaurant_menu" for s in out["tool_plan"])
+
+
 def test_provider_hints_route_shared_tool_names():
     routed = route_tool_plan(
         [

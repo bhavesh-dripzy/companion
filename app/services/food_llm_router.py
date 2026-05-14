@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Literal
 
 from openai import OpenAI
@@ -172,8 +173,8 @@ TOOLS (use ONLY these exact tool strings):
 - get_food_orders, get_food_order_details, track_food_order.
 
 RULES:
-1. For discovery, use search_restaurants with the user's cuisine/dish/locality text.
-2. For menu questions without a restaurant id, use search_restaurants then get_restaurant_menu with "__RESTAURANT_ID__".
+1. For discovery, use search_restaurants with a SHORT keyword or restaurant name only (e.g. "Galaxy Pizza", "biryani") — never put the full summary or "User wants…" prose in "query".
+2. For menu questions without a restaurant id, use search_restaurants then get_restaurant_menu with "__RESTAURANT_ID__" and "__ADDRESS_ID__" (include get_restaurant_menu in tool_plan, not only in intent).
 3. For ordering/cart changes, do not invent item, variant, restaurant, cart, or address IDs.
 4. If the user asks for last/recent/past orders or order history, ALWAYS use get_food_orders.
 5. Prefer multi-step plans when a later tool can consume IDs from earlier output.
@@ -435,6 +436,101 @@ def _fallback_tool_plan_swiggy_instamart(
     ]
 
 
+def _swiggy_search_query_from_context(
+    raw_query: str,
+    *,
+    constraints: dict[str, Any],
+    data: dict[str, Any],
+) -> str:
+    """Turn bloated LLM prose into a short Swiggy search_restaurants query."""
+    q = (raw_query or "").strip()
+    name = _constraint_text(constraints, "restaurant_name")
+    if name and (len(q) > 64 or re.match(r"(?is)^(user wants|i want|i'd like|show me|please)\b", q)):
+        return name.strip()
+    inf = _constraint_text(constraints, "inferred_keyword")
+    if inf and len(q) > 64:
+        return inf.strip()
+    summary = str(data.get("summary") or "").strip()
+    low = summary.lower()
+    if " for " in low:
+        m = re.search(r"for\s+([^.\n]+?)(?:\.|$)", summary, re.I)
+        if m:
+            frag = m.group(1).strip().strip("'\"")
+            if 2 <= len(frag) <= 80:
+                return frag
+    if len(q) > 88:
+        return (name or inf or _default_keyword(data, constraints) or q[:72]).strip()
+    return q or "restaurant"
+
+
+def _sanitize_swiggy_food_search_queries(
+    tool_plan: list[dict[str, Any]],
+    data: dict[str, Any],
+    constraints: dict[str, Any],
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for step in tool_plan:
+        if not isinstance(step, dict):
+            continue
+        if step.get("tool") != "search_restaurants":
+            out.append(step)
+            continue
+        args = dict(step.get("arguments") or {})
+        q = str(args.get("query") or "").strip()
+        args["query"] = _swiggy_search_query_from_context(q, constraints=constraints, data=data)
+        out.append({**step, "arguments": args})
+    return out
+
+
+def _wants_swiggy_menu_fetch(
+    intent: str, summary: str, constraints: dict[str, Any]
+) -> bool:
+    intent_l = (intent or "").lower()
+    if "menu" in intent_l or intent_l in ("get_restaurant_menu", "search_menu", "search_menu_items"):
+        return True
+    if _constraint_text(constraints, "menu_type"):
+        return True
+    s = (summary or "").lower()
+    if "menu" in s or "veg " in s or " items" in s or "dishes" in s:
+        return True
+    return False
+
+
+def _maybe_append_swiggy_menu_after_search(
+    tool_plan: list[dict[str, Any]],
+    data: dict[str, Any],
+    constraints: dict[str, Any],
+    tool_provider: str | None,
+) -> list[dict[str, Any]]:
+    """If the model stopped after search but asked for a menu, fetch get_restaurant_menu."""
+    if tool_provider != "swiggy_food" or not tool_plan:
+        return tool_plan
+    if not _wants_swiggy_menu_fetch(
+        str(data.get("intent") or ""),
+        str(data.get("summary") or ""),
+        constraints,
+    ):
+        return tool_plan
+    names = {s.get("tool") for s in tool_plan if isinstance(s, dict)}
+    if "get_restaurant_menu" in names or "search_menu" in names:
+        return tool_plan
+    if "search_restaurants" not in names:
+        return tool_plan
+    out = list(tool_plan)
+    out.append(
+        {
+            "tool": "get_restaurant_menu",
+            "arguments": {
+                "restaurantId": "__RESTAURANT_ID__",
+                "addressId": "__ADDRESS_ID__",
+                "restaurant_id": "__RESTAURANT_ID__",
+                "address_id": "__ADDRESS_ID__",
+            },
+        }
+    )
+    return out
+
+
 def _ensure_prerequisites(
     tool_plan: list[dict[str, Any]],
     *,
@@ -651,6 +747,8 @@ def _finalize_from_parsed_json(
     if constraints is None or not isinstance(constraints, dict):
         constraints = {}
     constraints.setdefault("requested_location_text", None)
+    if tool_provider == "swiggy_food":
+        tool_plan = _sanitize_swiggy_food_search_queries(tool_plan, data, constraints)
     tool_plan = _ensure_prerequisites(
         tool_plan,
         data=data,
@@ -673,6 +771,11 @@ def _finalize_from_parsed_json(
             constraints=constraints,
             tool_provider=tool_provider,
         )
+    if tool_provider == "swiggy_food":
+        tool_plan = _maybe_append_swiggy_menu_after_search(
+            tool_plan, data, constraints, tool_provider
+        )
+        tool_plan = normalize_tool_plan(tool_plan, allowed_tools=allowed_tools)
     constraints.setdefault(
         "requires_address_resolution",
         any(step.get("tool") in _ADDRESS_TOOLS for step in tool_plan),
