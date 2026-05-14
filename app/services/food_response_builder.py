@@ -171,6 +171,22 @@ def _normalize_menu_step_payload(raw: Any) -> Any:
     return raw
 
 
+def _extract_item_mappings_from_listing_payload(payload: Any) -> list[dict[str, Any]] | None:
+    """Zomato get_menu_items_listing returns result.data.item_mappings."""
+    if not isinstance(payload, dict):
+        return None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return None
+    ims = data.get("item_mappings")
+    if isinstance(ims, list) and ims:
+        return [x for x in ims if isinstance(x, dict)]
+    return None
+
+
 def _extract_menu_items(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not isinstance(zomato, dict):
         return []
@@ -189,6 +205,17 @@ def _extract_menu_items(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
         ):
             continue
         payload = _normalize_menu_step_payload(((step.get("result") or {}).get("data") or {}))
+        if step.get("tool") == "get_menu_items_listing":
+            ims = _extract_item_mappings_from_listing_payload(payload)
+            if ims:
+                for it in ims:
+                    name = str(it.get("item_name") or "").strip() or _menu_item_display_name(it)
+                    if not name:
+                        continue
+                    found.append({"name": name, "price": _menu_item_price(it)})
+                    if len(found) >= 12:
+                        return found
+                continue
         for obj in _walk_payload(payload):
             if not isinstance(obj, dict):
                 continue

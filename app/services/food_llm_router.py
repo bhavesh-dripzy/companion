@@ -89,8 +89,8 @@ Respond with ONLY a single JSON object (no markdown fences) shaped exactly like 
 TOOLS (use ONLY these exact tool strings):
 - get_saved_addresses_for_user: returns the user's saved delivery addresses and address_id values.
 - get_restaurants_for_keyword: accepts keyword and address_id. Use "__ADDRESS_ID__" when it should come from saved addresses.
-- get_restaurant_menu_by_categories: accepts restaurant_id or res_id. Use "__RESTAURANT_ID__" only after a restaurant-search step.
-- get_menu_items_listing: accepts restaurant_id or res_id. Use "__RESTAURANT_ID__" only after a restaurant-search step.
+- get_menu_items_listing: PRIMARY for "show menu", items, or prices at a restaurant. After search, call with {"res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__"} — Zomato requires both (res_id comes from get_restaurants_for_keyword results).
+- get_restaurant_menu_by_categories: optional; requires res_id, address_id, AND exact menu category names from Zomato. Prefer get_menu_items_listing unless the user named specific categories you can supply.
 - create_cart: use only when the user has chosen a concrete restaurant and item/variant from earlier results or supplied exact IDs.
 - get_cart_offers: use only after a cart exists.
 - checkout_cart: use only when the user explicitly confirms checkout/payment.
@@ -118,12 +118,12 @@ RULES:
    Zomato restaurant discovery needs a saved delivery address_id. The app will ask the user
    to save/select that delivery address instead of using their default address.
 
-4. For menu questions without a known restaurant id, plan:
+4. For menu / "show menu" / items / prices without a known res_id, plan:
    get_saved_addresses_for_user
-   get_restaurants_for_keyword
-   get_restaurant_menu_by_categories with {"restaurant_id": "__RESTAURANT_ID__"}
+   get_restaurants_for_keyword (keyword = restaurant name or dish from the user)
+   get_menu_items_listing with {"res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__"}
 
-5. For item searches inside one restaurant, use get_menu_items_listing after restaurant discovery.
+5. Use get_restaurant_menu_by_categories only when the user asks for named menu sections AND you can fill "categories" with valid Zomato category strings (often learned from item listings). Always include res_id and address_id placeholders as in rule 4.
 
 6. Never invent address IDs, restaurant IDs, menu item IDs, variant IDs, cart IDs, or order IDs.
 
@@ -414,6 +414,27 @@ def _ensure_prerequisites(
     return out
 
 
+def _normalize_zomato_res_id_address_args(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Zomato MCP menu tools expect res_id + address_id (not restaurant_id alone)."""
+    arguments = dict(arguments)
+    res_id = (
+        arguments.get("res_id")
+        or arguments.get("restaurant_id")
+        or arguments.get("restaurantId")
+        or arguments.get("resId")
+    )
+    if res_id is None or (isinstance(res_id, str) and not str(res_id).strip()):
+        arguments["res_id"] = "__RESTAURANT_ID__"
+    else:
+        arguments["res_id"] = res_id
+    for drop in ("restaurant_id", "restaurantId", "resId"):
+        arguments.pop(drop, None)
+    aid = arguments.get("address_id")
+    if aid is None or (isinstance(aid, str) and not str(aid).strip()):
+        arguments["address_id"] = "__ADDRESS_ID__"
+    return arguments
+
+
 def normalize_tool_plan(
     tool_plan: list[dict[str, Any]],
     *,
@@ -448,14 +469,19 @@ def normalize_tool_plan(
 
         if tool in _RESTAURANT_TOOLS:
             arguments = dict(arguments)
-            restaurant_id = (
-                arguments.get("restaurant_id")
-                or arguments.get("res_id")
-                or arguments.get("restaurantId")
-                or arguments.get("resId")
-            )
-            if restaurant_id is None or (isinstance(restaurant_id, str) and not restaurant_id.strip()):
-                arguments["restaurant_id"] = "__RESTAURANT_ID__"
+            if tool in ("get_menu_items_listing", "get_restaurant_menu_by_categories"):
+                arguments = _normalize_zomato_res_id_address_args(arguments)
+            else:
+                restaurant_id = (
+                    arguments.get("restaurant_id")
+                    or arguments.get("res_id")
+                    or arguments.get("restaurantId")
+                    or arguments.get("resId")
+                )
+                if restaurant_id is None or (
+                    isinstance(restaurant_id, str) and not restaurant_id.strip()
+                ):
+                    arguments["restaurant_id"] = "__RESTAURANT_ID__"
 
         if tool in _ORDER_TOOLS:
             arguments = dict(arguments)
