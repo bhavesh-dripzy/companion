@@ -6,6 +6,51 @@ from typing import Any
 from openai import OpenAI
 
 
+def saved_address_label_from_mcp_item(item: dict[str, Any]) -> str:
+    """
+    Human-facing label for one saved-address row from MCP (Zomato, Swiggy, etc.).
+
+    Swiggy Food ``get_addresses`` uses camelCase: ``addressLine``, ``addressTag``,
+    ``addressCategory``, ``id`` — not ``location_name`` / ``address_line``.
+    """
+    if not isinstance(item, dict):
+        return ""
+    row_id = str(item.get("address_id") or item.get("addressId") or item.get("id") or "").strip()
+
+    def ok(text: str) -> bool:
+        t = (text or "").strip()
+        return bool(t) and t != row_id
+
+    tag = str(item.get("addressTag") or item.get("address_tag") or "").strip()
+    category = str(item.get("addressCategory") or item.get("address_category") or "").strip()
+    line = str(
+        item.get("addressLine")
+        or item.get("address_line")
+        or item.get("formatted_address")
+        or item.get("formattedAddress")
+        or item.get("location_name")
+        or item.get("name")
+        or item.get("label")
+        or ""
+    ).strip()
+
+    if tag and line:
+        return f"{tag} — {line}" if ok(line) else tag
+    if line and ok(line):
+        return line
+    if tag:
+        return tag
+    if category and line:
+        return f"{category}: {line}"
+    if category:
+        return category
+    for key in ("location_name", "name", "label"):
+        v = str(item.get(key) or "").strip()
+        if ok(v):
+            return v
+    return ""
+
+
 def _preferred_address_id_for_summary(zomato: dict[str, Any]) -> str | None:
     """ID used for restaurant search — prefer executor diagnostics, then restaurant tool args."""
     diag = zomato.get("diagnostics") if isinstance(zomato.get("diagnostics"), dict) else {}
@@ -19,7 +64,7 @@ def _preferred_address_id_for_summary(zomato: dict[str, Any]) -> str | None:
         if step.get("tool") not in ("get_restaurants_for_keyword", "search_restaurants"):
             continue
         args = step.get("arguments") if isinstance(step.get("arguments"), dict) else {}
-        aid = str(args.get("address_id") or "").strip()
+        aid = str(args.get("address_id") or args.get("addressId") or "").strip()
         if aid:
             return aid
     return None
@@ -56,6 +101,13 @@ def _extract_primary_address(zomato: dict[str, Any] | None) -> str | None:
                 if isinstance(payload.get(key), list):
                     addresses = payload[key]
                     break
+        if addresses is None and isinstance(payload, dict):
+            inner_data = payload.get("data")
+            if isinstance(inner_data, dict):
+                for key in ("addresses", "user_addresses", "saved_addresses"):
+                    if isinstance(inner_data.get(key), list):
+                        addresses = inner_data[key]
+                        break
         if not (isinstance(addresses, list) and addresses):
             continue
         if preferred_id:
@@ -64,19 +116,15 @@ def _extract_primary_address(zomato: dict[str, Any] | None) -> str | None:
                     continue
                 if str(addr.get("address_id") or addr.get("addressId") or addr.get("id") or "").strip() != preferred_id:
                     continue
-                location_name = (
-                    str(addr.get("location_name") or addr.get("name") or addr.get("label") or "").strip()
-                )
-                if location_name:
-                    return location_name
+                label = saved_address_label_from_mcp_item(addr)
+                if label:
+                    return label
         for addr in addresses:
             if not isinstance(addr, dict):
                 continue
-            location_name = (
-                str(addr.get("location_name") or addr.get("name") or addr.get("label") or "").strip()
-            )
-            if location_name:
-                return location_name
+            label = saved_address_label_from_mcp_item(addr)
+            if label:
+                return label
     return None
 
 
@@ -298,25 +346,44 @@ def build_zomato_summary(zomato: dict[str, Any] | None) -> dict[str, Any]:
     return summary
 
 
+def pick_primary_tool_summary(
+    zomato_summary: dict[str, Any],
+    provider_summaries: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Summary the assistant should use: Zomato if it ran, else first successful MCP (e.g. Swiggy)."""
+    if zomato_summary.get("ok"):
+        out = dict(zomato_summary)
+        out.setdefault("summary_provider", "zomato")
+        return out
+    if isinstance(provider_summaries, dict):
+        for name in sorted(provider_summaries.keys()):
+            block = provider_summaries[name]
+            if isinstance(block, dict) and block.get("ok"):
+                out = dict(block)
+                out.setdefault("summary_provider", name)
+                return out
+    return zomato_summary
+
+
 def _fallback_assistant_message(
     *,
     plan: dict[str, Any],
-    zomato_summary: dict[str, Any],
+    primary_tool_summary: dict[str, Any],
 ) -> str:
     summary = str((plan or {}).get("summary") or "").strip()
-    if not zomato_summary.get("ok"):
-        detail = str(zomato_summary.get("error") or "Unknown tool execution error.")
+    if not primary_tool_summary.get("ok"):
+        detail = str(primary_tool_summary.get("error") or "Unknown tool execution error.")
         if detail == "zomato_not_executed":
             return (
                 "I understood your request"
                 + (f": {summary}." if summary else ".")
-                + " Zomato MCP was not executed for this request. "
-                + "Connect MCP, run Test, then retry the search."
+                + " No food MCP results were available. "
+                + "Connect MCP (pairing), run Test, pick a saved address, then retry."
             )
         if detail == "zomato_requires_saved_address_for_requested_location":
             requested = (
-                (zomato_summary.get("diagnostics") or {}).get("requested_location")
-                if isinstance(zomato_summary.get("diagnostics"), dict)
+                (primary_tool_summary.get("diagnostics") or {}).get("requested_location")
+                if isinstance(primary_tool_summary.get("diagnostics"), dict)
                 else None
             )
             place = f" for {requested}" if requested else ""
@@ -341,8 +408,8 @@ def _fallback_assistant_message(
             + "Would you like me to retry or refine your request?"
         )
 
-    restaurants = zomato_summary.get("top_restaurants") or []
-    menu_items = zomato_summary.get("menu_items") or []
+    restaurants = primary_tool_summary.get("top_restaurants") or []
+    menu_items = primary_tool_summary.get("menu_items") or []
     if menu_items:
         names = ", ".join(str(r.get("name") or "Unknown") for r in menu_items[:5])
         return (
@@ -402,18 +469,24 @@ def build_assistant_message_with_llm(
     api_key: str,
     model: str,
     base_url: str | None = None,
+    provider_summaries: dict[str, Any] | None = None,
 ) -> str:
+    primary = pick_primary_tool_summary(zomato_summary, provider_summaries)
     system_prompt = (
         "You are a food ordering assistant. Convert structured tool output into a user-facing response.\n"
         "Rules:\n"
         "1) Be concise and clear.\n"
         "2) Mention top options only if present.\n"
         "3) Never expose internal tool/debug data.\n"
-        "4) If zomato_summary.menu_items is a non-empty list, list several dish names (and prices when present) "
-        "from that array — do not claim the menu is unavailable.\n"
-        "5) Use zomato_summary.address for locality when describing where results apply.\n"
-        "6) End with one clear next-step question.\n"
-        "7) Include 2-4 concrete suggestions the user can reply with.\n"
+        "4) Prefer primary_tool_summary for restaurants, menu_items, and address. "
+        "It is the MCP that actually succeeded (Zomato, Swiggy, Zepto, etc.).\n"
+        "5) If primary_tool_summary.menu_items is non-empty, list dish names (and prices when present).\n"
+        "6) Use primary_tool_summary.address for locality when set. If address is null but restaurants exist, "
+        "summarize restaurants without inventing a street address.\n"
+        "7) If zomato_summary.ok is false but primary_tool_summary.ok is true, another provider ran — "
+        "do not ask for an address when restaurants or menu_items are already listed.\n"
+        "8) End with one clear next-step question.\n"
+        "9) Include 2-4 concrete suggestions the user can reply with.\n"
     )
 
     payload = {
@@ -423,7 +496,9 @@ def build_assistant_message_with_llm(
             "summary": plan.get("summary"),
             "constraints": plan.get("constraints"),
         },
+        "primary_tool_summary": primary,
         "zomato_summary": zomato_summary,
+        "provider_summaries": provider_summaries or {},
     }
 
     user_prompt = (
@@ -442,7 +517,7 @@ def build_assistant_message_with_llm(
             )
             if text:
                 return text
-            return _fallback_assistant_message(plan=plan, zomato_summary=zomato_summary)
+            return _fallback_assistant_message(plan=plan, primary_tool_summary=primary)
 
         from google import genai as google_genai
 
@@ -454,6 +529,6 @@ def build_assistant_message_with_llm(
         text = (response.text or "").strip()
         if text:
             return text
-        return _fallback_assistant_message(plan=plan, zomato_summary=zomato_summary)
+        return _fallback_assistant_message(plan=plan, primary_tool_summary=primary)
     except Exception:
-        return _fallback_assistant_message(plan=plan, zomato_summary=zomato_summary)
+        return _fallback_assistant_message(plan=plan, primary_tool_summary=primary)

@@ -27,6 +27,7 @@ from app.services.food_llm_router import route_food_query
 from app.services.food_response_builder import (
     build_assistant_message_with_llm,
     build_zomato_summary,
+    saved_address_label_from_mcp_item,
 )
 from app.services.llm_config import resolve_llm_from_env
 from app.services.tool_runtime import (
@@ -453,10 +454,13 @@ def _extract_saved_addresses_from_mcp_step(step: dict[str, Any]) -> list[dict[st
     candidates: list[Any] = []
     if isinstance(payload, dict):
         if isinstance(payload.get("addresses"), list):
-            candidates = payload["addresses"]
+            candidates.extend(payload["addresses"])
         inner = payload.get("result")
         if isinstance(inner, dict) and isinstance(inner.get("addresses"), list):
-            candidates = inner["addresses"]
+            candidates.extend(inner["addresses"])
+        data_inner = payload.get("data")
+        if isinstance(data_inner, dict) and isinstance(data_inner.get("addresses"), list):
+            candidates.extend(data_inner["addresses"])
     for item in candidates:
         if not isinstance(item, dict):
             continue
@@ -466,14 +470,7 @@ def _extract_saved_addresses_from_mcp_step(step: dict[str, Any]) -> list[dict[st
         sid = str(aid).strip()
         if not sid:
             continue
-        label = (
-            item.get("location_name")
-            or item.get("name")
-            or item.get("label")
-            or item.get("address_line")
-            or item.get("formatted_address")
-            or sid
-        )
+        label = saved_address_label_from_mcp_item(item) or sid
         rows.append({"address_id": sid, "location_name": str(label).strip() or sid})
     return rows
 
@@ -1187,6 +1184,7 @@ def food_agent_full(
             api_key=llm_cfg.api_key,
             model=llm_cfg.model,
             base_url=llm_cfg.base_url,
+            provider_summaries=provider_summaries,
         ),
     }
     if payload.include_raw_zomato:
