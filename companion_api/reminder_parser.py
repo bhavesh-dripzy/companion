@@ -21,10 +21,16 @@ def parse_reminder_message(message: str, *, timezone_name: str, now: datetime | 
 
 
 def _extract_title(text: str) -> str:
+    relative_time = r"(?:in\s+|for\s+)?\d+\s*(?:minutes?|mins?|hours?|hrs?|days?)\s+from\s+now|in\s+\d+\s*(?:minutes?|mins?|hours?|hrs?|days?)"
     cleaned = re.sub(r"^remind\s+me\s+(?:to|about)?\s*", "", text, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r"^reminder\s+(?:to|about)?\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"^create\s+(?:a\s+)?reminder\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"^set\s+(?:a\s+)?reminder\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    match = re.search(rf"\b(?:{relative_time})\s+(?:to|about)\s+(.+)$", cleaned, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip(" .,-")
     cleaned = re.split(
-        r"\s+(?:tomorrow|today|tonight|in\s+\d+\s+(?:minutes?|mins?|hours?|hrs?|days?)|on\s+\d{4}-\d{1,2}-\d{1,2}|at\s+\d{1,2})\b",
+        rf"\s+(?:tomorrow|today|tonight|{relative_time}|on\s+\d{{4}}-\d{{1,2}}-\d{{1,2}}|at\s+\d{{1,2}})\b",
         cleaned,
         maxsplit=1,
         flags=re.IGNORECASE,
@@ -33,11 +39,14 @@ def _extract_title(text: str) -> str:
 
 
 def _parse_relative(lowered: str, current: datetime) -> datetime | None:
-    match = re.search(r"\bin\s+(\d+)\s*(minutes?|mins?|hours?|hrs?|days?)\b", lowered)
+    match = re.search(
+        r"\b(?:in\s+(\d+)\s*(minutes?|mins?|hours?|hrs?|days?)|(\d+)\s*(minutes?|mins?|hours?|hrs?|days?)\s+from\s+now)\b",
+        lowered,
+    )
     if not match:
         return None
-    amount = int(match.group(1))
-    unit = match.group(2)
+    amount = int(match.group(1) or match.group(3))
+    unit = match.group(2) or match.group(4)
     if unit.startswith(("minute", "min")):
         return current + timedelta(minutes=amount)
     if unit.startswith(("hour", "hr")):

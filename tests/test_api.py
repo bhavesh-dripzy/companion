@@ -119,6 +119,20 @@ def test_parse_reminder_message_tomorrow_at_time():
     assert parsed["next_trigger"].isoformat() == "2026-05-16T09:00:00+05:30"
 
 
+def test_parse_reminder_message_minutes_from_now():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    parsed = parse_reminder_message(
+        "Create a reminder for 10 minutes from now to check the washing machine",
+        timezone_name="Asia/Kolkata",
+        now=datetime(2026, 5, 15, 12, 0, tzinfo=ZoneInfo("Asia/Kolkata")),
+    )
+
+    assert parsed["title"] == "check the washing machine"
+    assert parsed["next_trigger"].isoformat() == "2026-05-15T12:10:00+05:30"
+
+
 def test_google_calendar_reminder_endpoint_creates_event(monkeypatch):
     calls = {}
 
