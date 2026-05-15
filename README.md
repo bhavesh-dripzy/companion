@@ -174,6 +174,10 @@ generated assistant message.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/api/reminders/` | Yes | Create a reminder |
+| GET | `/api/google-calendar/status/` | Yes | Check Google Calendar connection |
+| GET | `/api/google-calendar/oauth/start` | Yes | Start Google Calendar OAuth |
+| GET | `/api/google-calendar/oauth/callback` | No | Google Calendar OAuth callback |
+| POST | `/api/reminders/google-calendar/` | Yes | Create a Google Calendar event from natural reminder text |
 | GET | `/api/reminders/pending/` | Yes | List pending reminders for a member |
 | POST | `/api/reminders/respond/` | Yes | Respond to a reminder (yes/no) |
 
@@ -190,6 +194,20 @@ generated assistant message.
   "interval_minutes": 480,
   "retry_interval_minutes": 5,
   "requires_confirmation": true
+}
+```
+
+**`POST /api/reminders/google-calendar/`** creates a Google Calendar event with
+an email reminder override:
+
+```json
+{
+  "message": "Remind me to call mom tomorrow at 9am",
+  "calendar_id": "primary",
+  "timezone": "Asia/Kolkata",
+  "email_reminder_minutes": 0,
+  "popup_reminder_minutes": 10,
+  "store_reminder": true
 }
 ```
 
@@ -236,6 +254,12 @@ Key env vars for the scheduler:
 - `REMINDER_TARGET_ARN` — the Lambda function ARN to invoke
 - `SCHEDULER_ROLE_ARN` — IAM role allowing EventBridge to invoke Lambda
 - `SCHEDULER_GROUP_NAME` — scheduler group (default: `companion-reminders`)
+- `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` — OAuth client
+  used by the Connect Google flow
+- `GOOGLE_CALENDAR_TOKEN_SECRET_ID` — optional token secret override (default:
+  `companion/google-calendar-tokens`)
+- `REMINDER_DEFAULT_TIMEZONE` — natural-language reminder timezone (default:
+  `Asia/Kolkata`)
 
 ## Deployment
 

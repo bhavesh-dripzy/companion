@@ -20,6 +20,7 @@ from app.services.tool_runtime import (
     route_tool_plan,
     select_tool_providers_for_message,
 )
+from companion_api.reminder_parser import parse_reminder_message
 
 client = TestClient(app)
 
@@ -102,6 +103,50 @@ def test_send_message_optional_llm_returns_whatsapp_url(monkeypatch):
     assert payload["status"] == "success"
     assert payload["whatsapp_url"] == "https://wa.me/919773687877?text=Dawai%20le%20aana"
     assert payload["llm"]["status"] == "skipped"
+
+
+def test_parse_reminder_message_tomorrow_at_time():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    parsed = parse_reminder_message(
+        "Remind me to call mom tomorrow at 9am",
+        timezone_name="Asia/Kolkata",
+        now=datetime(2026, 5, 15, 12, 0, tzinfo=ZoneInfo("Asia/Kolkata")),
+    )
+
+    assert parsed["title"] == "call mom"
+    assert parsed["next_trigger"].isoformat() == "2026-05-16T09:00:00+05:30"
+
+
+def test_google_calendar_reminder_endpoint_creates_event(monkeypatch):
+    calls = {}
+
+    def fake_create_calendar_event(**kwargs):
+        calls["event"] = kwargs
+        return {"id": "evt-1", "htmlLink": "https://calendar.google.com/event?eid=evt-1", "summary": kwargs["title"]}
+
+    class FakeScheduler:
+        def create_reminder(self, payload):
+            calls["reminder"] = payload
+            return {"reminder_id": "rem-1", **payload}
+
+    monkeypatch.setattr(api_main, "create_calendar_event", fake_create_calendar_event)
+    monkeypatch.setattr(api_main, "ReminderScheduler", lambda: FakeScheduler())
+
+    response = client.post(
+        "/api/reminders/google-calendar/",
+        json={"message": "Remind me to call mom tomorrow at 9am", "timezone": "Asia/Kolkata"},
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["calendar_event"]["id"] == "evt-1"
+    assert body["parsed"]["title"] == "call mom"
+    assert calls["event"]["email_reminder_minutes"] == 0
+    assert calls["event"]["popup_reminder_minutes"] == 10
+    assert calls["reminder"]["type"] == "google_calendar"
 
 
 def test_mcp_token_status_detects_nested_mcp_remote_tokens(tmp_path, monkeypatch):
@@ -751,6 +796,9 @@ def test_operational_apis_require_auth():
         ),
         client.get("/api/mcp/tools/?provider=zomato"),
         client.get("/api/mcp/status/"),
+        client.get("/api/google-calendar/status/"),
+        client.get("/api/google-calendar/oauth/start"),
+        client.post("/api/reminders/google-calendar/", json={"message": "Remind me tomorrow at 9am"}),
         client.post(
             "/api/reminders/respond/",
             json={"member_id": "m", "reminder_id": "r", "response": "yes"},

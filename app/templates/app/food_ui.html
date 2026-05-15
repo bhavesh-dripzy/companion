@@ -174,6 +174,10 @@
     .detail { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 8px 0 14px; overflow-wrap: anywhere; }
     .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .button-row.three { grid-template-columns: 1fr 1fr 1fr; }
+    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 12px 12px 0; }
+    .tab-button { min-height: 34px; padding: 7px 9px; background: #eef2f7; color: #374151; font-size: 12px; }
+    .tab-button.active { background: #111827; color: white; }
+    .tab-panel.hidden { display: none; }
     .info-list { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
     .info-list li { padding: 10px 12px; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 8px; color: #374151; font-size: 13px; line-height: 1.45; }
     .dropzone {
@@ -284,75 +288,95 @@
         <section class="surface">
           <div class="surface-header">
             <div class="panel-title">
-              <h2>MCP Connection</h2>
-              <p>Account-scoped MCP connections and live session checks.</p>
+              <h2>Connectors</h2>
+              <p>MCP providers and calendar integrations.</p>
             </div>
           </div>
-          <div class="panel-body">
-            <div class="status-line">
-              <strong>Status</strong>
-              <span id="mcpStatusBadge" class="badge neutral">Unknown</span>
+          <div class="tabs" role="tablist">
+            <button class="tab-button active" data-tab="mcp" type="button">MCP</button>
+            <button class="tab-button" data-tab="calendar" type="button">Calendar</button>
+            <button class="tab-button" data-tab="custom" type="button">Custom</button>
+          </div>
+          <div id="tab-mcp" class="tab-panel">
+            <div class="panel-body">
+              <div class="status-line">
+                <strong>Status</strong>
+                <span id="mcpStatusBadge" class="badge neutral">Unknown</span>
+              </div>
+              <div class="field">
+                <label for="toolProviderSelect">Configure MCP</label>
+                <select id="toolProviderSelect">
+                  <option value="zomato">Zomato MCP</option>
+                  <option value="swiggy_food">Swiggy Food MCP</option>
+                  <option value="swiggy_instamart">Swiggy Instamart MCP</option>
+                  <option value="zepto">Zepto MCP</option>
+                </select>
+              </div>
+              <div id="mcpDetail" class="detail">Open this panel status to inspect the MCP setup.</div>
+              <div class="button-row three">
+                <button id="mcpCheckBtn" class="secondary">Refresh</button>
+                <button id="mcpOauthBtn" class="secondary">Connect</button>
+                <button id="mcpTestBtn">Test</button>
+              </div>
+              <details class="diagnostics">
+                <summary>Diagnostics</summary>
+                <ul id="mcpFacts" class="info-list"></ul>
+              </details>
+              <div id="mcpGuide" class="hidden">
+                <div class="divider"></div>
+                <ul class="info-list">
+                  <li>Run the generated command on your laptop. It opens the selected provider locally and syncs the MCP session back automatically.</li>
+                  <li>The command expires quickly and does not require pasting token files into the app.</li>
+                </ul>
+              </div>
+              <div id="pairingPanel" class="hidden">
+                <div class="divider"></div>
+                <label for="pairingCommand">Connection command</label>
+                <pre id="pairingCommand" style="min-height:auto;max-height:180px;font-size:12px;"></pre>
+                <div class="button-row">
+                  <button id="copyPairingBtn" class="secondary">Copy Command</button>
+                  <button id="pollPairingBtn">Refresh Status</button>
+                </div>
+                <p class="small-note">After the command finishes, click Test to verify live MCP access and discover tools.</p>
+              </div>
             </div>
-            <div class="field">
-              <label for="toolProviderSelect">Configure MCP</label>
-              <select id="toolProviderSelect">
-                <option value="zomato">Zomato MCP</option>
-                <option value="swiggy_food">Swiggy Food MCP</option>
-                <option value="swiggy_instamart">Swiggy Instamart MCP</option>
-                <option value="zepto">Zepto MCP</option>
-              </select>
-            </div>
-            <div id="mcpDetail" class="detail">Open this panel status to inspect the MCP setup.</div>
-            <div class="button-row three">
-              <button id="mcpCheckBtn" class="secondary">Refresh</button>
-              <button id="mcpOauthBtn" class="secondary">Connect</button>
-              <button id="mcpTestBtn">Test</button>
-            </div>
-            <details class="diagnostics">
-              <summary>Diagnostics</summary>
-              <ul id="mcpFacts" class="info-list"></ul>
-            </details>
-            <div id="mcpGuide" class="hidden">
-              <div class="divider"></div>
-              <ul class="info-list">
-                <li>Run the generated command on your laptop. It opens the selected provider locally and syncs the MCP session back automatically.</li>
-                <li>The command expires quickly and does not require pasting token files into the app.</li>
-              </ul>
-            </div>
-            <div id="pairingPanel" class="hidden">
-              <div class="divider"></div>
-              <label for="pairingCommand">Connection command</label>
-              <pre id="pairingCommand" style="min-height:auto;max-height:180px;font-size:12px;"></pre>
+          </div>
+          <div id="tab-calendar" class="tab-panel hidden">
+            <div class="panel-body">
+              <div class="status-line">
+                <strong>Google Calendar</strong>
+                <span id="gcalStatusBadge" class="badge neutral">Unknown</span>
+              </div>
               <div class="button-row">
-                <button id="copyPairingBtn" class="secondary">Copy Command</button>
-                <button id="pollPairingBtn">Refresh Status</button>
+                <button id="gcalRefreshBtn" class="secondary">Refresh</button>
+                <button id="gcalConnectBtn">Connect Google</button>
               </div>
-              <p class="small-note">After the command finishes, click Test to verify live MCP access and discover tools.</p>
+              <div class="field">
+                <label for="gcalReminderText">Reminder</label>
+                <input id="gcalReminderText" placeholder="Remind me to call mom tomorrow at 9am">
+              </div>
+              <div class="button-row">
+                <button id="gcalCreateBtn">Create Calendar Reminder</button>
+              </div>
+              <p id="gcalDetail" class="small-note">Connect Google Calendar, then create events with email reminders.</p>
             </div>
           </div>
-        </section>
-
-        <section class="surface">
-          <div class="surface-header">
-            <div class="panel-title">
-              <h2>Add MCP</h2>
-              <p>Register any MCP endpoint and connect it with the same flow.</p>
-            </div>
-          </div>
-          <div class="panel-body">
-            <div class="custom-mcp-grid">
-              <div>
-                <label for="customMcpName">Name</label>
-                <input id="customMcpName" placeholder="My MCP">
+          <div id="tab-custom" class="tab-panel hidden">
+            <div class="panel-body">
+              <div class="custom-mcp-grid">
+                <div>
+                  <label for="customMcpName">Name</label>
+                  <input id="customMcpName" placeholder="My MCP">
+                </div>
+                <div>
+                  <label for="customMcpUrl">MCP URL</label>
+                  <input id="customMcpUrl" placeholder="https://example.com/mcp">
+                </div>
+                <button id="addCustomMcpBtn" class="secondary">Add MCP</button>
               </div>
-              <div>
-                <label for="customMcpUrl">MCP URL</label>
-                <input id="customMcpUrl" placeholder="https://example.com/mcp">
-              </div>
-              <button id="addCustomMcpBtn" class="secondary">Add MCP</button>
+              <div id="customMcpToast" class="toast"></div>
+              <ul id="customMcpList" class="provider-list"></ul>
             </div>
-            <div id="customMcpToast" class="toast"></div>
-            <ul id="customMcpList" class="provider-list"></ul>
           </div>
         </section>
 
@@ -441,6 +465,12 @@
     const addressSelect = document.getElementById("addressSelect");
     const fetchAddressesBtn = document.getElementById("fetchAddressesBtn");
     const addressFetchNote = document.getElementById("addressFetchNote");
+    const gcalStatusBadge = document.getElementById("gcalStatusBadge");
+    const gcalRefreshBtn = document.getElementById("gcalRefreshBtn");
+    const gcalConnectBtn = document.getElementById("gcalConnectBtn");
+    const gcalCreateBtn = document.getElementById("gcalCreateBtn");
+    const gcalReminderText = document.getElementById("gcalReminderText");
+    const gcalDetail = document.getElementById("gcalDetail");
     let knownProviders = [];
     let chatHistory = [];
 
@@ -456,6 +486,14 @@
     }
     function selectedProviderMeta() {
       return knownProviders.find(p => p.id === primaryToolProvider()) || null;
+    }
+    function activateConnectorTab(name) {
+      document.querySelectorAll(".tab-button").forEach(btn => {
+        btn.classList.toggle("active", btn.getAttribute("data-tab") === name);
+      });
+      document.querySelectorAll(".tab-panel").forEach(panel => {
+        panel.classList.toggle("hidden", panel.id !== "tab-" + name);
+      });
     }
 
     async function api(method, path, body) {
@@ -522,6 +560,7 @@
         appendMessage("assistant", "Sign in, pick Zomato or Swiggy (or another MCP) under Configure MCP, use Connect if tokens are missing, then Fetch to load saved addresses. Every message needs a selected address.");
       }
       loadToolProviders().then(checkMcp);
+      checkGoogleCalendar();
     }
 
     async function init() {
@@ -894,6 +933,62 @@
       }
     }
 
+    async function checkGoogleCalendar() {
+      setBadge(gcalStatusBadge, "Checking", "warn");
+      try {
+        const data = await api("GET", "/api/google-calendar/status/");
+        if (data.connected) {
+          setBadge(gcalStatusBadge, "Connected", "ok");
+          gcalDetail.textContent = "Google Calendar is connected.";
+        } else {
+          setBadge(gcalStatusBadge, "Not connected", "warn");
+          gcalDetail.textContent = "Connect Google Calendar to create reminder events.";
+        }
+      } catch (err) {
+        setBadge(gcalStatusBadge, "Error", "err");
+        gcalDetail.textContent = err.message || "Could not check Google Calendar.";
+      }
+    }
+
+    async function connectGoogleCalendar() {
+      gcalConnectBtn.disabled = true;
+      try {
+        const data = await api("GET", "/api/google-calendar/oauth/start");
+        if (data.authorization_url) {
+          window.open(data.authorization_url, "_blank", "noopener,noreferrer");
+          gcalDetail.textContent = "Finish Google sign-in in the new tab, then click Refresh.";
+        }
+      } catch (err) {
+        gcalDetail.textContent = err.message || "Could not start Google connection.";
+      } finally {
+        gcalConnectBtn.disabled = false;
+      }
+    }
+
+    async function createGoogleReminder() {
+      const message = gcalReminderText.value.trim();
+      if (!message) {
+        gcalDetail.textContent = "Enter a reminder first.";
+        return;
+      }
+      gcalCreateBtn.disabled = true;
+      try {
+        const data = await api("POST", "/api/reminders/google-calendar/", {
+          message,
+          email_reminder_minutes: 0,
+          popup_reminder_minutes: 10
+        });
+        const when = data.parsed && data.parsed.next_trigger ? data.parsed.next_trigger : "scheduled time";
+        const link = data.calendar_event && data.calendar_event.html_link ? " " + data.calendar_event.html_link : "";
+        gcalDetail.textContent = "Created for " + when + "." + link;
+        appendMessage("assistant", "Created a Google Calendar reminder: " + (data.parsed.title || message));
+      } catch (err) {
+        gcalDetail.textContent = err.message || "Could not create reminder.";
+      } finally {
+        gcalCreateBtn.disabled = false;
+      }
+    }
+
     async function removeCustomMcp(providerId) {
       if (!providerId) return;
       customMcpToast.textContent = "";
@@ -966,6 +1061,9 @@
     mcpTopCheckBtn.addEventListener("click", checkMcp);
     mcpTestBtn.addEventListener("click", testMcp);
     mcpOauthBtn.addEventListener("click", startOauth);
+    gcalRefreshBtn.addEventListener("click", checkGoogleCalendar);
+    gcalConnectBtn.addEventListener("click", connectGoogleCalendar);
+    gcalCreateBtn.addEventListener("click", createGoogleReminder);
     addCustomMcpBtn.addEventListener("click", addCustomMcp);
     toolProviderSelect.addEventListener("change", () => {
       setToolProvider(toolProviderSelect.value);
@@ -993,6 +1091,9 @@
         messageInput.value = btn.getAttribute("data-query") || "";
         messageInput.focus();
       });
+    });
+    document.querySelectorAll(".tab-button").forEach(btn => {
+      btn.addEventListener("click", () => activateConnectorTab(btn.getAttribute("data-tab") || "mcp"));
     });
 
     init();
