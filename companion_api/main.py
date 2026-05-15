@@ -937,10 +937,13 @@ def google_calendar_oauth_start(
     request: Request,
     user: str = Depends(get_current_user),
 ) -> dict[str, str]:
-    return start_google_calendar_oauth(
-        user_id=user,
-        redirect_uri=_public_url(request, "/api/google-calendar/oauth/callback"),
-    )
+    try:
+        return start_google_calendar_oauth(
+            user_id=user,
+            redirect_uri=_public_url(request, "/api/google-calendar/oauth/callback"),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/google-calendar/oauth/callback", response_class=HTMLResponse)

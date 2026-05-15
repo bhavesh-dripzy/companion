@@ -71,6 +71,10 @@ def _credentials() -> tuple[str, str]:
     return client_id, client_secret
 
 
+def google_calendar_configured() -> bool:
+    return bool(secret_or_env("GOOGLE_CALENDAR_CLIENT_ID") and secret_or_env("GOOGLE_CALENDAR_CLIENT_SECRET"))
+
+
 def start_google_calendar_oauth(*, user_id: str, redirect_uri: str) -> dict[str, str]:
     client_id, _client_secret = _credentials()
     state = secrets.token_urlsafe(32)
@@ -146,7 +150,7 @@ def complete_google_calendar_oauth(*, code: str, state: str) -> dict[str, Any]:
 def google_calendar_status(user_id: str) -> dict[str, Any]:
     tokens = ((_root_secret().get("users") or {}).get(user_id) or {}).get("tokens")
     connected = isinstance(tokens, dict) and bool(tokens.get("refresh_token") or tokens.get("access_token"))
-    return {"connected": connected}
+    return {"configured": google_calendar_configured(), "connected": connected}
 
 
 def _tokens_for_user(user_id: str) -> dict[str, Any]:

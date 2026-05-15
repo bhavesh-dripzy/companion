@@ -148,6 +148,20 @@ def test_google_calendar_reminder_endpoint_creates_event(monkeypatch):
     assert calls["event"]["popup_reminder_minutes"] == 10
     assert calls["reminder"]["type"] == "google_calendar"
 
+def test_google_calendar_oauth_start_reports_missing_config(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(api_main, "secret_or_env", lambda name, default="": default)
+    monkeypatch.setattr("companion_api.google_calendar.secret_or_env", lambda name, default="": default)
+
+    response = client.get(
+        "/api/google-calendar/oauth/start",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 503
+    assert "Google Calendar OAuth client is not configured" in response.json()["detail"]
+
 
 def test_mcp_token_status_detects_nested_mcp_remote_tokens(tmp_path, monkeypatch):
     monkeypatch.setenv("MCP_REMOTE_CONFIG_DIR", str(tmp_path / ".mcp-auth"))

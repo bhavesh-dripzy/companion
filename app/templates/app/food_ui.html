@@ -937,7 +937,10 @@
       setBadge(gcalStatusBadge, "Checking", "warn");
       try {
         const data = await api("GET", "/api/google-calendar/status/");
-        if (data.connected) {
+        if (!data.configured) {
+          setBadge(gcalStatusBadge, "Config needed", "warn");
+          gcalDetail.textContent = "Set GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET before connecting.";
+        } else if (data.connected) {
           setBadge(gcalStatusBadge, "Connected", "ok");
           gcalDetail.textContent = "Google Calendar is connected.";
         } else {
