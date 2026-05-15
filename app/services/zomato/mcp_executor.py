@@ -244,13 +244,44 @@ def _humanize_mcp_failure(repo_root: Path, exc: BaseException, mcp_url: str | No
     return detail
 
 
+def _repository_root_via_mcp_remote(start: Path) -> Path | None:
+    """First ancestor of ``start`` where ``npm`` installed ``mcp-remote`` (Lambda: /var/task)."""
+    for d in start.parents:
+        bridge = d / "node_modules" / "mcp-remote" / "dist" / "proxy.js"
+        if bridge.is_file():
+            return d
+    return None
+
+
 def repo_root_from_settings() -> Path:
+    """Deploy root containing ``node_modules/mcp-remote`` (not ``…/app``).
+
+    Lambda/FastAPI: Python lives under ``/var/task/app/`` but the Docker image runs
+    ``npm ci`` in ``LAMBDA_TASK_ROOT`` (``/var/task``). Fallback ``parents[2]`` pointed
+    at ``…/app`` and wrongly reported ``missing_bridge``.
+    """
+    here = Path(__file__).resolve()
+    task_raw = os.getenv("LAMBDA_TASK_ROOT", "").strip()
+    if task_raw:
+        task_root = Path(task_raw).resolve()
+        if (task_root / "node_modules" / "mcp-remote" / "dist" / "proxy.js").is_file():
+            return task_root
+    via_bridge = _repository_root_via_mcp_remote(here)
+    if via_bridge is not None:
+        return via_bridge
+    try:
+        import companion_api.settings as companion_settings
+
+        return Path(companion_settings.BASE_DIR)
+    except Exception:
+        pass
     try:
         from django.conf import settings
 
         return Path(settings.BASE_DIR)
     except Exception:
-        return Path(__file__).resolve().parents[2]
+        pass
+    return here.parents[2]
 
 
 def substitute_address_id(obj: Any, address_id: str) -> Any:
