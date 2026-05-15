@@ -21,6 +21,7 @@ class ToolProvider:
     tools: frozenset[str]
     mcp_url_env: str | None = None
     default_mcp_url: str | None = None
+    auth_mode: str = "oauth"
     available: bool = True
     notes: str = ""
     custom: bool = False
@@ -187,12 +188,16 @@ def _custom_providers(user_id: str | None = None) -> tuple[ToolProvider, ...]:
             if isinstance(raw_tools, list)
             else frozenset()
         )
+        auth_mode = str(record.get("auth_mode") or "").strip().lower()
+        if auth_mode not in {"oauth", "url"}:
+            auth_mode = "url" if "mcp.zapier.com" in mcp_url.lower() else "oauth"
         providers.append(
             ToolProvider(
                 name=pid,
                 label=label,
                 tools=tools,
                 default_mcp_url=mcp_url,
+                auth_mode=auth_mode,
                 available=True,
                 notes=str(record.get("notes") or "Custom MCP added from the UI.").strip(),
                 custom=True,
@@ -210,6 +215,7 @@ def save_custom_tool_provider(
     label: str,
     mcp_url: str,
     tools: list[str] | None = None,
+    auth_mode: str | None = None,
     provider_id: str | None = None,
     user_id: str | None = None,
 ) -> dict[str, Any]:
@@ -219,6 +225,11 @@ def save_custom_tool_provider(
         raise ValueError("MCP name is required.")
     if not clean_url.startswith(("https://", "http://")):
         raise ValueError("MCP URL must start with https:// or http://.")
+    clean_auth_mode = (auth_mode or "").strip().lower()
+    if not clean_auth_mode:
+        clean_auth_mode = "url" if "mcp.zapier.com" in clean_url.lower() else "oauth"
+    if clean_auth_mode not in {"oauth", "url"}:
+        raise ValueError("MCP auth mode must be 'oauth' or 'url'.")
     pid = provider_id.strip() if provider_id else _slugify_provider_id(clean_label)
     builtin_ids = {provider.name for provider in BUILTIN_PROVIDERS}
     if pid in builtin_ids:
@@ -233,6 +244,7 @@ def save_custom_tool_provider(
         "id": pid,
         "label": clean_label,
         "mcp_url": clean_url,
+        "auth_mode": clean_auth_mode,
         "tools": sorted({str(tool).strip() for tool in (tools or []) if str(tool).strip()}),
         "notes": "Custom MCP added from the UI.",
         "updated_at": int(time.time()),
@@ -268,6 +280,7 @@ def provider_to_dict(provider: ToolProvider) -> dict[str, Any]:
         "available": provider.available,
         "custom": provider.custom,
         "mcp_url": provider.default_mcp_url if provider.custom else None,
+        "auth_mode": provider.auth_mode,
         "tool_count": len(provider.tools),
         "tools": sorted(provider.tools),
         "notes": provider.notes,
@@ -572,32 +585,34 @@ def execute_tool_plan_sync(
             else ""
         ) or provider.default_mcp_url
 
-        # Pre-execution token check for non-Zomato providers
+        # Pre-execution token check for OAuth-backed providers. Zapier MCP URLs
+        # carry their own secret and do not need mcp-remote token files.
         from app.services.zomato_mcp_executor import (
             get_mcp_token_status,
             repo_root_from_settings,
             restore_mcp_auth_tokens,
         )
-        token_status = get_mcp_token_status(
-            repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
-        )
-        if not token_status["has_local_tokens"]:
-            if token_status["has_secret_tokens"]:
-                restore_mcp_auth_tokens(repo_root_from_settings(), user_id=user_id)
-                token_status = get_mcp_token_status(
-                    repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
-                )
+        if provider.auth_mode != "url":
+            token_status = get_mcp_token_status(
+                repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
+            )
             if not token_status["has_local_tokens"]:
-                provider_results[name] = {
-                    "ok": False,
-                    "error_detail": (
-                        f"OAuth not connected for {provider.label}. "
-                        f"Visit /api/mcp/oauth/start?provider={name} to authorize."
-                    ),
-                    "steps": [],
-                    "diagnostics": token_status,
-                }
-                continue
+                if token_status["has_secret_tokens"]:
+                    restore_mcp_auth_tokens(repo_root_from_settings(), user_id=user_id)
+                    token_status = get_mcp_token_status(
+                        repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
+                    )
+                if not token_status["has_local_tokens"]:
+                    provider_results[name] = {
+                        "ok": False,
+                        "error_detail": (
+                            f"OAuth not connected for {provider.label}. "
+                            f"Visit /api/mcp/oauth/start?provider={name} to authorize."
+                        ),
+                        "steps": [],
+                        "diagnostics": token_status,
+                    }
+                    continue
 
         if name in ("swiggy_food", "swiggy_instamart"):
             provider_results[name] = run_swiggy_tool_plan_sync(

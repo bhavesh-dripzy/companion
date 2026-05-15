@@ -49,6 +49,7 @@ from companion_api.models import (
     ReminderEvent,
     ReminderResponseRequest,
     SendMessageRequest,
+    ZapierMcpProviderRequest,
 )
 from companion_api.reminders import ReminderScheduler
 from companion_api.reminder_parser import parse_reminder_message
@@ -517,6 +518,7 @@ def mcp_status(
     diagnostics = diagnose_mcp_environment(root, mcp_url=mcp_url, node_binary=node_binary, user_id=user)
     has_local = token_status["has_local_tokens"]
     has_secret = token_status["has_secret_tokens"]
+    url_authenticated = bool(tool_provider and tool_provider.auth_mode == "url")
 
     if not url_set:
         status = "not_configured"
@@ -533,6 +535,9 @@ def mcp_status(
             "The Python MCP SDK is not installed for this interpreter. This local shell is likely "
             "using Python 3.9; use Python 3.10+ or the Lambda Python 3.12 runtime, then install requirements."
         )
+    elif url_authenticated:
+        status = "ready"
+        detail = "MCP URL is configured. This provider authenticates through the server URL."
     elif has_local:
         status = "ready"
         detail = "OAuth tokens are present in the mcp-remote token store."
@@ -714,6 +719,14 @@ def mcp_oauth_start(
             status_code=400,
             detail=f"Provider '{provider}' is not available or not configured.",
         )
+    if tool_provider.auth_mode == "url":
+        return {
+            "status": "not_required",
+            "detail": f"{tool_provider.label} authenticates through its MCP URL. Use Test to discover tools.",
+            "provider": provider,
+            "provider_label": tool_provider.label,
+            "mcp_url": mcp_url,
+        }
 
     result = capture_mcp_oauth_url(
         repo_root=repo_root_from_settings(),
@@ -750,10 +763,15 @@ def mcp_test(
             "detail": tool_provider.notes or "This MCP provider is not configured yet.",
             "mcp_url": None,
         }
-    token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
+    url_authenticated = bool(tool_provider and tool_provider.auth_mode == "url")
+    token_status = (
+        {"has_local_tokens": True, "has_secret_tokens": False, "auth_mode": "url"}
+        if url_authenticated
+        else get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
+    )
 
     # Auto-restore from Secrets Manager if needed
-    if not token_status["has_local_tokens"] and token_status["has_secret_tokens"]:
+    if not url_authenticated and not token_status["has_local_tokens"] and token_status["has_secret_tokens"]:
         restored = restore_mcp_auth_tokens(root, user_id=user)
         if not restored:
             return {
@@ -764,7 +782,7 @@ def mcp_test(
 
     node_binary = secret_or_env("NODE_BINARY", "node")
 
-    if not token_status["has_local_tokens"] and not token_status["has_secret_tokens"]:
+    if not url_authenticated and not token_status["has_local_tokens"] and not token_status["has_secret_tokens"]:
         return {
             "status": "needs_tokens",
             "detail": (
@@ -880,6 +898,25 @@ def create_custom_tool_provider(
         return {"status": "success", "provider": provider}
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/tools/providers/zapier/")
+def save_zapier_tool_provider(
+    payload: ZapierMcpProviderRequest,
+    user: str = Depends(get_current_user),
+):
+    try:
+        provider = save_custom_tool_provider(
+            label="Zapier MCP",
+            mcp_url=payload.mcp_url,
+            tools=payload.tools,
+            auth_mode="url",
+            provider_id="zapier_mcp",
+            user_id=user,
+        )
+        return {"status": "success", "provider": provider}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

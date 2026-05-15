@@ -826,6 +826,71 @@ def test_custom_mcp_can_be_added_listed_and_removed(monkeypatch):
     assert provider_id not in store.get("custom_providers", {})
 
 
+def test_zapier_mcp_is_url_authenticated_custom_provider(monkeypatch):
+    store = {}
+
+    def fake_secret(_user_id=None):
+        return dict(store)
+
+    def fake_merge(_user_id=None, **updates):
+        store.update(updates)
+        return dict(store)
+
+    monkeypatch.setattr("app.services.tool_runtime._mcp_token_secret", fake_secret)
+    monkeypatch.setattr("app.services.tool_runtime._merge_mcp_token_secret", fake_merge)
+
+    response = client.post(
+        "/api/tools/providers/zapier/",
+        json={"mcp_url": "https://mcp.zapier.com/api/v1/connect/example"},
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    provider = response.json()["provider"]
+    assert provider["id"] == "zapier_mcp"
+    assert provider["label"] == "Zapier MCP"
+    assert provider["custom"] is True
+    assert provider["auth_mode"] == "url"
+
+    listed = client.get("/api/tools/providers/", headers=auth_headers())
+    providers = {provider["id"]: provider for provider in listed.json()["providers"]}
+    assert providers["zapier_mcp"]["mcp_url"] == "https://mcp.zapier.com/api/v1/connect/example"
+    assert providers["zapier_mcp"]["auth_mode"] == "url"
+
+
+def test_url_authenticated_mcp_executes_without_token_precheck(monkeypatch):
+    store = {
+        "custom_providers": {
+            "zapier_mcp": {
+                "id": "zapier_mcp",
+                "label": "Zapier MCP",
+                "mcp_url": "https://mcp.zapier.com/api/v1/connect/example",
+                "auth_mode": "url",
+                "tools": ["google_calendar_create_detailed_event"],
+            }
+        }
+    }
+    calls = {}
+
+    monkeypatch.setattr("app.services.tool_runtime._mcp_token_secret", lambda _user_id=None: dict(store))
+
+    def fake_run_tool_plan_sync(plan, **kwargs):
+        calls["run"] = {"plan": plan, "kwargs": kwargs}
+        return {"ok": True, "steps": [{"tool": plan[0]["tool"], "ok": True}]}
+
+    monkeypatch.setattr("app.services.tool_runtime.run_tool_plan_sync", fake_run_tool_plan_sync)
+
+    result = execute_tool_plan_sync(
+        [{"tool": "google_calendar_create_detailed_event", "arguments": {"summary": "Check washer"}}],
+        enabled_providers={"zapier_mcp"},
+        user_id="local_admin",
+    )
+
+    assert result["ok"] is True
+    assert result["routed_providers"] == ["zapier_mcp"]
+    assert calls["run"]["kwargs"]["mcp_url"] == "https://mcp.zapier.com/api/v1/connect/example"
+
+
 def test_operational_apis_require_auth():
     checks = [
         client.post("/api/send-message/", json={"message": "hi", "llm_optional": True}),

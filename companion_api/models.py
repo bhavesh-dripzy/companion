@@ -50,6 +50,11 @@ class CustomMcpProviderRequest(BaseModel):
     tools: list[str] | None = None
 
 
+class ZapierMcpProviderRequest(BaseModel):
+    mcp_url: str = Field(min_length=8, max_length=500)
+    tools: list[str] | None = None
+
+
 class ReminderCreateRequest(BaseModel):
     member_id: str = Field(min_length=1)
     title: str = Field(min_length=1)

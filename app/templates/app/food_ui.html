@@ -294,6 +294,7 @@
           </div>
           <div class="tabs" role="tablist">
             <button class="tab-button active" data-tab="mcp" type="button">MCP</button>
+            <button class="tab-button" data-tab="zapier" type="button">Zapier</button>
             <button class="tab-button" data-tab="calendar" type="button">Calendar</button>
             <button class="tab-button" data-tab="custom" type="button">Custom</button>
           </div>
@@ -339,6 +340,23 @@
                 </div>
                 <p class="small-note">After the command finishes, click Test to verify live MCP access and discover tools.</p>
               </div>
+            </div>
+          </div>
+          <div id="tab-zapier" class="tab-panel hidden">
+            <div class="panel-body">
+              <div class="status-line">
+                <strong>Zapier MCP</strong>
+                <span class="badge neutral">URL auth</span>
+              </div>
+              <div class="field">
+                <label for="zapierMcpUrl">MCP server URL</label>
+                <input id="zapierMcpUrl" placeholder="https://mcp.zapier.com/api/v1/...">
+              </div>
+              <div class="button-row">
+                <button id="saveZapierMcpBtn" class="secondary">Save Zapier</button>
+                <button id="openZapierMcpBtn" type="button">Open Zapier MCP</button>
+              </div>
+              <p id="zapierMcpToast" class="small-note">Create one Zapier MCP server, add tools in Zapier, then paste its URL here.</p>
             </div>
           </div>
           <div id="tab-calendar" class="tab-panel hidden">
@@ -457,6 +475,10 @@
     const pairingCommand = document.getElementById("pairingCommand");
     const copyPairingBtn = document.getElementById("copyPairingBtn");
     const pollPairingBtn = document.getElementById("pollPairingBtn");
+    const zapierMcpUrl = document.getElementById("zapierMcpUrl");
+    const saveZapierMcpBtn = document.getElementById("saveZapierMcpBtn");
+    const openZapierMcpBtn = document.getElementById("openZapierMcpBtn");
+    const zapierMcpToast = document.getElementById("zapierMcpToast");
     const customMcpName = document.getElementById("customMcpName");
     const customMcpUrl = document.getElementById("customMcpUrl");
     const addCustomMcpBtn = document.getElementById("addCustomMcpBtn");
@@ -727,6 +749,10 @@
         }
         toolProviderSelect.value = [...toolProviderSelect.options].some(o => o.value === current && !o.disabled) ? current : toolProviderSelect.options[0].value;
         setToolProvider(toolProviderSelect.value);
+        const zapierProvider = providers.find(p => p.id === "zapier_mcp");
+        if (zapierProvider && zapierProvider.mcp_url) {
+          zapierMcpUrl.value = zapierProvider.mcp_url;
+        }
         renderCustomProviders();
       } catch {
         fillToolProviderSelectFromFallback();
@@ -933,6 +959,29 @@
       }
     }
 
+    async function saveZapierMcp() {
+      const mcp_url = zapierMcpUrl.value.trim();
+      zapierMcpToast.textContent = "";
+      if (!mcp_url) {
+        zapierMcpToast.textContent = "Paste your Zapier MCP server URL.";
+        return;
+      }
+      saveZapierMcpBtn.disabled = true;
+      try {
+        const data = await api("POST", "/api/tools/providers/zapier/", { mcp_url });
+        const provider = data.provider || {};
+        zapierMcpToast.textContent = "Saved. Add tools in Zapier, then use Test to discover them.";
+        await loadToolProviders();
+        toolProviderSelect.value = provider.id || "zapier_mcp";
+        setToolProvider(toolProviderSelect.value);
+        await checkMcp();
+      } catch (err) {
+        zapierMcpToast.textContent = err.message || "Could not save Zapier MCP.";
+      } finally {
+        saveZapierMcpBtn.disabled = false;
+      }
+    }
+
     async function checkGoogleCalendar() {
       setBadge(gcalStatusBadge, "Checking", "warn");
       try {
@@ -1100,6 +1149,8 @@
     document.querySelectorAll(".tab-button").forEach(btn => {
       btn.addEventListener("click", () => activateConnectorTab(btn.getAttribute("data-tab") || "mcp"));
     });
+    saveZapierMcpBtn.addEventListener("click", saveZapierMcp);
+    openZapierMcpBtn.addEventListener("click", () => window.open("https://mcp.zapier.com/", "_blank", "noopener,noreferrer"));
 
     init();
   </script>
