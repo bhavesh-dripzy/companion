@@ -22,7 +22,21 @@ from app.services.tool_runtime import (
 )
 from companion_api.reminder_parser import parse_reminder_message
 
+import app.services.agents.pipeline as agent_pipeline
+
 client = TestClient(app)
+
+
+def stub_agent_intent(monkeypatch, *, food_providers: tuple[str, ...] | list[str] = ("zomato",)) -> None:
+    monkeypatch.setattr(
+        agent_pipeline,
+        "classify_agent_routing",
+        lambda **_kwargs: {
+            "task_type": "food_delivery",
+            "food_providers": list(food_providers),
+            "reasoning": "test-stub",
+        },
+    )
 
 
 def auth_headers() -> dict[str, str]:
@@ -353,12 +367,7 @@ def test_mcp_token_status_accepts_prior_mcp_remote_version(tmp_path, monkeypatch
 
 
 def test_food_query_is_plan_only_by_default(monkeypatch):
-    plan = {
-        "intent": "find_restaurant",
-        "summary": "Find pizza restaurants.",
-        "tool_plan": [{"tool": "get_saved_addresses_for_user", "arguments": {}}],
-        "constraints": {},
-    }
+    stub_agent_intent(monkeypatch)
 
     monkeypatch.setattr(
         api_main,
@@ -368,10 +377,15 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+    monkeypatch.setattr(
+        agent_pipeline,
+        "build_assistant_message_with_llm",
+        lambda **_kwargs: "done",
+    )
 
     monkeypatch.setattr(
-        api_main, "route_food_query",
+        agent_pipeline,
+        "route_food_query",
         lambda **kwargs: _finalize_from_parsed_json(
             {
                 "intent": "find_restaurant",
@@ -383,11 +397,13 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
             provider="gemini",
             model="gemini-2.5-flash-lite",
             trace_id="trace-1",
+            tool_provider="zomato",
         ),
     )
 
     monkeypatch.setattr(
-        api_main, "execute_tool_plan_sync",
+        agent_pipeline,
+        "execute_tool_plan_sync",
         lambda **kwargs: {
             "ok": True,
             "error": None,
@@ -407,6 +423,8 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
 
 
 def test_food_query_is_routed_through_tool_plan(monkeypatch):
+    stub_agent_intent(monkeypatch)
+
     monkeypatch.setattr(
         api_main,
         "resolve_llm_from_env",
@@ -415,10 +433,15 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+    monkeypatch.setattr(
+        agent_pipeline,
+        "build_assistant_message_with_llm",
+        lambda **_kwargs: "done",
+    )
 
     monkeypatch.setattr(
-        api_main, "route_food_query",
+        agent_pipeline,
+        "route_food_query",
         lambda **kwargs: _finalize_from_parsed_json(
             {
                 "intent": "find_restaurant",
@@ -430,6 +453,7 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
             provider="gemini",
             model="gemini-2.5-flash-lite",
             trace_id="trace-2",
+            tool_provider="zomato",
         ),
     )
 
@@ -445,7 +469,7 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
             "provider_results": {"zomato": {"ok": True, "steps": [], "diagnostics": {}}},
         }
 
-    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute)
+    monkeypatch.setattr(agent_pipeline, "execute_tool_plan_sync", fake_execute)
 
     response = client.post(
         "/api/food/query/",
@@ -643,6 +667,8 @@ def test_order_history_router_uses_deterministic_provider_plan():
 def test_compare_query_executes_multiple_tool_providers(monkeypatch):
     calls = {}
 
+    stub_agent_intent(monkeypatch, food_providers=("zomato", "swiggy_food"))
+
     monkeypatch.setattr(
         api_main,
         "resolve_llm_from_env",
@@ -651,7 +677,11 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
+    monkeypatch.setattr(
+        agent_pipeline,
+        "build_assistant_message_with_llm",
+        lambda **_kwargs: "done",
+    )
 
     def fake_execute_tool_plan_sync(tool_plan, **kwargs):
         calls["tool_plan"] = tool_plan
@@ -666,7 +696,7 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
             },
         }
 
-    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
+    monkeypatch.setattr(agent_pipeline, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
 
     response = client.post(
         "/api/food/query/",
@@ -684,13 +714,16 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
     assert response.json()["tool_execution"]["routed_providers"] == ["swiggy_food", "zomato"]
     assert set(response.json()["provider_summaries"]) == {"zomato", "swiggy_food"}
     trace = response.json()["observable_trace"]
-    assert trace[0]["stage"] == "provider_selection"
-    assert trace[0]["providers"] == ["swiggy_food", "zomato"]
+    assert trace[0]["stage"] == "intent_orchestration"
+    assert trace[1]["stage"] == "provider_selection"
+    assert trace[1]["providers"] == ["swiggy_food", "zomato"]
     assert any(item["stage"] == "provider_execution" for item in trace)
 
 
 def test_food_query_honors_single_selected_tool_provider(monkeypatch):
     calls = {}
+
+    stub_agent_intent(monkeypatch, food_providers=("zepto",))
 
     monkeypatch.setattr(
         api_main,
@@ -700,9 +733,13 @@ def test_food_query_honors_single_selected_tool_provider(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
     monkeypatch.setattr(
-        api_main,
+        agent_pipeline,
+        "build_assistant_message_with_llm",
+        lambda **_kwargs: "done",
+    )
+    monkeypatch.setattr(
+        agent_pipeline,
         "route_food_query",
         lambda **kwargs: _finalize_from_parsed_json(
             {
@@ -714,6 +751,7 @@ def test_food_query_honors_single_selected_tool_provider(monkeypatch):
             provider="gemini",
             model="gemini-test",
             trace_id="trace-selected-provider",
+            tool_provider="zepto",
         ),
     )
 
@@ -732,7 +770,7 @@ def test_food_query_honors_single_selected_tool_provider(monkeypatch):
             },
         }
 
-    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
+    monkeypatch.setattr(agent_pipeline, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
 
     response = client.post(
         "/api/food/query/",
@@ -748,11 +786,15 @@ def test_food_query_honors_single_selected_tool_provider(monkeypatch):
     assert response.status_code == 200
     assert calls["kwargs"]["enabled_providers"] == {"zepto"}
     assert response.json()["selected_tool_providers"] == ["zepto"]
-    assert response.json()["observable_trace"][0]["providers"] == ["zepto"]
+    trace = response.json()["observable_trace"]
+    assert trace[0]["stage"] == "intent_orchestration"
+    assert trace[1]["providers"] == ["zepto"]
 
 
 def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
     calls = {}
+
+    stub_agent_intent(monkeypatch, food_providers=("zepto",))
 
     monkeypatch.setattr(
         api_main,
@@ -762,9 +804,13 @@ def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(api_main, "build_assistant_message_with_llm", lambda **_kwargs: "done")
     monkeypatch.setattr(
-        api_main,
+        agent_pipeline,
+        "build_assistant_message_with_llm",
+        lambda **_kwargs: "done",
+    )
+    monkeypatch.setattr(
+        agent_pipeline,
         "route_food_query",
         lambda **kwargs: _finalize_from_parsed_json(
             {
@@ -776,6 +822,7 @@ def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
             provider="gemini",
             model="gemini-test",
             trace_id="trace-message-routing",
+            tool_provider="zepto",
         ),
     )
 
@@ -795,7 +842,7 @@ def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
             },
         }
 
-    monkeypatch.setattr(api_main, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
+    monkeypatch.setattr(agent_pipeline, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
 
     response = client.post(
         "/api/food/query/",
@@ -923,6 +970,7 @@ def test_operational_apis_require_auth():
     checks = [
         client.post("/api/send-message/", json={"message": "hi", "llm_optional": True}),
         client.post("/api/food/query/", json={"message": "pizza", "address_id": "x"}),
+        client.post("/api/agent/query/", json={"message": "pizza", "address_id": "x"}),
         client.get("/api/food/saved-addresses/"),
         client.get("/api/tools/providers/"),
         client.post(

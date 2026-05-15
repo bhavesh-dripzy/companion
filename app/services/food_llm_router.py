@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Literal
 
 from openai import OpenAI
@@ -17,6 +19,25 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 Provider = Literal["openai", "gemini", "deepseek"]
+
+_SVC_ROOT = Path(__file__).resolve().parent
+
+_BUILTIN_PROMPTS: dict[str, Path] = {
+    "zomato": _SVC_ROOT / "zomato" / "prompts" / "food.system.md",
+    "swiggy_food": _SVC_ROOT / "swiggy" / "prompts" / "food.system.md",
+    "swiggy_instamart": _SVC_ROOT / "swiggy" / "prompts" / "instamart.system.md",
+    "zepto": _SVC_ROOT / "zepto" / "prompts" / "food.system.md",
+}
+
+
+@lru_cache(maxsize=8)
+def _load_builtin_prompt(provider_key: str) -> str:
+    path = _BUILTIN_PROMPTS.get(provider_key) or _BUILTIN_PROMPTS["zomato"]
+    return path.read_text(encoding="utf-8").strip()
+
+
+def router_prompt_fallback() -> str:
+    return _load_builtin_prompt("zomato")
 
 _ALLOWED_TOOLS = frozenset(
     {
@@ -82,152 +103,6 @@ _ORDER_TOOLS = {
 }
 _ORDER_HISTORY_PROVIDERS = {"zomato", "swiggy_food", "swiggy_instamart", "zepto"}
 
-_SYSTEM_PROMPT = """\
-You translate the user's message into a machine-ready plan for available MCP tools.
-Today the available provider is Zomato MCP.
-
-Respond with ONLY a single JSON object (no markdown fences) shaped exactly like this:
-{
-  "intent": "<short snake_case intent label>",
-  "summary": "<one sentence what the user wants>",
-  "tool_plan": [
-    {
-      "tool": "<exact tool name>",
-      "arguments": { }
-    }
-  ],
-    "constraints": {
-        "requires_address_resolution": true | false,
-        "requested_location_text": "<explicit area/locality/city if user named one, else null>",
-        "inferred_keyword": "<string|null>",
-    "price_max_inr": <number|null>,
-    "price_min_inr": <number|null>,
-    "min_rating": <number|null>,
-    "near_and_fast": true | false | null,
-    "vegetarian_only": true | false | null,
-    "party_size_estimate": <integer|null>,
-    "health_constraints": "<string|null>"
-  },
-  "execution_notes_for_downstream": "<optional hints>"
-}
-
-TOOLS (use ONLY these exact tool strings):
-- get_saved_addresses_for_user: returns the user's saved delivery addresses and address_id values.
-- get_restaurants_for_keyword: accepts keyword and address_id. Use "__ADDRESS_ID__" when it should come from saved addresses.
-- get_menu_items_listing: PRIMARY for "show menu", items, or prices at a restaurant. After search, call with {"res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__"} — Zomato requires both (res_id comes from get_restaurants_for_keyword results).
-- get_restaurant_menu_by_categories: optional; requires res_id, address_id, AND exact menu category names from Zomato. Prefer get_menu_items_listing unless the user named specific categories you can supply.
-- create_cart: use only when the user has chosen a concrete restaurant and item/variant from earlier results or supplied exact IDs.
-- get_cart_offers: use only after a cart exists.
-- checkout_cart: use only when the user explicitly confirms checkout/payment.
-- get_order_history: use for past orders.
-- get_order_tracking_info: use only when the user gives an order id or after order history can provide one.
-- bind_user_number: use only when the user asks to bind a phone number.
-- bind_user_number_verify_code: use only when the user provides the verification code.
-
-PLACEHOLDERS:
-- "__ADDRESS_ID__" may be resolved from get_saved_addresses_for_user.
-- "__RESTAURANT_ID__" may be resolved from get_restaurants_for_keyword.
-- "__MENU_ITEM_ID__", "__ITEM_ID__", "__VARIANT_ID__", "__CART_ID__", and "__ORDER_ID__" may be resolved only from earlier matching tool output.
-
-RULES:
-1. Typical flow for restaurant discovery:
-   get_saved_addresses_for_user
-   THEN
-   get_restaurants_for_keyword with {"keyword": "<cuisine/dish>", "address_id": "__ADDRESS_ID__"}
-
-2. If user asks for food near them, near home, nearby, or without a named city/locality:
-   ALWAYS include BOTH tools.
-
-3. If user names a far-off city/locality such as "Saket Delhi" or "MG Road Bengaluru",
-   still set constraints.requested_location_text, but do not pretend Zomato can geocode it.
-   Zomato restaurant discovery needs a saved delivery address_id. The app will ask the user
-   to save/select that delivery address instead of using their default address.
-
-4. For menu / "show menu" / items / prices without a known res_id, plan:
-   get_saved_addresses_for_user
-   get_restaurants_for_keyword (keyword = restaurant name or dish from the user)
-   get_menu_items_listing with {"res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__"}
-
-5. Use get_restaurant_menu_by_categories only when the user asks for named menu sections AND you can fill "categories" with valid Zomato category strings (often learned from item listings). Always include res_id and address_id placeholders as in rule 4.
-
-6. Never invent address IDs, restaurant IDs, menu item IDs, variant IDs, cart IDs, or order IDs.
-
-7. Prefer useful multi-step plans over a single tool when later tools can consume IDs from earlier tools.
-
-8. Return ONLY valid JSON.
-"""
-
-_SWIGGY_FOOD_SYSTEM_PROMPT = """\
-You translate the user's message into a machine-ready plan for Swiggy Food MCP.
-
-Respond with ONLY a single JSON object shaped exactly like the Zomato router schema:
-intent, summary, tool_plan, constraints, execution_notes_for_downstream.
-
-TOOLS (use ONLY these exact tool strings):
-- search_restaurants: find restaurants for a cuisine/dish/local query.
-- get_restaurant_menu: fetch menu for a known restaurant id. Use "__RESTAURANT_ID__" after search_restaurants.
-- search_menu: search menu items inside a known restaurant. Use "__RESTAURANT_ID__" after search_restaurants.
-- get_addresses: list saved delivery addresses when needed.
-- get_food_cart, update_food_cart, flush_food_cart, fetch_food_coupons, apply_food_coupon.
-- place_food_order only after explicit checkout confirmation.
-- get_food_orders, get_food_order_details, track_food_order.
-
-RULES:
-1. For discovery, use search_restaurants with a SHORT keyword or restaurant name only (e.g. "Galaxy Pizza", "biryani") — never put the full summary or "User wants…" prose in "query".
-2. For menu questions without a restaurant id, use search_restaurants then get_restaurant_menu with "__RESTAURANT_ID__" and "__ADDRESS_ID__" (include get_restaurant_menu in tool_plan, not only in intent).
-3. For ordering/cart changes, do not invent item, variant, restaurant, cart, or address IDs.
-4. If the user asks for last/recent/past orders or order history, ALWAYS use get_food_orders.
-5. Prefer multi-step plans when a later tool can consume IDs from earlier output.
-6. tool_plan must NEVER be an empty array. If you are unsure, output get_addresses then search_restaurants with a dish/cuisine query from the user (then get_restaurant_menu or search_menu only after you have placeholders for restaurant and address).
-7. Return ONLY valid JSON.
-"""
-
-_SWIGGY_INSTAMART_SYSTEM_PROMPT = """\
-You translate the user's message into a machine-ready plan for Swiggy Instamart MCP.
-
-Respond with ONLY a single JSON object shaped exactly like the food router schema:
-intent, summary, tool_plan, constraints, execution_notes_for_downstream.
-
-TOOLS (use ONLY these exact tool strings):
-- search_products: search grocery/quick-commerce products.
-- your_go_to_items: repeat or habitual SKUs when relevant.
-- get_addresses: list saved delivery addresses when needed.
-- get_cart, update_cart, clear_cart, checkout.
-- get_orders, track_order.
-
-RULES:
-1. For grocery discovery, use search_products with the user's product terms.
-2. For product detail questions, use search_products then get_product_details with "__ITEM_ID__" if that tool is available in your tool list; otherwise rely on search_products cards only.
-3. For cart/order flows, do not invent product, variant, cart, address, or order IDs.
-4. If the user asks for last/recent/past orders or order history, ALWAYS use get_orders.
-5. Return ONLY valid JSON.
-6. tool_plan must NEVER be an empty array. If unsure, output get_addresses then search_products with the user's product terms.
-"""
-
-_ZEPTO_SYSTEM_PROMPT = """\
-You translate the user's message into a machine-ready plan for the official Zepto MCP.
-
-Respond with ONLY a single JSON object shaped exactly like the food router schema:
-intent, summary, tool_plan, constraints, execution_notes_for_downstream.
-
-TOOLS (use ONLY these exact tool strings):
-- get_user_preferences: retrieve the user's Zepto brand/category preferences before broad shopping searches when useful.
-- search_products: search Zepto's live product catalog.
-- get_product_details: fetch details for a known product id. Use "__ITEM_ID__" only after search_products.
-- get_cart, add_item_to_cart, update_cart_item, remove_cart_item, clear_cart, get_cart_offers.
-- checkout or place_order only after explicit user confirmation. Mention payment method only if the user asked for one.
-- get_order_history, get_order_details.
-
-RULES:
-1. For grocery discovery, use get_user_preferences first when the request is broad, then search_products.
-2. For quick shopping lists, use one search_products step per item family before cart changes.
-3. For product detail questions, use search_products then get_product_details with "__ITEM_ID__".
-4. Never invent product, variant, cart, address, or order IDs.
-5. Zepto orders are real orders. Do not checkout/place_order without explicit confirmation.
-6. If the user asks for last/recent/past orders or order history, ALWAYS use get_order_history.
-7. Return ONLY valid JSON.
-"""
-
 
 def _system_prompt_for_tool_provider(
     tool_provider: str | None,
@@ -261,13 +136,10 @@ RULES:
 3. Do not call destructive or purchasing tools unless the user explicitly confirms that action.
 4. Return ONLY valid JSON.
 """
-    if tool_provider == "swiggy_food":
-        return _SWIGGY_FOOD_SYSTEM_PROMPT
-    if tool_provider == "swiggy_instamart":
-        return _SWIGGY_INSTAMART_SYSTEM_PROMPT
-    if tool_provider == "zepto":
-        return _ZEPTO_SYSTEM_PROMPT
-    return _SYSTEM_PROMPT
+    pid = (tool_provider or "zomato").strip()
+    if pid in _BUILTIN_PROMPTS:
+        return _load_builtin_prompt(pid)
+    return _load_builtin_prompt("zomato")
 
 
 def _infer_keyword_from_message(message: str) -> str:
@@ -710,9 +582,25 @@ def normalize_tool_plan(
 
         if tool in _ORDER_TOOLS:
             arguments = dict(arguments)
-            order_id = arguments.get("order_id") or arguments.get("orderId")
-            if order_id is None or (isinstance(order_id, str) and not order_id.strip()):
+            order_id_val = arguments.get("order_id") or arguments.get("orderId")
+            # Swiggy `track_food_order`: orderId is optional — do not inject __ORDER_ID__.
+            if tool == "track_food_order":
+                if order_id_val and str(order_id_val).strip():
+                    s = str(order_id_val).strip()
+                    arguments["order_id"] = s
+                    arguments["orderId"] = s
+                else:
+                    arguments.pop("order_id", None)
+                    arguments.pop("orderId", None)
+            elif order_id_val is None or (
+                isinstance(order_id_val, str) and not str(order_id_val).strip()
+            ):
                 arguments["order_id"] = "__ORDER_ID__"
+                arguments["orderId"] = "__ORDER_ID__"
+            else:
+                s = str(order_id_val).strip()
+                arguments["order_id"] = s
+                arguments["orderId"] = s
 
         normalized_step = {
             "tool": tool.strip(),
@@ -827,9 +715,10 @@ def _openai_compatible_call(
     model: str,
     user_message: str,
     base_url: str | None = None,
-    system_prompt: str = _SYSTEM_PROMPT,
+    system_prompt: str | None = None,
 ) -> tuple[str, str | None]:
     """Shared path for OpenAI and DeepSeek (both use OpenAI SDK)."""
+    resolved_system_prompt = system_prompt or router_prompt_fallback()
     kwargs: dict[str, Any] = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
@@ -839,7 +728,7 @@ def _openai_compatible_call(
         model=model,
         temperature=0.2,
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": resolved_system_prompt},
             {"role": "user", "content": user_message.strip()},
         ],
         response_format={"type": "json_object"},
@@ -847,8 +736,67 @@ def _openai_compatible_call(
 
     content = completion.choices[0].message.content or "{}"
     tid = getattr(completion, "id", None) or ""
-    resolved = getattr(completion, "model", None) or model
     return content, tid
+
+
+def try_deterministic_food_plan(
+    user_message: str, tool_providers: set[str]
+) -> dict[str, Any] | None:
+    """
+    Fast paths that do not need the domain LLM (order history spanning multiple providers,
+    Zomato-vs-Swiggy restaurant comparisons, etc.).
+    """
+    if not tool_providers:
+        return None
+    order_history = _order_history_plan(user_message, tool_providers)
+    if order_history is not None:
+        return order_history
+    comparison = _comparison_plan(user_message, tool_providers)
+    if comparison is not None:
+        return comparison
+    return None
+
+
+def complete_json_object(
+    *,
+    user_message: str,
+    system_prompt: str,
+    api_key: str,
+    model: str,
+    provider: Provider,
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    """Single-turn JSON object from the model (used by the agent orchestrator layer)."""
+    if provider in ("openai", "deepseek"):
+        content, _tid = _openai_compatible_call(
+            api_key=api_key,
+            model=model,
+            user_message=user_message,
+            base_url=base_url if provider == "deepseek" else None,
+            system_prompt=system_prompt,
+        )
+        return _json_from_llm(content)
+
+    try:
+        from google import genai as google_genai
+    except ImportError as e:
+        raise RuntimeError(
+            "Gemini provider requires the google-genai package: pip install google-genai"
+        ) from e
+
+    client = google_genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=f"""
+SYSTEM:
+{system_prompt}
+
+USER:
+{user_message.strip()}
+""",
+    )
+    text = response.text or "{}"
+    return _json_from_llm(text)
 
 
 def route_food_query(
@@ -862,8 +810,10 @@ def route_food_query(
     tool_providers: set[str] | None = None,
     tool_provider_label: str | None = None,
     tool_provider_tools: list[str] | None = None,
+    skip_aggregate_shortcuts: bool = False,
+    system_prompt_override: str | None = None,
 ) -> dict[str, Any]:
-    if tool_providers:
+    if not skip_aggregate_shortcuts and tool_providers:
         order_history = _order_history_plan(user_message, tool_providers)
         if order_history is not None:
             return order_history
@@ -875,7 +825,12 @@ def route_food_query(
         if tool_provider_tools
         else None
     )
-    system_prompt = _system_prompt_for_tool_provider(
+    override = (
+        system_prompt_override.strip()
+        if isinstance(system_prompt_override, str) and system_prompt_override.strip()
+        else None
+    )
+    system_prompt = override or _system_prompt_for_tool_provider(
         tool_provider,
         tool_provider_label=tool_provider_label,
         tool_provider_tools=sorted(allowed_tools) if allowed_tools else None,

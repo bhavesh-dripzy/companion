@@ -24,24 +24,20 @@ from companion_api.auth import (
 from companion_api.secrets import secret_or_env
 
 from app.services.food_llm_router import route_food_query
-from app.services.food_response_builder import (
-    build_assistant_message_with_llm,
-    build_zomato_summary,
-    saved_address_label_from_mcp_item,
-)
+from app.services.food_response_builder import saved_address_label_from_mcp_item
+from app.services.agents.pipeline import CustomMcpNeedsDiscoveryError, run_agent_turn
 from app.services.llm_config import resolve_llm_from_env
 from app.services.tool_runtime import (
     delete_custom_tool_provider,
-    execute_tool_plan_sync,
     get_tool_provider,
     list_tool_providers,
     save_custom_tool_provider,
-    select_tool_providers_for_message,
     update_custom_provider_tools,
 )
 from companion_api import settings
 from companion_api.dynamodb import ReminderRepository
 from companion_api.models import (
+    AgentQueryRequest,
     CustomMcpProviderRequest,
     FoodQueryRequest,
     GoogleCalendarReminderRequest,
@@ -260,95 +256,6 @@ class LoginResponse(BaseModel):
 class McpPairingComplete(BaseModel):
     code: str
     files: dict[str, str]
-
-
-def _tool_execution_trace(
-    *,
-    plan: dict[str, Any],
-    selected_providers: set[str],
-    tool_execution: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
-    trace: list[dict[str, Any]] = [
-        {
-            "stage": "provider_selection",
-            "status": "ok",
-            "detail": (
-                "Selected "
-                + (", ".join(sorted(selected_providers)) if selected_providers else "no MCP provider")
-                + "."
-            ),
-            "providers": sorted(selected_providers),
-        }
-    ]
-    tool_plan = plan.get("tool_plan") if isinstance(plan, dict) else []
-    if isinstance(tool_plan, list):
-        planned_tools = [
-            str(step.get("tool") or "")
-            for step in tool_plan
-            if isinstance(step, dict) and step.get("tool")
-        ]
-        trace.append(
-            {
-                "stage": "tool_plan",
-                "status": "ok" if tool_plan else "skipped",
-                "detail": (
-                    f"Planned {len(tool_plan)} tool call(s)."
-                    if tool_plan
-                    else "No executable MCP tool call was planned."
-                ),
-                "tools": planned_tools,
-            }
-        )
-    if not isinstance(tool_execution, dict):
-        trace.append(
-            {
-                "stage": "tool_execution",
-                "status": "skipped",
-                "detail": "Tool execution was not requested.",
-            }
-        )
-        return trace
-
-    provider_results = tool_execution.get("provider_results")
-    if isinstance(provider_results, dict):
-        for provider_name, result in sorted(provider_results.items()):
-            status_value = "ok" if isinstance(result, dict) and result.get("ok") else "error"
-            steps = result.get("steps") if isinstance(result, dict) else []
-            trace.append(
-                {
-                    "stage": "provider_execution",
-                    "provider": provider_name,
-                    "status": status_value,
-                    "detail": (
-                        f"{provider_name} completed {len(steps) if isinstance(steps, list) else 0} step(s)."
-                        if status_value == "ok"
-                        else str(result.get("error_detail") or "Provider execution failed.")
-                        if isinstance(result, dict)
-                        else "Provider execution failed."
-                    ),
-                    "tools": [
-                        str(step.get("tool") or "")
-                        for step in steps
-                        if isinstance(steps, list) and isinstance(step, dict) and step.get("tool")
-                    ],
-                }
-            )
-    elif tool_plan:
-        trace.append(
-            {
-                "stage": "provider_execution",
-                "status": "skipped",
-                "detail": "No provider returned execution results.",
-            }
-        )
-    trace.append(
-        {
-            "stage": "final_response",
-            "status": "ok" if tool_execution.get("ok") else "error",
-            "detail": "Prepared response from routing plan and tool results.",
-        }
-    )
-    return trace
 
 
 def _cognito_password_login(username: str, password: str) -> LoginResponse:
@@ -1145,10 +1052,11 @@ def food_saved_addresses(
     }
 
 
-@app.post("/api/food/query/")
-def food_agent_full(
-    payload: FoodQueryRequest,
-    user: str = Depends(get_current_user),
+
+
+def _companion_agent_turn(
+    payload: FoodQueryRequest | AgentQueryRequest,
+    user: str,
 ) -> dict[str, Any]:
     provider_override = (payload.provider or "").strip()
     llm_cfg, err = resolve_llm_from_env(
@@ -1161,7 +1069,9 @@ def food_agent_full(
     recent_history = [
         item
         for item in history[-8:]
-        if isinstance(item, dict) and item.get("role") in {"user", "assistant"} and item.get("content")
+        if isinstance(item, dict)
+        and item.get("role") in {"user", "assistant"}
+        and item.get("content")
     ]
     routing_message = payload.message.strip()
     if recent_history:
@@ -1169,44 +1079,21 @@ def food_agent_full(
             f"{item.get('role')}: {str(item.get('content') or '')[:700]}"
             for item in recent_history
         )
-        routing_message = f"Conversation so far:\n{transcript}\n\nCurrent user message:\n{payload.message.strip()}"
-
-    explicit_providers = {
-        provider.strip()
-        for provider in (payload.tool_providers or [])
-        if provider and provider.strip()
-    }
-    if payload.tool_provider and payload.tool_provider.strip():
-        explicit_providers = {payload.tool_provider.strip()}
-    routed_provider_ids = explicit_providers or select_tool_providers_for_message(payload.message, user_id=user)
-    primary_provider_id = next(iter(sorted(routed_provider_ids))) if routed_provider_ids else None
-
-    try:
-        selected_tool_provider = get_tool_provider(primary_provider_id or "", user_id=user)
-        if selected_tool_provider and selected_tool_provider.custom and not selected_tool_provider.tools:
-            raise HTTPException(
-                status_code=409,
-                detail="Test this custom MCP first so Companion can discover its tools.",
-            )
-        plan = route_food_query(
-            user_message=routing_message,
-            api_key=llm_cfg.api_key,
-            model=llm_cfg.model,
-            provider=llm_cfg.provider,
-            base_url=llm_cfg.base_url,
-            tool_provider=primary_provider_id,
-            tool_providers=routed_provider_ids or None,
-            tool_provider_label=selected_tool_provider.label if selected_tool_provider else None,
-            tool_provider_tools=(
-                sorted(selected_tool_provider.tools)
-                if selected_tool_provider and selected_tool_provider.custom and selected_tool_provider.tools
-                else None
-            ),
+        routing_message = (
+            f"Conversation so far:\n{transcript}\n\nCurrent user message:\n{payload.message.strip()}"
         )
-    except ValueError as e:
-        raise HTTPException(status_code=502, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"{type(e).__name__}: {e}") from e
+
+    explicit_tool_providers: set[str] | None = None
+    forced_empty_providers = False
+    if payload.tool_provider and payload.tool_provider.strip():
+        explicit_tool_providers = {payload.tool_provider.strip()}
+    elif payload.tool_providers is not None:
+        explicit_tool_providers = {
+            provider.strip()
+            for provider in (payload.tool_providers or [])
+            if provider and provider.strip()
+        }
+        forced_empty_providers = not explicit_tool_providers
 
     execute_tools = (
         payload.execute_tools
@@ -1217,71 +1104,41 @@ def food_agent_full(
             else settings.EXECUTE_TOOLS_BY_DEFAULT
         )
     )
-    zomato_raw: dict[str, Any] | None = None
-    tool_execution: dict[str, Any] | None = None
-    if execute_tools:
-        tool_plan = plan.get("tool_plan") if isinstance(plan, dict) else []
-        enabled_providers = routed_provider_ids or None
-        tool_execution = execute_tool_plan_sync(
-            tool_plan if isinstance(tool_plan, list) else [],
+
+    try:
+        return run_agent_turn(
+            user_message=payload.message.strip(),
+            routing_message=routing_message,
             address_id=payload.address_id,
-            user_message=payload.message,
-            constraints=plan.get("constraints") if isinstance(plan, dict) else {},
-            enabled_providers=enabled_providers,
+            execute_tools=execute_tools,
             user_id=user,
+            explicit_tool_providers=explicit_tool_providers,
+            forced_empty_providers=forced_empty_providers,
+            llm=llm_cfg,
+            include_raw_zomato=payload.include_raw_zomato,
         )
-        provider_results = tool_execution.get("provider_results")
-        provider_summaries: dict[str, Any] = {}
-        if isinstance(provider_results, dict):
-            for provider_name, raw in provider_results.items():
-                if isinstance(raw, dict):
-                    provider_summaries[provider_name] = build_zomato_summary(raw)
-            zraw = provider_results.get("zomato")
-            if isinstance(zraw, dict):
-                zomato_raw = zraw
-        zomato_summary = build_zomato_summary(zomato_raw)
-    else:
-        provider_summaries = {}
-        zomato_summary = build_zomato_summary(None)
-
-    out: dict[str, Any] = {
-        "status": "success",
-        "provider": llm_cfg.provider,
-        "selected_tool_providers": sorted(routed_provider_ids),
-        "food_routing_plan": plan,
-        "tool_execution": {
-            "requested": bool(execute_tools),
-            "routed_providers": (
-                tool_execution.get("routed_providers", [])
-                if isinstance(tool_execution, dict)
-                else []
-            ),
-            "ok": tool_execution.get("ok") if isinstance(tool_execution, dict) else False,
-            "error": tool_execution.get("error") if isinstance(tool_execution, dict) else None,
-        },
-        "observable_trace": _tool_execution_trace(
-            plan=plan if isinstance(plan, dict) else {},
-            selected_providers=routed_provider_ids,
-            tool_execution=tool_execution,
-        ),
-        "zomato_summary": zomato_summary,
-        "provider_summaries": provider_summaries,
-        "assistant_message": build_assistant_message_with_llm(
-            user_message=payload.message,
-            plan=plan,
-            zomato_summary=zomato_summary,
-            provider=llm_cfg.provider,
-            api_key=llm_cfg.api_key,
-            model=llm_cfg.model,
-            base_url=llm_cfg.base_url,
-            provider_summaries=provider_summaries,
-        ),
-    }
-    if payload.include_raw_zomato:
-        out["zomato_raw"] = zomato_raw
-    return out
+    except CustomMcpNeedsDiscoveryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
 
 
+@app.post("/api/agent/query/")
+def agent_query_endpoint(
+    payload: AgentQueryRequest,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    return _companion_agent_turn(payload, user)
+
+
+@app.post("/api/food/query/")
+def food_agent_full(
+    payload: FoodQueryRequest,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    return _companion_agent_turn(payload, user)
 @app.post("/api/reminders/")
 def create_reminder(
     payload: ReminderCreateRequest,

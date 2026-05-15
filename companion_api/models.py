@@ -44,6 +44,10 @@ class FoodQueryRequest(BaseModel):
         return v
 
 
+class AgentQueryRequest(FoodQueryRequest):
+    """Request body for the primary agent endpoint (POST /api/agent/query/)."""
+
+
 class CustomMcpProviderRequest(BaseModel):
     label: str = Field(min_length=1, max_length=80)
     mcp_url: str = Field(min_length=8, max_length=500)

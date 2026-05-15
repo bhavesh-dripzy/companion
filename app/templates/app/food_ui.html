@@ -1084,7 +1084,7 @@
         }
         const selectedModelProvider = provider();
         if (selectedModelProvider && selectedModelProvider !== "auto") body.provider = selectedModelProvider;
-        const data = await api("POST", "/api/food/query/", body);
+        const data = await api("POST", "/api/agent/query/", body);
         const assistant = data.assistant_message || "I handled the request.";
         const routed = Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : [];
         const ok = data.tool_execution && data.tool_execution.ok === true ? "tools ok" : data.tool_execution && data.tool_execution.error ? data.tool_execution.error : "";
