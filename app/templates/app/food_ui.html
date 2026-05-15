@@ -976,8 +976,10 @@
       }
       gcalCreateBtn.disabled = true;
       try {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
         const data = await api("POST", "/api/reminders/google-calendar/", {
           message,
+          timezone,
           email_reminder_minutes: 0,
           popup_reminder_minutes: 10
         });
