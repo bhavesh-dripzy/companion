@@ -63,6 +63,15 @@ class ReminderCreateRequest(BaseModel):
     created_by: str | None = None
 
 
+class GoogleCalendarReminderRequest(BaseModel):
+    message: str = Field(min_length=1)
+    calendar_id: str = "primary"
+    timezone: str | None = None
+    email_reminder_minutes: int = Field(default=0, ge=0, le=40320)
+    popup_reminder_minutes: int | None = Field(default=10, ge=0, le=40320)
+    store_reminder: bool = True
+
+
 class ReminderResponseRequest(BaseModel):
     reminder_id: str = Field(min_length=1)
     member_id: str = Field(min_length=1)

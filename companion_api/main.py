@@ -44,12 +44,20 @@ from companion_api.dynamodb import ReminderRepository
 from companion_api.models import (
     CustomMcpProviderRequest,
     FoodQueryRequest,
+    GoogleCalendarReminderRequest,
     ReminderCreateRequest,
     ReminderEvent,
     ReminderResponseRequest,
     SendMessageRequest,
 )
 from companion_api.reminders import ReminderScheduler
+from companion_api.reminder_parser import parse_reminder_message
+from companion_api.google_calendar import (
+    complete_google_calendar_oauth,
+    create_calendar_event,
+    google_calendar_status,
+    start_google_calendar_oauth,
+)
 
 app = FastAPI(title="Companion API", version="2.0.0")
 app.add_middleware(
@@ -919,6 +927,51 @@ def mcp_tools(
     return result
 
 
+@app.get("/api/google-calendar/status/")
+def google_calendar_connection_status(user: str = Depends(get_current_user)) -> dict[str, Any]:
+    return google_calendar_status(user)
+
+
+@app.get("/api/google-calendar/oauth/start")
+def google_calendar_oauth_start(
+    request: Request,
+    user: str = Depends(get_current_user),
+) -> dict[str, str]:
+    try:
+        return start_google_calendar_oauth(
+            user_id=user,
+            redirect_uri=_public_url(request, "/api/google-calendar/oauth/callback"),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/google-calendar/oauth/callback", response_class=HTMLResponse)
+def google_calendar_oauth_callback(
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+):
+    if not code or not state:
+        return _oauth_result_page(
+            "Google Calendar connection failed",
+            "Google did not return the expected authorization code.",
+            ok=False,
+        )
+    try:
+        complete_google_calendar_oauth(code=code, state=state)
+        return _oauth_result_page(
+            "Google Calendar connected",
+            "Companion can now create calendar events with email reminders.",
+            ok=True,
+        )
+    except Exception as exc:
+        return _oauth_result_page(
+            "Google Calendar connection failed",
+            f"{type(exc).__name__}: {exc}",
+            ok=False,
+        )
+
+
 # ---------------------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------------------
@@ -1206,6 +1259,64 @@ def create_reminder(
         }
     )
     return {"status": "success", "reminder": reminder}
+
+
+@app.post("/api/reminders/google-calendar/")
+def create_google_calendar_reminder(
+    payload: GoogleCalendarReminderRequest,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        parsed = parse_reminder_message(
+            payload.message,
+            timezone_name=payload.timezone or settings.REMINDER_DEFAULT_TIMEZONE,
+        )
+        trigger = parsed["next_trigger"]
+        if not isinstance(trigger, datetime):
+            raise ValueError("Parsed reminder did not include a datetime.")
+        title = str(parsed["title"])
+        event = create_calendar_event(
+            user_id=user,
+            title=title,
+            description=f"Created by Companion from: {payload.message}",
+            start=trigger,
+            calendar_id=payload.calendar_id,
+            email_reminder_minutes=payload.email_reminder_minutes,
+            popup_reminder_minutes=payload.popup_reminder_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    reminder = None
+    if payload.store_reminder:
+        reminder = ReminderScheduler().create_reminder(
+            {
+                "member_id": user,
+                "title": title,
+                "description": f"Google Calendar event: {event.get('htmlLink') or event.get('id') or ''}",
+                "type": "google_calendar",
+                "schedule_type": "fixed",
+                "next_trigger": trigger.isoformat(),
+                "requires_confirmation": False,
+                "created_by": user,
+            }
+        )
+    return {
+        "status": "success",
+        "parsed": {
+            "title": title,
+            "next_trigger": trigger.isoformat(),
+            "timezone": parsed.get("timezone"),
+        },
+        "calendar_event": {
+            "id": event.get("id"),
+            "html_link": event.get("htmlLink"),
+            "summary": event.get("summary"),
+        },
+        "reminder": reminder,
+    }
 
 
 @app.get("/api/reminders/pending/")
