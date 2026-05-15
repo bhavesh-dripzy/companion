@@ -148,7 +148,6 @@ def test_google_calendar_reminder_endpoint_creates_event(monkeypatch):
     assert calls["event"]["popup_reminder_minutes"] == 10
     assert calls["reminder"]["type"] == "google_calendar"
 
-
 def test_google_calendar_oauth_start_reports_missing_config(monkeypatch):
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_CALENDAR_CLIENT_SECRET", raising=False)
