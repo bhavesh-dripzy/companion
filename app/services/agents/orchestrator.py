@@ -37,9 +37,9 @@ def classify_agent_routing(*, user_message: str, llm: ResolvedLlm) -> dict[str, 
     except ValueError:
         return {
             "task_type": "food_delivery",
-            "food_providers": ["zomato"],
+            "food_providers": ["swiggy_food"],
             "reasoning": (
-                "Orchestrator returned non-JSON; defaulting to Zomato food_delivery for safety."
+                "Orchestrator returned non-JSON; defaulting to Swiggy Food for safety."
             ),
         }
 
