@@ -126,9 +126,8 @@ All authenticated endpoints require `Authorization: Bearer <token>`.
   "message": "best pizza near me",
   "address_id": "<required: saved delivery address id from GET /api/food/saved-addresses/>",
   "provider": "gemini|openai|deepseek",
-  "tool_providers": ["zomato", "swiggy_food"],
   "execute_tools": true,
-  "include_raw_zomato": false
+  "history": []
 }
 ```
 

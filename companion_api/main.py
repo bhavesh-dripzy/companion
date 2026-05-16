@@ -1074,18 +1074,6 @@ def _companion_agent_turn(
         and item.get("content")
     ]
 
-    explicit_tool_providers: set[str] | None = None
-    forced_empty_providers = False
-    if payload.tool_provider and payload.tool_provider.strip():
-        explicit_tool_providers = {payload.tool_provider.strip()}
-    elif payload.tool_providers is not None:
-        explicit_tool_providers = {
-            provider.strip()
-            for provider in (payload.tool_providers or [])
-            if provider and provider.strip()
-        }
-        forced_empty_providers = not explicit_tool_providers
-
     execute_tools = (
         payload.execute_tools
         if payload.execute_tools is not None
@@ -1102,10 +1090,7 @@ def _companion_agent_turn(
             address_id=payload.address_id,
             execute_tools=execute_tools,
             user_id=user,
-            explicit_tool_providers=explicit_tool_providers,
-            forced_empty_providers=forced_empty_providers,
             llm=llm_cfg,
-            include_raw_zomato=payload.include_raw_zomato,
             conversation_history=recent_history,
         )
     except CustomMcpNeedsDiscoveryError as exc:

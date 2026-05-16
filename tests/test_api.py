@@ -710,7 +710,6 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
         json={
             "message": "Compare pizza on Zomato vs Swiggy near me",
             "execute_tools": True,
-            "tool_providers": ["zomato", "swiggy_food"],
             "address_id": "saved-addr-1",
         },
         headers=auth_headers(),
@@ -727,77 +726,7 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
     assert any(item["stage"] == "provider_execution" for item in trace)
 
 
-def test_food_query_honors_single_selected_tool_provider(monkeypatch):
-    calls = {}
-
-    stub_agent_intent(monkeypatch, food_providers=("zepto",))
-
-    monkeypatch.setattr(
-        api_main,
-        "resolve_llm_from_env",
-        lambda *_args, **_kwargs: (
-            ResolvedLlm(provider="gemini", api_key="test", model="gemini-test"),
-            None,
-        ),
-    )
-    monkeypatch.setattr(
-        agent_pipeline,
-        "build_assistant_message_with_llm",
-        lambda **_kwargs: "done",
-    )
-    monkeypatch.setattr(
-        agent_pipeline,
-        "_plan_for_provider",
-        lambda provider_id, **kwargs: finalize_tool_plan(
-            {
-                "intent": "find_products",
-                "summary": "milk search",
-                "tool_plan": [{"tool": "search_products", "arguments": {"query": "milk"}}],
-                "constraints": {},
-            },
-            provider="gemini",
-            model="gemini-test",
-            trace_id="trace-selected-provider",
-        ),
-    )
-
-    def fake_execute_tool_plan_sync(tool_plan, **kwargs):
-        calls["kwargs"] = kwargs
-        return {
-            "ok": True,
-            "error": None,
-            "routed_providers": ["zepto"],
-            "provider_results": {
-                "zepto": {
-                    "ok": True,
-                    "steps": [{"tool": "search_products"}],
-                    "diagnostics": {},
-                }
-            },
-        }
-
-    monkeypatch.setattr(agent_pipeline, "execute_tool_plan_sync", fake_execute_tool_plan_sync)
-
-    response = client.post(
-        "/api/food/query/",
-        json={
-            "message": "Search milk",
-            "execute_tools": True,
-            "tool_provider": "zepto",
-            "address_id": "saved-addr-1",
-        },
-        headers=auth_headers(),
-    )
-
-    assert response.status_code == 200
-    assert calls["kwargs"]["enabled_providers"] == {"zepto"}
-    assert response.json()["selected_tool_providers"] == ["zepto"]
-    trace = response.json()["observable_trace"]
-    assert trace[0]["stage"] == "intent_orchestration"
-    assert trace[1]["providers"] == ["zepto"]
-
-
-def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
+def test_food_query_routes_by_orchestrator(monkeypatch):
     calls = {}
 
     stub_agent_intent(monkeypatch, food_providers=("zepto",))

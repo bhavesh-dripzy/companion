@@ -25,11 +25,8 @@ class FoodQueryRequest(BaseModel):
         description="Saved delivery address id from GET /api/food/saved-addresses/ for this user.",
     )
     provider: str | None = None
-    tool_provider: str | None = None
-    tool_providers: list[str] | None = None
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
-    include_raw_zomato: bool = False
 
     @field_validator("address_id", mode="before")
     @classmethod

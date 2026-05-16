@@ -444,12 +444,6 @@
       }
     }
 
-    /** Match companion_api ``select_tool_providers_for_message`` comparison tokens — then omit ``tool_provider`` so routing can return multiple MCPs. */
-    function serverShouldPickToolProvidersFromMessage(message) {
-      const text = " " + String(message || "").toLowerCase() + " ";
-      return [" compare ", " vs ", " versus ", " cheaper ", " faster ", " better "].some(tok => text.includes(tok));
-    }
-
     const loginScreen = document.getElementById("loginScreen");
     const appScreen = document.getElementById("appScreen");
     const loginError = document.getElementById("loginError");
@@ -1079,9 +1073,6 @@
           execute_tools: true,
           history: chatHistory.slice(0, -1)
         };
-        if (!serverShouldPickToolProvidersFromMessage(msg)) {
-          body.tool_provider = primaryToolProvider();
-        }
         const selectedModelProvider = provider();
         if (selectedModelProvider && selectedModelProvider !== "auto") body.provider = selectedModelProvider;
         const data = await api("POST", "/api/agent/query/", body);

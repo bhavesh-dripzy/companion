@@ -248,10 +248,7 @@ def run_agent_turn(
     address_id: str,
     execute_tools: bool,
     user_id: str,
-    explicit_tool_providers: set[str] | None,
-    forced_empty_providers: bool,
     llm: ResolvedLlm,
-    include_raw_zomato: bool = False,
     conversation_history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -262,17 +259,12 @@ def run_agent_turn(
     routing_message = _format_routing_message(user_message, conversation_history)
     orchestration = classify_agent_routing(user_message=routing_message, llm=llm)
 
-    if forced_empty_providers:
-        routed = set()
-    elif explicit_tool_providers is not None:
-        routed = explicit_tool_providers
-    else:
-        routed = set(orchestration.get("food_providers") or [])
-        routed = {
-            pid
-            for pid in routed
-            if isinstance(pid, str) and pid.strip() and pid.strip() != "blinkit"
-        }
+    routed = set(orchestration.get("food_providers") or [])
+    routed = {
+        pid
+        for pid in routed
+        if isinstance(pid, str) and pid.strip() and pid.strip() != "blinkit"
+    }
 
     task_type = str(orchestration.get("task_type") or "food_delivery")
 
@@ -289,7 +281,6 @@ def run_agent_turn(
             user_id=user_id,
         )
 
-    zomato_raw: dict[str, Any] | None = None
     tool_execution: dict[str, Any] | None = None
     if execute_tools:
         tool_plan = plan.get("tool_plan") if isinstance(plan, dict) else []
@@ -309,9 +300,7 @@ def run_agent_turn(
                 if isinstance(raw, dict):
                     provider_summaries[provider_name] = build_zomato_summary(raw)
             zraw = provider_results.get("zomato")
-            if isinstance(zraw, dict):
-                zomato_raw = zraw
-            zomato_summary = build_zomato_summary(zomato_raw)
+            zomato_summary = build_zomato_summary(zraw if isinstance(zraw, dict) else None)
         else:
             zomato_summary = build_zomato_summary(None)
     else:
@@ -353,6 +342,4 @@ def run_agent_turn(
             provider_summaries=provider_summaries,
         ),
     }
-    if include_raw_zomato:
-        out["zomato_raw"] = zomato_raw
     return out
