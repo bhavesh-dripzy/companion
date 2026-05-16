@@ -1,15 +1,15 @@
 """
-Maps free-text food requests to a JSON plan typed for downstream MCP tool calls.
+Shared LLM helpers for food domain agents.
 
-Downstream can resolve placeholders such as __ADDRESS_ID__ and __RESTAURANT_ID__
-from earlier tool results in the same plan.
+Each provider agent (e.g. ``swiggy.planner``) loads its own prompt, calls
+``complete_json_object``, then ``finalize_tool_plan`` to validate tool names only.
+No deterministic shortcuts, fallbacks, or injected tool steps.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -29,16 +29,7 @@ _BUILTIN_PROMPTS: dict[str, Path] = {
     "zepto": _SVC_ROOT / "zepto" / "prompts" / "food.system.md",
 }
 
-
-@lru_cache(maxsize=8)
-def _load_builtin_prompt(provider_key: str) -> str:
-    path = _BUILTIN_PROMPTS.get(provider_key) or _BUILTIN_PROMPTS["zomato"]
-    return path.read_text(encoding="utf-8").strip()
-
-
-def router_prompt_fallback() -> str:
-    return _load_builtin_prompt("zomato")
-
+# Union of known MCP tool names (used only to drop hallucinated tools).
 _ALLOWED_TOOLS = frozenset(
     {
         "get_saved_addresses_for_user",
@@ -79,29 +70,26 @@ _ALLOWED_TOOLS = frozenset(
         "track_order",
         "fetch_food_coupons",
         "apply_food_coupon",
-        "get_cart_offers",
         "your_go_to_items",
         "update_cart",
         "report_error",
     }
 )
 
-_ADDRESS_TOOLS = {"get_restaurants_for_keyword", "search_restaurants"}
-_RESTAURANT_TOOLS = {
-    "get_restaurant_menu_by_categories",
-    "get_menu_items_listing",
-    "get_restaurant_menu",
-    "search_menu",
-    "search_menu_items",
+_TOOL_ALIASES: dict[str, str] = {
+    "get_user_addresses": "get_addresses",
+    "search_menu_items": "search_menu",
 }
-_ORDER_TOOLS = {
-    "get_order_tracking_info",
-    "get_order_details",
-    "get_food_order_details",
-    "track_food_order",
-    "track_order",
-}
-_ORDER_HISTORY_PROVIDERS = {"zomato", "swiggy_food", "swiggy_instamart", "zepto"}
+
+
+@lru_cache(maxsize=8)
+def _load_builtin_prompt(provider_key: str) -> str:
+    path = _BUILTIN_PROMPTS.get(provider_key) or _BUILTIN_PROMPTS["zomato"]
+    return path.read_text(encoding="utf-8").strip()
+
+
+def router_prompt_fallback() -> str:
+    return _load_builtin_prompt("zomato")
 
 
 def _system_prompt_for_tool_provider(
@@ -132,7 +120,7 @@ TOOLS (use ONLY these exact tool strings):
 
 RULES:
 1. Use the smallest useful chain of tools.
-2. Never invent opaque IDs. If a later tool needs an ID, use a placeholder like "__ITEM_ID__", "__ORDER_ID__", "__CART_ID__", or "__RESTAURANT_ID__" only after an earlier tool can return it.
+2. Never invent opaque IDs. Use placeholders such as "__ADDRESS_ID__" or "__RESTAURANT_ID__" only when a prior step supplies them.
 3. Do not call destructive or purchasing tools unless the user explicitly confirms that action.
 4. Return ONLY valid JSON.
 """
@@ -142,469 +130,30 @@ RULES:
     return _load_builtin_prompt("zomato")
 
 
-def _infer_keyword_from_message(message: str) -> str:
-    text = " ".join(message.strip().split())
-    if not text:
-        return "restaurant"
-    lowered = text.lower()
-    for marker in ("compare", "find", "search", "show", "get", "order"):
-        if lowered.startswith(marker + " "):
-            text = text[len(marker) :].strip()
-            lowered = text.lower()
-            break
-    for sep in (" near ", " in ", " at ", " around ", " from "):
-        if sep in lowered:
-            idx = lowered.index(sep)
-            text = text[:idx].strip()
-            break
-    for word in ("zomato", "swiggy", "blinkit", "zepto", "versus", "vs"):
-        text = " ".join(part for part in text.split() if part.lower().strip(".,") != word)
-    return text.strip(" ,.-") or "restaurant"
-
-
-def _comparison_plan(user_message: str, tool_providers: set[str]) -> dict[str, Any] | None:
-    wanted = {"zomato", "swiggy_food"}
-    text = user_message.lower()
-    asks_compare = any(token in text for token in ("compare", " vs ", " versus "))
-    mentions_both = "zomato" in text and "swiggy" in text
-    if not (wanted <= tool_providers or (asks_compare and mentions_both)):
-        return None
-
-    keyword = _infer_keyword_from_message(user_message)
-    plan = [
-        {"provider": "zomato", "tool": "get_saved_addresses_for_user", "arguments": {}},
-        {
-            "provider": "zomato",
-            "tool": "get_restaurants_for_keyword",
-            "arguments": {"keyword": keyword, "address_id": "__ADDRESS_ID__"},
-        },
-        {"provider": "swiggy_food", "tool": "search_restaurants", "arguments": {"query": keyword}},
-    ]
-    return {
-        "intent": "compare_restaurant_providers",
-        "summary": f"Compare Zomato and Swiggy results for {keyword}.",
-        "tool_plan": plan,
-        "constraints": {
-            "requires_address_resolution": True,
-            "requested_location_text": None,
-            "inferred_keyword": keyword,
-            "price_max_inr": None,
-            "price_min_inr": None,
-            "min_rating": None,
-            "near_and_fast": None,
-            "vegetarian_only": None,
-            "party_size_estimate": None,
-            "health_constraints": None,
-            "comparison_providers": sorted(wanted),
-        },
-        "execution_notes_for_downstream": (
-            "Run Zomato and Swiggy Food independently, then compare availability, rating, ETA, distance, and offers."
-        ),
-        "validation": {
-            "tool_count": len(plan),
-            "dropped_unknown_tool_steps": 0,
-            "resolved_model": "deterministic-comparison-router",
-            "completion_id": "",
-            "provider": "system",
-        },
-    }
-
-
-def _order_history_plan(user_message: str, tool_providers: set[str]) -> dict[str, Any] | None:
-    text = f" {user_message.lower()} "
-    order_terms = (" order ", " orders ", " ordered ", " history ", " recent ", " last ", " past ")
-    if not any(term in text for term in order_terms):
-        return None
-
-    providers = sorted(tool_providers & _ORDER_HISTORY_PROVIDERS)
-    if not providers:
-        return None
-
-    plan = []
-    for provider_name in providers:
-        if provider_name == "swiggy_food":
-            plan.append({"provider": provider_name, "tool": "get_food_orders", "arguments": {}})
-        elif provider_name == "swiggy_instamart":
-            plan.append({"provider": provider_name, "tool": "get_orders", "arguments": {}})
-        else:
-            plan.append({"provider": provider_name, "tool": "get_order_history", "arguments": {}})
-    return {
-        "intent": "get_order_history",
-        "summary": "Fetch recent order history from " + ", ".join(providers) + ".",
-        "tool_plan": plan,
-        "constraints": {
-            "requires_address_resolution": False,
-            "requested_location_text": None,
-            "inferred_keyword": None,
-            "price_max_inr": None,
-            "price_min_inr": None,
-            "min_rating": None,
-            "near_and_fast": None,
-            "vegetarian_only": None,
-            "party_size_estimate": None,
-            "health_constraints": None,
-            "order_history_providers": providers,
-        },
-        "execution_notes_for_downstream": "Run order-history tools for the selected provider(s) (get_food_orders / get_orders / get_order_history).",
-        "validation": {
-            "tool_count": len(plan),
-            "dropped_unknown_tool_steps": 0,
-            "resolved_model": "deterministic-order-history-router",
-            "completion_id": "",
-            "provider": "system",
-        },
-    }
-
-
-def _has_tool(tool_plan: list[dict[str, Any]], tool_name: str) -> bool:
-    return any(isinstance(step, dict) and step.get("tool") == tool_name for step in tool_plan)
-
-
-def _constraint_text(constraints: dict[str, Any], key: str) -> str | None:
-    val = constraints.get(key)
-    if isinstance(val, str) and val.strip():
-        return val.strip()
-    return None
-
-
-def _default_keyword(data: dict[str, Any], constraints: dict[str, Any]) -> str:
-    keyword = _constraint_text(constraints, "inferred_keyword")
-    if keyword:
-        return keyword
-    summary = str(data.get("summary") or "").strip()
-    return summary or "restaurant"
-
-
-def _discovery_keyword_from_constraints(
-    data: dict[str, Any], constraints: dict[str, Any]
-) -> str:
-    for key in ("query", "inferred_keyword", "keyword"):
-        v = _constraint_text(constraints, key)
-        if v:
-            return v
-    return _default_keyword(data, constraints)
-
-
-def _fallback_tool_plan_swiggy_food(
-    data: dict[str, Any], constraints: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """When the LLM returns [], still run a minimal Swiggy discovery chain."""
-    q = _discovery_keyword_from_constraints(data, constraints)
-    return [
-        {"tool": "get_addresses", "arguments": {}},
-        {"tool": "search_restaurants", "arguments": {"query": q}},
-    ]
-
-
-def _fallback_tool_plan_swiggy_instamart(
-    data: dict[str, Any], constraints: dict[str, Any]
-) -> list[dict[str, Any]]:
-    q = _discovery_keyword_from_constraints(data, constraints)
-    if not q or q.strip().lower() == "restaurant":
-        q = "groceries"
-    return [
-        {"tool": "get_addresses", "arguments": {}},
-        {"tool": "search_products", "arguments": {"query": q}},
-    ]
-
-
-def _swiggy_search_query_from_context(
-    raw_query: str,
-    *,
-    constraints: dict[str, Any],
-    data: dict[str, Any],
-) -> str:
-    """Turn bloated LLM prose into a short Swiggy search_restaurants query."""
-    q = (raw_query or "").strip()
-    name = _constraint_text(constraints, "restaurant_name")
-    if name and (len(q) > 64 or re.match(r"(?is)^(user wants|i want|i'd like|show me|please)\b", q)):
-        return name.strip()
-    inf = _constraint_text(constraints, "inferred_keyword")
-    if inf and len(q) > 64:
-        return inf.strip()
-    summary = str(data.get("summary") or "").strip()
-    low = summary.lower()
-    if " for " in low:
-        m = re.search(r"for\s+([^.\n]+?)(?:\.|$)", summary, re.I)
-        if m:
-            frag = m.group(1).strip().strip("'\"")
-            if 2 <= len(frag) <= 80:
-                return frag
-    if len(q) > 88:
-        return (name or inf or _default_keyword(data, constraints) or q[:72]).strip()
-    return q or "restaurant"
-
-
-def _sanitize_swiggy_food_search_queries(
-    tool_plan: list[dict[str, Any]],
-    data: dict[str, Any],
-    constraints: dict[str, Any],
-) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for step in tool_plan:
-        if not isinstance(step, dict):
-            continue
-        if step.get("tool") != "search_restaurants":
-            out.append(step)
-            continue
-        args = dict(step.get("arguments") or {})
-        q = str(args.get("query") or "").strip()
-        args["query"] = _swiggy_search_query_from_context(q, constraints=constraints, data=data)
-        out.append({**step, "arguments": args})
-    return out
-
-
-def _wants_swiggy_menu_fetch(
-    intent: str, summary: str, constraints: dict[str, Any]
-) -> bool:
-    intent_l = (intent or "").lower()
-    if "menu" in intent_l or intent_l in ("get_restaurant_menu", "search_menu", "search_menu_items"):
-        return True
-    if _constraint_text(constraints, "menu_type"):
-        return True
-    s = (summary or "").lower()
-    if "menu" in s or "veg " in s or " items" in s or "dishes" in s:
-        return True
-    return False
-
-
-def _maybe_append_swiggy_menu_after_search(
-    tool_plan: list[dict[str, Any]],
-    data: dict[str, Any],
-    constraints: dict[str, Any],
-    tool_provider: str | None,
-) -> list[dict[str, Any]]:
-    """If the model stopped after search but asked for a menu, fetch get_restaurant_menu."""
-    if tool_provider != "swiggy_food" or not tool_plan:
-        return tool_plan
-    if not _wants_swiggy_menu_fetch(
-        str(data.get("intent") or ""),
-        str(data.get("summary") or ""),
-        constraints,
-    ):
-        return tool_plan
-    names = {s.get("tool") for s in tool_plan if isinstance(s, dict)}
-    if "get_restaurant_menu" in names or "search_menu" in names:
-        return tool_plan
-    if "search_restaurants" not in names:
-        return tool_plan
-    out = list(tool_plan)
-    out.append(
-        {
-            "tool": "get_restaurant_menu",
-            "arguments": {
-                "restaurantId": "__RESTAURANT_ID__",
-                "addressId": "__ADDRESS_ID__",
-                "restaurant_id": "__RESTAURANT_ID__",
-                "address_id": "__ADDRESS_ID__",
-            },
-        }
-    )
-    return out
-
-
-def _ensure_prerequisites(
-    tool_plan: list[dict[str, Any]],
-    *,
-    data: dict[str, Any],
-    constraints: dict[str, Any],
-    tool_provider: str | None = None,
-) -> list[dict[str, Any]]:
-    if not tool_plan:
-        return tool_plan
-
-    needs_address = any(step.get("tool") in _ADDRESS_TOOLS for step in tool_plan)
-    needs_restaurant = any(step.get("tool") in _RESTAURANT_TOOLS for step in tool_plan)
-
-    address_list_tool = (
-        "get_addresses"
-        if tool_provider in ("swiggy_food", "swiggy_instamart")
-        else "get_saved_addresses_for_user"
-    )
-
-    out = list(tool_plan)
-    has_addr_prefetch = (
-        _has_tool(out, "get_saved_addresses_for_user")
-        or _has_tool(out, "get_user_addresses")
-        or _has_tool(out, "get_addresses")
-    )
-    if (
-        (needs_address or (needs_restaurant and tool_provider != "swiggy_food"))
-        and not _has_tool(out, address_list_tool)
-        and not has_addr_prefetch
-    ):
-        out.insert(0, {"tool": address_list_tool, "arguments": {}})
-
-    if needs_restaurant and not _has_tool(out, "get_restaurants_for_keyword") and not _has_tool(out, "search_restaurants"):
-        has_address_header = (
-            _has_tool(out, "get_saved_addresses_for_user")
-            or _has_tool(out, "get_user_addresses")
-            or _has_tool(out, "get_addresses")
-        )
-        insert_at = 1 if has_address_header else 0
-        if tool_provider == "swiggy_food":
-            out.insert(
-                0,
-                {
-                    "tool": "search_restaurants",
-                    "arguments": {"query": _default_keyword(data, constraints)},
-                },
-            )
-        else:
-            out.insert(
-                insert_at,
-                {
-                    "tool": "get_restaurants_for_keyword",
-                    "arguments": {
-                        "keyword": _default_keyword(data, constraints),
-                        "address_id": "__ADDRESS_ID__",
-                    },
-                },
-            )
-
-    return out
-
-
-def _normalize_zomato_res_id_address_args(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Zomato MCP menu tools expect res_id + address_id (not restaurant_id alone)."""
-    arguments = dict(arguments)
-    res_id = (
-        arguments.get("res_id")
-        or arguments.get("restaurant_id")
-        or arguments.get("restaurantId")
-        or arguments.get("resId")
-    )
-    if res_id is None or (isinstance(res_id, str) and not str(res_id).strip()):
-        arguments["res_id"] = "__RESTAURANT_ID__"
-    else:
-        arguments["res_id"] = res_id
-    for drop in ("restaurant_id", "restaurantId", "resId"):
-        arguments.pop(drop, None)
-    aid = arguments.get("address_id")
-    if aid is None or (isinstance(aid, str) and not str(aid).strip()):
-        arguments["address_id"] = "__ADDRESS_ID__"
-    return arguments
-
-
 def normalize_tool_plan(
     tool_plan: list[dict[str, Any]],
     *,
     allowed_tools: set[str] | None = None,
 ) -> list[dict[str, Any]]:
+    """Keep LLM arguments as-is; only alias tool names and drop unknown tools."""
+    allowed = allowed_tools or _ALLOWED_TOOLS
     out: list[dict[str, Any]] = []
 
     for step in tool_plan:
         if not isinstance(step, dict):
             continue
-
         tool = step.get("tool")
-        arguments = step.get("arguments") or {}
-
-        if not isinstance(tool, str):
+        if not isinstance(tool, str) or not tool.strip():
             continue
-
-        if tool == "get_user_addresses":
-            tool = "get_addresses"
-        elif tool == "search_menu_items":
-            tool = "search_menu"
-
-        if tool not in (allowed_tools or _ALLOWED_TOOLS):
+        tool = _TOOL_ALIASES.get(tool.strip(), tool.strip())
+        if tool not in allowed:
             continue
-
+        arguments = step.get("arguments")
         if not isinstance(arguments, dict):
             arguments = {}
-
-        if tool == "get_restaurants_for_keyword":
-            arguments = dict(arguments)
-            aid = arguments.get("address_id")
-            if aid is None or (isinstance(aid, str) and not str(aid).strip()):
-                arguments["address_id"] = "__ADDRESS_ID__"
-            keyword = arguments.get("keyword")
-            if keyword is None or (isinstance(keyword, str) and not keyword.strip()):
-                arguments["keyword"] = "restaurant"
-
-        if tool == "search_restaurants":
-            arguments = dict(arguments)
-            aid = arguments.get("addressId") or arguments.get("address_id")
-            if aid is None or (isinstance(aid, str) and not str(aid).strip()):
-                arguments["address_id"] = "__ADDRESS_ID__"
-                arguments["addressId"] = "__ADDRESS_ID__"
-            else:
-                s = str(aid).strip()
-                arguments["address_id"] = s
-                arguments["addressId"] = s
-            q = arguments.get("query") or arguments.get("keyword")
-            if q is None or (isinstance(q, str) and not str(q).strip()):
-                arguments["query"] = "restaurant"
-            else:
-                arguments["query"] = str(q).strip()
-            arguments.pop("keyword", None)
-
-        if tool in _RESTAURANT_TOOLS:
-            arguments = dict(arguments)
-            if tool in ("get_menu_items_listing", "get_restaurant_menu_by_categories"):
-                arguments = _normalize_zomato_res_id_address_args(arguments)
-            elif tool in ("get_restaurant_menu", "search_menu"):
-                restaurant_id = (
-                    arguments.get("restaurant_id")
-                    or arguments.get("restaurantId")
-                    or arguments.get("res_id")
-                    or arguments.get("resId")
-                )
-                if restaurant_id is None or (
-                    isinstance(restaurant_id, str) and not restaurant_id.strip()
-                ):
-                    arguments["restaurant_id"] = "__RESTAURANT_ID__"
-                    arguments["restaurantId"] = "__RESTAURANT_ID__"
-                else:
-                    s = str(restaurant_id).strip()
-                    arguments["restaurant_id"] = s
-                    arguments["restaurantId"] = s
-                aid = arguments.get("address_id") or arguments.get("addressId")
-                if aid is None or (isinstance(aid, str) and not str(aid).strip()):
-                    arguments["address_id"] = "__ADDRESS_ID__"
-                    arguments["addressId"] = "__ADDRESS_ID__"
-                else:
-                    s = str(aid).strip()
-                    arguments["address_id"] = s
-                    arguments["addressId"] = s
-            else:
-                restaurant_id = (
-                    arguments.get("restaurant_id")
-                    or arguments.get("res_id")
-                    or arguments.get("restaurantId")
-                    or arguments.get("resId")
-                )
-                if restaurant_id is None or (
-                    isinstance(restaurant_id, str) and not restaurant_id.strip()
-                ):
-                    arguments["restaurant_id"] = "__RESTAURANT_ID__"
-
-        if tool in _ORDER_TOOLS:
-            arguments = dict(arguments)
-            order_id_val = arguments.get("order_id") or arguments.get("orderId")
-            # Swiggy `track_food_order`: orderId is optional — do not inject __ORDER_ID__.
-            if tool == "track_food_order":
-                if order_id_val and str(order_id_val).strip():
-                    s = str(order_id_val).strip()
-                    arguments["order_id"] = s
-                    arguments["orderId"] = s
-                else:
-                    arguments.pop("order_id", None)
-                    arguments.pop("orderId", None)
-            elif order_id_val is None or (
-                isinstance(order_id_val, str) and not str(order_id_val).strip()
-            ):
-                arguments["order_id"] = "__ORDER_ID__"
-                arguments["orderId"] = "__ORDER_ID__"
-            else:
-                s = str(order_id_val).strip()
-                arguments["order_id"] = s
-                arguments["orderId"] = s
-
-        normalized_step = {
-            "tool": tool.strip(),
-            "arguments": arguments,
+        normalized_step: dict[str, Any] = {
+            "tool": tool,
+            "arguments": dict(arguments),
         }
         provider_hint = step.get("provider")
         if isinstance(provider_hint, str) and provider_hint.strip():
@@ -614,60 +163,24 @@ def normalize_tool_plan(
     return out
 
 
-def _finalize_from_parsed_json(
+def finalize_tool_plan(
     data: dict[str, Any],
     *,
     provider: Provider,
     model: str,
     trace_id: str,
-    tool_provider: str | None = None,
     allowed_tools: set[str] | None = None,
 ) -> dict[str, Any]:
     tool_plan_raw = data.get("tool_plan")
-
     tool_plan = normalize_tool_plan(
         tool_plan_raw if isinstance(tool_plan_raw, list) else [],
         allowed_tools=allowed_tools,
     )
 
     constraints = data.get("constraints")
-
     if constraints is None or not isinstance(constraints, dict):
         constraints = {}
     constraints.setdefault("requested_location_text", None)
-    if tool_provider == "swiggy_food":
-        tool_plan = _sanitize_swiggy_food_search_queries(tool_plan, data, constraints)
-    tool_plan = _ensure_prerequisites(
-        tool_plan,
-        data=data,
-        constraints=constraints,
-        tool_provider=tool_provider,
-    )
-    if not tool_plan and tool_provider == "swiggy_food":
-        tool_plan = _fallback_tool_plan_swiggy_food(data, constraints)
-        tool_plan = _ensure_prerequisites(
-            tool_plan,
-            data=data,
-            constraints=constraints,
-            tool_provider=tool_provider,
-        )
-    elif not tool_plan and tool_provider == "swiggy_instamart":
-        tool_plan = _fallback_tool_plan_swiggy_instamart(data, constraints)
-        tool_plan = _ensure_prerequisites(
-            tool_plan,
-            data=data,
-            constraints=constraints,
-            tool_provider=tool_provider,
-        )
-    if tool_provider == "swiggy_food":
-        tool_plan = _maybe_append_swiggy_menu_after_search(
-            tool_plan, data, constraints, tool_provider
-        )
-        tool_plan = normalize_tool_plan(tool_plan, allowed_tools=allowed_tools)
-    constraints.setdefault(
-        "requires_address_resolution",
-        any(step.get("tool") in _ADDRESS_TOOLS for step in tool_plan),
-    )
 
     normalized: dict[str, Any] = {
         "intent": str(data.get("intent", "") or "unknown"),
@@ -696,6 +209,10 @@ def _finalize_from_parsed_json(
     return normalized
 
 
+# Backward-compatible alias for tests and legacy imports.
+_finalize_from_parsed_json = finalize_tool_plan
+
+
 def _json_from_llm(content: str) -> dict[str, Any]:
     try:
         data = json.loads(content)
@@ -717,7 +234,6 @@ def _openai_compatible_call(
     base_url: str | None = None,
     system_prompt: str | None = None,
 ) -> tuple[str, str | None]:
-    """Shared path for OpenAI and DeepSeek (both use OpenAI SDK)."""
     resolved_system_prompt = system_prompt or router_prompt_fallback()
     kwargs: dict[str, Any] = {"api_key": api_key}
     if base_url:
@@ -739,24 +255,6 @@ def _openai_compatible_call(
     return content, tid
 
 
-def try_deterministic_food_plan(
-    user_message: str, tool_providers: set[str]
-) -> dict[str, Any] | None:
-    """
-    Fast paths that do not need the domain LLM (order history spanning multiple providers,
-    Zomato-vs-Swiggy restaurant comparisons, etc.).
-    """
-    if not tool_providers:
-        return None
-    order_history = _order_history_plan(user_message, tool_providers)
-    if order_history is not None:
-        return order_history
-    comparison = _comparison_plan(user_message, tool_providers)
-    if comparison is not None:
-        return comparison
-    return None
-
-
 def complete_json_object(
     *,
     user_message: str,
@@ -766,7 +264,7 @@ def complete_json_object(
     provider: Provider,
     base_url: str | None = None,
 ) -> dict[str, Any]:
-    """Single-turn JSON object from the model (used by the agent orchestrator layer)."""
+    """Single-turn JSON from the model (orchestrator and domain agents)."""
     if provider in ("openai", "deepseek"):
         content, _tid = _openai_compatible_call(
             api_key=api_key,
@@ -807,19 +305,13 @@ def route_food_query(
     provider: Provider,
     base_url: str | None = None,
     tool_provider: str | None = None,
-    tool_providers: set[str] | None = None,
     tool_provider_label: str | None = None,
     tool_provider_tools: list[str] | None = None,
-    skip_aggregate_shortcuts: bool = False,
+    skip_aggregate_shortcuts: bool = False,  # noqa: ARG001 — kept for call-site compatibility
     system_prompt_override: str | None = None,
+    tool_providers: set[str] | None = None,  # noqa: ARG001
 ) -> dict[str, Any]:
-    if not skip_aggregate_shortcuts and tool_providers:
-        order_history = _order_history_plan(user_message, tool_providers)
-        if order_history is not None:
-            return order_history
-        comparison = _comparison_plan(user_message, tool_providers)
-        if comparison is not None:
-            return comparison
+    """Generic food domain agent (prompt + LLM → tool_plan). Prefer provider-specific planners when available."""
     allowed_tools = (
         {tool for tool in tool_provider_tools if isinstance(tool, str) and tool.strip()}
         if tool_provider_tools
@@ -836,10 +328,6 @@ def route_food_query(
         tool_provider_tools=sorted(allowed_tools) if allowed_tools else None,
     )
 
-    # =========================
-    # OPENAI  &  DEEPSEEK
-    # =========================
-
     if provider in ("openai", "deepseek"):
         content, tid = _openai_compatible_call(
             api_key=api_key,
@@ -848,21 +336,15 @@ def route_food_query(
             base_url=base_url if provider == "deepseek" else None,
             system_prompt=system_prompt,
         )
-
         data = _json_from_llm(content)
-
-        return _finalize_from_parsed_json(
+        return finalize_tool_plan(
             data,
             provider=provider,
             model=model,
             trace_id=tid or "",
-            tool_provider=tool_provider,
             allowed_tools=allowed_tools,
         )
 
-    # =========================
-    # GEMINI (google-genai package)
-    # =========================
     try:
         from google import genai as google_genai
     except ImportError as e:
@@ -871,7 +353,6 @@ def route_food_query(
         ) from e
 
     client = google_genai.Client(api_key=api_key)
-
     response = client.models.generate_content(
         model=model,
         contents=f"""
@@ -882,16 +363,12 @@ USER:
 {user_message.strip()}
 """,
     )
-
     text = response.text or "{}"
-
     data = _json_from_llm(text)
-
-    return _finalize_from_parsed_json(
+    return finalize_tool_plan(
         data,
         provider="gemini",
         model=model,
         trace_id="",
-        tool_provider=tool_provider,
         allowed_tools=allowed_tools,
     )

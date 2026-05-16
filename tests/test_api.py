@@ -11,8 +11,7 @@ from app.services.llm_config import ResolvedLlm
 from companion_api.main import app
 from companion_api import main as api_main
 from app.services import zomato_mcp_executor as mcp_exec
-from app.services.food_llm_router import _finalize_from_parsed_json
-from app.services.food_llm_router import route_food_query
+from app.services.food_llm_router import finalize_tool_plan
 from app.services.food_response_builder import build_zomato_summary
 from app.services.tool_runtime import (
     execute_tool_plan_sync,
@@ -385,8 +384,8 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
 
     monkeypatch.setattr(
         agent_pipeline,
-        "route_food_query",
-        lambda **kwargs: _finalize_from_parsed_json(
+        "_plan_for_provider",
+        lambda provider_id, **kwargs: finalize_tool_plan(
             {
                 "intent": "find_restaurant",
                 "summary": "pizza find",
@@ -397,7 +396,6 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
             provider="gemini",
             model="gemini-2.5-flash-lite",
             trace_id="trace-1",
-            tool_provider="zomato",
         ),
     )
 
@@ -441,8 +439,8 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
 
     monkeypatch.setattr(
         agent_pipeline,
-        "route_food_query",
-        lambda **kwargs: _finalize_from_parsed_json(
+        "_plan_for_provider",
+        lambda provider_id, **kwargs: finalize_tool_plan(
             {
                 "intent": "find_restaurant",
                 "summary": "pizza find",
@@ -453,7 +451,6 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
             provider="gemini",
             model="gemini-2.5-flash-lite",
             trace_id="trace-2",
-            tool_provider="zomato",
         ),
     )
 
@@ -580,11 +577,10 @@ def test_empty_tool_plan_is_not_success():
     assert result["routed_providers"] == []
 
 
-def test_finalize_fills_empty_swiggy_food_tool_plan():
-    """DeepSeek sometimes returns intent + constraints but tool_plan: []."""
-    from app.services.food_llm_router import _finalize_from_parsed_json
+def test_finalize_keeps_llm_tool_plan_without_injection():
+    from app.services.food_llm_router import finalize_tool_plan
 
-    out = _finalize_from_parsed_json(
+    out = finalize_tool_plan(
         {
             "intent": "search_menu_items",
             "summary": "User wants burger delivery options.",
@@ -595,42 +591,34 @@ def test_finalize_fills_empty_swiggy_food_tool_plan():
         provider="deepseek",
         model="deepseek-chat",
         trace_id="t-heal",
-        tool_provider="swiggy_food",
         allowed_tools=None,
     )
-    tools = [s.get("tool") for s in out["tool_plan"]]
-    assert "get_addresses" in tools
-    assert "search_restaurants" in tools
-    sr = next(s for s in out["tool_plan"] if s.get("tool") == "search_restaurants")
-    assert sr["arguments"].get("query") == "burger"
+    assert out["tool_plan"] == []
 
 
-def test_finalize_shortens_swiggy_search_and_appends_menu():
-    from app.services.food_llm_router import _finalize_from_parsed_json
+def test_finalize_passes_through_swiggy_arguments():
+    from app.services.food_llm_router import finalize_tool_plan
 
-    out = _finalize_from_parsed_json(
+    long_query = "User wants to see the veg menu for Galaxy Pizza."
+    out = finalize_tool_plan(
         {
             "intent": "get_restaurant_menu",
-            "summary": "User wants to see the veg menu for Galaxy Pizza.",
+            "summary": "Galaxy Pizza veg menu",
             "tool_plan": [
                 {"tool": "get_addresses", "arguments": {}},
-                {
-                    "tool": "search_restaurants",
-                    "arguments": {"query": "User wants to see the veg menu for Galaxy Pizza."},
-                },
+                {"tool": "search_restaurants", "arguments": {"query": long_query}},
             ],
-            "constraints": {"restaurant_name": "Galaxy Pizza", "menu_type": "veg"},
+            "constraints": {},
             "execution_notes_for_downstream": "",
         },
         provider="deepseek",
         model="deepseek-chat",
         trace_id="t-menu",
-        tool_provider="swiggy_food",
         allowed_tools=None,
     )
     sr = next(s for s in out["tool_plan"] if s.get("tool") == "search_restaurants")
-    assert sr["arguments"].get("query") == "Galaxy Pizza"
-    assert any(s.get("tool") == "get_restaurant_menu" for s in out["tool_plan"])
+    assert sr["arguments"].get("query") == long_query
+    assert not any(s.get("tool") == "get_restaurant_menu" for s in out["tool_plan"])
 
 
 def test_provider_hints_route_shared_tool_names():
@@ -645,23 +633,6 @@ def test_provider_hints_route_shared_tool_names():
     assert set(routed) == {"zomato", "swiggy_food"}
     assert len(routed["zomato"]) == 1
     assert len(routed["swiggy_food"]) == 1
-
-
-def test_order_history_router_uses_deterministic_provider_plan():
-    plan = route_food_query(
-        user_message="Check where did I last order from in both Swiggy and Zomato",
-        api_key="unused",
-        model="unused",
-        provider="gemini",
-        tool_providers={"zomato", "swiggy_food"},
-    )
-
-    assert plan["intent"] == "get_order_history"
-    assert plan["validation"]["resolved_model"] == "deterministic-order-history-router"
-    assert plan["tool_plan"] == [
-        {"provider": "swiggy_food", "tool": "get_food_orders", "arguments": {}},
-        {"provider": "zomato", "tool": "get_order_history", "arguments": {}},
-    ]
 
 
 def test_compare_query_executes_multiple_tool_providers(monkeypatch):
@@ -682,6 +653,42 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
         "build_assistant_message_with_llm",
         lambda **_kwargs: "done",
     )
+
+    def fake_plan(provider_id, **kwargs):
+        if provider_id == "zomato":
+            return finalize_tool_plan(
+                {
+                    "intent": "search_restaurants",
+                    "summary": "pizza on zomato",
+                    "tool_plan": [
+                        {"tool": "get_saved_addresses_for_user", "arguments": {}},
+                        {
+                            "tool": "get_restaurants_for_keyword",
+                            "arguments": {"keyword": "pizza", "address_id": "__ADDRESS_ID__"},
+                        },
+                    ],
+                    "constraints": {},
+                },
+                provider="gemini",
+                model="gemini-test",
+                trace_id="z",
+            )
+        return finalize_tool_plan(
+            {
+                "intent": "search_restaurants",
+                "summary": "pizza on swiggy",
+                "tool_plan": [
+                    {"tool": "get_addresses", "arguments": {}},
+                    {"tool": "search_restaurants", "arguments": {"query": "pizza"}},
+                ],
+                "constraints": {},
+            },
+            provider="gemini",
+            model="gemini-test",
+            trace_id="s",
+        )
+
+    monkeypatch.setattr(agent_pipeline, "_plan_for_provider", fake_plan)
 
     def fake_execute_tool_plan_sync(tool_plan, **kwargs):
         calls["tool_plan"] = tool_plan
@@ -740,8 +747,8 @@ def test_food_query_honors_single_selected_tool_provider(monkeypatch):
     )
     monkeypatch.setattr(
         agent_pipeline,
-        "route_food_query",
-        lambda **kwargs: _finalize_from_parsed_json(
+        "_plan_for_provider",
+        lambda provider_id, **kwargs: finalize_tool_plan(
             {
                 "intent": "find_products",
                 "summary": "milk search",
@@ -751,7 +758,6 @@ def test_food_query_honors_single_selected_tool_provider(monkeypatch):
             provider="gemini",
             model="gemini-test",
             trace_id="trace-selected-provider",
-            tool_provider="zepto",
         ),
     )
 
@@ -811,8 +817,8 @@ def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
     )
     monkeypatch.setattr(
         agent_pipeline,
-        "route_food_query",
-        lambda **kwargs: _finalize_from_parsed_json(
+        "_plan_for_provider",
+        lambda provider_id, **kwargs: finalize_tool_plan(
             {
                 "intent": "get_order_history",
                 "summary": "zepto order history",
@@ -822,7 +828,6 @@ def test_food_query_routes_by_message_when_no_tool_provider_forced(monkeypatch):
             provider="gemini",
             model="gemini-test",
             trace_id="trace-message-routing",
-            tool_provider="zepto",
         ),
     )
 

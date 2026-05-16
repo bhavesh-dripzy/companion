@@ -1,4 +1,4 @@
-"""Agent entry: orchestrator → domain food planning → MCP → response LLM."""
+"""Agent entry: orchestrator → domain food planner → MCP → response LLM."""
 
 from __future__ import annotations
 
@@ -6,22 +6,13 @@ from typing import Any
 
 from app.services.agents.orchestrator import classify_agent_routing
 from app.services.agents.tool_trace import build_tool_execution_trace
-from app.services.food_llm_router import route_food_query, try_deterministic_food_plan
+from app.services.food_llm_router import route_food_query
 from app.services.food_response_builder import (
     build_assistant_message_with_llm,
     build_zomato_summary,
 )
 from app.services.llm_config import ResolvedLlm
 from app.services.tool_runtime import execute_tool_plan_sync, get_tool_provider
-
-# Swiggy Food / Instamart: MCP tool selection comes from the domain LLM + rich prompt only
-# — skip deterministic shortcut plans (multi-provider comparisons / bundled order-history
-# heuristics) and skip router-level aggregates inside route_food_query too.
-_LL_NATIVE_SWIGGY_PROVIDERS: frozenset[str] = frozenset({"swiggy_food", "swiggy_instamart"})
-
-
-def _native_swiggy_tool_provider_set(routed_providers: set[str]) -> bool:
-    return len(routed_providers) == 1 and next(iter(routed_providers)) in _LL_NATIVE_SWIGGY_PROVIDERS
 
 
 class CustomMcpNeedsDiscoveryError(ValueError):
@@ -152,16 +143,37 @@ def _merge_provider_food_plans(
     }
 
 
-def _llm_first_provider_set(routed_providers: set[str]) -> bool:
-    """Swiggy singleton flows: let the domain LLM pick tools (no deterministic shortcuts)."""
-    if len(routed_providers) != 1:
-        return False
-    only = next(iter(routed_providers))
-    return only in ("swiggy_food", "swiggy_instamart")
+def _plan_for_provider(
+    provider_id: str,
+    *,
+    routing_message: str,
+    llm: ResolvedLlm,
+    user_id: str,
+) -> dict[str, Any]:
+    """Delegate to the provider's domain agent (LLM + prompt → tool_plan)."""
+    tp = get_tool_provider(provider_id, user_id=user_id)
 
+    if provider_id == "swiggy_food":
+        from app.services.swiggy.planner import plan_swiggy_food
 
-def _skip_inner_shortcuts_for_provider(pid: str) -> bool:
-    return pid in ("swiggy_food", "swiggy_instamart")
+        return plan_swiggy_food(user_message=routing_message, llm=llm)
+    if provider_id == "swiggy_instamart":
+        from app.services.swiggy.planner import plan_swiggy_instamart
+
+        return plan_swiggy_instamart(user_message=routing_message, llm=llm)
+
+    return route_food_query(
+        user_message=routing_message,
+        api_key=llm.api_key,
+        model=llm.model,
+        provider=llm.provider,
+        base_url=llm.base_url,
+        tool_provider=provider_id,
+        tool_provider_label=tp.label if tp else None,
+        tool_provider_tools=(
+            sorted(tp.tools) if tp and tp.custom and tp.tools else None
+        ),
+    )
 
 
 def _resolve_food_routing_plan(
@@ -176,52 +188,28 @@ def _resolve_food_routing_plan(
             reasoning="No food MCP providers remain after orchestration.",
         )
 
-    det = None
-    if not _llm_first_provider_set(routed_providers):
-        det = try_deterministic_food_plan(routing_message, routed_providers)
-    if det is not None:
-        return det
-
     if len(routed_providers) == 1:
-        pid = next(iter(sorted(routed_providers)))
-        tp = get_tool_provider(pid, user_id=user_id)
-        return route_food_query(
-            user_message=routing_message,
-            api_key=llm.api_key,
-            model=llm.model,
-            provider=llm.provider,
-            base_url=llm.base_url,
-            tool_provider=pid,
-            tool_providers={pid},
-            tool_provider_label=tp.label if tp else None,
-            tool_provider_tools=(
-                sorted(tp.tools)
-                if tp and tp.custom and tp.tools
-                else None
-            ),
-            skip_aggregate_shortcuts=_skip_inner_shortcuts_for_provider(pid),
+        pid = next(iter(routed_providers))
+        return _plan_for_provider(
+            pid,
+            routing_message=routing_message,
+            llm=llm,
+            user_id=user_id,
         )
 
     labeled: list[tuple[str, dict[str, Any]]] = []
     for pid in sorted(routed_providers):
-        tp = get_tool_provider(pid, user_id=user_id)
-        partial = route_food_query(
-            user_message=routing_message,
-            api_key=llm.api_key,
-            model=llm.model,
-            provider=llm.provider,
-            base_url=llm.base_url,
-            tool_provider=pid,
-            tool_providers={pid},
-            tool_provider_label=tp.label if tp else None,
-            tool_provider_tools=(
-                sorted(tp.tools)
-                if tp and tp.custom and tp.tools
-                else None
-            ),
-            skip_aggregate_shortcuts=True,
+        labeled.append(
+            (
+                pid,
+                _plan_for_provider(
+                    pid,
+                    routing_message=routing_message,
+                    llm=llm,
+                    user_id=user_id,
+                ),
+            )
         )
-        labeled.append((pid, partial))
 
     return _merge_provider_food_plans(
         labeled,
@@ -244,6 +232,8 @@ def run_agent_turn(
 ) -> dict[str, Any]:
     """
     Orchestrated agent turn producing the same response envelope as legacy /api/food/query/.
+
+    Flow: orchestrator LLM → per-provider domain LLM (tool_plan) → MCP executor → response LLM.
     """
     orchestration = classify_agent_routing(user_message=routing_message, llm=llm)
 
