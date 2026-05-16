@@ -1073,15 +1073,6 @@ def _companion_agent_turn(
         and item.get("role") in {"user", "assistant"}
         and item.get("content")
     ]
-    routing_message = payload.message.strip()
-    if recent_history:
-        transcript = "\n".join(
-            f"{item.get('role')}: {str(item.get('content') or '')[:700]}"
-            for item in recent_history
-        )
-        routing_message = (
-            f"Conversation so far:\n{transcript}\n\nCurrent user message:\n{payload.message.strip()}"
-        )
 
     explicit_tool_providers: set[str] | None = None
     forced_empty_providers = False
@@ -1108,7 +1099,6 @@ def _companion_agent_turn(
     try:
         return run_agent_turn(
             user_message=payload.message.strip(),
-            routing_message=routing_message,
             address_id=payload.address_id,
             execute_tools=execute_tools,
             user_id=user,
@@ -1116,6 +1106,7 @@ def _companion_agent_turn(
             forced_empty_providers=forced_empty_providers,
             llm=llm_cfg,
             include_raw_zomato=payload.include_raw_zomato,
+            conversation_history=recent_history,
         )
     except CustomMcpNeedsDiscoveryError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

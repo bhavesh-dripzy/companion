@@ -19,6 +19,30 @@ class CustomMcpNeedsDiscoveryError(ValueError):
     """Raised when a routed custom MCP lacks a cached tool manifest."""
 
 
+def _format_routing_message(
+    current_message: str,
+    conversation_history: list[dict[str, str]] | None = None,
+) -> str:
+    """Build planner/orchestrator input: recent transcript + current user turn."""
+    current = (current_message or "").strip()
+    if not conversation_history:
+        return current
+    recent = [
+        item
+        for item in conversation_history[-8:]
+        if isinstance(item, dict)
+        and item.get("role") in {"user", "assistant"}
+        and item.get("content")
+    ]
+    if not recent:
+        return current
+    transcript = "\n".join(
+        f"{item.get('role')}: {str(item.get('content') or '')[:700]}"
+        for item in recent
+    )
+    return f"Conversation so far:\n{transcript}\n\nCurrent user message:\n{current}"
+
+
 def _ensure_custom_providers_ready(routed_providers: set[str], user_id: str) -> None:
     for pid in sorted(routed_providers):
         tp = get_tool_provider(pid, user_id=user_id)
@@ -221,7 +245,6 @@ def _resolve_food_routing_plan(
 def run_agent_turn(
     *,
     user_message: str,
-    routing_message: str,
     address_id: str,
     execute_tools: bool,
     user_id: str,
@@ -229,12 +252,14 @@ def run_agent_turn(
     forced_empty_providers: bool,
     llm: ResolvedLlm,
     include_raw_zomato: bool = False,
+    conversation_history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """
     Orchestrated agent turn producing the same response envelope as legacy /api/food/query/.
 
     Flow: orchestrator LLM → per-provider domain LLM (tool_plan) → MCP executor → response LLM.
     """
+    routing_message = _format_routing_message(user_message, conversation_history)
     orchestration = classify_agent_routing(user_message=routing_message, llm=llm)
 
     if forced_empty_providers:

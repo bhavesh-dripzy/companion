@@ -60,7 +60,11 @@ def plan_swiggy_food(
     user_message: str,
     llm: ResolvedLlm,
 ) -> dict[str, Any]:
-    """Swiggy Food agent turn: returns ``food_routing_plan``-shaped dict with ``tool_plan``."""
+    """Swiggy Food agent turn: returns ``food_routing_plan``-shaped dict with ``tool_plan``.
+
+    ``user_message`` should include conversation history when available (see
+    ``agents.pipeline._format_routing_message``).
+    """
     data = complete_json_object(
         user_message=user_message,
         system_prompt=_load_prompt("food.system.md"),
