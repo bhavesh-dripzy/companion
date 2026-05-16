@@ -1,4 +1,4 @@
-"""Swiggy domain agents: user message → JSON ``tool_plan`` for MCP (LLM + prompt only)."""
+"""Swiggy Food domain agent: user message → JSON ``tool_plan`` for MCP (LLM + prompt only)."""
 
 from __future__ import annotations
 
@@ -30,29 +30,10 @@ _SWIGGY_FOOD_TOOLS = frozenset(
     }
 )
 
-_SWIGGY_INSTAMART_TOOLS = frozenset(
-    {
-        "get_addresses",
-        "search_products",
-        "get_product_details",
-        "get_cart",
-        "add_item_to_cart",
-        "update_cart_item",
-        "remove_cart_item",
-        "clear_cart",
-        "get_cart_offers",
-        "checkout",
-        "place_order",
-        "get_orders",
-        "get_order_details",
-        "report_error",
-    }
-)
 
-
-@lru_cache(maxsize=2)
-def _load_prompt(name: str) -> str:
-    return (_PROMPTS / name).read_text(encoding="utf-8").strip()
+@lru_cache(maxsize=1)
+def _load_prompt() -> str:
+    return (_PROMPTS / "food.system.md").read_text(encoding="utf-8").strip()
 
 
 def plan_swiggy_food(
@@ -67,7 +48,7 @@ def plan_swiggy_food(
     """
     data = complete_json_object(
         user_message=user_message,
-        system_prompt=_load_prompt("food.system.md"),
+        system_prompt=_load_prompt(),
         api_key=llm.api_key,
         model=llm.model,
         provider=llm.provider,  # type: ignore[arg-type]
@@ -79,26 +60,4 @@ def plan_swiggy_food(
         model=llm.model,
         trace_id="",
         allowed_tools=set(_SWIGGY_FOOD_TOOLS),
-    )
-
-
-def plan_swiggy_instamart(
-    *,
-    user_message: str,
-    llm: ResolvedLlm,
-) -> dict[str, Any]:
-    data = complete_json_object(
-        user_message=user_message,
-        system_prompt=_load_prompt("instamart.system.md"),
-        api_key=llm.api_key,
-        model=llm.model,
-        provider=llm.provider,  # type: ignore[arg-type]
-        base_url=llm.base_url,
-    )
-    return finalize_tool_plan(
-        data,
-        provider=llm.provider,  # type: ignore[arg-type]
-        model=llm.model,
-        trace_id="",
-        allowed_tools=set(_SWIGGY_INSTAMART_TOOLS),
     )

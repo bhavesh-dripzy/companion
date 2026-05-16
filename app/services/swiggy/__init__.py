@@ -1,1 +1,1 @@
-"""Swiggy Food / Instamart MCP orchestration and domain planners."""
+"""Swiggy Food MCP orchestration and domain planner."""

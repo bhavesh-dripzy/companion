@@ -247,6 +247,12 @@ async def _run_swiggy_session_inner(
                         ba["addressId"] = "__ADDRESS_ID__"
                         ba["address_id"] = "__ADDRESS_ID__"
                     base_args = ba
+                if tool in ("search_products", "your_go_to_items", "update_cart"):
+                    ba = dict(base_args)
+                    if not str(ba.get("addressId") or "").strip() and not str(ba.get("address_id") or "").strip():
+                        ba["addressId"] = "__ADDRESS_ID__"
+                        ba["address_id"] = "__ADDRESS_ID__"
+                    base_args = ba
 
                 exec_args = substitute_placeholders(copy.deepcopy(base_args), placeholder_values)
 

@@ -614,8 +614,17 @@ def execute_tool_plan_sync(
                     }
                     continue
 
-        if name in ("swiggy_food", "swiggy_instamart"):
+        if name == "swiggy_food":
             provider_results[name] = run_swiggy_tool_plan_sync(
+                routed[name],
+                address_id=address_id,
+                mcp_url=resolved_url,
+                user_id=user_id,
+            )
+        elif name == "swiggy_instamart":
+            from app.services.instamart_mcp_executor import run_tool_plan_sync as run_instamart_plan
+
+            provider_results[name] = run_instamart_plan(
                 routed[name],
                 address_id=address_id,
                 mcp_url=resolved_url,

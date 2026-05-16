@@ -25,7 +25,7 @@ _SVC_ROOT = Path(__file__).resolve().parent
 _BUILTIN_PROMPTS: dict[str, Path] = {
     "zomato": _SVC_ROOT / "zomato" / "prompts" / "food.system.md",
     "swiggy_food": _SVC_ROOT / "swiggy" / "prompts" / "food.system.md",
-    "swiggy_instamart": _SVC_ROOT / "swiggy" / "prompts" / "instamart.system.md",
+    "swiggy_instamart": _SVC_ROOT / "instamart" / "prompts" / "food.system.md",
     "zepto": _SVC_ROOT / "zepto" / "prompts" / "food.system.md",
 }
 

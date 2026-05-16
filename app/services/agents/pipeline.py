@@ -182,9 +182,9 @@ def _plan_for_provider(
 
         return plan_swiggy_food(user_message=routing_message, llm=llm)
     if provider_id == "swiggy_instamart":
-        from app.services.swiggy.planner import plan_swiggy_instamart
+        from app.services.instamart.planner import plan_instamart
 
-        return plan_swiggy_instamart(user_message=routing_message, llm=llm)
+        return plan_instamart(user_message=routing_message, llm=llm)
     if provider_id == "zomato":
         from app.services.zomato.planner import plan_zomato_food
 
