@@ -1,1 +1,1 @@
-"""Zomato MCP: executor and prompts live under ``app.services.zomato``."""
+"""Zomato MCP: planner, executor, and prompts under ``app.services.zomato``."""
