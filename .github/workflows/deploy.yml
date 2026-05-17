@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
+      AWS_ACCOUNT_ID: "616551057455"
       AWS_REGION: ap-south-1
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +38,14 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Verify AWS target account
+        run: |
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$ACCOUNT_ID" != "$AWS_ACCOUNT_ID" ]; then
+            echo "Refusing to deploy to AWS account $ACCOUNT_ID; expected $AWS_ACCOUNT_ID."
+            exit 1
+          fi
+
       - name: Install CDK dependencies
         working-directory: infra
         run: |
@@ -49,6 +58,9 @@ jobs:
 
       - name: CDK deploy
         working-directory: infra
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ env.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
         run: cdk deploy --require-approval never
 
       - name: Populate app secrets
@@ -66,7 +78,8 @@ jobs:
               secrets = {}
               for key in ('DEEPSEEK_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',
                           'OPENAI_API_KEY', 'FOOD_ROUTER_PROVIDER',
-                          'ADMIN_USERNAME', 'ADMIN_PASSWORD'):
+                          'ADMIN_USERNAME', 'ADMIN_PASSWORD',
+                          'GOOGLE_CALENDAR_CLIENT_ID', 'GOOGLE_CALENDAR_CLIENT_SECRET'):
                   val = os.getenv(key, '').strip()
                   if val:
                       secrets[key] = val
