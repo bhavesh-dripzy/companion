@@ -91,6 +91,21 @@ jobs:
               print('Built secrets from individual keys.')
           "
           if [ -f /tmp/secrets.json ]; then
+            aws secretsmanager get-secret-value \
+              --secret-id companion/app \
+              --query SecretString \
+              --output text \
+              --region "$AWS_REGION" > /tmp/existing-secrets.json 2>/dev/null || echo '{}' > /tmp/existing-secrets.json
+            python3 -c "
+            import json
+            with open('/tmp/existing-secrets.json') as f:
+                existing = json.load(f)
+            with open('/tmp/secrets.json') as f:
+                updates = json.load(f)
+            existing.update(updates)
+            with open('/tmp/secrets.json', 'w') as f:
+                json.dump(existing, f)
+            "
             aws secretsmanager put-secret-value \
               --secret-id companion/app \
               --secret-string "file:///tmp/secrets.json" \
