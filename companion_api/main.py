@@ -473,8 +473,12 @@ def mcp_status(
 
 
 @app.post("/api/mcp/oauth/")
-def mcp_initiate_oauth(request: Request, _user: str = Depends(get_current_user)):
-    """Start a hosted OAuth flow for Zomato MCP.
+def mcp_initiate_oauth(
+    request: Request,
+    provider: str = Query(default="zomato"),
+    user: str = Depends(get_current_user),
+):
+    """Start a hosted OAuth flow for an MCP provider.
 
     This avoids mcp-remote's localhost browser callback, which is unsuitable for
     Lambda/API Gateway. The callback stores mcp-remote-compatible token files in
@@ -485,14 +489,29 @@ def mcp_initiate_oauth(request: Request, _user: str = Depends(get_current_user))
         start_web_oauth,
     )
 
-    mcp_url = secret_or_env("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
+    tool_provider, mcp_url = _provider_mcp_url(provider, user)
+    if not tool_provider or not tool_provider.available:
+        raise HTTPException(status_code=400, detail=f"Provider '{provider}' is not available or not configured.")
+    if tool_provider.auth_mode == "url":
+        return {
+            "status": "not_required",
+            "detail": f"{tool_provider.label} authenticates through its MCP URL. Use Test to discover tools.",
+            "provider": provider,
+            "provider_label": tool_provider.label,
+            "mcp_url": mcp_url,
+        }
     callback_url = _public_url(request, "/api/mcp/oauth/callback")
     try:
-        return start_web_oauth(
+        result = start_web_oauth(
             repo_root=repo_root_from_settings(),
             mcp_url=mcp_url,
             callback_url=callback_url,
+            user_id=user,
+            provider_label=tool_provider.label,
         )
+        result["provider"] = provider
+        result["provider_label"] = tool_provider.label
+        return result
     except Exception as e:
         return {
             "status": "oauth_unavailable",
@@ -614,11 +633,12 @@ def mcp_oauth_callback(
 
 @app.get("/api/mcp/oauth/start")
 def mcp_oauth_start(
+    request: Request,
     provider: str = Query(default="zomato"),
     user: str = Depends(get_current_user),
 ):
     """Initiate OAuth authorization for any configured MCP provider."""
-    from app.services.zomato_mcp_executor import capture_mcp_oauth_url, repo_root_from_settings
+    from app.services.zomato_mcp_executor import capture_mcp_oauth_url, repo_root_from_settings, start_web_oauth
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider or not tool_provider.available:
@@ -635,12 +655,28 @@ def mcp_oauth_start(
             "mcp_url": mcp_url,
         }
 
+    callback_url = _public_url(request, "/api/mcp/oauth/callback")
+    try:
+        result = start_web_oauth(
+            repo_root=repo_root_from_settings(),
+            mcp_url=mcp_url,
+            callback_url=callback_url,
+            user_id=user,
+            provider_label=tool_provider.label,
+        )
+        result["provider"] = provider
+        result["provider_label"] = tool_provider.label
+        return result
+    except Exception as hosted_exc:
+        hosted_error = f"{type(hosted_exc).__name__}: {hosted_exc}"
+
     result = capture_mcp_oauth_url(
         repo_root=repo_root_from_settings(),
         mcp_url=mcp_url,
     )
     result["provider"] = provider
     result["provider_label"] = tool_provider.label
+    result.setdefault("hosted_oauth_error", hosted_error)
     if not mcp_url.strip():
         result.setdefault("detail", f"No MCP URL configured for {tool_provider.label}. Set the provider URL first.")
         result["status"] = "not_configured"

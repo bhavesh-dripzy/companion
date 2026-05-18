@@ -852,8 +852,10 @@ def start_web_oauth(
     repo_root: Path | None = None,
     mcp_url: str | None = None,
     callback_url: str,
+    user_id: str | None = None,
+    provider_label: str | None = None,
 ) -> dict[str, Any]:
-    """Start a hosted OAuth flow and return the Zomato authorization URL."""
+    """Start a hosted OAuth flow and return the provider authorization URL."""
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv("ZOMATO_MCP_URL", "https://mcp-server.zomato.com/mcp")
     metadata = _discover_oauth_metadata(url)
@@ -896,8 +898,10 @@ def start_web_oauth(
         "code_verifier": verifier,
         "client_info": client_info,
         "metadata": metadata,
+        "user_id": user_id,
+        "provider_label": provider_label,
     }
-    secret_payload = _mcp_token_secret()
+    secret_payload = _mcp_token_secret(user_id)
     if not isinstance(secret_payload, dict):
         secret_payload = {}
     pending_map = secret_payload.get("oauth_pending")
@@ -910,9 +914,7 @@ def start_web_oauth(
         if isinstance(v, dict) and now - int(v.get("created_at", 0)) < _OAUTH_PENDING_TTL_SECONDS
     }
     pending_map[state] = pending
-    secret_payload["oauth_pending"] = pending_map
-    secret_payload["updated_at"] = utc_now_iso()
-    _write_mcp_token_secret(secret_payload)
+    _merge_mcp_token_secret(user_id, oauth_pending=pending_map)
 
     params = {
         "response_type": "code",
@@ -927,9 +929,32 @@ def start_web_oauth(
     return {
         "status": "oauth_required",
         "authorization_url": authorization_url,
-        "detail": "Continue to Zomato and approve access. Companion will save the MCP session automatically.",
+        "detail": f"Continue to {provider_label or 'the provider'} and approve access. Companion will save the MCP session automatically.",
         "mcp_url": url,
     }
+
+
+def _find_oauth_pending_session(state: str) -> tuple[str | None, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    secret_payload = _mcp_token_secret()
+    pending_map = secret_payload.get("oauth_pending") if isinstance(secret_payload, dict) else None
+    if isinstance(pending_map, dict):
+        pending = pending_map.get(state)
+        if isinstance(pending, dict):
+            return None, secret_payload, pending_map, pending
+
+    root = _root_mcp_token_secret()
+    users = root.get("users") if isinstance(root, dict) else None
+    if isinstance(users, dict):
+        for user_id in users:
+            user_payload = _mcp_token_secret(str(user_id))
+            user_pending_map = user_payload.get("oauth_pending") if isinstance(user_payload, dict) else None
+            if not isinstance(user_pending_map, dict):
+                continue
+            pending = user_pending_map.get(state)
+            if isinstance(pending, dict):
+                return str(user_id), user_payload, user_pending_map, pending
+
+    raise RuntimeError("No pending OAuth session was found. Start authorization again.")
 
 
 def complete_web_oauth(
@@ -941,16 +966,11 @@ def complete_web_oauth(
 ) -> dict[str, Any]:
     """Complete hosted OAuth and persist mcp-remote-compatible auth files."""
     root = repo_root or repo_root_from_settings()
-    secret_payload = _mcp_token_secret()
-    pending_map = secret_payload.get("oauth_pending") if isinstance(secret_payload, dict) else None
-    if not isinstance(pending_map, dict):
-        raise RuntimeError("No pending OAuth session was found. Start authorization again.")
-    pending = pending_map.get(state)
-    if not isinstance(pending, dict):
-        raise RuntimeError("OAuth state was not recognized. Start authorization again.")
+    user_id, secret_payload, pending_map, pending = _find_oauth_pending_session(state)
+    user_id = pending.get("user_id") or user_id
     if int(time.time()) - int(pending.get("created_at", 0)) > _OAUTH_PENDING_TTL_SECONDS:
         pending_map.pop(state, None)
-        _merge_mcp_token_secret(oauth_pending=pending_map)
+        _merge_mcp_token_secret(user_id, oauth_pending=pending_map)
         raise RuntimeError("OAuth session expired. Start authorization again.")
 
     # Derive provider label from pending state or fall back to provider param
@@ -984,7 +1004,7 @@ def complete_web_oauth(
 
     mcp_url = pending["mcp_url"]
     rel_paths = _mcp_remote_token_relative_paths(root, mcp_url)
-    cfg_dir = _mcp_remote_config_dir(root)
+    cfg_dir = _mcp_remote_config_dir(root, user_id=user_id)
     files = {
         rel_paths["client_info"]: json.dumps(client_info, indent=2),
         rel_paths["tokens"]: json.dumps(tokens, indent=2),
@@ -1000,7 +1020,7 @@ def complete_web_oauth(
         existing_files = {}
     existing_files.update(files)
     pending_map.pop(state, None)
-    _merge_mcp_token_secret(files=existing_files, oauth_pending=pending_map)
+    _merge_mcp_token_secret(user_id, files=existing_files, oauth_pending=pending_map)
     return {
         "status": "connected_pending_test",
         "detail": "Zomato authorization completed. Run Test Connection to verify live MCP access.",

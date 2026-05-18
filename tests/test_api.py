@@ -316,6 +316,57 @@ def test_pairing_session_lookup_finds_user_scoped_code(monkeypatch):
     assert session["mcp_url"] == "https://mcp-server.zomato.com/mcp"
 
 
+def test_oauth_pending_lookup_finds_user_scoped_state(monkeypatch):
+    root_secret = {
+        "users": {
+            "admin_aashish": {
+                "oauth_pending": {
+                    "oauth-state": {
+                        "created_at": int(time.time()),
+                        "mcp_url": "https://mcp-server.zomato.com/mcp",
+                    }
+                }
+            }
+        }
+    }
+
+    monkeypatch.setattr(mcp_exec, "_root_mcp_token_secret", lambda: root_secret)
+
+    user_id, _payload, _pending_map, pending = mcp_exec._find_oauth_pending_session("oauth-state")
+
+    assert user_id == "admin_aashish"
+    assert pending["mcp_url"] == "https://mcp-server.zomato.com/mcp"
+
+
+def test_mcp_oauth_start_returns_hosted_authorization_url(monkeypatch):
+    calls = {}
+
+    def fake_start_web_oauth(**kwargs):
+        calls.update(kwargs)
+        return {
+            "status": "oauth_required",
+            "authorization_url": "https://provider.example/oauth",
+            "detail": "Continue provider auth.",
+            "mcp_url": kwargs["mcp_url"],
+        }
+
+    monkeypatch.setattr(mcp_exec, "start_web_oauth", fake_start_web_oauth)
+
+    response = client.get(
+        "/api/mcp/oauth/start?provider=zomato",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "oauth_required"
+    assert body["authorization_url"] == "https://provider.example/oauth"
+    assert body["provider"] == "zomato"
+    assert calls["user_id"] == "local_admin"
+    assert calls["provider_label"] == "Zomato MCP"
+    assert calls["callback_url"].endswith("/api/mcp/oauth/callback")
+
+
 def test_mcp_token_status_is_scoped_to_selected_provider(tmp_path, monkeypatch):
     monkeypatch.setattr(mcp_exec, "_mcp_remote_config_dir", lambda _root, user_id=None: tmp_path)
     monkeypatch.setattr(mcp_exec, "_mcp_remote_version", lambda _root: "0.1.38")
@@ -913,6 +964,7 @@ def test_operational_apis_require_auth():
         ),
         client.get("/api/mcp/tools/?provider=zomato"),
         client.get("/api/mcp/status/"),
+        client.get("/api/mcp/oauth/start?provider=zomato"),
         client.get("/api/google-calendar/status/"),
         client.get("/api/google-calendar/oauth/start"),
         client.post("/api/reminders/google-calendar/", json={"message": "Remind me tomorrow at 9am"}),

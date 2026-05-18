@@ -860,20 +860,35 @@
 
     async function startOauth() {
       mcpOauthBtn.disabled = true;
-      mcpDetail.textContent = "Generating a secure one-time connection command.";
+      mcpDetail.textContent = "Starting secure provider authorization.";
       try {
-        const data = await api("POST", "/api/mcp/pairing/?provider=" + encodeURIComponent(primaryToolProvider()));
-        if (data.status === "pairing_ready" && data.command) {
+        const data = await api("GET", "/api/mcp/oauth/start?provider=" + encodeURIComponent(primaryToolProvider()));
+        if (data.status === "oauth_required" && data.authorization_url) {
+          mcpDetail.textContent = data.detail || "Continue provider authorization.";
+          setBadge(mcpStatusBadge, "Authorizing", "warn");
+          setBadge(mcpMiniBadge, "Authorizing", "warn");
+          window.location.assign(data.authorization_url);
+          return;
+        }
+        if (data.status === "not_required") {
+          mcpDetail.textContent = data.detail || "This provider does not require OAuth.";
+          setBadge(mcpStatusBadge, "Ready", "ok");
+          setBadge(mcpMiniBadge, "Ready", "ok");
+          showPairingCommand("");
+          return;
+        }
+        const fallback = await api("POST", "/api/mcp/pairing/?provider=" + encodeURIComponent(primaryToolProvider()));
+        if (fallback.status === "pairing_ready" && fallback.command) {
           let detailHtml = escapeHtml(data.detail || "Run the command below to connect the selected MCP.");
-          if (data.mcp_url) {
-            detailHtml += "<br><span class=\"small-note\">The script below opens this MCP in your browser:</span><br><code>" + escapeHtml(String(data.mcp_url)) + "</code>";
+          if (fallback.mcp_url) {
+            detailHtml += "<br><span class=\"small-note\">The script below opens this MCP in your browser:</span><br><code>" + escapeHtml(String(fallback.mcp_url)) + "</code>";
           }
           mcpDetail.innerHTML = detailHtml;
           setBadge(mcpStatusBadge, "Pairing ready", "warn");
           setBadge(mcpMiniBadge, "Pairing ready", "warn");
-          showPairingCommand(data.command);
+          showPairingCommand(fallback.command);
         } else {
-          mcpDetail.textContent = data.detail || "Could not create a pairing command.";
+          mcpDetail.textContent = data.detail || fallback.detail || "Could not create a pairing command.";
           setBadge(mcpStatusBadge, "Setup needed", "warn");
           setBadge(mcpMiniBadge, "Setup needed", "warn");
           showTokenTools(true);
