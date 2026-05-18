@@ -143,6 +143,106 @@ jobs:
           GOOGLE_CALENDAR_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_CLIENT_ID }}
           GOOGLE_CALENDAR_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_CLIENT_SECRET }}
 
+      - name: Ensure Cognito admin user
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          raw_secret = subprocess.check_output(
+              [
+                  "aws",
+                  "secretsmanager",
+                  "get-secret-value",
+                  "--secret-id",
+                  "companion/app",
+                  "--query",
+                  "SecretString",
+                  "--output",
+                  "text",
+                  "--region",
+                  os.environ["AWS_REGION"],
+              ],
+              text=True,
+          )
+          secret = json.loads(raw_secret)
+          username = str(secret.get("ADMIN_USERNAME") or "").strip()
+          password = str(secret.get("ADMIN_PASSWORD") or "").strip()
+          if not username or not password:
+              print("No ADMIN_USERNAME/ADMIN_PASSWORD configured; skipping Cognito admin user.")
+              sys.exit(0)
+
+          user_pool_id = subprocess.check_output(
+              [
+                  "aws",
+                  "cloudformation",
+                  "describe-stacks",
+                  "--stack-name",
+                  "companion-serverless",
+                  "--query",
+                  "Stacks[0].Outputs[?OutputKey=='CognitoUserPoolId'].OutputValue",
+                  "--output",
+                  "text",
+                  "--region",
+                  os.environ["AWS_REGION"],
+              ],
+              text=True,
+          ).strip()
+
+          exists = subprocess.call(
+              [
+                  "aws",
+                  "cognito-idp",
+                  "admin-get-user",
+                  "--user-pool-id",
+                  user_pool_id,
+                  "--username",
+                  username,
+                  "--region",
+                  os.environ["AWS_REGION"],
+              ],
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+          ) == 0
+          if not exists:
+              subprocess.check_call(
+                  [
+                      "aws",
+                      "cognito-idp",
+                      "admin-create-user",
+                      "--user-pool-id",
+                      user_pool_id,
+                      "--username",
+                      username,
+                      "--message-action",
+                      "SUPPRESS",
+                      "--region",
+                      os.environ["AWS_REGION"],
+                  ],
+                  stdout=subprocess.DEVNULL,
+              )
+          subprocess.check_call(
+              [
+                  "aws",
+                  "cognito-idp",
+                  "admin-set-user-password",
+                  "--user-pool-id",
+                  user_pool_id,
+                  "--username",
+                  username,
+                  "--password",
+                  password,
+                  "--permanent",
+                  "--region",
+                  os.environ["AWS_REGION"],
+              ],
+              stdout=subprocess.DEVNULL,
+          )
+          print(f"Cognito admin user '{username}' is ready.")
+          PY
+
       - name: Smoke test
         run: |
           API_URL="$(aws cloudformation describe-stacks \

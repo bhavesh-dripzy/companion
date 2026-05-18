@@ -528,6 +528,9 @@
         }
       }
       if (resp.status === 401) {
+        if (path === "/api/login/") {
+          throw new Error(data.detail || "Invalid username or password.");
+        }
         clearAuth();
         showLogin();
         throw new Error("Session expired. Sign in again.");
