@@ -920,6 +920,7 @@ def start_web_oauth(
         "response_type": "code",
         "client_id": client_info["client_id"],
         "redirect_uri": callback_url,
+        "resource": url,
         "code_challenge": _pkce_challenge(verifier),
         "code_challenge_method": "S256",
         "state": state,
@@ -985,6 +986,7 @@ def complete_web_oauth(
         "redirect_uri": pending["callback_url"],
         "client_id": client_info["client_id"],
         "code_verifier": pending["code_verifier"],
+        "resource": pending["mcp_url"],
     }
     if client_info.get("client_secret"):
         token_payload["client_secret"] = client_info["client_secret"]
