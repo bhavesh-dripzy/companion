@@ -65,47 +65,56 @@ jobs:
 
       - name: Populate app secrets
         run: |
-          python3 -c "
-          import json, os
-          # If APP_SECRETS_JSON override is set, use it directly.
-          override = os.getenv('APP_SECRETS_JSON', '').strip()
+          python3 <<'PY'
+          import json
+          import os
+
+          override = os.getenv("APP_SECRETS_JSON", "").strip()
           if override:
-              json.loads(override)  # validate
-              with open('/tmp/secrets.json', 'w') as f:
+              json.loads(override)
+              with open("/tmp/secrets.json", "w") as f:
                   f.write(override)
-              print('Using APP_SECRETS_JSON override.')
+              print("Using APP_SECRETS_JSON override.")
           else:
               secrets = {}
-              for key in ('DEEPSEEK_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',
-                          'OPENAI_API_KEY', 'FOOD_ROUTER_PROVIDER',
-                          'ADMIN_USERNAME', 'ADMIN_PASSWORD',
-                          'GOOGLE_CALENDAR_CLIENT_ID', 'GOOGLE_CALENDAR_CLIENT_SECRET'):
-                  val = os.getenv(key, '').strip()
+              for key in (
+                  "DEEPSEEK_API_KEY",
+                  "GEMINI_API_KEY",
+                  "GOOGLE_API_KEY",
+                  "OPENAI_API_KEY",
+                  "FOOD_ROUTER_PROVIDER",
+                  "ADMIN_USERNAME",
+                  "ADMIN_PASSWORD",
+                  "GOOGLE_CALENDAR_CLIENT_ID",
+                  "GOOGLE_CALENDAR_CLIENT_SECRET",
+              ):
+                  val = os.getenv(key, "").strip()
                   if val:
                       secrets[key] = val
               if not secrets:
-                  print('No secrets configured — skipping.')
-                  exit(0)
-              with open('/tmp/secrets.json', 'w') as f:
+                  print("No secrets configured — skipping.")
+                  raise SystemExit(0)
+              with open("/tmp/secrets.json", "w") as f:
                   json.dump(secrets, f)
-              print('Built secrets from individual keys.')
-          "
+              print("Built secrets from individual keys.")
+          PY
           if [ -f /tmp/secrets.json ]; then
             aws secretsmanager get-secret-value \
               --secret-id companion/app \
               --query SecretString \
               --output text \
               --region "$AWS_REGION" > /tmp/existing-secrets.json 2>/dev/null || echo '{}' > /tmp/existing-secrets.json
-            python3 -c "
-            import json
-            with open('/tmp/existing-secrets.json') as f:
-                existing = json.load(f)
-            with open('/tmp/secrets.json') as f:
-                updates = json.load(f)
-            existing.update(updates)
-            with open('/tmp/secrets.json', 'w') as f:
-                json.dump(existing, f)
-            "
+          python3 <<'PY'
+          import json
+
+          with open("/tmp/existing-secrets.json") as f:
+              existing = json.load(f)
+          with open("/tmp/secrets.json") as f:
+              updates = json.load(f)
+          existing.update(updates)
+          with open("/tmp/secrets.json", "w") as f:
+              json.dump(existing, f)
+          PY
             aws secretsmanager put-secret-value \
               --secret-id companion/app \
               --secret-string "file:///tmp/secrets.json" \
@@ -121,6 +130,8 @@ jobs:
           FOOD_ROUTER_PROVIDER: ${{ secrets.FOOD_ROUTER_PROVIDER }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          GOOGLE_CALENDAR_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_CLIENT_ID }}
+          GOOGLE_CALENDAR_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_CLIENT_SECRET }}
 
       - name: Smoke test
         run: |
