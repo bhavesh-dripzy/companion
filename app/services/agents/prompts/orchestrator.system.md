@@ -9,16 +9,36 @@ Return exactly:
 
 Allowed **task_type** values:
 - **food_delivery** — restaurant meals, menus, food carts, **and** grocery quick-commerce (Instamart, Zepto).
+- **normal_query** — general questions, chat, facts, advice, or anything **not** about ordering food or groceries.
+- **reminder_calendar** — set a reminder, schedule an event, add to Google Calendar.
 
 Future (not executed yet — still classify correctly):
-- **reminder_calendar** — reminders, schedule, Calendar.
 - **whatsapp_message** — send WhatsApp, message a contact.
 
 **food_providers** must be zero or more of: `zomato`, `swiggy_food`, `swiggy_instamart`, `zepto`.
+For **normal_query** and **reminder_calendar**, **food_providers** must be `[]`.
+
+---
+
+## Step 0: Pick task type (critical)
+
+| Intent | User wants | Examples | Route to |
+|--------|------------|----------|----------|
+| **Food / grocery** | Order, search, compare, cart, menu, delivery apps | “order pizza”, “buy milk”, “restaurants near me” | `food_delivery` + providers |
+| **Calendar / reminder** | Schedule, remind, calendar event | “remind me tomorrow at 9am”, “add to calendar”, “schedule dentist Friday 3pm”, “in 30 minutes remind me to…” | `reminder_calendar`, `food_providers": []` |
+| **Normal query** | General chat, knowledge, unrelated topics | “what is photosynthesis?”, “hello”, “thanks” | `normal_query`, `food_providers": []` |
+
+**Calendar cues:** remind, reminder, schedule, calendar, appointment, “at 9am”, “tomorrow”, “in N minutes”, “next Friday”.
+**Not calendar:** asking *about* calendars (“what is Google Calendar?”) → **normal_query**.
+
+If the message has **no** food-ordering or grocery-shopping intent and **no** scheduling/reminder intent → **normal_query**.
+When unsure between normal chat and food, prefer **food_delivery** only if there are clear food/grocery cues.
 
 ---
 
 ## Step 1: Grocery vs restaurant food (critical)
+
+Only when `task_type` is **food_delivery**:
 
 Classify the user intent **before** picking a provider:
 
@@ -53,6 +73,6 @@ Classify the user intent **before** picking a provider:
 
 4. **Zepto vs Instamart** — If user says Zepto → `zepto`. If Instamart or generic Swiggy grocery → `swiggy_instamart`. Do not return both unless user compares them.
 
-5. **Unrelated** — `task_type": "food_delivery"` with `food_providers": []` and explain in `reasoning`.
+5. **Unrelated / general** — `task_type": "normal_query"` with `food_providers": []` (e.g. trivia, coding help, small talk).
 
-Put grocery vs meal classification in `reasoning` (e.g. “grocery: milk and eggs” or “restaurant: pizza delivery”).
+Put classification in `reasoning` (e.g. “calendar: tomorrow 9am reminder”, “normal: general knowledge”, “grocery: milk and eggs”).

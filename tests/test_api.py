@@ -172,8 +172,16 @@ def test_google_calendar_reminder_endpoint_creates_event(monkeypatch):
             calls["reminder"] = payload
             return {"reminder_id": "rem-1", **payload}
 
-    monkeypatch.setattr(api_main, "create_calendar_event", fake_create_calendar_event)
-    monkeypatch.setattr(api_main, "ReminderScheduler", lambda: FakeScheduler())
+    import app.services.calendar.executor as calendar_executor
+
+    monkeypatch.setattr(calendar_executor, "google_calendar_configured", lambda: True)
+    monkeypatch.setattr(
+        calendar_executor,
+        "google_calendar_status",
+        lambda _uid: {"configured": True, "connected": True},
+    )
+    monkeypatch.setattr(calendar_executor, "create_calendar_event", fake_create_calendar_event)
+    monkeypatch.setattr(calendar_executor, "ReminderScheduler", lambda: FakeScheduler())
 
     response = client.post(
         "/api/reminders/google-calendar/",
@@ -847,6 +855,144 @@ def test_food_query_routes_by_orchestrator(monkeypatch):
     assert response.status_code == 200
     assert calls["kwargs"]["enabled_providers"] == {"zepto"}
     assert response.json()["selected_tool_providers"] == ["zepto"]
+
+
+def test_food_query_routes_normal_query_without_mcp(monkeypatch):
+    monkeypatch.setattr(
+        agent_pipeline,
+        "classify_agent_routing",
+        lambda **_kwargs: {
+            "task_type": "normal_query",
+            "food_providers": [],
+            "reasoning": "general knowledge question",
+        },
+    )
+    monkeypatch.setattr(
+        api_main,
+        "resolve_llm_from_env",
+        lambda *_args, **_kwargs: (
+            ResolvedLlm(provider="gemini", api_key="test", model="gemini-test"),
+            None,
+        ),
+    )
+    import app.services.general_chat.responder as general_chat_responder
+
+    monkeypatch.setattr(
+        general_chat_responder,
+        "reply_general_chat",
+        lambda **_kwargs: "Photosynthesis converts light into chemical energy.",
+    )
+    plan_for_provider_called = {"count": 0}
+
+    def fake_plan_for_provider(*_args, **_kwargs):
+        plan_for_provider_called["count"] += 1
+        return {}
+
+    monkeypatch.setattr(agent_pipeline, "_plan_for_provider", fake_plan_for_provider)
+    monkeypatch.setattr(
+        agent_pipeline,
+        "execute_tool_plan_sync",
+        lambda *_args, **_kwargs: {"ok": True, "routed_providers": []},
+    )
+
+    response = client.post(
+        "/api/food/query/",
+        json={"message": "What is photosynthesis?", "execute_tools": True},
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent_routing"]["task_type"] == "normal_query"
+    assert body["selected_tool_providers"] == []
+    assert body["food_routing_plan"]["intent"] == "normal_query"
+    assert body["food_routing_plan"]["tool_plan"] == []
+    assert body["assistant_message"] == "Photosynthesis converts light into chemical energy."
+    assert plan_for_provider_called["count"] == 0
+    trace = body["observable_trace"]
+    assert trace[0]["stage"] == "intent_orchestration"
+    assert trace[0]["task_type"] == "normal_query"
+
+
+def test_food_query_routes_reminder_calendar(monkeypatch):
+    monkeypatch.setattr(
+        agent_pipeline,
+        "classify_agent_routing",
+        lambda **_kwargs: {
+            "task_type": "reminder_calendar",
+            "food_providers": [],
+            "reasoning": "reminder tomorrow morning",
+        },
+    )
+    monkeypatch.setattr(
+        api_main,
+        "resolve_llm_from_env",
+        lambda *_args, **_kwargs: (
+            ResolvedLlm(provider="gemini", api_key="test", model="gemini-test"),
+            None,
+        ),
+    )
+
+    calendar_calls = {}
+
+    def fake_execute_reminder_calendar(**kwargs):
+        calendar_calls.update(kwargs)
+        return {
+            "ok": True,
+            "routed_providers": ["google_calendar"],
+            "parsed": {
+                "title": "call dentist",
+                "next_trigger": "2026-05-20T09:00:00+05:30",
+                "timezone": "Asia/Kolkata",
+            },
+            "calendar_event": {
+                "id": "evt-1",
+                "html_link": "https://calendar.google.com/event?eid=evt-1",
+                "summary": "call dentist",
+            },
+        }
+
+    monkeypatch.setattr(
+        agent_pipeline,
+        "execute_reminder_calendar",
+        fake_execute_reminder_calendar,
+    )
+    plan_for_provider_called = {"count": 0}
+
+    def fake_plan_for_provider(*_args, **_kwargs):
+        plan_for_provider_called["count"] += 1
+        return {}
+
+    monkeypatch.setattr(agent_pipeline, "_plan_for_provider", fake_plan_for_provider)
+    monkeypatch.setattr(
+        agent_pipeline,
+        "execute_tool_plan_sync",
+        lambda *_args, **_kwargs: {"ok": True, "routed_providers": []},
+    )
+
+    response = client.post(
+        "/api/agent/query/",
+        json={
+            "message": "Remind me tomorrow at 9am to call the dentist",
+            "execute_tools": True,
+        },
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent_routing"]["task_type"] == "reminder_calendar"
+    assert body["selected_tool_providers"] == []
+    assert body["food_routing_plan"]["intent"] == "reminder_calendar"
+    assert body["calendar_execution"]["ok"] is True
+    assert body["tool_execution"]["ok"] is True
+    assert body["tool_execution"]["routed_providers"] == ["google_calendar"]
+    assert "call dentist" in body["assistant_message"]
+    assert calendar_calls["user_message"] == "Remind me tomorrow at 9am to call the dentist"
+    assert plan_for_provider_called["count"] == 0
+    trace = body["observable_trace"]
+    assert trace[0]["task_type"] == "reminder_calendar"
+    assert any(item["stage"] == "calendar_execution" for item in trace)
 
 
 def test_zepto_provider_uses_official_endpoint_tooling():

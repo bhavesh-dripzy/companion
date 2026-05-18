@@ -1,4 +1,4 @@
-"""High-level routing model: classify message into downstream domains (currently food MCP)."""
+"""High-level routing model: classify messages into downstream domain agents."""
 
 from __future__ import annotations
 
@@ -10,7 +10,9 @@ from app.services.food_llm_router import Provider as RouterProvider
 from app.services.food_llm_router import complete_json_object
 from app.services.llm_config import ResolvedLlm
 
-_KNOWN_TASKS = frozenset({"food_delivery", "reminder_calendar", "whatsapp_message"})
+_KNOWN_TASKS = frozenset(
+    {"food_delivery", "normal_query", "reminder_calendar", "whatsapp_message"}
+)
 _KNOWN_FOOD = frozenset({"zomato", "swiggy_food", "swiggy_instamart", "zepto"})
 
 
@@ -55,6 +57,8 @@ def classify_agent_routing(*, user_message: str, llm: ResolvedLlm) -> dict[str, 
         for x in foods_raw
         if isinstance(x, str) and str(x).strip() in _KNOWN_FOOD
     ]
+    if task in ("normal_query", "reminder_calendar"):
+        foods = []
     reasoning = str(raw.get("reasoning") or "").strip()
 
     return {

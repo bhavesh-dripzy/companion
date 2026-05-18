@@ -11,6 +11,7 @@ def build_tool_execution_trace(
     selected_providers: set[str],
     tool_execution: dict[str, Any] | None,
     intent_routing: dict[str, Any] | None = None,
+    calendar_execution: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     trace: list[dict[str, Any]] = []
 
@@ -19,15 +20,22 @@ def build_tool_execution_trace(
         foods_txt = ""
         if isinstance(ft, list) and ft:
             foods_txt = ", ".join(str(x) for x in ft if x)
+        task_type = intent_routing.get("task_type")
+        if task_type == "normal_query":
+            detail = "Classifier chose general chat (normal_query); no food MCP."
+        elif task_type == "reminder_calendar":
+            detail = "Classifier chose calendar/reminder (reminder_calendar); Google Calendar path."
+        else:
+            detail = (
+                f"Classifier chose task_type={task_type!r}; "
+                f"food MCP providers=[{foods_txt or 'none'}]."
+            )
         trace.append(
             {
                 "stage": "intent_orchestration",
                 "status": "ok",
-                "detail": (
-                    f"Classifier chose task_type={intent_routing.get('task_type')!r}; "
-                    f"food MCP providers=[{foods_txt or 'none'}]."
-                ),
-                "task_type": intent_routing.get("task_type"),
+                "detail": detail,
+                "task_type": task_type,
                 "food_providers": intent_routing.get("food_providers"),
             }
         )
@@ -70,6 +78,29 @@ def build_tool_execution_trace(
                 "tools": planned_tools,
             }
         )
+    if isinstance(calendar_execution, dict):
+        trace.append(
+            {
+                "stage": "calendar_execution",
+                "provider": "google_calendar",
+                "status": "ok" if calendar_execution.get("ok") else "error",
+                "detail": (
+                    "Google Calendar event created."
+                    if calendar_execution.get("ok")
+                    else str(calendar_execution.get("error") or "Calendar execution failed.")
+                ),
+                "tools": ["create_google_calendar_event"],
+            }
+        )
+        trace.append(
+            {
+                "stage": "final_response",
+                "status": "ok" if calendar_execution.get("ok") else "error",
+                "detail": "Prepared response from calendar execution.",
+            }
+        )
+        return trace
+
     if not isinstance(tool_execution, dict):
         trace.append(
             {
