@@ -65,15 +65,24 @@ jobs:
 
       - name: Populate app secrets
         run: |
+          API_URL="$(aws cloudformation describe-stacks \
+            --stack-name companion-serverless \
+            --query "Stacks[0].Outputs[?OutputKey=='HttpApiEndpoint'].OutputValue" \
+            --output text \
+            --region "$AWS_REGION")"
+          export PUBLIC_BASE_URL="$API_URL"
           python3 <<'PY'
           import json
           import os
 
           override = os.getenv("APP_SECRETS_JSON", "").strip()
           if override:
-              json.loads(override)
+              secrets = json.loads(override)
+              public_base_url = os.getenv("PUBLIC_BASE_URL", "").strip()
+              if public_base_url:
+                  secrets["PUBLIC_BASE_URL"] = public_base_url.rstrip("/")
               with open("/tmp/secrets.json", "w") as f:
-                  f.write(override)
+                  json.dump(secrets, f)
               print("Using APP_SECRETS_JSON override.")
           else:
               secrets = {}
@@ -87,10 +96,11 @@ jobs:
                   "ADMIN_PASSWORD",
                   "GOOGLE_CALENDAR_CLIENT_ID",
                   "GOOGLE_CALENDAR_CLIENT_SECRET",
+                  "PUBLIC_BASE_URL",
               ):
                   val = os.getenv(key, "").strip()
                   if val:
-                      secrets[key] = val
+                      secrets[key] = val.rstrip("/") if key == "PUBLIC_BASE_URL" else val
               if not secrets:
                   print("No secrets configured — skipping.")
                   raise SystemExit(0)

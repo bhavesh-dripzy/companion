@@ -351,6 +351,11 @@ def test_mcp_oauth_start_returns_hosted_authorization_url(monkeypatch):
         }
 
     monkeypatch.setattr(mcp_exec, "start_web_oauth", fake_start_web_oauth)
+    monkeypatch.setattr(
+        api_main,
+        "secret_or_env",
+        lambda key, default="": "https://companion.example" if key == "PUBLIC_BASE_URL" else default,
+    )
 
     response = client.get(
         "/api/mcp/oauth/start?provider=zomato",
@@ -364,7 +369,7 @@ def test_mcp_oauth_start_returns_hosted_authorization_url(monkeypatch):
     assert body["provider"] == "zomato"
     assert calls["user_id"] == "local_admin"
     assert calls["provider_label"] == "Zomato MCP"
-    assert calls["callback_url"].endswith("/api/mcp/oauth/callback")
+    assert calls["callback_url"] == "https://companion.example/api/mcp/oauth/callback"
 
 
 def test_mcp_token_status_is_scoped_to_selected_provider(tmp_path, monkeypatch):

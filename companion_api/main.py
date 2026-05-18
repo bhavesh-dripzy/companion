@@ -82,6 +82,10 @@ def food_ui():
 
 
 def _public_url(request: Request, path: str) -> str:
+    configured_base_url = secret_or_env("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if configured_base_url:
+        return f"{configured_base_url}{path}"
+
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme
     host = (
         request.headers.get("x-forwarded-host")
