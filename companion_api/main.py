@@ -26,6 +26,7 @@ from companion_api.secrets import secret_or_env
 from app.services.food_llm_router import route_food_query
 from app.services.food_response_builder import saved_address_label_from_mcp_item
 from app.services.agents.pipeline import CustomMcpNeedsDiscoveryError, run_agent_turn
+from app.services.calendar import execute_reminder_calendar
 from app.services.llm_config import resolve_llm_from_env
 from app.services.tool_runtime import (
     delete_custom_tool_provider,
@@ -48,10 +49,8 @@ from companion_api.models import (
     ZapierMcpProviderRequest,
 )
 from companion_api.reminders import ReminderScheduler
-from companion_api.reminder_parser import parse_reminder_message
 from companion_api.google_calendar import (
     complete_google_calendar_oauth,
-    create_calendar_event,
     google_calendar_status,
     start_google_calendar_oauth,
 )
@@ -1251,6 +1250,35 @@ def _companion_agent_turn(
         raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
 
 
+def _message_requires_delivery_address(message: str) -> bool:
+    text = f" {(message or '').strip().lower()} "
+    delivery_words = {
+        " order ",
+        " buy ",
+        " deliver ",
+        " delivery ",
+        " restaurant ",
+        " restaurants ",
+        " menu ",
+        " cart ",
+        " pizza ",
+        " biryani ",
+        " burger ",
+        " dosa ",
+        " milk ",
+        " bread ",
+        " eggs ",
+        " atta ",
+        " groceries ",
+        " grocery ",
+        " instamart ",
+        " zepto ",
+        " swiggy ",
+        " zomato ",
+    }
+    return any(word in text for word in delivery_words)
+
+
 @app.post("/api/agent/query/")
 def agent_query_endpoint(
     payload: AgentQueryRequest,
@@ -1264,6 +1292,8 @@ def food_agent_full(
     payload: FoodQueryRequest,
     user: str = Depends(get_current_user),
 ) -> dict[str, Any]:
+    if not payload.address_id.strip() and _message_requires_delivery_address(payload.message):
+        raise HTTPException(status_code=422, detail="address_id is required for delivery requests")
     return _companion_agent_turn(payload, user)
 @app.post("/api/reminders/")
 def create_reminder(
@@ -1286,56 +1316,26 @@ def create_google_calendar_reminder(
     payload: GoogleCalendarReminderRequest,
     user: str = Depends(get_current_user),
 ) -> dict[str, Any]:
-    try:
-        parsed = parse_reminder_message(
-            payload.message,
-            timezone_name=payload.timezone or settings.REMINDER_DEFAULT_TIMEZONE,
-        )
-        trigger = parsed["next_trigger"]
-        if not isinstance(trigger, datetime):
-            raise ValueError("Parsed reminder did not include a datetime.")
-        title = str(parsed["title"])
-        event = create_calendar_event(
-            user_id=user,
-            title=title,
-            description=f"Created by Companion from: {payload.message}",
-            start=trigger,
-            calendar_id=payload.calendar_id,
-            email_reminder_minutes=payload.email_reminder_minutes,
-            popup_reminder_minutes=payload.popup_reminder_minutes,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
-
-    reminder = None
-    if payload.store_reminder:
-        reminder = ReminderScheduler().create_reminder(
-            {
-                "member_id": user,
-                "title": title,
-                "description": f"Google Calendar event: {event.get('htmlLink') or event.get('id') or ''}",
-                "type": "google_calendar",
-                "schedule_type": "fixed",
-                "next_trigger": trigger.isoformat(),
-                "requires_confirmation": False,
-                "created_by": user,
-            }
-        )
+    result = execute_reminder_calendar(
+        user_message=payload.message,
+        user_id=user,
+        timezone_name=payload.timezone,
+        calendar_id=payload.calendar_id,
+        email_reminder_minutes=payload.email_reminder_minutes,
+        popup_reminder_minutes=payload.popup_reminder_minutes,
+        store_reminder=payload.store_reminder,
+    )
+    if not result.get("ok"):
+        code = str(result.get("error_code") or "")
+        detail = str(result.get("error") or "Calendar request failed.")
+        if code in ("parse_error", "invalid_input", "not_connected", "not_configured"):
+            raise HTTPException(status_code=400, detail=detail)
+        raise HTTPException(status_code=502, detail=detail)
     return {
         "status": "success",
-        "parsed": {
-            "title": title,
-            "next_trigger": trigger.isoformat(),
-            "timezone": parsed.get("timezone"),
-        },
-        "calendar_event": {
-            "id": event.get("id"),
-            "html_link": event.get("htmlLink"),
-            "summary": event.get("summary"),
-        },
-        "reminder": reminder,
+        "parsed": result.get("parsed"),
+        "calendar_event": result.get("calendar_event"),
+        "reminder": result.get("reminder"),
     }
 
 

@@ -11,6 +11,13 @@ from app.services.food_response_builder import (
     build_assistant_message_with_llm,
     build_zomato_summary,
 )
+from app.services.calendar import (
+    execute_reminder_calendar,
+    plan_reminder_calendar,
+    reply_reminder_calendar,
+)
+from app.services.general_chat import plan_normal_query
+from app.services.general_chat import responder as general_chat_responder
 from app.services.llm_config import ResolvedLlm
 from app.services.tool_runtime import execute_tool_plan_sync, get_tool_provider
 
@@ -335,7 +342,16 @@ def run_agent_turn(
             "assistant_message": assistant_message,
         }
 
-    if task_type in {"finance_investing", "health_nutrition"}:
+    if task_type == "normal_query":
+        routed = set()
+        plan = plan_normal_query(reasoning=str(orchestration.get("reasoning") or ""))
+    elif task_type == "reminder_calendar":
+        routed = set()
+        plan = plan_reminder_calendar(
+            reasoning=str(orchestration.get("reasoning") or ""),
+            user_message=user_message,
+        )
+    elif task_type in {"finance_investing", "health_nutrition"}:
         if not routed:
             plan = _empty_provider_plan(
                 reasoning=str(orchestration.get("reasoning") or "No MCP provider selected."),
@@ -363,7 +379,16 @@ def run_agent_turn(
         )
 
     tool_execution: dict[str, Any] | None = None
-    if execute_tools:
+    calendar_execution: dict[str, Any] | None = None
+    provider_summaries: dict[str, Any] = {}
+    zomato_summary = build_zomato_summary(None)
+
+    if task_type == "reminder_calendar" and execute_tools:
+        calendar_execution = execute_reminder_calendar(
+            user_message=user_message,
+            user_id=user_id,
+        )
+    elif execute_tools:
         tool_plan = plan.get("tool_plan") if isinstance(plan, dict) else []
         enabled_providers = routed or None
         tool_execution = execute_tool_plan_sync(
@@ -374,7 +399,6 @@ def run_agent_turn(
             enabled_providers=enabled_providers,
             user_id=user_id,
         )
-        provider_summaries: dict[str, Any] = {}
         provider_results = tool_execution.get("provider_results")
         if isinstance(provider_results, dict):
             for provider_name, raw in provider_results.items():
@@ -382,11 +406,6 @@ def run_agent_turn(
                     provider_summaries[provider_name] = build_zomato_summary(raw)
             zraw = provider_results.get("zomato")
             zomato_summary = build_zomato_summary(zraw if isinstance(zraw, dict) else None)
-        else:
-            zomato_summary = build_zomato_summary(None)
-    else:
-        provider_summaries = {}
-        zomato_summary = build_zomato_summary(None)
 
     out: dict[str, Any] = {
         "status": "success",
@@ -397,30 +416,58 @@ def run_agent_turn(
         "tool_execution": {
             "requested": bool(execute_tools),
             "routed_providers": (
-                tool_execution.get("routed_providers", [])
-                if isinstance(tool_execution, dict)
-                else []
+                calendar_execution.get("routed_providers", [])
+                if isinstance(calendar_execution, dict)
+                else (
+                    tool_execution.get("routed_providers", [])
+                    if isinstance(tool_execution, dict)
+                    else []
+                )
             ),
-            "ok": tool_execution.get("ok") if isinstance(tool_execution, dict) else False,
-            "error": tool_execution.get("error") if isinstance(tool_execution, dict) else None,
+            "ok": (
+                calendar_execution.get("ok")
+                if isinstance(calendar_execution, dict)
+                else (tool_execution.get("ok") if isinstance(tool_execution, dict) else False)
+            ),
+            "error": (
+                calendar_execution.get("error")
+                if isinstance(calendar_execution, dict)
+                else (tool_execution.get("error") if isinstance(tool_execution, dict) else None)
+            ),
         },
+        "calendar_execution": calendar_execution,
         "observable_trace": build_tool_execution_trace(
             plan=plan if isinstance(plan, dict) else {},
             selected_providers=routed,
-            tool_execution=tool_execution if execute_tools else None,
+            tool_execution=tool_execution if execute_tools and task_type != "reminder_calendar" else None,
             intent_routing=orchestration,
+            calendar_execution=calendar_execution if execute_tools else None,
         ),
         "zomato_summary": zomato_summary,
         "provider_summaries": provider_summaries,
-        "assistant_message": build_assistant_message_with_llm(
-            user_message=user_message,
-            plan=plan,
-            zomato_summary=zomato_summary,
-            provider=llm.provider,
-            api_key=llm.api_key,
-            model=llm.model,
-            base_url=llm.base_url,
-            provider_summaries=provider_summaries,
+        "assistant_message": (
+            general_chat_responder.reply_general_chat(
+                user_message=user_message,
+                llm=llm,
+                conversation_history=conversation_history,
+            )
+            if task_type == "normal_query"
+            else reply_reminder_calendar(
+                user_message=user_message,
+                execution=calendar_execution,
+                execute_tools=execute_tools,
+            )
+            if task_type == "reminder_calendar"
+            else build_assistant_message_with_llm(
+                user_message=user_message,
+                plan=plan,
+                zomato_summary=zomato_summary,
+                provider=llm.provider,
+                api_key=llm.api_key,
+                model=llm.model,
+                base_url=llm.base_url,
+                provider_summaries=provider_summaries,
+            )
         ),
     }
     return out
