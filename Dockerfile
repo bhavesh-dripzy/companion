@@ -4,7 +4,10 @@ RUN microdnf install -y \
     gzip \
     shadow-utils \
     tar \
-    xz && \
+    xz \
+    make \
+    gcc \
+    gcc-c++ && \
     curl -fsSL https://nodejs.org/dist/v20.19.0/node-v20.19.0-linux-x64.tar.xz \
     | tar -xJ -C /opt && \
     ln -s /opt/node-v20.19.0-linux-x64/bin/node /usr/local/bin/node && \
