@@ -111,3 +111,39 @@ class ReminderRepository:
         )
         attrs = response.get("Attributes")
         return _json_safe(attrs) if attrs else None
+
+
+class MemberRepository:
+    def __init__(self, table_name: str | None = None):
+        self.table = _resource().Table(table_name or settings.MEMBERS_TABLE)
+
+    def get_by_phone(self, phone_number: str) -> dict[str, Any] | None:
+        """Find a member by their phone number using the phone-number-index."""
+        # Normalize: strip + if present, though Meta usually sends it.
+        clean_phone = phone_number.strip().replace("+", "")
+        if not clean_phone:
+            return None
+
+        # Try with + first, then without (legacy/native format)
+        for phone in [f"+{clean_phone}", clean_phone]:
+            response = self.table.query(
+                IndexName="phone-number-index",
+                KeyConditionExpression=Key("phone_number").eq(phone),
+            )
+            items = response.get("Items", [])
+            if items:
+                return _json_safe(items[0])
+        return None
+
+    def get(self, member_id: str) -> dict[str, Any] | None:
+        response = self.table.get_item(Key={"member_id": str(member_id)})
+        item = response.get("Item")
+        return _json_safe(item) if item else None
+
+    def list_by_family(self, family_id: str) -> list[dict[str, Any]]:
+        """List all members in a family using the family-index."""
+        response = self.table.query(
+            IndexName="family-index",
+            KeyConditionExpression=Key("family_id").eq(family_id),
+        )
+        return [_json_safe(i) for i in response.get("Items", [])]

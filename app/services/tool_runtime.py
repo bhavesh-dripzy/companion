@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 import re
 import time
@@ -25,6 +25,8 @@ class ToolProvider:
     available: bool = True
     notes: str = ""
     custom: bool = False
+    stdio_command: str | None = None
+    stdio_args: tuple[str, ...] = ()
 
 
 ZOMATO_PROVIDER = ToolProvider(
@@ -131,12 +133,79 @@ ZEPTO_PROVIDER = ToolProvider(
     ),
 )
 
+KITE_PROVIDER = ToolProvider(
+    name="kite",
+    label="Zerodha Kite MCP",
+    mcp_url_env="KITE_MCP_URL",
+    default_mcp_url="https://mcp.kite.trade/mcp",
+    auth_mode="tool",
+    tools=frozenset(
+        {
+            "login",
+            "search_instruments",
+            "get_quotes",
+            "get_ltp",
+            "get_ohlc",
+            "get_historical_data",
+            "get_profile",
+            "get_margins",
+            "get_holdings",
+            "get_positions",
+            "get_mf_holdings",
+            "get_orders",
+            "get_trades",
+            "get_order_history",
+            "get_order_trades",
+            "get_gtts",
+        }
+    ),
+    notes=(
+        "Hosted Zerodha Kite MCP endpoint. Companion exposes read-only/account "
+        "inspection tools by default; trading tools are intentionally not routed."
+    ),
+)
+
+GROWW_PROVIDER = ToolProvider(
+    name="groww",
+    label="Groww MCP",
+    mcp_url_env="GROWW_MCP_URL",
+    default_mcp_url="https://mcp.groww.in/mcp",
+    tools=frozenset(),
+    notes=(
+        "Official Groww MCP endpoint. It requires Groww OAuth before tools can "
+        "be discovered; connect and test this provider to cache its tool schema."
+    ),
+)
+
+CALORIE_PROVIDER = ToolProvider(
+    name="daily_calorie_tracker",
+    label="Daily Calorie Tracker MCP",
+    auth_mode="tool",
+    tools=frozenset(
+        {
+            "add_meal",
+            "get_daily_summary",
+            "get_weekly_report",
+            "search_food",
+        }
+    ),
+    notes=(
+        "Local stdio MCP for calorie tracking. Companion stores its SQLite "
+        "database per user in Secrets Manager between Lambda cold starts."
+    ),
+    stdio_command="node",
+    stdio_args=("node_modules/daily-calorie-tracker-mcp/dist/index.js",),
+)
+
 BUILTIN_PROVIDERS = (
     ZOMATO_PROVIDER,
     SWIGGY_FOOD_PROVIDER,
     SWIGGY_INSTAMART_PROVIDER,
     BLINKIT_PROVIDER,
     ZEPTO_PROVIDER,
+    KITE_PROVIDER,
+    GROWW_PROVIDER,
+    CALORIE_PROVIDER,
 )
 PROVIDERS = BUILTIN_PROVIDERS
 
@@ -175,6 +244,33 @@ def _custom_provider_records(user_id: str | None = None) -> dict[str, dict[str, 
     }
 
 
+def _builtin_provider_tool_records(user_id: str | None = None) -> dict[str, list[str]]:
+    payload = _mcp_token_secret(user_id)
+    records = payload.get("builtin_provider_tools") if isinstance(payload, dict) else None
+    if not isinstance(records, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    builtin_ids = {provider.name for provider in BUILTIN_PROVIDERS}
+    for pid, tools in records.items():
+        if str(pid) not in builtin_ids or not isinstance(tools, list):
+            continue
+        clean = sorted({str(tool).strip() for tool in tools if str(tool).strip()})
+        if clean:
+            out[str(pid)] = clean
+    return out
+
+
+def _builtin_providers(user_id: str | None = None) -> tuple[ToolProvider, ...]:
+    tool_overrides = _builtin_provider_tool_records(user_id)
+    providers: list[ToolProvider] = []
+    for provider in BUILTIN_PROVIDERS:
+        tools = tool_overrides.get(provider.name)
+        providers.append(
+            replace(provider, tools=frozenset(tools)) if tools else provider
+        )
+    return tuple(providers)
+
+
 def _custom_providers(user_id: str | None = None) -> tuple[ToolProvider, ...]:
     providers: list[ToolProvider] = []
     for pid, record in _custom_provider_records(user_id).items():
@@ -189,7 +285,7 @@ def _custom_providers(user_id: str | None = None) -> tuple[ToolProvider, ...]:
             else frozenset()
         )
         auth_mode = str(record.get("auth_mode") or "").strip().lower()
-        if auth_mode not in {"oauth", "url"}:
+        if auth_mode not in {"oauth", "url", "tool"}:
             auth_mode = "url" if "mcp.zapier.com" in mcp_url.lower() else "oauth"
         providers.append(
             ToolProvider(
@@ -207,7 +303,7 @@ def _custom_providers(user_id: str | None = None) -> tuple[ToolProvider, ...]:
 
 
 def all_tool_providers(user_id: str | None = None) -> tuple[ToolProvider, ...]:
-    return BUILTIN_PROVIDERS + _custom_providers(user_id)
+    return _builtin_providers(user_id) + _custom_providers(user_id)
 
 
 def save_custom_tool_provider(
@@ -228,8 +324,8 @@ def save_custom_tool_provider(
     clean_auth_mode = (auth_mode or "").strip().lower()
     if not clean_auth_mode:
         clean_auth_mode = "url" if "mcp.zapier.com" in clean_url.lower() else "oauth"
-    if clean_auth_mode not in {"oauth", "url"}:
-        raise ValueError("MCP auth mode must be 'oauth' or 'url'.")
+    if clean_auth_mode not in {"oauth", "url", "tool"}:
+        raise ValueError("MCP auth mode must be 'oauth', 'url', or 'tool'.")
     pid = provider_id.strip() if provider_id else _slugify_provider_id(clean_label)
     builtin_ids = {provider.name for provider in BUILTIN_PROVIDERS}
     if pid in builtin_ids:
@@ -264,6 +360,16 @@ def update_custom_provider_tools(provider_id: str, tools: list[str], user_id: st
     _merge_mcp_token_secret(user_id, custom_providers=records)
 
 
+def update_tool_provider_tools(provider_id: str, tools: list[str], user_id: str | None = None) -> None:
+    builtin_ids = {provider.name for provider in BUILTIN_PROVIDERS}
+    if provider_id not in builtin_ids:
+        update_custom_provider_tools(provider_id, tools, user_id=user_id)
+        return
+    records = _builtin_provider_tool_records(user_id)
+    records[provider_id] = sorted({str(tool).strip() for tool in tools if str(tool).strip()})
+    _merge_mcp_token_secret(user_id, builtin_provider_tools=records)
+
+
 def delete_custom_tool_provider(provider_id: str, user_id: str | None = None) -> bool:
     records = _custom_provider_records(user_id)
     if provider_id not in records:
@@ -281,6 +387,7 @@ def provider_to_dict(provider: ToolProvider) -> dict[str, Any]:
         "custom": provider.custom,
         "mcp_url": provider.default_mcp_url if provider.custom else None,
         "auth_mode": provider.auth_mode,
+        "transport": "stdio" if provider.stdio_command else "http",
         "tool_count": len(provider.tools),
         "tools": sorted(provider.tools),
         "notes": provider.notes,
@@ -300,6 +407,74 @@ def select_tool_providers_for_message(message: str, user_id: str | None = None) 
     mentions_swiggy = "swiggy" in text
     mentions_instamart = "instamart" in text
     mentions_zepto = "zepto" in text
+    mentions_kite = "kite" in text or "zerodha" in text
+    mentions_groww = "groww" in text
+    mentions_calories = "calorie" in text or "calories" in text
+
+    finance_words = {
+        "stock",
+        "stocks",
+        "share",
+        "shares",
+        "portfolio",
+        "holdings",
+        "holding",
+        "position",
+        "positions",
+        "orders",
+        "trades",
+        "margin",
+        "margins",
+        "ltp",
+        "quote",
+        "quotes",
+        "ohlc",
+        "candle",
+        "candles",
+        "nifty",
+        "sensex",
+        "f&o",
+        "fo",
+        "option",
+        "options",
+        "equity",
+        "demat",
+        "kite",
+        "zerodha",
+        "groww",
+    }
+    health_words = {
+        "calorie",
+        "calories",
+        "ate",
+        "eaten",
+        "nutrition",
+        "protein",
+        "diet",
+    }
+    meal_log_words = {" log ", " logged ", " track ", " tracked ", " record ", " recorded "}
+    meal_type_words = {" breakfast ", " lunch ", " dinner ", " snack ", " meal "}
+
+    if mentions_calories and "daily_calorie_tracker" in providers:
+        return {"daily_calorie_tracker"}
+    if any(word in text for word in health_words) and "daily_calorie_tracker" in providers:
+        return {"daily_calorie_tracker"}
+    if (
+        any(token in text for token in meal_log_words)
+        and any(token in text for token in meal_type_words)
+        and "daily_calorie_tracker" in providers
+    ):
+        return {"daily_calorie_tracker"}
+
+    if mentions_kite and "kite" in providers:
+        return {"kite"}
+    if mentions_groww and "groww" in providers:
+        return {"groww"}
+    if any(word in text for word in finance_words):
+        if "kite" in providers:
+            return {"kite"}
+        if "groww" in providers:
+            return {"groww"}
 
     selected: set[str] = set()
     if asks_compare and (mentions_zomato or mentions_swiggy):
@@ -585,14 +760,26 @@ def execute_tool_plan_sync(
             else ""
         ) or provider.default_mcp_url
 
+        if provider.stdio_command:
+            from app.services.stdio_mcp_executor import run_stdio_tool_plan_sync
+
+            provider_results[name] = run_stdio_tool_plan_sync(
+                routed[name],
+                command=provider.stdio_command,
+                args=list(provider.stdio_args),
+                user_id=user_id,
+            )
+            continue
+
         # Pre-execution token check for OAuth-backed providers. Zapier MCP URLs
-        # carry their own secret and do not need mcp-remote token files.
+        # carry their own secret; Kite exposes a provider-side login tool instead
+        # of relying on mcp-remote token files.
         from app.services.zomato_mcp_executor import (
             get_mcp_token_status,
             repo_root_from_settings,
             restore_mcp_auth_tokens,
         )
-        if provider.auth_mode != "url":
+        if provider.auth_mode == "oauth":
             token_status = get_mcp_token_status(
                 repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
             )

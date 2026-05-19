@@ -10,8 +10,18 @@ from app.services.food_llm_router import Provider as RouterProvider
 from app.services.food_llm_router import complete_json_object
 from app.services.llm_config import ResolvedLlm
 
-_KNOWN_TASKS = frozenset({"food_delivery", "reminder_calendar", "whatsapp_message"})
+_KNOWN_TASKS = frozenset(
+    {
+        "food_delivery",
+        "finance_investing",
+        "health_nutrition",
+        "reminder_calendar",
+        "whatsapp_message",
+    }
+)
 _KNOWN_FOOD = frozenset({"zomato", "swiggy_food", "swiggy_instamart", "zepto"})
+_KNOWN_FINANCE = frozenset({"kite", "groww"})
+_KNOWN_HEALTH = frozenset({"daily_calorie_tracker"})
 
 
 @lru_cache(maxsize=1)
@@ -22,7 +32,7 @@ def _load_orchestrator_prompt() -> str:
 
 def classify_agent_routing(*, user_message: str, llm: ResolvedLlm) -> dict[str, Any]:
     """
-    Returns keys: task_type, food_providers (list[str]), reasoning (str).
+    Returns keys: task_type, food_providers, finance_providers, reasoning.
     """
     raw: dict[str, Any]
     try:
@@ -38,6 +48,8 @@ def classify_agent_routing(*, user_message: str, llm: ResolvedLlm) -> dict[str, 
         return {
             "task_type": "food_delivery",
             "food_providers": ["swiggy_food"],
+            "finance_providers": [],
+            "health_providers": [],
             "reasoning": (
                 "Orchestrator returned non-JSON; defaulting to Swiggy Food for safety."
             ),
@@ -55,10 +67,28 @@ def classify_agent_routing(*, user_message: str, llm: ResolvedLlm) -> dict[str, 
         for x in foods_raw
         if isinstance(x, str) and str(x).strip() in _KNOWN_FOOD
     ]
+    finance_raw = raw.get("finance_providers")
+    if not isinstance(finance_raw, list):
+        finance_raw = []
+    finance = [
+        str(x).strip()
+        for x in finance_raw
+        if isinstance(x, str) and str(x).strip() in _KNOWN_FINANCE
+    ]
+    health_raw = raw.get("health_providers")
+    if not isinstance(health_raw, list):
+        health_raw = []
+    health = [
+        str(x).strip()
+        for x in health_raw
+        if isinstance(x, str) and str(x).strip() in _KNOWN_HEALTH
+    ]
     reasoning = str(raw.get("reasoning") or "").strip()
 
     return {
         "task_type": task,
         "food_providers": foods,
+        "finance_providers": finance,
+        "health_providers": health,
         "reasoning": reasoning or "(no reasoning given)",
     }

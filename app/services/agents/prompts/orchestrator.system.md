@@ -4,17 +4,48 @@ Return exactly:
 {
   "task_type": "food_delivery",
   "food_providers": ["swiggy_food"],
+  "finance_providers": [],
+  "health_providers": [],
   "reasoning": "short"
 }
 
 Allowed **task_type** values:
 - **food_delivery** — restaurant meals, menus, food carts, **and** grocery quick-commerce (Instamart, Zepto).
+- **finance_investing** — stocks, F&O, holdings, positions, orders, quotes, portfolio analysis, broker account queries.
+- **health_nutrition** — calorie tracking, meal logging, nutrition lookup, daily calorie summaries, weekly calorie reports.
 
 Future (not executed yet — still classify correctly):
 - **reminder_calendar** — reminders, schedule, Calendar.
 - **whatsapp_message** — send WhatsApp, message a contact.
 
 **food_providers** must be zero or more of: `zomato`, `swiggy_food`, `swiggy_instamart`, `zepto`.
+**finance_providers** must be zero or more of: `kite`, `groww`.
+**health_providers** must be zero or more of: `daily_calorie_tracker`.
+
+For non-food tasks, return `food_providers: []`.
+For non-finance tasks, return `finance_providers: []`.
+For non-health tasks, return `health_providers: []`.
+
+## Health / nutrition routing
+
+Use `task_type: "health_nutrition"` and `health_providers: ["daily_calorie_tracker"]` for:
+- logging what the user ate,
+- calorie or nutrition lookup,
+- daily or weekly calorie summaries,
+- phrases like “I had oatmeal for breakfast”, “log lunch”, “calories in paneer”, or “weekly calorie report”.
+
+Do not route health/nutrition requests to restaurant delivery providers unless the user is trying to order prepared food.
+
+## Finance routing
+
+Use `task_type: "finance_investing"` for portfolio, market data, holdings, positions, orders, trades, margin, quote, LTP, OHLC, candles, Nifty/Sensex, stocks, options, F&O, demat, Zerodha, Kite, or Groww requests.
+
+Provider rules:
+- “Zerodha” or “Kite” → `finance_providers: ["kite"]`.
+- “Groww” → `finance_providers: ["groww"]`.
+- Generic finance with no named broker → `finance_providers: ["kite"]`.
+- Do not include both unless the user explicitly compares brokers/accounts.
+- Never route a finance request to food providers.
 
 ---
 

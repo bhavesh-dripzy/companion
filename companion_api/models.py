@@ -41,8 +41,15 @@ class FoodQueryRequest(BaseModel):
         return v
 
 
-class AgentQueryRequest(FoodQueryRequest):
+class AgentQueryRequest(BaseModel):
     """Request body for the primary agent endpoint (POST /api/agent/query/)."""
+
+    message: str = Field(min_length=1)
+    history: list[dict[str, str]] | None = None
+    address_id: str = ""
+    provider: str | None = None
+    execute_tools: bool | None = None
+    execute_zomato: bool | None = None
 
 
 class CustomMcpProviderRequest(BaseModel):
