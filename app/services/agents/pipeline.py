@@ -16,7 +16,8 @@ from app.services.calendar import (
     plan_reminder_calendar,
     reply_reminder_calendar,
 )
-from app.services.general_chat import plan_normal_query, reply_general_chat
+from app.services.general_chat import plan_normal_query
+from app.services.general_chat import responder as general_chat_responder
 from app.services.llm_config import ResolvedLlm
 from app.services.tool_runtime import execute_tool_plan_sync, get_tool_provider
 
@@ -97,6 +98,25 @@ def _empty_food_plan(*, reasoning: str) -> dict[str, Any]:
         "tool_plan": [],
         "constraints": _empty_constraints_template(),
         "execution_notes_for_downstream": "No food MCP providers selected; respond conversationally.",
+        "validation": {
+            "tool_count": 0,
+            "dropped_unknown_tool_steps": 0,
+            "resolved_model": "orchestrator",
+            "completion_id": "",
+            "provider": "system",
+        },
+    }
+
+
+def _empty_provider_plan(*, reasoning: str, task_type: str) -> dict[str, Any]:
+    return {
+        "intent": "connect_or_discover_provider",
+        "summary": reasoning,
+        "tool_plan": [],
+        "constraints": {},
+        "execution_notes_for_downstream": (
+            f"{task_type} provider has no cached tool schema yet."
+        ),
         "validation": {
             "tool_count": 0,
             "dropped_unknown_tool_steps": 0,
@@ -196,6 +216,15 @@ def _plan_for_provider(
 
         return plan_zomato_food(user_message=routing_message, llm=llm)
 
+    if tp and not tp.tools:
+        return _empty_provider_plan(
+            reasoning=(
+                f"{tp.label} needs account authorization and tool discovery before "
+                "Companion can plan calls for it. Use MCP Connect/Test first."
+            ),
+            task_type="finance_investing",
+        )
+
     return route_food_query(
         user_message=routing_message,
         api_key=llm.api_key,
@@ -204,9 +233,7 @@ def _plan_for_provider(
         base_url=llm.base_url,
         tool_provider=provider_id,
         tool_provider_label=tp.label if tp else None,
-        tool_provider_tools=(
-            sorted(tp.tools) if tp and tp.custom and tp.tools else None
-        ),
+        tool_provider_tools=(sorted(tp.tools) if tp and tp.tools else None),
     )
 
 
@@ -269,14 +296,51 @@ def run_agent_turn(
     routing_message = _format_routing_message(user_message, conversation_history)
     orchestration = classify_agent_routing(user_message=routing_message, llm=llm)
 
-    routed = set(orchestration.get("food_providers") or [])
+    task_type = str(orchestration.get("task_type") or "food_delivery")
+    if task_type == "finance_investing":
+        routed = set(orchestration.get("finance_providers") or [])
+    elif task_type == "health_nutrition":
+        routed = set(orchestration.get("health_providers") or [])
+    else:
+        routed = set(orchestration.get("food_providers") or [])
     routed = {
         pid
         for pid in routed
         if isinstance(pid, str) and pid.strip() and pid.strip() != "blinkit"
     }
 
-    task_type = str(orchestration.get("task_type") or "food_delivery")
+    if task_type == "whatsapp_message":
+        from app.services.whatsapp.planner import plan_whatsapp_message
+        from app.services.whatsapp.client import WhatsAppClient
+        
+        plan = plan_whatsapp_message(user_message=routing_message, user_id=user_id, llm=llm)
+        whatsapp_result = None
+        if execute_tools and plan.get("intent") == "send_whatsapp":
+            client = WhatsAppClient()
+            whatsapp_result = client.send_text_message(
+                to=plan["recipient_phone"],
+                text=plan["message"]
+            )
+        
+        # Build a response message
+        if plan.get("intent") == "send_whatsapp":
+            if whatsapp_result and "error" not in whatsapp_result:
+                assistant_message = f"Sent WhatsApp to {plan['recipient_name']}: \"{plan['message']}\""
+            elif execute_tools:
+                assistant_message = f"Failed to send WhatsApp to {plan['recipient_name']}. Please check credentials."
+            else:
+                assistant_message = f"I'll send a WhatsApp to {plan['recipient_name']} with the message: \"{plan['message']}\". (Execution skipped)"
+        else:
+            assistant_message = plan.get("reasoning") or "I couldn't figure out who to send that WhatsApp message to."
+
+        return {
+            "status": "success",
+            "provider": llm.provider,
+            "intent_routing": orchestration,
+            "whatsapp_plan": plan,
+            "whatsapp_result": whatsapp_result,
+            "assistant_message": assistant_message,
+        }
 
     if task_type == "normal_query":
         routed = set()
@@ -287,6 +351,20 @@ def run_agent_turn(
             reasoning=str(orchestration.get("reasoning") or ""),
             user_message=user_message,
         )
+    elif task_type in {"finance_investing", "health_nutrition"}:
+        if not routed:
+            plan = _empty_provider_plan(
+                reasoning=str(orchestration.get("reasoning") or "No MCP provider selected."),
+                task_type=task_type,
+            )
+        else:
+            _ensure_custom_providers_ready(routed, user_id)
+            plan = _resolve_food_routing_plan(
+                routing_message=routing_message,
+                routed_providers=routed,
+                llm=llm,
+                user_id=user_id,
+            )
     elif task_type != "food_delivery":
         plan = _non_food_plan(reasoning=str(orchestration.get("reasoning") or task_type))
     elif not routed:
@@ -368,7 +446,7 @@ def run_agent_turn(
         "zomato_summary": zomato_summary,
         "provider_summaries": provider_summaries,
         "assistant_message": (
-            reply_general_chat(
+            general_chat_responder.reply_general_chat(
                 user_message=user_message,
                 llm=llm,
                 conversation_history=conversation_history,

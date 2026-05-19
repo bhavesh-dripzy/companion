@@ -33,7 +33,7 @@ from app.services.tool_runtime import (
     get_tool_provider,
     list_tool_providers,
     save_custom_tool_provider,
-    update_custom_provider_tools,
+    update_tool_provider_tools,
 )
 from companion_api import settings
 from companion_api.dynamodb import ReminderRepository
@@ -54,6 +54,7 @@ from companion_api.google_calendar import (
     google_calendar_status,
     start_google_calendar_oauth,
 )
+from app.services.whatsapp.handler import handle_whatsapp_webhook_event
 
 app = FastAPI(title="Companion API", version="2.0.0")
 app.add_middleware(
@@ -354,8 +355,45 @@ def cognito_config() -> CognitoConfigOut:
     )
 
 
+# ---------------------------------------------------------------------------
+# WhatsApp Webhook
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/whatsapp/webhook")
+def whatsapp_webhook_verify(
+    request: Request,
+    mode: str = Query(None, alias="hub.mode"),
+    token: str = Query(None, alias="hub.verify_token"),
+    challenge: str = Query(None, alias="hub.challenge"),
+):
+    """Verify the WhatsApp webhook with Meta."""
+    expected_token = secret_or_env("WHATSAPP_VERIFY_TOKEN", settings.WHATSAPP_VERIFY_TOKEN)
+    if mode == "subscribe" and token == expected_token:
+        logger.info("WhatsApp webhook verified successfully.")
+        return HTMLResponse(content=challenge, status_code=200)
+    logger.warning("WhatsApp webhook verification failed. mode=%s, token=%s", mode, token)
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
+@app.post("/api/whatsapp/webhook")
+async def whatsapp_webhook_post(request: Request):
+    """Receive incoming WhatsApp messages and events."""
+    payload = await request.json()
+    # Execute background processing to return 200 OK to Meta quickly (within 3s)
+    # Since this is a Lambda, we might want to use a separate task or just process if it's fast.
+    # For now, we process it directly.
+    try:
+        handle_whatsapp_webhook_event(payload)
+    except Exception:
+        logger.exception("Error handling WhatsApp webhook")
+    return {"status": "ok"}
+
+
 def _provider_mcp_url(provider_id: str, user_id: str | None = None) -> tuple[Any, str]:
     tool_provider = get_tool_provider(provider_id, user_id=user_id) or get_tool_provider("zomato", user_id=user_id)
+    if tool_provider and tool_provider.stdio_command:
+        return tool_provider, ""
     mcp_url = secret_or_env(
         tool_provider.mcp_url_env if tool_provider and tool_provider.mcp_url_env else "ZOMATO_MCP_URL",
         tool_provider.default_mcp_url if tool_provider and tool_provider.default_mcp_url else "https://mcp-server.zomato.com/mcp",
@@ -421,6 +459,34 @@ def mcp_status(
             "diagnostics": {},
         }
     node_binary = secret_or_env("NODE_BINARY", "node")
+    if tool_provider and tool_provider.stdio_command:
+        command_path = (
+            repo_root_from_settings() / tool_provider.stdio_args[0]
+            if tool_provider.stdio_args
+            else None
+        )
+        installed = bool(command_path and command_path.is_file())
+        return {
+            "provider": tool_provider.name,
+            "provider_label": tool_provider.label,
+            "status": "ready" if installed else "missing_bridge",
+            "detail": (
+                f"{tool_provider.label} is installed and ready."
+                if installed
+                else f"{tool_provider.label} package is not installed in node_modules."
+            ),
+            "mcp_url": None,
+            "node_binary": node_binary,
+            "has_local_tokens": True,
+            "has_secret_tokens": False,
+            "token_status": {"auth_mode": "tool", "transport": "stdio"},
+            "diagnostics": {
+                "transport": "stdio",
+                "command": tool_provider.stdio_command,
+                "args": list(tool_provider.stdio_args),
+                "installed": installed,
+            },
+        }
     url_set = bool(mcp_url.strip())
 
     root = repo_root_from_settings()
@@ -495,10 +561,10 @@ def mcp_initiate_oauth(
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider or not tool_provider.available:
         raise HTTPException(status_code=400, detail=f"Provider '{provider}' is not available or not configured.")
-    if tool_provider.auth_mode == "url":
+    if tool_provider.auth_mode in {"url", "tool"} or tool_provider.stdio_command:
         return {
             "status": "not_required",
-            "detail": f"{tool_provider.label} authenticates through its MCP URL. Use Test to discover tools.",
+            "detail": f"{tool_provider.label} does not use Companion-hosted OAuth. Use Test to verify tools.",
             "provider": provider,
             "provider_label": tool_provider.label,
             "mcp_url": mcp_url,
@@ -537,6 +603,12 @@ def mcp_pairing(
             "status": "provider_unavailable",
             "detail": tool_provider.notes or "This MCP provider is not configured yet.",
             "mcp_url": None,
+        }
+    if tool_provider and (tool_provider.auth_mode == "tool" or tool_provider.stdio_command):
+        return {
+            "status": "not_required",
+            "detail": f"{tool_provider.label} does not use Companion pairing. Use Test to verify tools.",
+            "mcp_url": mcp_url or None,
         }
     base_url = _public_url(request, "").rstrip("/")
     session = create_pairing_session(repo_root=repo_root_from_settings(), mcp_url=mcp_url, user_id=user)
@@ -709,9 +781,13 @@ def mcp_test(
             "detail": tool_provider.notes or "This MCP provider is not configured yet.",
             "mcp_url": None,
         }
-    url_authenticated = bool(tool_provider and tool_provider.auth_mode == "url")
+    url_authenticated = bool(tool_provider and tool_provider.auth_mode in {"url", "tool"})
     token_status = (
-        {"has_local_tokens": True, "has_secret_tokens": False, "auth_mode": "url"}
+        {
+            "has_local_tokens": True,
+            "has_secret_tokens": False,
+            "auth_mode": tool_provider.auth_mode if tool_provider else "url",
+        }
         if url_authenticated
         else get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
     )
@@ -740,7 +816,29 @@ def mcp_test(
 
     # Try connection
     try:
-        if tool_provider and tool_provider.custom:
+        if tool_provider and tool_provider.stdio_command:
+            from app.services.stdio_mcp_executor import list_stdio_mcp_tools_sync
+
+            tools_result = list_stdio_mcp_tools_sync(
+                command=tool_provider.stdio_command,
+                args=list(tool_provider.stdio_args),
+                repo_root=root,
+                user_id=user,
+            )
+            if tools_result.get("ok"):
+                return {
+                    "status": "connected",
+                    "detail": f"Successfully connected to {tool_provider.label}.",
+                    "mcp_url": None,
+                    "tools": tools_result.get("tools", []),
+                }
+            return {
+                "status": "auth_error",
+                "detail": tools_result.get("error_detail", "MCP connection failed."),
+                "mcp_url": None,
+                "tools": [],
+            }
+        if tool_provider and (tool_provider.custom or tool_provider.name in {"groww", "kite"}):
             tools_result = list_mcp_tools_sync(
                 mcp_url=mcp_url,
                 node_binary=node_binary,
@@ -753,7 +851,7 @@ def mcp_test(
                     for tool in tools_result.get("tools", [])
                     if isinstance(tool, dict) and str(tool.get("name") or "").strip()
                 ]
-                update_custom_provider_tools(tool_provider.name, tool_names, user_id=user)
+                update_tool_provider_tools(tool_provider.name, tool_names, user_id=user)
                 return {
                     "status": "connected",
                     "detail": f"Successfully connected to {tool_provider.label}. Discovered {len(tool_names)} tools.",
@@ -889,14 +987,26 @@ def mcp_tools(
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider:
         raise HTTPException(status_code=404, detail="MCP provider not found.")
+    if tool_provider.stdio_command:
+        from app.services.stdio_mcp_executor import list_stdio_mcp_tools_sync
+
+        result = list_stdio_mcp_tools_sync(
+            repo_root=repo_root_from_settings(),
+            command=tool_provider.stdio_command,
+            args=list(tool_provider.stdio_args),
+            user_id=user,
+        )
+        result["provider"] = tool_provider.name
+        result["provider_label"] = tool_provider.label
+        return result
     result = list_mcp_tools_sync(
         repo_root=repo_root_from_settings(),
         mcp_url=mcp_url,
         node_binary=secret_or_env("NODE_BINARY", "node"),
         user_id=user,
     )
-    if result.get("ok") and tool_provider.custom:
-        update_custom_provider_tools(
+    if result.get("ok"):
+        update_tool_provider_tools(
             tool_provider.name,
             [
                 str(tool.get("name") or "").strip()
@@ -1140,6 +1250,35 @@ def _companion_agent_turn(
         raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
 
 
+def _message_requires_delivery_address(message: str) -> bool:
+    text = f" {(message or '').strip().lower()} "
+    delivery_words = {
+        " order ",
+        " buy ",
+        " deliver ",
+        " delivery ",
+        " restaurant ",
+        " restaurants ",
+        " menu ",
+        " cart ",
+        " pizza ",
+        " biryani ",
+        " burger ",
+        " dosa ",
+        " milk ",
+        " bread ",
+        " eggs ",
+        " atta ",
+        " groceries ",
+        " grocery ",
+        " instamart ",
+        " zepto ",
+        " swiggy ",
+        " zomato ",
+    }
+    return any(word in text for word in delivery_words)
+
+
 @app.post("/api/agent/query/")
 def agent_query_endpoint(
     payload: AgentQueryRequest,
@@ -1153,6 +1292,8 @@ def food_agent_full(
     payload: FoodQueryRequest,
     user: str = Depends(get_current_user),
 ) -> dict[str, Any]:
+    if not payload.address_id.strip() and _message_requires_delivery_address(payload.message):
+        raise HTTPException(status_code=422, detail="address_id is required for delivery requests")
     return _companion_agent_turn(payload, user)
 @app.post("/api/reminders/")
 def create_reminder(
@@ -1239,6 +1380,24 @@ def scheduled_reminder_handler(event: dict[str, Any], _context: Any) -> dict[str
         payload.member_id,
         payload.reminder_id,
     )
+    
+    if reminder:
+        # Fetch member to get phone number for WhatsApp notification
+        member = MemberRepository().get(payload.member_id)
+        if member and member.get("phone_number"):
+            from app.services.whatsapp.client import WhatsAppClient
+            title = reminder.get("title", "Reminder")
+            description = reminder.get("description", "")
+            msg = f"🔔 *{title}*"
+            if description:
+                msg += f"\n{description}"
+            
+            # If it's a confirmation-required reminder, add quick reply buttons/instructions
+            if reminder.get("requires_confirmation"):
+                msg += "\n\nReply 'yes' to complete or 'no' to snooze."
+
+            WhatsAppClient().send_text_message(member["phone_number"], msg)
+
     return {
         "status": "ok",
         "triggered": bool(reminder),

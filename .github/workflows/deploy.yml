@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
-      AWS_ACCOUNT_ID: "616551057455"
+      AWS_ACCOUNT_ID: "314359811237"
       AWS_REGION: ap-south-1
     steps:
       - uses: actions/checkout@v4

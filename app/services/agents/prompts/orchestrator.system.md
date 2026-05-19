@@ -4,11 +4,15 @@ Return exactly:
 {
   "task_type": "food_delivery",
   "food_providers": ["swiggy_food"],
+  "finance_providers": [],
+  "health_providers": [],
   "reasoning": "short"
 }
 
 Allowed **task_type** values:
 - **food_delivery** — restaurant meals, menus, food carts, **and** grocery quick-commerce (Instamart, Zepto).
+- **finance_investing** — stocks, F&O, holdings, positions, orders, quotes, portfolio analysis, broker account queries.
+- **health_nutrition** — calorie tracking, meal logging, nutrition lookup, daily calorie summaries, weekly calorie reports.
 - **normal_query** — general questions, chat, facts, advice, or anything **not** about ordering food or groceries.
 - **reminder_calendar** — set a reminder, schedule an event, add to Google Calendar.
 
@@ -16,7 +20,33 @@ Future (not executed yet — still classify correctly):
 - **whatsapp_message** — send WhatsApp, message a contact.
 
 **food_providers** must be zero or more of: `zomato`, `swiggy_food`, `swiggy_instamart`, `zepto`.
-For **normal_query** and **reminder_calendar**, **food_providers** must be `[]`.
+**finance_providers** must be zero or more of: `kite`, `groww`.
+**health_providers** must be zero or more of: `daily_calorie_tracker`.
+
+For non-food tasks, return `food_providers: []`.
+For non-finance tasks, return `finance_providers: []`.
+For non-health tasks, return `health_providers: []`.
+
+## Health / nutrition routing
+
+Use `task_type: "health_nutrition"` and `health_providers: ["daily_calorie_tracker"]` for:
+- logging what the user ate,
+- calorie or nutrition lookup,
+- daily or weekly calorie summaries,
+- phrases like “I had oatmeal for breakfast”, “log lunch”, “calories in paneer”, or “weekly calorie report”.
+
+Do not route health/nutrition requests to restaurant delivery providers unless the user is trying to order prepared food.
+
+## Finance routing
+
+Use `task_type: "finance_investing"` for portfolio, market data, holdings, positions, orders, trades, margin, quote, LTP, OHLC, candles, Nifty/Sensex, stocks, options, F&O, demat, Zerodha, Kite, or Groww requests.
+
+Provider rules:
+- “Zerodha” or “Kite” → `finance_providers: ["kite"]`.
+- “Groww” → `finance_providers: ["groww"]`.
+- Generic finance with no named broker → `finance_providers: ["kite"]`.
+- Do not include both unless the user explicitly compares brokers/accounts.
+- Never route a finance request to food providers.
 
 ---
 
@@ -25,13 +55,15 @@ For **normal_query** and **reminder_calendar**, **food_providers** must be `[]`.
 | Intent | User wants | Examples | Route to |
 |--------|------------|----------|----------|
 | **Food / grocery** | Order, search, compare, cart, menu, delivery apps | “order pizza”, “buy milk”, “restaurants near me” | `food_delivery` + providers |
+| **Finance / investing** | Portfolio, broker account, market data, holdings, positions, orders, trades | “show my Zerodha holdings”, “Groww portfolio”, “Nifty quote” | `finance_investing` + providers |
+| **Health / nutrition** | Calorie tracking, meal logging, nutrition lookup | “calories in paneer”, “log lunch”, “weekly calorie report” | `health_nutrition` + providers |
 | **Calendar / reminder** | Schedule, remind, calendar event | “remind me tomorrow at 9am”, “add to calendar”, “schedule dentist Friday 3pm”, “in 30 minutes remind me to…” | `reminder_calendar`, `food_providers": []` |
 | **Normal query** | General chat, knowledge, unrelated topics | “what is photosynthesis?”, “hello”, “thanks” | `normal_query`, `food_providers": []` |
 
 **Calendar cues:** remind, reminder, schedule, calendar, appointment, “at 9am”, “tomorrow”, “in N minutes”, “next Friday”.
 **Not calendar:** asking *about* calendars (“what is Google Calendar?”) → **normal_query**.
 
-If the message has **no** food-ordering or grocery-shopping intent and **no** scheduling/reminder intent → **normal_query**.
+If the message has **no** food-ordering, grocery-shopping, finance, nutrition, or scheduling/reminder intent → **normal_query**.
 When unsure between normal chat and food, prefer **food_delivery** only if there are clear food/grocery cues.
 
 ---

@@ -8,6 +8,7 @@
     "oauth:swiggy:prod": "bash scripts/swiggy_food_mcp_prod_oauth.sh"
   },
   "dependencies": {
+    "daily-calorie-tracker-mcp": "^1.0.0",
     "mcp-remote": "0.1.38"
   }
 }

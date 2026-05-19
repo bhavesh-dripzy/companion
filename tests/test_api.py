@@ -1001,6 +1001,43 @@ def test_zepto_provider_uses_official_endpoint_tooling():
     assert "search_products" in providers["zepto"]["tools"]
 
 
+def test_finance_and_health_providers_are_registered():
+    providers = {provider["id"]: provider for provider in list_tool_providers()}
+
+    assert providers["kite"]["label"] == "Zerodha Kite MCP"
+    assert providers["kite"]["auth_mode"] == "tool"
+    assert "get_holdings" in providers["kite"]["tools"]
+    assert "place_order" not in providers["kite"]["tools"]
+
+    assert providers["groww"]["label"] == "Groww MCP"
+    assert providers["groww"]["auth_mode"] == "oauth"
+    assert providers["groww"]["tool_count"] == 0
+
+    assert providers["daily_calorie_tracker"]["transport"] == "stdio"
+    assert "add_meal" in providers["daily_calorie_tracker"]["tools"]
+
+
+def test_non_food_provider_selection_keywords():
+    assert select_tool_providers_for_message("show my zerodha holdings") == {"kite"}
+    assert select_tool_providers_for_message("analyze my Groww portfolio") == {"groww"}
+    assert select_tool_providers_for_message("calories in paneer") == {
+        "daily_calorie_tracker"
+    }
+    assert select_tool_providers_for_message("log lunch dal and rice") == {
+        "daily_calorie_tracker"
+    }
+
+
+def test_agent_query_does_not_require_food_address():
+    response = client.post(
+        "/api/agent/query/",
+        json={"message": "show my zerodha holdings"},
+        headers=auth_headers(),
+    )
+
+    assert response.status_code != 422
+
+
 def test_custom_mcp_can_be_added_listed_and_removed(monkeypatch):
     store = {}
 
