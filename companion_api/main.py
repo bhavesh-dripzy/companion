@@ -89,6 +89,14 @@ def food_ui():
     return index_path.read_text()
 
 
+@app.get("/favicon.svg")
+def favicon():
+    fav_path = _FRONTEND_DIST / "favicon.svg"
+    if fav_path.exists():
+        return HTMLResponse(fav_path.read_text(), media_type="image/svg+xml")
+    return HTMLResponse("", status_code=404)
+
+
 # Mount static assets (JS, CSS, images) from the React build
 if (_FRONTEND_DIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="assets")
