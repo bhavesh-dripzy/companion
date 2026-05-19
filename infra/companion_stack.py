@@ -46,6 +46,7 @@ class CompanionStack(Stack):
             "db.sqlite3",
             "deploy",
             "env",
+            "frontend/node_modules",
             "infra/cdk.out",
             "node_modules",
             "staticfiles",

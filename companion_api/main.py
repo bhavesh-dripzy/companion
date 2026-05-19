@@ -12,6 +12,7 @@ from botocore.exceptions import ClientError
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 from pydantic import BaseModel
 
@@ -71,14 +72,29 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
-_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "app" / "templates" / "app"
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 @app.get("/", response_class=HTMLResponse)
 @app.get("/food/", response_class=HTMLResponse)
 def food_ui():
-    """Serve the food-agent SPA."""
-    return (_TEMPLATE_DIR / "food_ui.html").read_text()
+    """Serve the new React frontend SPA."""
+    index_path = _FRONTEND_DIST / "index.html"
+    if not index_path.exists():
+        # Fallback to legacy UI if frontend isn't built
+        legacy_path = Path(__file__).resolve().parent.parent / "app" / "templates" / "app" / "food_ui.html"
+        if legacy_path.exists():
+            return legacy_path.read_text()
+        return HTMLResponse("Frontend not found. Run 'npm run build' in the frontend directory.", status_code=404)
+    return index_path.read_text()
+
+
+# Mount static assets (JS, CSS, images) from the React build
+if (_FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="assets")
+# Mount public folder files (favicon, etc.)
+if _FRONTEND_DIST.exists():
+    app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIST)), name="static")
 
 
 def _public_url(request: Request, path: str) -> str:
