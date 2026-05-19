@@ -15,3 +15,4 @@ staticfiles
 node_modules
 cdk.out
 infra/cdk.out
+frontend/node_modules

@@ -1,9 +1,16 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 :root {
   color-scheme: dark;
+}
+
+@theme {
+  --color-background: #0a0a0a;
+  --color-surface: #121212;
+  --color-border: #2a2a2a;
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
 }
 
 body {
