@@ -351,33 +351,46 @@ def _tool_result_payload(result: Any) -> dict[str, Any]:
         return out
 
 
-def _first_address_id_from_saved_payload(tool_payload: dict[str, Any]) -> str | None:
+def _find_best_address_id(tool_payload: dict[str, Any], location_text: str | None = None) -> str | None:
     blob = tool_payload.get("data")
     if blob is None:
         return None
-    objs: list[dict[str, Any]] = []
-    if isinstance(blob, dict):
-        objs.append(blob)
-        r = blob.get("result")
-        if isinstance(r, dict):
-            objs.append(r)
-    elif isinstance(blob, list):
-        for entry in blob:
-            if isinstance(entry, dict):
-                objs.append(entry)
-                rr = entry.get("result")
-                if isinstance(rr, dict):
-                    objs.append(rr)
+    
+    addresses: list[dict[str, Any]] = []
+    data_dict = blob if isinstance(blob, dict) else (blob[0] if isinstance(blob, list) and blob else {})
+    if isinstance(data_dict, dict):
+        # Handle both direct {addresses: []} and {result: {addresses: []}}
+        raw_addresses = data_dict.get("addresses") or data_dict.get("result", {}).get("addresses")
+        if isinstance(raw_addresses, list):
+            addresses = [a for a in raw_addresses if isinstance(a, dict)]
 
-    for dd in objs:
-        addresses = dd.get("addresses")
-        if isinstance(addresses, list) and addresses and isinstance(addresses[0], dict):
-            aid = addresses[0].get("address_id")
-            if aid is not None:
-                s = str(aid).strip()
-                if s:
-                    return s
-    return None
+    if not addresses:
+        return None
+
+    # 1. Try exact match on tag/label/name
+    target = (location_text or "").strip().lower()
+    if target:
+        for addr in addresses:
+            for key in ("address_tag", "addressTag", "location_name", "name", "label"):
+                val = str(addr.get(key) or "").strip().lower()
+                if val == target:
+                    aid = addr.get("address_id") or addr.get("addressId") or addr.get("id")
+                    if aid: return str(aid).strip()
+
+        # 2. Try partial match on address line
+        for addr in addresses:
+            line = str(addr.get("address_line") or addr.get("addressLine") or "").strip().lower()
+            if target in line:
+                aid = addr.get("address_id") or addr.get("addressId") or addr.get("id")
+                if aid: return str(aid).strip()
+
+    # 3. Fallback to first address
+    aid = addresses[0].get("address_id") or addresses[0].get("addressId") or addresses[0].get("id")
+    return str(aid).strip() if aid else None
+
+
+def _first_address_id_from_saved_payload(tool_payload: dict[str, Any]) -> str | None:
+    return _find_best_address_id(tool_payload)
 
 
 def _walk_json(obj: Any):
@@ -533,6 +546,7 @@ async def _run_session_inner(
     mcp_url: str,
     node_binary: str,
     user_id: str | None = None,
+    location_text: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -544,7 +558,10 @@ async def _run_session_inner(
         ) from e
 
     step_results: list[dict[str, Any]] = []
-    diagnostics: dict[str, Any] = {"requested_address_id": effective_address_id}
+    diagnostics: dict[str, Any] = {
+        "requested_address_id": effective_address_id,
+        "requested_location_text": location_text,
+    }
 
     proxy_script = repo_root / "node_modules/mcp-remote/dist/proxy.js"
     if not proxy_script.is_file():
@@ -592,7 +609,7 @@ async def _run_session_inner(
                     }
                 )
                 step_index += 1
-                nid = _first_address_id_from_saved_payload(envelope)
+                nid = _find_best_address_id(envelope, location_text=location_text)
                 if nid:
                     resolved_id = nid
                     placeholder_values["__ADDRESS_ID__"] = nid
@@ -1385,6 +1402,7 @@ def run_tool_plan_sync(
     mcp_url: str | None = None,
     node_binary: str | None = None,
     user_id: str | None = None,
+    location_text: str | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv(
@@ -1413,6 +1431,7 @@ def run_tool_plan_sync(
                 url,
                 node,
                 user_id,
+                location_text=location_text,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))

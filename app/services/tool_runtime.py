@@ -720,30 +720,14 @@ def execute_tool_plan_sync(
             _requested_location_from_constraints(constraints)
             or _explicit_location_from_message(user_message)
         )
-        if requested_location and not address_id and _requires_zomato_address(routed["zomato"]):
-            provider_results["zomato"] = {
-                "ok": False,
-                "error_detail": "zomato_requires_saved_address_for_requested_location",
-                "steps": [],
-                "diagnostics": {
-                    "requested_location": requested_location,
-                    "reason": (
-                        "The current Zomato MCP restaurant search requires a saved delivery "
-                        "address_id. Refusing to substitute the first saved address for a "
-                        "different requested locality."
-                    ),
-                },
-            }
-            return {
-                "ok": False,
-                "error": "zomato_requires_saved_address_for_requested_location",
-                "routed_providers": sorted(provider_results.keys()),
-                "provider_results": provider_results,
-            }
+        # We used to refuse to substitute the first address if a different location was requested.
+        # Now we let it proceed to run_tool_plan_sync, which will try to prefetch and resolve.
+        # The response LLM will handle the result (success or skipped tools).
         provider_results["zomato"] = run_tool_plan_sync(
             routed["zomato"],
             address_id=address_id,
             user_id=user_id,
+            location_text=requested_location,
         )
 
     routed_names = tuple(name for name in sorted(routed.keys()) if name != "zomato")
@@ -807,6 +791,7 @@ def execute_tool_plan_sync(
                 address_id=address_id,
                 mcp_url=resolved_url,
                 user_id=user_id,
+                location_text=requested_location,
             )
         elif name == "swiggy_instamart":
             from app.services.instamart_mcp_executor import run_tool_plan_sync as run_instamart_plan
@@ -816,6 +801,7 @@ def execute_tool_plan_sync(
                 address_id=address_id,
                 mcp_url=resolved_url,
                 user_id=user_id,
+                location_text=requested_location,
             )
         else:
             provider_results[name] = run_tool_plan_sync(
@@ -823,6 +809,7 @@ def execute_tool_plan_sync(
                 address_id=address_id,
                 mcp_url=resolved_url,
                 user_id=user_id,
+                location_text=requested_location,
             )
 
     ok = all(

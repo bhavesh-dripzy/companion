@@ -6,6 +6,9 @@ from aws_cdk import (
     RemovalPolicy,
     Stack,
     aws_apigatewayv2 as apigwv2,
+    aws_certificatemanager as acm,
+    aws_route53 as route53,
+    aws_route53_targets as targets,
     aws_dynamodb as dynamodb,
     aws_iam as iam,
     aws_lambda as lambda_,
@@ -95,7 +98,10 @@ class CompanionStack(Stack):
                     cognito.OAuthScope.EMAIL,
                     cognito.OAuthScope.PROFILE,
                 ],
-                callback_urls=["http://localhost:8000/api/auth/callback"],
+                callback_urls=[
+                    "http://localhost:8000/api/auth/callback",
+                    "https://houzzat.in/api/auth/callback",
+                ],
             ),
             prevent_user_existence_errors=True,
         )
@@ -272,6 +278,35 @@ class CompanionStack(Stack):
             )
         )
 
+        # ── Domain & DNS ───────────────────────────────────────────────
+
+        domain_name = "houzzat.in"
+        zone = route53.PublicHostedZone.from_lookup(
+            self,
+            "HostedZone",
+            domain_name=domain_name,
+        )
+
+        certificate = acm.Certificate(
+            self,
+            "Certificate",
+            domain_name=domain_name,
+            subject_alternative_names=[f"*.{domain_name}"],
+            validation=acm.CertificateValidation.from_dns(zone),
+        )
+
+        api_domain = apigwv2.CfnDomainName(
+            self,
+            "ApiCustomDomain",
+            domain_name=domain_name,
+            domain_name_configurations=[
+                apigwv2.CfnDomainName.DomainNameConfigurationProperty(
+                    certificate_arn=certificate.certificate_arn,
+                    endpoint_type="REGIONAL",
+                )
+            ],
+        )
+
         api = apigwv2.CfnApi(
             self,
             "HttpApi",
@@ -284,6 +319,27 @@ class CompanionStack(Stack):
                 max_age=3600,
             ),
         )
+
+        apigwv2.CfnApiMapping(
+            self,
+            "ApiMapping",
+            api_id=api.ref,
+            domain_name=domain_name,
+            stage="$default",
+        ).add_dependency(api_domain)
+
+        route53.ARecord(
+            self,
+            "ApiAliasRecord",
+            zone=zone,
+            target=route53.RecordTarget.from_alias(
+                targets.ApiGatewayv2DomainProperties(
+                    regional_domain_name=api_domain.attr_regional_domain_name,
+                    regional_hosted_zone_id=api_domain.attr_regional_hosted_zone_id,
+                )
+            ),
+        )
+
         integration = apigwv2.CfnIntegration(
             self,
             "ApiIntegration",
@@ -336,6 +392,12 @@ class CompanionStack(Stack):
         )
         cdk.CfnOutput(self, "AppSecretName", value=app_secret.secret_name)
         cdk.CfnOutput(self, "RemindersTableName", value=reminders.table_name)
+        cdk.CfnOutput(
+            self,
+            "NameServers",
+            value=cdk.Fn.join(", ", zone.hosted_zone_name_servers or []),
+            description="Update these NS records in GoDaddy for houzzat.in",
+        )
 
     def _table(
         self,

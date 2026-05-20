@@ -204,7 +204,13 @@ _SYSTEM_PROMPT = (
     "attribute available — pick whatever genuinely helps the user decide.\n"
     "- When the tool failed or returned nothing useful, acknowledge it gracefully "
     "in plain language, and give the user a clear next step.\n"
+    "- **Missing Address Handling**: If the tool results or diagnostics indicate that "
+    "an address_id was required but not found (e.g., \"placeholder_unresolved\" for "
+    "\"__ADDRESS_ID__\", or \"no addresses found\"), explain that you need a delivery "
+    "address to proceed. Ask the user to tell you their location or select a "
+    "saved address from the selector.\n"
     "- Always end with a short, interactive follow-up — 2 to 4 concrete spoken "
+
     "suggestions the user can reply with, chosen to fit the data and the user's "
     "likely intent. They should feel like things a helpful assistant would offer "
     "next, e.g. \"should I show you the full menu of <X>?\", \"want me to filter "

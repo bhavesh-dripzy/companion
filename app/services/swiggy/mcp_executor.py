@@ -76,47 +76,57 @@ def _learn_swiggy_placeholders(values: dict[str, str], tool_payload: dict[str, A
                     break
 
 
-def _first_address_id_swiggy(tool_payload: dict[str, Any]) -> str | None:
-    """Resolve a delivery address id from Swiggy ``get_addresses`` (or similar) payloads."""
+def _find_best_address_id_swiggy(tool_payload: dict[str, Any], location_text: str | None = None) -> str | None:
+    """Resolve a delivery address id from Swiggy ``get_addresses`` (or similar) payloads,
+    matching against location_text if provided."""
     blob = tool_payload.get("data")
     if blob is None:
         return None
-    objs: list[dict[str, Any]] = []
-    if isinstance(blob, dict):
-        objs.append(blob)
-        r = blob.get("result")
-        if isinstance(r, dict):
-            objs.append(r)
-    elif isinstance(blob, list):
-        for entry in blob:
-            if isinstance(entry, dict):
-                objs.append(entry)
-                rr = entry.get("result")
-                if isinstance(rr, dict):
-                    objs.append(rr)
 
-    for dd in objs:
+    addresses: list[dict[str, Any]] = []
+    data_dict = blob if isinstance(blob, dict) else (blob[0] if isinstance(blob, list) and blob else {})
+    if isinstance(data_dict, dict):
         for key in ("addresses", "user_addresses", "saved_addresses"):
-            addresses = dd.get(key)
-            if isinstance(addresses, list) and addresses and isinstance(addresses[0], dict):
-                row = addresses[0]
-                aid = row.get("address_id") or row.get("addressId") or row.get("id")
-                if aid is not None:
-                    s = str(aid).strip()
-                    if s:
-                        return s
-    for obj in _walk_json(blob):
-        if not isinstance(obj, dict):
-            continue
-        addresses = obj.get("addresses") or obj.get("user_addresses")
-        if not (isinstance(addresses, list) and addresses and isinstance(addresses[0], dict)):
-            continue
-        aid = addresses[0].get("address_id") or addresses[0].get("addressId") or addresses[0].get("id")
-        if aid is not None:
-            s = str(aid).strip()
-            if s:
-                return s
-    return None
+            raw = data_dict.get(key)
+            if isinstance(raw, list):
+                addresses.extend([a for a in raw if isinstance(a, dict)])
+    
+    if not addresses:
+        for obj in _walk_json(blob):
+            if not isinstance(obj, dict):
+                continue
+            raw = obj.get("addresses") or obj.get("user_addresses")
+            if isinstance(raw, list):
+                addresses.extend([a for a in raw if isinstance(a, dict)])
+                break
+
+    if not addresses:
+        return None
+
+    # 1. Try exact match on tag/category/label
+    target = (location_text or "").strip().lower()
+    if target:
+        for addr in addresses:
+            for key in ("addressTag", "address_tag", "addressCategory", "address_category", "name", "label"):
+                val = str(addr.get(key) or "").strip().lower()
+                if val == target:
+                    aid = addr.get("addressId") or addr.get("address_id") or addr.get("id")
+                    if aid: return str(aid).strip()
+
+        # 2. Try partial match on addressLine
+        for addr in addresses:
+            line = str(addr.get("addressLine") or addr.get("address_line") or "").strip().lower()
+            if target in line:
+                aid = addr.get("addressId") or addr.get("address_id") or addr.get("id")
+                if aid: return str(aid).strip()
+
+    # 3. Fallback to first address (Swiggy sorts by last order date)
+    aid = addresses[0].get("addressId") or addresses[0].get("address_id") or addresses[0].get("id")
+    return str(aid).strip() if aid else None
+
+
+def _first_address_id_swiggy(tool_payload: dict[str, Any]) -> str | None:
+    return _find_best_address_id_swiggy(tool_payload)
 
 
 def _learn_swiggy_restaurant_from_search(envelope: dict[str, Any], values: dict[str, str]) -> None:
@@ -150,6 +160,7 @@ async def _run_swiggy_session_inner(
     mcp_url: str,
     node_binary: str,
     user_id: str | None = None,
+    location_text: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -163,6 +174,7 @@ async def _run_swiggy_session_inner(
     step_results: list[dict[str, Any]] = []
     diagnostics: dict[str, Any] = {
         "requested_address_id": effective_address_id,
+        "requested_location_text": location_text,
         "executor": "swiggy.mcp_executor",
         "saved_address_prefetch_tool": "get_addresses",
     }
@@ -214,7 +226,7 @@ async def _run_swiggy_session_inner(
                     }
                 )
                 step_index += 1
-                nid = _first_address_id_swiggy(envelope)
+                nid = _find_best_address_id_swiggy(envelope, location_text=location_text)
                 if nid:
                     resolved_id = nid
                     placeholder_values["__ADDRESS_ID__"] = nid
@@ -314,6 +326,7 @@ def run_swiggy_tool_plan_sync(
     mcp_url: str | None = None,
     node_binary: str | None = None,
     user_id: str | None = None,
+    location_text: str | None = None,
 ) -> dict[str, Any]:
     """Execute a Swiggy MCP tool plan (Food or Instamart URL)."""
     root = repo_root or repo_root_from_settings()
@@ -341,6 +354,7 @@ def run_swiggy_tool_plan_sync(
                 url,
                 node,
                 user_id,
+                location_text=location_text,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))

@@ -35,6 +35,7 @@ def run_tool_plan_sync(
     mcp_url: str | None = None,
     node_binary: str | None = None,
     user_id: str | None = None,
+    location_text: str | None = None,
 ) -> dict[str, Any]:
     return run_swiggy_tool_plan_sync(
         tool_plan,
@@ -43,6 +44,7 @@ def run_tool_plan_sync(
         mcp_url=_instamart_url(mcp_url),
         node_binary=node_binary,
         user_id=user_id,
+        location_text=location_text,
     )
 
 

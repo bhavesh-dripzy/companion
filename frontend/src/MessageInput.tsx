@@ -26,7 +26,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (message.trim() && !disabled && selectedAddressId) {
+    if (message.trim() && !disabled) {
       onSendMessage(message);
       setMessage('');
     }
@@ -78,7 +78,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 onChange={(e) => onAddressChange(e.target.value)}
                 className="bg-transparent text-xs font-bold text-gray-300 focus:outline-none appearance-none cursor-pointer flex-1"
               >
-                <option value="">Select Delivery Address</option>
+                <option value="">Select Delivery Address (Optional)</option>
                 {addresses.map((addr) => (
                   <option key={addr.address_id} value={addr.address_id}>
                     {addr.location_name}
@@ -107,7 +107,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               />
               <button
                 onClick={handleSubmit}
-                disabled={!message.trim() || !selectedAddressId || disabled}
+                disabled={!message.trim() || disabled}
                 className="w-10 h-10 rounded-xl bg-accent text-white flex items-center justify-center disabled:opacity-30 disabled:grayscale transition-all shadow-lg shadow-accent/20 flex-shrink-0"
               >
                 <Send size={18} />
@@ -115,12 +115,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             </div>
           </div>
         </div>
-        
-        {!selectedAddressId && (
-          <p className="text-[11px] text-center text-red-400/80 font-medium">
-            Please select an address to start chatting
-          </p>
-        )}
       </div>
     </div>
   );
