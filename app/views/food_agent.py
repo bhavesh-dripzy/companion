@@ -88,6 +88,7 @@ def food_agent_full(request):
         "zomato_summary": None,
         "assistant_message": "",
     }
+    raw_tool_results: dict = {}
     if execute_zomato:
         tool_plan = plan.get("tool_plan") or []
         if not isinstance(tool_plan, list):
@@ -97,13 +98,15 @@ def food_agent_full(request):
             address_id=address_id,
         )
         out["zomato_summary"] = build_zomato_summary(zomato_result)
+        if isinstance(zomato_result, dict):
+            raw_tool_results["zomato"] = zomato_result
     else:
         out["zomato_summary"] = build_zomato_summary(None)
 
     out["assistant_message"] = build_assistant_message_with_llm(
         user_message=message,
         plan=plan,
-        zomato_summary=out.get("zomato_summary") or {},
+        tool_results=raw_tool_results,
         provider=llm_cfg.provider,
         api_key=llm_cfg.api_key,
         model=llm_cfg.model,

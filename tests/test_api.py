@@ -1165,131 +1165,29 @@ def test_operational_apis_require_auth():
     assert all(response.status_code == 401 for response in checks)
 
 
-def test_build_zomato_summary_address_matches_resolved_id_not_first_saved():
-    """Saved-address list order must not override the address_id used for search."""
-    zomato = {
-        "ok": True,
-        "diagnostics": {
-            "resolved_address_id": "967909546",
-            "requested_address_id": "967909546",
-        },
-        "steps": [
-            {
-                "tool": "get_saved_addresses_for_user",
-                "arguments": {},
-                "result": {
-                    "data": {
-                        "result": {
-                            "addresses": [
-                                {
-                                    "address_id": "967910141",
-                                    "location_name": "HSR Layout, Bangalore",
-                                },
-                                {
-                                    "address_id": "967909546",
-                                    "location_name": "Sector 38, Gurgaon",
-                                },
-                            ]
-                        }
-                    }
-                },
-            },
-            {
-                "tool": "get_restaurants_for_keyword",
-                "arguments": {"address_id": "967909546", "keyword": "pizza"},
-                "result": {"data": {"results": []}},
-            },
-        ],
-    }
+def test_build_zomato_summary_is_pass_through_wrapper_on_success():
+    """The response builder no longer extracts. ``build_zomato_summary`` just wraps."""
+    zomato = {"ok": True, "diagnostics": {"requested_address_id": "x"}, "steps": []}
     summary = build_zomato_summary(zomato)
-    assert summary["address"] == "Sector 38, Gurgaon"
+    assert summary["ok"] is True
+    assert summary["error"] is None
+    assert summary["raw_result"] is zomato
+    assert summary["diagnostics"] == {"requested_address_id": "x"}
 
 
-def test_build_zomato_summary_address_falls_back_to_first_saved_when_no_diagnostics():
-    zomato = {
-        "ok": True,
+def test_build_zomato_summary_reports_failure_with_error_detail():
+    zomato = {"ok": False, "error_detail": "needs_address"}
+    summary = build_zomato_summary(zomato)
+    assert summary["ok"] is False
+    assert summary["error"] == "needs_address"
+    assert summary["raw_result"] is zomato
+
+
+def test_build_zomato_summary_handles_none():
+    summary = build_zomato_summary(None)
+    assert summary == {
+        "ok": False,
+        "error": "tool_not_executed",
+        "raw_result": None,
         "diagnostics": {},
-        "steps": [
-            {
-                "tool": "get_saved_addresses_for_user",
-                "arguments": {},
-                "result": {
-                    "data": {
-                        "result": {
-                            "addresses": [
-                                {
-                                    "address_id": "967910141",
-                                    "location_name": "Only one",
-                                },
-                            ]
-                        }
-                    }
-                },
-            },
-        ],
     }
-    assert build_zomato_summary(zomato)["address"] == "Only one"
-
-
-def test_build_zomato_summary_menu_items_from_display_name_and_skips_category_buckets():
-    zomato = {
-        "ok": True,
-        "diagnostics": {},
-        "steps": [
-            {
-                "tool": "get_restaurant_menu_by_categories",
-                "arguments": {"restaurant_id": "123"},
-                "result": {
-                    "data": {
-                        "result": {
-                            "categories": [
-                                {
-                                    "name": "Burgers",
-                                    "items": [
-                                        {
-                                            "display_name": "Classic Burger",
-                                            "price": 199,
-                                        },
-                                        {
-                                            "nm": "Cheese fries",
-                                            "sp": 89,
-                                        },
-                                    ],
-                                }
-                            ]
-                        }
-                    }
-                },
-            },
-        ],
-    }
-    items = build_zomato_summary(zomato)["menu_items"]
-    names = [i["name"] for i in items]
-    assert "Classic Burger" in names
-    assert "Cheese fries" in names
-    assert "Burgers" not in names
-
-
-def test_build_zomato_summary_menu_parses_string_json_data():
-    inner = json.dumps(
-        {
-            "result": {
-                "items": [
-                    {"title": "Paneer wrap", "mrp": 149},
-                ]
-            }
-        }
-    )
-    zomato = {
-        "ok": True,
-        "steps": [
-            {
-                "tool": "get_menu_items_listing",
-                "arguments": {"restaurant_id": "1"},
-                "result": {"data": inner},
-            },
-        ],
-    }
-    items = build_zomato_summary(zomato)["menu_items"]
-    assert len(items) == 1
-    assert items[0]["name"] == "Paneer wrap"

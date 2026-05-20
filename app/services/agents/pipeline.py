@@ -382,6 +382,7 @@ def run_agent_turn(
     calendar_execution: dict[str, Any] | None = None
     provider_summaries: dict[str, Any] = {}
     zomato_summary = build_zomato_summary(None)
+    raw_tool_results: dict[str, Any] = {}
 
     if task_type == "reminder_calendar" and execute_tools:
         calendar_execution = execute_reminder_calendar(
@@ -403,6 +404,7 @@ def run_agent_turn(
         if isinstance(provider_results, dict):
             for provider_name, raw in provider_results.items():
                 if isinstance(raw, dict):
+                    raw_tool_results[provider_name] = raw
                     provider_summaries[provider_name] = build_zomato_summary(raw)
             zraw = provider_results.get("zomato")
             zomato_summary = build_zomato_summary(zraw if isinstance(zraw, dict) else None)
@@ -461,12 +463,12 @@ def run_agent_turn(
             else build_assistant_message_with_llm(
                 user_message=user_message,
                 plan=plan,
-                zomato_summary=zomato_summary,
+                tool_results=raw_tool_results,
                 provider=llm.provider,
                 api_key=llm.api_key,
                 model=llm.model,
                 base_url=llm.base_url,
-                provider_summaries=provider_summaries,
+                conversation_history=conversation_history,
             )
         ),
     }

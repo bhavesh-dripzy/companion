@@ -1,3 +1,20 @@
+"""Response-builder agent.
+
+Takes the **raw** tool-execution output (MCP responses) and asks the LLM to write
+the user-facing reply. There is intentionally no domain-specific extraction
+here — the LLM reads the raw structured tool output directly so this works for
+food, groceries, calendar/reminder lookups, medical queries, or any future
+provider without code changes.
+
+Only two helpers remain:
+- ``saved_address_label_from_mcp_item`` — small utility used by other modules
+  (``companion_api/main.py``, swiggy/zomato tests) to format saved-address rows.
+- ``wrap_tool_result`` (alias: ``build_zomato_summary`` for back-compat) —
+  thin ``{ok, error, raw, diagnostics}`` wrapper around a raw MCP result so the
+  API response envelope still surfaces success/failure cleanly without doing
+  any lossy extraction.
+"""
+
 from __future__ import annotations
 
 import json
@@ -51,389 +68,84 @@ def saved_address_label_from_mcp_item(item: dict[str, Any]) -> str:
     return ""
 
 
-def _preferred_address_id_for_summary(zomato: dict[str, Any]) -> str | None:
-    """ID used for restaurant search — prefer executor diagnostics, then restaurant tool args."""
-    diag = zomato.get("diagnostics") if isinstance(zomato.get("diagnostics"), dict) else {}
-    for key in ("resolved_address_id", "requested_address_id"):
-        v = str(diag.get(key) or "").strip()
-        if v:
-            return v
-    for step in zomato.get("steps") or []:
-        if not isinstance(step, dict):
-            continue
-        if step.get("tool") not in ("get_restaurants_for_keyword", "search_restaurants"):
-            continue
-        args = step.get("arguments") if isinstance(step.get("arguments"), dict) else {}
-        aid = str(args.get("address_id") or args.get("addressId") or "").strip()
-        if aid:
-            return aid
-    return None
+def wrap_tool_result(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """Thin pass-through wrapper around a raw MCP/tool result.
+
+    Surfaces ``ok``, ``error``, and ``diagnostics`` at the top level so the
+    response envelope and downstream consumers don't have to dig, while
+    preserving the full raw payload under ``raw_result`` for the response LLM
+    to read directly.
+    """
+    if not isinstance(raw, dict):
+        return {
+            "ok": False,
+            "error": "tool_not_executed",
+            "raw_result": None,
+            "diagnostics": {},
+        }
+    return {
+        "ok": bool(raw.get("ok")),
+        "error": None if raw.get("ok") else str(raw.get("error_detail") or "unknown_error"),
+        "raw_result": raw,
+        "diagnostics": raw.get("diagnostics") if isinstance(raw.get("diagnostics"), dict) else {},
+    }
 
 
-def _extract_primary_address(zomato: dict[str, Any] | None) -> str | None:
-    if not isinstance(zomato, dict):
+def build_zomato_summary(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """Backwards-compatible alias for ``wrap_tool_result``.
+
+    Existing callers (pipeline, food_agent view, API response envelope) still
+    import this name; the implementation no longer performs any extraction.
+    """
+    return wrap_tool_result(raw)
+
+
+def _format_conversation_history(
+    conversation_history: list[dict[str, str]] | None,
+) -> str | None:
+    """Render the last few turns of conversation as a compact transcript."""
+    if not conversation_history:
         return None
-
-    preferred_id = _preferred_address_id_for_summary(zomato)
-
-    for step in zomato.get("steps") or []:
-        if not isinstance(step, dict):
-            continue
-        if step.get("tool") not in (
-            "get_saved_addresses_for_user",
-            "get_saved_addresses_for_user(auto)",
-            "get_user_addresses",
-            "get_user_addresses(auto)",
-            "get_addresses",
-            "get_addresses(auto)",
-        ):
-            continue
-        payload = ((step.get("result") or {}).get("data") or {})
-        result = payload.get("result") if isinstance(payload, dict) else {}
-        addresses = None
-        if isinstance(result, dict):
-            for key in ("addresses", "user_addresses", "saved_addresses"):
-                if isinstance(result.get(key), list):
-                    addresses = result[key]
-                    break
-        if addresses is None and isinstance(payload, dict):
-            for key in ("addresses", "user_addresses", "saved_addresses"):
-                if isinstance(payload.get(key), list):
-                    addresses = payload[key]
-                    break
-        if addresses is None and isinstance(payload, dict):
-            inner_data = payload.get("data")
-            if isinstance(inner_data, dict):
-                for key in ("addresses", "user_addresses", "saved_addresses"):
-                    if isinstance(inner_data.get(key), list):
-                        addresses = inner_data[key]
-                        break
-        if not (isinstance(addresses, list) and addresses):
-            continue
-        if preferred_id:
-            for addr in addresses:
-                if not isinstance(addr, dict):
-                    continue
-                if str(addr.get("address_id") or addr.get("addressId") or addr.get("id") or "").strip() != preferred_id:
-                    continue
-                label = saved_address_label_from_mcp_item(addr)
-                if label:
-                    return label
-        for addr in addresses:
-            if not isinstance(addr, dict):
-                continue
-            label = saved_address_label_from_mcp_item(addr)
-            if label:
-                return label
-    return None
+    recent = [
+        item
+        for item in conversation_history[-8:]
+        if isinstance(item, dict)
+        and item.get("role") in {"user", "assistant"}
+        and item.get("content")
+    ]
+    if not recent:
+        return None
+    return "\n".join(
+        f"{item.get('role')}: {str(item.get('content') or '')[:700]}"
+        for item in recent
+    )
 
 
-def _extract_restaurants(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not isinstance(zomato, dict):
-        return []
-
-    found: list[dict[str, Any]] = []
-    for step in zomato.get("steps") or []:
-        if not isinstance(step, dict):
-            continue
-        if step.get("tool") not in ("get_restaurants_for_keyword", "search_restaurants"):
-            continue
-        payload = ((step.get("result") or {}).get("data") or {})
-        results = payload.get("results") if isinstance(payload, dict) else None
-        if results is None and isinstance(payload, dict):
-            results = payload.get("restaurants")
-        if not isinstance(results, list):
-            continue
-        for r in results:
-            if not isinstance(r, dict):
-                continue
-            items = r.get("items")
-            top_item = None
-            if isinstance(items, list) and items and isinstance(items[0], dict):
-                top_item = items[0].get("name")
-            found.append(
-                {
-                    "name": str(r.get("name") or "Unknown"),
-                    "rating": r.get("rating"),
-                    "distance": r.get("distance"),
-                    "eta": r.get("eta"),
-                    "offer": r.get("res_offer"),
-                    "top_item": top_item,
-                }
-            )
-    return found
-
-
-def _menu_item_price(obj: dict[str, Any]) -> Any:
-    for key in (
-        "discounted_price",
-        "price",
-        "display_price",
-        "item_price",
-        "mrp",
-        "sp",
-        "cost",
-        "amount",
-    ):
-        if obj.get(key) is not None:
-            return obj.get(key)
-    return None
-
-
-def _has_menu_leaf_id(obj: dict[str, Any]) -> bool:
-    for key in (
-        "item_id",
-        "dish_id",
-        "menu_item_id",
-        "product_id",
-        "variant_id",
-        "res_item_id",
-        "catalogue_id",
-        "catalog_id",
-    ):
-        v = obj.get(key)
-        if v is None or v == "" or v == 0:
-            continue
-        return True
-    return False
-
-
-def _is_menu_category_bucket(obj: dict[str, Any]) -> bool:
-    """Skip section headers (e.g. category dict with nested items but no dish row ids)."""
-    if _has_menu_leaf_id(obj) or _menu_item_price(obj) is not None:
+def _any_tool_succeeded(tool_results: dict[str, Any] | None) -> bool:
+    if not isinstance(tool_results, dict):
         return False
-    for key in ("items", "dishes", "menu_items", "products"):
-        v = obj.get(key)
-        if isinstance(v, list) and len(v) > 0:
+    for value in tool_results.values():
+        if isinstance(value, dict) and value.get("ok"):
             return True
     return False
 
 
-def _menu_item_display_name(obj: dict[str, Any]) -> str | None:
-    for key in (
-        "name",
-        "item_name",
-        "title",
-        "dish_name",
-        "product_name",
-        "display_name",
-        "label",
-        "item_title",
-        "variant_name",
-        "product_title",
-        "menu_item_name",
-        "nm",
-    ):
-        v = obj.get(key)
-        if v is None:
-            continue
-        s = str(v).strip()
-        if 0 < len(s) <= 200:
-            return s
-    for key in ("text", "description"):
-        v = obj.get(key)
-        if v is None:
-            continue
-        s = str(v).strip()
-        if 8 < len(s) <= 120:
-            return s
-    return None
-
-
-def _normalize_menu_step_payload(raw: Any) -> Any:
-    if isinstance(raw, str):
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return {"_raw_text": raw}
-    return raw
-
-
-def _extract_item_mappings_from_listing_payload(payload: Any) -> list[dict[str, Any]] | None:
-    """Zomato get_menu_items_listing returns result.data.item_mappings."""
-    if not isinstance(payload, dict):
-        return None
-    result = payload.get("result")
-    if not isinstance(result, dict):
-        return None
-    data = result.get("data")
-    if not isinstance(data, dict):
-        return None
-    ims = data.get("item_mappings")
-    if isinstance(ims, list) and ims:
-        return [x for x in ims if isinstance(x, dict)]
-    return None
-
-
-def _extract_menu_items(zomato: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not isinstance(zomato, dict):
-        return []
-
-    found: list[dict[str, Any]] = []
-    for step in zomato.get("steps") or []:
-        if not isinstance(step, dict):
-            continue
-        if step.get("tool") not in (
-            "get_restaurant_menu_by_categories",
-            "get_menu_items_listing",
-            "get_restaurant_menu",
-            "search_menu",
-            "search_menu_items",
-            "search_products",
-            "get_product_details",
-        ):
-            continue
-        payload = _normalize_menu_step_payload(((step.get("result") or {}).get("data") or {}))
-        if step.get("tool") == "get_menu_items_listing":
-            ims = _extract_item_mappings_from_listing_payload(payload)
-            if ims:
-                for it in ims:
-                    name = str(it.get("item_name") or "").strip() or _menu_item_display_name(it)
-                    if not name:
-                        continue
-                    found.append({"name": name, "price": _menu_item_price(it)})
-                    if len(found) >= 12:
-                        return found
-                continue
-        for obj in _walk_payload(payload):
-            if not isinstance(obj, dict):
-                continue
-            if _is_menu_category_bucket(obj):
-                continue
-            name = _menu_item_display_name(obj)
-            if not name:
-                continue
-            price = _menu_item_price(obj)
-            found.append({"name": name, "price": price})
-            if len(found) >= 12:
-                return found
-    return found
-
-
-def _walk_payload(obj: Any):
-    if isinstance(obj, dict):
-        yield obj
-        for value in obj.values():
-            yield from _walk_payload(value)
-    elif isinstance(obj, list):
-        for value in obj:
-            yield from _walk_payload(value)
-
-
-def build_zomato_summary(zomato: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(zomato, dict):
-        return {
-            "ok": False,
-            "error": "zomato_not_executed",
-            "address": None,
-            "top_restaurants": [],
-            "menu_items": [],
-            "count": 0,
-            "diagnostics": {},
-        }
-
-    restaurants = _extract_restaurants(zomato)
-    menu_items = _extract_menu_items(zomato)
-    summary: dict[str, Any] = {
-        "ok": bool(zomato.get("ok")),
-        "error": None if zomato.get("ok") else str(zomato.get("error_detail") or "unknown_error"),
-        "address": _extract_primary_address(zomato),
-        "top_restaurants": restaurants[:8],
-        "menu_items": menu_items[:8],
-        "count": len(restaurants),
-        "diagnostics": zomato.get("diagnostics") if isinstance(zomato.get("diagnostics"), dict) else {},
-    }
-    return summary
-
-
-def pick_primary_tool_summary(
-    zomato_summary: dict[str, Any],
-    provider_summaries: dict[str, Any] | None,
-) -> dict[str, Any]:
-    """Summary the assistant should use: Zomato if it ran, else first successful MCP (e.g. Swiggy)."""
-    if zomato_summary.get("ok"):
-        out = dict(zomato_summary)
-        out.setdefault("summary_provider", "zomato")
-        return out
-    if isinstance(provider_summaries, dict):
-        for name in sorted(provider_summaries.keys()):
-            block = provider_summaries[name]
-            if isinstance(block, dict) and block.get("ok"):
-                out = dict(block)
-                out.setdefault("summary_provider", name)
-                return out
-    return zomato_summary
-
-
 def _fallback_assistant_message(
     *,
-    plan: dict[str, Any],
-    primary_tool_summary: dict[str, Any],
+    tool_results: dict[str, Any] | None,
 ) -> str:
-    summary = str((plan or {}).get("summary") or "").strip()
-    if not primary_tool_summary.get("ok"):
-        detail = str(primary_tool_summary.get("error") or "Unknown tool execution error.")
-        if detail == "zomato_not_executed":
-            return (
-                "I understood your request"
-                + (f": {summary}." if summary else ".")
-                + " No food MCP results were available. "
-                + "Connect MCP (pairing), run Test, pick a saved address, then retry."
-            )
-        if detail == "zomato_requires_saved_address_for_requested_location":
-            requested = (
-                (primary_tool_summary.get("diagnostics") or {}).get("requested_location")
-                if isinstance(primary_tool_summary.get("diagnostics"), dict)
-                else None
-            )
-            place = f" for {requested}" if requested else ""
-            return (
-                "I understood your request"
-                + (f": {summary}." if summary else ".")
-                + f" Zomato MCP needs a saved delivery address{place} before it can "
-                "return serviceable restaurants. I did not use your default saved address "
-                "because that would show the wrong locality."
-            )
-        if detail == "tool_plan_incomplete":
-            return (
-                "I found part of what was needed"
-                + (f": {summary}." if summary else ".")
-                + " The next Zomato tool needs an ID that was not present in the earlier result. "
-                "Pick a restaurant or item from the results and I can continue."
-            )
-        return (
-            "I understood your request"
-            + (f": {summary}." if summary else ".")
-            + f" But I hit an issue while talking to Zomato tools: {detail}. "
-            + "Would you like me to retry or refine your request?"
-        )
+    """Domain-neutral safety-net reply used only when the response LLM call fails.
 
-    restaurants = primary_tool_summary.get("top_restaurants") or []
-    menu_items = primary_tool_summary.get("menu_items") or []
-    if menu_items:
-        names = ", ".join(str(r.get("name") or "Unknown") for r in menu_items[:5])
+    Real phrasing lives in the LLM prompt; this is intentionally minimal.
+    """
+    if not _any_tool_succeeded(tool_results):
         return (
-            "I found matching menu items"
-            + (f": {summary}." if summary else ".")
-            + f" Options include: {names}. "
-            + "Which one should I inspect or add next?"
+            "I tried to take care of that for you, but couldn't finish it this time. "
+            "Want me to try again, or would you like to refine the request?"
         )
-
-    if not restaurants:
-        return (
-            "I understood your request"
-            + (f": {summary}." if summary else ".")
-            + " I could not find strong matches yet. "
-            + "Would you like me to refine by cuisine, budget, veg preference, or rating?"
-        )
-
-    top = restaurants[:3]
-    names = ", ".join(str(r.get("name") or "Unknown") for r in top)
     return (
-        "Here are good options"
-        + (f": {summary}." if summary else ".")
-        + f" Top picks: {names}. "
-        + "What should I do next? You can ask for menu, filters, or add an item to cart."
+        "I've got something back for you on that. "
+        "Should I show more details, refine the search, or move ahead?"
     )
 
 
@@ -460,50 +172,97 @@ def _openai_compatible_chat(
     return (completion.choices[0].message.content or "").strip()
 
 
+_SYSTEM_PROMPT = (
+    "You are the user's personal AI voice assistant. Your job is to take action on "
+    "their behalf — across any domain they ask about (ordering food or groceries, "
+    "scheduling, reminders, general questions, medical or health queries, lookups, "
+    "planning, research, and more). One or more of your connected tools has just "
+    "run for the user, and the structured tool output is given to you as JSON. "
+    "Write the spoken reply.\n"
+    "\n"
+    "How to write the reply:\n"
+    "- Speak in first person, as the assistant who just did the work for them. "
+    "Phrases in the spirit of \"Here's what I found for you on <provider>\", "
+    "\"I checked <provider> and got these\", or \"Maine yeh dhundha aapke liye\" "
+    "feel right. Make it sound like an assistant doing the work, not a search engine.\n"
+    "- Use the conversation history (when provided) to stay coherent with what the "
+    "user was already asking. Don't repeat yourself, don't re-ask things they "
+    "already answered.\n"
+    "- Match the user's language and register. If they wrote in Hinglish, reply in "
+    "Hinglish. If they wrote in English, reply in English. Same for any other "
+    "language. Keep it warm, natural, and short — this will be read out loud.\n"
+    "- Treat the tool JSON as ground truth. Read it carefully — it can be deeply "
+    "nested. Pull out whatever is genuinely useful to the user (names, prices, "
+    "ratings, ETAs, addresses, times, dosages, links, identifiers the user would "
+    "recognise, etc.). Do not invent anything that isn't there. If a field is "
+    "missing or empty, don't fill it in.\n"
+    "- Never expose raw JSON, field names, internal IDs the user wouldn't recognise, "
+    "tool/provider IDs, MCP terminology, error codes, stack traces, or anything "
+    "that sounds technical.\n"
+    "- When the tool returned useful results, surface the top 3-5 most relevant "
+    "items in one short list. For each item, mention the single most useful "
+    "attribute available — pick whatever genuinely helps the user decide.\n"
+    "- When the tool failed or returned nothing useful, acknowledge it gracefully "
+    "in plain language, and give the user a clear next step.\n"
+    "- Always end with a short, interactive follow-up — 2 to 4 concrete spoken "
+    "suggestions the user can reply with, chosen to fit the data and the user's "
+    "likely intent. They should feel like things a helpful assistant would offer "
+    "next, e.g. \"should I show you the full menu of <X>?\", \"want me to filter "
+    "only veg?\", \"shall I add this to your cart?\", \"kuch aur dhundhun?\", "
+    "\"aapka kuch khaane ka man hai?\", \"should I book this for you?\", etc. — "
+    "always adapted to the actual domain and result.\n"
+    "- Keep the whole reply short enough to feel comfortable as a voice response."
+)
+
+
 def build_assistant_message_with_llm(
     *,
     user_message: str,
-    plan: dict[str, Any],
-    zomato_summary: dict[str, Any],
+    plan: dict[str, Any] | None,
+    tool_results: dict[str, Any] | None,
     provider: str,
     api_key: str,
     model: str,
     base_url: str | None = None,
-    provider_summaries: dict[str, Any] | None = None,
+    conversation_history: list[dict[str, str]] | None = None,
 ) -> str:
-    primary = pick_primary_tool_summary(zomato_summary, provider_summaries)
-    system_prompt = (
-        "You are a food ordering assistant. Convert structured tool output into a user-facing response.\n"
-        "Rules:\n"
-        "1) Be concise and clear.\n"
-        "2) Mention top options only if present.\n"
-        "3) Never expose internal tool/debug data.\n"
-        "4) Prefer primary_tool_summary for restaurants, menu_items, and address. "
-        "It is the MCP that actually succeeded (Zomato, Swiggy, Zepto, etc.).\n"
-        "5) If primary_tool_summary.menu_items is non-empty, list dish names (and prices when present).\n"
-        "6) Use primary_tool_summary.address for locality when set. If address is null but restaurants exist, "
-        "summarize restaurants without inventing a street address.\n"
-        "7) If zomato_summary.ok is false but primary_tool_summary.ok is true, another provider ran — "
-        "do not ask for an address when restaurants or menu_items are already listed.\n"
-        "8) End with one clear next-step question.\n"
-        "9) Include 2-4 concrete suggestions the user can reply with.\n"
-    )
+    """Generate the final assistant reply from raw tool output.
 
-    payload = {
-        "user_message": user_message,
-        "routing_plan": {
+    Parameters
+    ----------
+    user_message:
+        Current user turn (just this turn, untransformed).
+    plan:
+        Planner output (intent / summary / constraints) from the domain agent —
+        gives the response LLM context on *why* the tool was called.
+    tool_results:
+        Mapping of provider id (e.g. ``"zomato"``, ``"swiggy_food"``) to the
+        **raw** MCP/tool result. No extraction is done here — the LLM reads it.
+    conversation_history:
+        Recent ``user`` / ``assistant`` turns so the reply stays coherent with
+        the ongoing conversation.
+    """
+    history_transcript = _format_conversation_history(conversation_history)
+
+    plan_context: dict[str, Any] | None = None
+    if isinstance(plan, dict):
+        plan_context = {
             "intent": plan.get("intent"),
             "summary": plan.get("summary"),
             "constraints": plan.get("constraints"),
-        },
-        "primary_tool_summary": primary,
-        "zomato_summary": zomato_summary,
-        "provider_summaries": provider_summaries or {},
+        }
+
+    payload: dict[str, Any] = {
+        "current_user_message": user_message,
+        "conversation_history": history_transcript,
+        "planner_context": plan_context,
+        "tool_results": tool_results or {},
     }
 
     user_prompt = (
-        "Using this JSON, write the assistant reply to the user:\n"
-        + json.dumps(payload, ensure_ascii=True)
+        "Here is the structured tool output along with conversation context. "
+        "Write the assistant's spoken reply to the user:\n"
+        + json.dumps(payload, ensure_ascii=True, default=str)
     )
 
     try:
@@ -511,24 +270,24 @@ def build_assistant_message_with_llm(
             text = _openai_compatible_chat(
                 api_key=api_key,
                 model=model,
-                system_prompt=system_prompt,
+                system_prompt=_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 base_url=base_url if provider == "deepseek" else None,
             )
             if text:
                 return text
-            return _fallback_assistant_message(plan=plan, primary_tool_summary=primary)
+            return _fallback_assistant_message(tool_results=tool_results)
 
         from google import genai as google_genai
 
         client = google_genai.Client(api_key=api_key)
         response = client.models.generate_content(
             model=model,
-            contents=f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}",
+            contents=f"SYSTEM:\n{_SYSTEM_PROMPT}\n\nUSER:\n{user_prompt}",
         )
         text = (response.text or "").strip()
         if text:
             return text
-        return _fallback_assistant_message(plan=plan, primary_tool_summary=primary)
+        return _fallback_assistant_message(tool_results=tool_results)
     except Exception:
-        return _fallback_assistant_message(plan=plan, primary_tool_summary=primary)
+        return _fallback_assistant_message(tool_results=tool_results)
