@@ -392,12 +392,6 @@ class CompanionStack(Stack):
         )
         cdk.CfnOutput(self, "AppSecretName", value=app_secret.secret_name)
         cdk.CfnOutput(self, "RemindersTableName", value=reminders.table_name)
-        cdk.CfnOutput(
-            self,
-            "NameServers",
-            value=cdk.Fn.join(", ", zone.hosted_zone_name_servers or []),
-            description="Update these NS records in GoDaddy for houzzat.in",
-        )
 
     def _table(
         self,

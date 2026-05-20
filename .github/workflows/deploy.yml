@@ -18,8 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
-      AWS_ACCOUNT_ID: "314359811237"
+      AWS_ACCOUNT_ID: "616551057455"
       AWS_REGION: ap-south-1
+      AWS_DEPLOY_ROLE_ARN: "arn:aws:iam::616551057455:role/GitHubActionsDeployRole"
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +36,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Verify AWS target account
