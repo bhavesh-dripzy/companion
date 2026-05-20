@@ -159,7 +159,8 @@ generated assistant message.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/api/mcp/status/` | Yes | MCP OAuth connection status |
-| POST | `/api/mcp/oauth/` | Yes | Start hosted OAuth flow |
+| GET | `/api/mcp/oauth/start` | Yes | Start pairing flow (returns curl command) |
+| POST | `/api/mcp/oauth/` | Yes | Legacy hosted OAuth flow |
 | POST | `/api/mcp/pairing/` | Yes | Start pairing flow (returns code + script) |
 | GET | `/api/mcp/pairing/script` | Yes | Download pairing script |
 | POST | `/api/mcp/pairing/complete` | Yes | Complete pairing with uploaded tokens |

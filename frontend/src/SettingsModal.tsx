@@ -54,6 +54,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleConnectMcp = async () => {
     try {
       const data = await api.get(`/api/mcp/oauth/start?provider=${selectedProviderId}`);
+      if (data.command) {
+        setPairingCommand(data.command);
+        return;
+      }
       if (data.authorization_url) {
         window.location.assign(data.authorization_url);
         return;

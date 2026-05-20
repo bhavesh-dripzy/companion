@@ -46,8 +46,8 @@ Food) and/or override in **Secrets Manager** `APP_SECRET_ID` JSON (`ZOMATO_MCP_U
 
 **Connecting (serverless):** use the authenticated HTTP API — same flow as Zomato:
 
-- `POST /api/mcp/pairing/?provider=zomato` or `?provider=swiggy_food` (returns a one-liner to run on a laptop with a browser).
-- `GET /api/mcp/oauth/start?provider=…` / callback when hosted OAuth is used.
+- `GET /api/mcp/oauth/start?provider=zomato` or `?provider=swiggy_food` (returns a curl one-liner to run on a laptop with a browser).
+- `POST /api/mcp/pairing/?provider=…` is the direct pairing endpoint used by the connect flow.
 
 Tokens are persisted under Secrets Manager key **`companion/mcp-tokens`** (see
 `zomato_mcp_executor`) and restored to `/tmp/.mcp-auth` on cold starts.

@@ -866,6 +866,17 @@
       mcpDetail.textContent = "Starting secure provider authorization.";
       try {
         const data = await api("GET", "/api/mcp/oauth/start?provider=" + encodeURIComponent(primaryToolProvider()));
+        if (data.status === "pairing_ready" && data.command) {
+          let detailHtml = escapeHtml(data.detail || "Run the command below to connect the selected MCP.");
+          if (data.mcp_url) {
+            detailHtml += "<br><span class=\"small-note\">The script below opens this MCP in your browser:</span><br><code>" + escapeHtml(String(data.mcp_url)) + "</code>";
+          }
+          mcpDetail.innerHTML = detailHtml;
+          setBadge(mcpStatusBadge, "Pairing ready", "warn");
+          setBadge(mcpMiniBadge, "Pairing ready", "warn");
+          showPairingCommand(data.command);
+          return;
+        }
         if (data.status === "oauth_required" && data.authorization_url) {
           mcpDetail.textContent = data.detail || "Continue provider authorization.";
           setBadge(mcpStatusBadge, "Authorizing", "warn");

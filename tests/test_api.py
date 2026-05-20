@@ -346,19 +346,19 @@ def test_oauth_pending_lookup_finds_user_scoped_state(monkeypatch):
     assert pending["mcp_url"] == "https://mcp-server.zomato.com/mcp"
 
 
-def test_mcp_oauth_start_returns_hosted_authorization_url(monkeypatch):
+def test_mcp_oauth_start_returns_pairing_command(monkeypatch):
     calls = {}
 
-    def fake_start_web_oauth(**kwargs):
+    def fake_create_pairing_session(**kwargs):
         calls.update(kwargs)
         return {
-            "status": "oauth_required",
-            "authorization_url": "https://provider.example/oauth",
-            "detail": "Continue provider auth.",
+            "code": "pair-code",
             "mcp_url": kwargs["mcp_url"],
+            "mcp_remote_version": "0.1.38",
+            "expires_in_seconds": 600,
         }
 
-    monkeypatch.setattr(mcp_exec, "start_web_oauth", fake_start_web_oauth)
+    monkeypatch.setattr(mcp_exec, "create_pairing_session", fake_create_pairing_session)
     monkeypatch.setattr(
         api_main,
         "secret_or_env",
@@ -372,12 +372,11 @@ def test_mcp_oauth_start_returns_hosted_authorization_url(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "oauth_required"
-    assert body["authorization_url"] == "https://provider.example/oauth"
+    assert body["status"] == "pairing_ready"
+    assert body["command"] == "curl -fsSL 'https://companion.example/api/mcp/pairing/script?code=pair-code' | python3"
     assert body["provider"] == "zomato"
     assert calls["user_id"] == "local_admin"
-    assert calls["provider_label"] == "Zomato MCP"
-    assert calls["callback_url"] == "https://companion.example/api/mcp/oauth/callback"
+    assert calls["mcp_url"] == "https://mcp-server.zomato.com/mcp"
 
 
 def test_mcp_token_status_is_scoped_to_selected_provider(tmp_path, monkeypatch):

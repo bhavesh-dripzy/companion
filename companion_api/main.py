@@ -736,8 +736,8 @@ def mcp_oauth_start(
     provider: str = Query(default="zomato"),
     user: str = Depends(get_current_user),
 ):
-    """Initiate OAuth authorization for any configured MCP provider."""
-    from app.services.zomato_mcp_executor import capture_mcp_oauth_url, repo_root_from_settings, start_web_oauth
+    """Return the browser-local mcp-remote pairing command for an MCP provider."""
+    from app.services.zomato_mcp_executor import create_pairing_session, repo_root_from_settings
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider or not tool_provider.available:
@@ -753,33 +753,39 @@ def mcp_oauth_start(
             "provider_label": tool_provider.label,
             "mcp_url": mcp_url,
         }
+    if tool_provider.auth_mode == "tool" or tool_provider.stdio_command:
+        return {
+            "status": "not_required",
+            "detail": f"{tool_provider.label} does not use Companion pairing. Use Test to verify tools.",
+            "provider": provider,
+            "provider_label": tool_provider.label,
+            "mcp_url": mcp_url or None,
+        }
 
-    callback_url = _public_url(request, "/api/mcp/oauth/callback")
-    try:
-        result = start_web_oauth(
-            repo_root=repo_root_from_settings(),
-            mcp_url=mcp_url,
-            callback_url=callback_url,
-            user_id=user,
-            provider_label=tool_provider.label,
-        )
-        result["provider"] = provider
-        result["provider_label"] = tool_provider.label
-        return result
-    except Exception as hosted_exc:
-        hosted_error = f"{type(hosted_exc).__name__}: {hosted_exc}"
-
-    result = capture_mcp_oauth_url(
-        repo_root=repo_root_from_settings(),
-        mcp_url=mcp_url,
-    )
-    result["provider"] = provider
-    result["provider_label"] = tool_provider.label
-    result.setdefault("hosted_oauth_error", hosted_error)
     if not mcp_url.strip():
-        result.setdefault("detail", f"No MCP URL configured for {tool_provider.label}. Set the provider URL first.")
-        result["status"] = "not_configured"
-    return result
+        return {
+            "status": "not_configured",
+            "detail": f"No MCP URL configured for {tool_provider.label}. Set the provider URL first.",
+            "provider": provider,
+            "provider_label": tool_provider.label,
+            "mcp_url": None,
+        }
+
+    base_url = _public_url(request, "").rstrip("/")
+    session = create_pairing_session(repo_root=repo_root_from_settings(), mcp_url=mcp_url, user_id=user)
+    script_url = f"{base_url}/api/mcp/pairing/script?code={quote(session['code'])}"
+    return {
+        "status": "pairing_ready",
+        "detail": (
+            f"Run this command on the laptop where your browser can sign into {tool_provider.label}. "
+            "It opens the provider through mcp-remote and syncs the session back automatically."
+        ),
+        "command": f"curl -fsSL '{script_url}' | python3",
+        "expires_in_seconds": session["expires_in_seconds"],
+        "provider": provider,
+        "provider_label": tool_provider.label,
+        "mcp_url": mcp_url,
+    }
 
 
 @app.post("/api/mcp/test/")
