@@ -17,6 +17,20 @@ class SendMessageRequest(BaseModel):
     llm_optional: bool = False
 
 
+class UserGeoLocation(BaseModel):
+    """User's current geographic location, captured by the frontend.
+
+    Optional on every agent request — if the user hasn't granted geolocation
+    permission, the field is simply omitted and the agent will ask for it
+    when it actually needs it (e.g. maps_query).
+    """
+
+    latitude: float = Field(ge=-90.0, le=90.0)
+    longitude: float = Field(ge=-180.0, le=180.0)
+    accuracy_meters: float | None = Field(default=None, ge=0)
+    captured_at: str | None = None
+
+
 class FoodQueryRequest(BaseModel):
     message: str = Field(min_length=1)
     history: list[dict[str, str]] | None = None
@@ -24,6 +38,7 @@ class FoodQueryRequest(BaseModel):
     provider: str | None = None
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
+    geo: UserGeoLocation | None = None
 
 
 class AgentQueryRequest(BaseModel):
@@ -35,6 +50,7 @@ class AgentQueryRequest(BaseModel):
     provider: str | None = None
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
+    geo: UserGeoLocation | None = None
 
 
 class CustomMcpProviderRequest(BaseModel):
@@ -79,6 +95,29 @@ class ReminderResponseRequest(BaseModel):
 class ReminderEvent(BaseModel):
     member_id: str
     reminder_id: str
+
+
+class MapsRoutePoint(BaseModel):
+    """A geographic coordinate (WGS-84). Latitude in [-90, 90], longitude in [-180, 180]."""
+
+    latitude: float = Field(ge=-90.0, le=90.0)
+    longitude: float = Field(ge=-180.0, le=180.0)
+
+
+class MapsRouteRequest(BaseModel):
+    """Request body for POST /api/maps/route.
+
+    ``origin`` is the user's current location (from ``navigator.geolocation``
+    in the browser). ``destination`` may be a coordinate pair *or* a free-text
+    address — the Routes API geocodes addresses for us.
+    """
+
+    origin: MapsRoutePoint
+    destination_text: str | None = Field(default=None, max_length=300)
+    destination_point: MapsRoutePoint | None = None
+    travel_mode: Literal["DRIVE", "WALK", "BICYCLE", "TWO_WHEELER", "TRANSIT"] | None = None
+    language: str | None = Field(default=None, max_length=16)
+    region: str | None = Field(default=None, max_length=8)
 
 
 JsonDict = dict[str, Any]

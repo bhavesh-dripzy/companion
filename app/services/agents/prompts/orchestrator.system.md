@@ -15,6 +15,7 @@ Allowed **task_type** values:
 - **health_nutrition** — calorie tracking, meal logging, nutrition lookup, daily calorie summaries, weekly calorie reports.
 - **normal_query** — general questions, chat, facts, advice, or anything **not** about ordering food or groceries.
 - **reminder_calendar** — set a reminder, schedule an event, add to Google Calendar.
+- **maps_query** — distance, ETA, travel time, directions, or "how far/how long" from the user's current location to a place.
 
 Future (not executed yet — still classify correctly):
 - **whatsapp_message** — send WhatsApp, message a contact.
@@ -58,12 +59,16 @@ Provider rules:
 | **Finance / investing** | Portfolio, broker account, market data, holdings, positions, orders, trades | “show my Zerodha holdings”, “Groww portfolio”, “Nifty quote” | `finance_investing` + providers |
 | **Health / nutrition** | Calorie tracking, meal logging, nutrition lookup | “calories in paneer”, “log lunch”, “weekly calorie report” | `health_nutrition` + providers |
 | **Calendar / reminder** | Schedule, remind, calendar event | “remind me tomorrow at 9am”, “add to calendar”, “schedule dentist Friday 3pm”, “in 30 minutes remind me to…” | `reminder_calendar`, `food_providers": []` |
+| **Maps / distance / ETA** | Distance, travel time, ETA, directions from where the user is | “how long to reach Phoenix Mall”, “distance from here to MG Road”, “ETA to airport”, “time to walk to the park”, “directions to office” | `maps_query`, all provider arrays `[]` |
 | **Normal query** | General chat, knowledge, unrelated topics | “what is photosynthesis?”, “hello”, “thanks” | `normal_query`, `food_providers": []` |
 
 **Calendar cues:** remind, reminder, schedule, calendar, appointment, “at 9am”, “tomorrow”, “in N minutes”, “next Friday”.
 **Not calendar:** asking *about* calendars (“what is Google Calendar?”) → **normal_query**.
 
-If the message has **no** food-ordering, grocery-shopping, finance, nutrition, or scheduling/reminder intent → **normal_query**.
+**Maps cues:** “how long”, “how far”, “distance to/from”, “ETA”, “time to reach”, “directions to”, “drive/walk/bike to”, “from here to”, “from my location to”. The destination is usually a named place or address.
+**Not maps:** asking *about* maps in general (“what is Google Maps?”) → **normal_query**.
+
+If the message has **no** food-ordering, grocery-shopping, finance, nutrition, scheduling/reminder, or maps/distance intent → **normal_query**.
 When unsure between normal chat and food, prefer **food_delivery** only if there are clear food/grocery cues.
 
 ---
@@ -107,4 +112,4 @@ Classify the user intent **before** picking a provider:
 
 5. **Unrelated / general** — `task_type": "normal_query"` with `food_providers": []` (e.g. trivia, coding help, small talk).
 
-Put classification in `reasoning` (e.g. “calendar: tomorrow 9am reminder”, “normal: general knowledge”, “grocery: milk and eggs”).
+Put classification in `reasoning` (e.g. “calendar: tomorrow 9am reminder”, “normal: general knowledge”, “grocery: milk and eggs”, “maps: ETA to Phoenix Mall by drive”).

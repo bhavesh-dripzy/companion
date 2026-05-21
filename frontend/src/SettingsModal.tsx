@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { X, Globe, Calendar, Zap, Settings as SettingsIcon, CheckCircle2, AlertCircle, ExternalLink, RefreshCw } from 'lucide-react';
+import { X, Globe, Calendar, Zap, MapPin, Settings as SettingsIcon, CheckCircle2, AlertCircle, ExternalLink, RefreshCw, Loader2 } from 'lucide-react';
 import { api } from './api';
-import type { ToolProvider, McpStatus } from './types';
+import type { ToolProvider, McpStatus, MapsRouteSummary, MapsTravelMode } from './types';
 import { cn } from './utils';
+import { GeolocationError, computeRoute, mapsStatus } from './maps';
+
+const MAPS_TRAVEL_MODES: { value: MapsTravelMode; label: string }[] = [
+  { value: 'DRIVE', label: 'Drive' },
+  { value: 'TWO_WHEELER', label: 'Two-wheeler' },
+  { value: 'WALK', label: 'Walk' },
+  { value: 'BICYCLE', label: 'Bicycle' },
+  { value: 'TRANSIT', label: 'Transit' },
+];
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -23,10 +32,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   
   const [gcalStatus, setGcalStatus] = useState<{connected: boolean, configured: boolean} | null>(null);
 
+  const [mapsConfigured, setMapsConfigured] = useState<boolean | null>(null);
+  const [mapsDestination, setMapsDestination] = useState('');
+  const [mapsTravelMode, setMapsTravelMode] = useState<MapsTravelMode>('DRIVE');
+  const [mapsLoading, setMapsLoading] = useState(false);
+  const [mapsResult, setMapsResult] = useState<MapsRouteSummary | null>(null);
+  const [mapsError, setMapsError] = useState<string | null>(null);
+
   useEffect(() => {
     if (isOpen) {
       checkMcpStatus();
       checkGcalStatus();
+      checkMapsStatus();
     }
   }, [isOpen, selectedProviderId]);
 
@@ -48,6 +65,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setGcalStatus(data);
     } catch (err) {
       console.error('Failed to check Google Calendar status', err);
+    }
+  };
+
+  const checkMapsStatus = async () => {
+    try {
+      setMapsConfigured(await mapsStatus());
+    } catch (err) {
+      console.error('Failed to check Google Maps status', err);
+      setMapsConfigured(false);
+    }
+  };
+
+  const handleComputeRoute = async () => {
+    const destination = mapsDestination.trim();
+    if (!destination) {
+      setMapsError('Type a destination first (e.g. "Phoenix Mall, Bangalore").');
+      return;
+    }
+    setMapsLoading(true);
+    setMapsError(null);
+    setMapsResult(null);
+    try {
+      const route = await computeRoute({
+        destinationText: destination,
+        travelMode: mapsTravelMode,
+      });
+      setMapsResult(route);
+    } catch (err: any) {
+      if (err instanceof GeolocationError) {
+        const friendly: Record<string, string> = {
+          permission_denied: 'Location permission was denied. Enable it in your browser to compute distances.',
+          position_unavailable: 'Your location is currently unavailable. Try again or move to a better signal.',
+          timeout: 'Getting your location timed out. Please try again.',
+          unsupported: 'This browser does not support Geolocation.',
+          unknown: 'Could not read your location.',
+        };
+        setMapsError(friendly[err.reason] || err.message);
+      } else {
+        setMapsError(err?.message || 'Could not compute route.');
+      }
+    } finally {
+      setMapsLoading(false);
     }
   };
 
@@ -237,6 +296,102 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {gcalStatus?.connected ? 'Reconnect Google' : 'Connect Google Calendar'}
                       <ExternalLink size={14} />
                     </button>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-neutral-900/50 border border-border rounded-3xl flex items-start gap-5">
+                  <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-400 flex-shrink-0">
+                    <MapPin size={24} />
+                  </div>
+                  <div className="flex-1 space-y-4 min-w-0">
+                    <div>
+                      <h3 className="font-bold text-white">Google Maps</h3>
+                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                        Distance and ETA from your current location. Your browser will ask for location permission the first time you use it.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase text-gray-500">Status:</span>
+                      {mapsConfigured === null ? (
+                        <span className="text-[10px] font-black uppercase text-gray-500">Checking…</span>
+                      ) : mapsConfigured ? (
+                        <span className="text-[10px] font-black uppercase text-green-500 flex items-center gap-1">
+                          <CheckCircle2 size={12} /> Ready
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase text-amber-500 flex items-center gap-1">
+                          <AlertCircle size={12} /> Not configured
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={mapsDestination}
+                        onChange={(e) => setMapsDestination(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleComputeRoute(); }}
+                        placeholder="Where to? e.g. Phoenix Mall, Bangalore"
+                        disabled={!mapsConfigured || mapsLoading}
+                        className="w-full bg-black/40 border border-border rounded-xl px-3 py-2 text-sm placeholder:text-gray-500 focus:border-accent focus:outline-none disabled:opacity-50"
+                      />
+
+                      <div className="flex flex-wrap gap-2">
+                        {MAPS_TRAVEL_MODES.map((mode) => (
+                          <button
+                            key={mode.value}
+                            type="button"
+                            onClick={() => setMapsTravelMode(mode.value)}
+                            disabled={mapsLoading}
+                            className={cn(
+                              'px-3 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all',
+                              mapsTravelMode === mode.value
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : 'border border-border text-gray-400 hover:text-white',
+                            )}
+                          >
+                            {mode.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={handleComputeRoute}
+                        disabled={!mapsConfigured || mapsLoading || !mapsDestination.trim()}
+                        className="w-full bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {mapsLoading ? (
+                          <><Loader2 size={14} className="animate-spin" /> Computing…</>
+                        ) : (
+                          <>Show distance &amp; ETA <MapPin size={14} /></>
+                        )}
+                      </button>
+
+                      {mapsError && (
+                        <div className="text-xs text-red-400 bg-red-500/5 border border-red-500/20 rounded-lg px-3 py-2 leading-relaxed">
+                          {mapsError}
+                        </div>
+                      )}
+
+                      {mapsResult && (
+                        <div className="p-4 bg-black/40 border border-emerald-500/20 rounded-2xl space-y-2">
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-[10px] font-black uppercase text-gray-500">Distance</span>
+                            <span className="font-bold text-white">{mapsResult.distance_text}</span>
+                          </div>
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-[10px] font-black uppercase text-gray-500">ETA</span>
+                            <span className="font-bold text-emerald-300">{mapsResult.duration_text}</span>
+                          </div>
+                          {mapsResult.description && (
+                            <p className="text-[11px] text-gray-400 italic pt-1 border-t border-border">
+                              {mapsResult.description}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 

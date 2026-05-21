@@ -38,6 +38,7 @@ export interface QueryResponse {
   tool_execution: {
     ok: boolean;
     error?: string;
+    error_code?: string;
   };
   observable_trace: any[];
 }
@@ -48,4 +49,30 @@ export interface McpStatus {
   mcp_url?: string;
   diagnostics?: any;
   token_status?: any;
+}
+
+export interface GeoCoordinate {
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number;
+}
+
+export type MapsTravelMode = "DRIVE" | "WALK" | "BICYCLE" | "TWO_WHEELER" | "TRANSIT";
+
+export interface MapsRouteSummary {
+  distance_meters: number;
+  duration_seconds: number;
+  distance_text: string;
+  duration_text: string;
+  polyline?: string | null;
+  description?: string | null;
+}
+
+export interface MapsRouteResponse {
+  status: "success";
+  route: MapsRouteSummary;
+}
+
+export interface MapsStatusResponse {
+  configured: boolean;
 }

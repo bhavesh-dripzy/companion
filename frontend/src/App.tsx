@@ -4,7 +4,8 @@ import { ChatLog } from './ChatLog'
 import { MessageInput } from './MessageInput'
 import { SettingsModal } from './SettingsModal'
 import { api, clearToken, getToken } from './api'
-import type { Message, Address, QueryResponse, ToolProvider } from './types'
+import type { GeoCoordinate, Message, Address, QueryResponse, ToolProvider } from './types'
+import { useUserLocation } from './useUserLocation'
 import { Settings, LogOut } from 'lucide-react'
 import './index.css'
 
@@ -24,6 +25,8 @@ function App() {
   const [selectedToolProvider, setSelectedToolProvider] = useState('zomato');
   
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const { location: userLocation, ensureLocation } = useUserLocation();
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -96,33 +99,66 @@ function App() {
     }
   };
 
+  const buildAgentBody = (content: string, geo?: GeoCoordinate | null) => {
+    const body: Record<string, any> = {
+      message: content,
+      address_id: selectedAddressId,
+      execute_tools: true,
+      history: messages.map((m) => ({ role: m.role, content: m.content })),
+    };
+    if (geo) {
+      body.geo = {
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        ...(geo.accuracyMeters !== undefined ? { accuracy_meters: geo.accuracyMeters } : {}),
+        captured_at: new Date().toISOString(),
+      };
+    }
+    return body;
+  };
+
   const handleSendMessage = async (content: string) => {
     const userMsg: Message = { role: 'user', content };
     setMessages(prev => [...prev, userMsg]);
     setIsThinking(true);
 
     try {
-      const body = {
-        message: content,
-        address_id: selectedAddressId,
-        execute_tools: true,
-        history: messages.map(m => ({ role: m.role, content: m.content }))
-      };
-      
-      const data: QueryResponse = await api.post('/api/agent/query/', body);
-      
+      let data: QueryResponse = await api.post(
+        '/api/agent/query/',
+        buildAgentBody(content, userLocation),
+      );
+
+      const errorCode = (data as any)?.tool_execution?.error_code;
+      if (errorCode === 'needs_location') {
+        try {
+          const fresh = await ensureLocation();
+          data = await api.post('/api/agent/query/', buildAgentBody(content, fresh));
+        } catch (geoErr: any) {
+          const reason = geoErr?.reason ?? 'unknown';
+          const friendly: Record<string, string> = {
+            permission_denied: "I couldn't get your location — you blocked the request. Allow location access in your browser and try again.",
+            position_unavailable: 'Your location is currently unavailable. Try again with a better signal.',
+            timeout: 'Getting your location timed out — please try again.',
+            unsupported: 'This browser does not expose location services.',
+            unknown: 'I could not read your location.',
+          };
+          setMessages(prev => [...prev, { role: 'assistant', content: friendly[reason] || friendly.unknown }]);
+          return;
+        }
+      }
+
       const assistantMsg: Message = {
         role: 'assistant',
         content: data.assistant_message,
         meta: [...data.selected_tool_providers, data.tool_execution.ok ? 'tools ok' : data.tool_execution.error].filter(Boolean) as string[],
-        trace: data.observable_trace
+        trace: data.observable_trace,
       };
-      
+
       setMessages(prev => [...prev, assistantMsg]);
     } catch (err: any) {
       const errorMsg: Message = {
         role: 'assistant',
-        content: `Error: ${err.message || 'Something went wrong'}`
+        content: `Error: ${err.message || 'Something went wrong'}`,
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
