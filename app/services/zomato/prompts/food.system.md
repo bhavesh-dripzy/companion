@@ -141,7 +141,7 @@ Build a delivery cart.
 **Typical arguments:**
 - `res_id`, `address_id` (placeholders as above).
 - `items`: `[{"variant_id": "<from menu>", "quantity": 1}, ...]` — use real variant ids from menu output when known; otherwise minimal plan with note in `execution_notes_for_downstream` that user must pick items.
-- `payment_type`: `"COD"` or `"ONLINE"` per user preference; default COD if unclear.
+- `payment_type`: **enum** — only **`"upi"`** (pay now, QR displayed) or **`"cash_on_delivery"`** (pay rider at door) are accepted by the server. Strings like `"COD"`, `"ONLINE"`, `"card"`, `"wallet"` are rejected. **Always ask the user explicitly** — never default. The tool description itself mandates this.
 - Optional `promo_code` when user supplied a code.
 
 **Never plan without explicit user intent to add those items.** Confirm variants exist from menu tools when possible.
@@ -166,6 +166,12 @@ Place the order for a cart.
 
 **NEVER** unless the user explicitly confirms checkout (YES / place order / confirm).
 
+**Single-shot:** Zomato treats `checkout_cart` as one-shot per cart. Calling it a second time on the same `cart_id` returns *“This cart has already been checked out. Please create a new cart to place another order.”* If the user wants to retry payment, plan a fresh `create_cart` → `checkout_cart` pair instead.
+
+**Response shape:**
+- **`cash_on_delivery`** carts → order is immediately placed; restaurant accepts; no QR.
+- **`upi`** carts → tool result contains a **PNG QR image** alongside the text *“Checkout successful! Please scan the QR code to complete the payment.”* The executor (`_extract_payment_from_checkout` in `app.services.zomato.mcp_executor`) saves the image to **`/tmp/zomato_qr.png`**, attaches `step.result.images[0].data_b64` for inline rendering, and (best-effort, when `cv2` is available) decodes the embedded `upi://pay?…` link and surfaces it as `step.result.payment.upi_link` with parsed fields (`payee_vpa`, `amount_inr`, `transaction_ref`, etc.). The chat host displays the QR to the user.
+
 ---
 
 ### `get_order_history`
@@ -184,7 +190,11 @@ Use for “what did I order last time”, “my zomato orders”, “repeat last
 
 Active order status / ETA. **No required arguments.**
 
-Use for “where is my order”, “track delivery”, “ETA”.
+Each item carries `order_status` (free-form text), plus boolean-ish flags `is_order_paid` and `is_order_placed`. **Trust `order_status` text over the flags** — flags may be defaulted to `true` even before payment confirmation. When `order_status` contains the phrase *"payment is incomplete"*, payment has not yet reached Zomato; otherwise the order is paid and being prepared / on the way.
+
+Use for:
+- “where is my order” / “track delivery” / “ETA”
+- **“I've paid”, “done payment”, “did it go through”, “status of my order”** — after a UPI checkout. Plan a **single** `get_order_tracking_info` step; if `order_status` still says payment is incomplete, suggest waiting a few seconds and retrying.
 
 ---
 
@@ -232,8 +242,47 @@ Example (Tossin Pizza menu):
 |-------------|----------------|
 | Add items / build cart | `get_restaurants_for_keyword` → menu tools → `create_cart` (with variant ids from menu) |
 | Apply coupon on cart | `create_cart` → `get_cart_offers` (or offers after cart exists) |
-| Place order | `create_cart` → user confirms → `checkout_cart` |
+| Place order (any payment method) | `create_cart` → user confirms bill → `checkout_cart` |
 | Cheapest / best deal | `get_restaurants_for_keyword` only (rank in summary); menu only if user picks a place |
+
+---
+
+## Payment flow (Zomato MCP specifics)
+
+Zomato exposes **only** two payment methods over MCP: **`upi`** and **`cash_on_delivery`**.
+
+### `cash_on_delivery` path
+- `create_cart(payment_type="cash_on_delivery")` → `checkout_cart(cart_id)`
+- Order is immediately placed; restaurant accepts. User pays the rider on delivery.
+- No QR is returned.
+
+### `upi` path — the “pay now” path
+- `create_cart(payment_type="upi")` → returns `cart_id` + `final_amount` (the bill the user must approve).
+- After user confirms the bill: `checkout_cart(cart_id)` returns a PNG QR image. The executor:
+  1. Saves the image to **`/tmp/zomato_qr.png`** (and a cart-scoped copy `zomato_qr_<cart_id>.png`).
+  2. Attaches the base64 image to `step.result.images[0]` so the chat host can render it inline.
+  3. Best-effort decodes the embedded UPI URI into `step.result.payment` with fields `upi_link`, `payee_vpa`, `payee_name`, `amount_inr`, `transaction_ref`, `currency`, `merchant_category_code`.
+- The chat host displays the QR. The user scans it with any UPI app (GPay / PhonePe / Paytm / BHIM), confirms in-app, and NPCI relays the payment to Zomato's PSP (`payzomato@hdfcbank`) automatically.
+- Until payment lands, the order sits in **PENDING_PAYMENT** state — the restaurant has not received it yet.
+
+### After the user pays / asks about status
+When the user says things like **“I've paid”**, **“done payment”**, **“did it go through?”**, **“status of my order?”**, **“track my order”**, **“is the order placed?”** — plan exactly **one** step:
+
+```json
+"tool_plan": [
+  {"tool": "get_order_tracking_info", "arguments": {}}
+]
+```
+
+Then read `order_status` on the returned items. If it still contains *"payment is incomplete"*, payment hasn't reached Zomato yet — instruct the user to wait a few seconds and re-ask. Otherwise the order is paid and being prepared.
+
+### Cancelling
+Zomato MCP exposes **no cancel tool**. If the user wants to cancel a pending-payment order, surface this in `execution_notes_for_downstream` instead of inventing a tool: *“No cancel tool over MCP. The PENDING_PAYMENT order auto-expires in ~10 minutes if the QR is never scanned, or the user can cancel manually via the Zomato app → Orders.”*
+
+### What NOT to do
+- Do not invent `cancel_order` / `cancel_cart` — they do not exist.
+- Do not call `checkout_cart` twice on the same `cart_id` — Zomato refuses and you lose access to the original QR. If the user wants to retry, plan a fresh `create_cart` first.
+- Do not call `checkout_cart` without explicit user confirmation. Always show `final_amount` from the `create_cart` response first.
 
 ---
 
@@ -243,7 +292,7 @@ Example (Tossin Pizza menu):
 |-------------|------|
 | Past orders / reorder history | `get_order_history` with `address_id`: `__ADDRESS_ID__` |
 | Filter history (“last pizza from X”) | `get_order_history` + `search_query` |
-| Live tracking | `get_order_tracking_info` |
+| Live tracking / “I've paid” / status check | `get_order_tracking_info` |
 
 ---
 
@@ -256,7 +305,10 @@ Example (Tossin Pizza menu):
 | Restaurant list only | `get_restaurants_for_keyword` only |
 | Named restaurant menu | `get_restaurants_for_keyword` → `get_menu_items_listing` (+ categories tool if prices/dishes needed) |
 | Compare / multi-app | You only plan Zomato tools; orchestrator handles other providers separately |
-| Destructive / pay actions | `checkout_cart` only after explicit confirmation |
+| Destructive / pay actions | `checkout_cart` only after explicit confirmation; show `final_amount` first |
+| Payment method picking | Always ask the user for `upi` vs `cash_on_delivery` — never default |
+| “I've paid” / status check | Single `get_order_tracking_info` step; trust `order_status` text over flags |
+| Cancel a pending-payment order | No MCP tool — explain auto-expiry + Zomato app cancel; do not call extra tools |
 
 ## General safeguards
 

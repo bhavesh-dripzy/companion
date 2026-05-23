@@ -5,6 +5,7 @@ Run Zomato MCP tool_plan via stdio bridge (mcp-remote + node), same stack as Cur
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import hashlib
 import importlib.util
@@ -17,7 +18,7 @@ import shutil
 import time
 from base64 import urlsafe_b64encode
 from pathlib import Path
-from urllib.parse import urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 from typing import Any
 
 import boto3
@@ -328,27 +329,226 @@ def _unresolved_placeholders(obj: Any) -> list[str]:
 
 
 def _tool_result_payload(result: Any) -> dict[str, Any]:
+    """Serialize an MCP ``call_tool`` result into a JSON-friendly envelope.
+
+    Backward-compatible shape: ``{"is_error": bool, "data": <json>}``.
+
+    Additively surfaces non-text content blocks so chat hosts can render them:
+
+    * ``images``      — list of ``{"mime_type": str, "data_b64": str}`` for every
+      ``type: "image"`` block (e.g. the Zomato UPI QR returned by
+      ``checkout_cart``). Older consumers that ignore this key are unaffected.
+    * ``attachments`` — list of embedded MCP resources (``type: "resource"``)
+      with ``uri`` / ``mime_type`` / ``text`` when the server returns one
+      (e.g. FastMCP-UI widget HTML stubs).
+    """
     out: dict[str, Any] = {"is_error": bool(getattr(result, "isError", False))}
     try:
+        # Walk content blocks once to harvest non-text artifacts. This runs
+        # regardless of whether the server also returns structuredContent —
+        # Zomato's checkout_cart returns BOTH a structured text message AND
+        # a binary QR image, and the old code path silently dropped the image.
+        images: list[dict[str, Any]] = []
+        attachments: list[dict[str, Any]] = []
+        for blk in getattr(result, "content", ()) or []:
+            btype = getattr(blk, "type", None)
+            if btype == "image":
+                data_b64 = getattr(blk, "data", None) or ""
+                if not data_b64:
+                    continue
+                images.append(
+                    {
+                        "mime_type": str(getattr(blk, "mimeType", "image/png") or "image/png"),
+                        "data_b64": str(data_b64),
+                    }
+                )
+            elif btype == "resource":
+                resource = getattr(blk, "resource", None)
+                if resource is None:
+                    continue
+                attachments.append(
+                    {
+                        "uri": getattr(resource, "uri", None),
+                        "mime_type": getattr(resource, "mimeType", None),
+                        "text": getattr(resource, "text", None),
+                    }
+                )
+        if images:
+            out["images"] = images
+        if attachments:
+            out["attachments"] = attachments
+
         if result.structuredContent is not None:
             out["data"] = result.structuredContent
             return out
         parsed: list[Any] = []
         for blk in getattr(result, "content", ()) or []:
-            if getattr(blk, "type", None) == "text":
+            btype = getattr(blk, "type", None)
+            if btype == "text":
                 txt = getattr(blk, "text", "") or ""
                 try:
                     parsed.append(json.loads(txt))
                 except json.JSONDecodeError:
                     parsed.append({"raw_text": txt})
+            elif btype == "image":
+                # Real bytes already captured into ``out["images"]`` above;
+                # keep a lightweight tombstone here so the legacy "blocks"
+                # shape still lists every block in order.
+                parsed.append(
+                    {
+                        "type": "image",
+                        "mime_type": getattr(blk, "mimeType", None),
+                    }
+                )
             else:
-                parsed.append({"type": getattr(blk, "type", "?"), "repr": str(blk)})
+                parsed.append({"type": btype or "?", "repr": str(blk)})
         out["data"] = parsed[0] if len(parsed) == 1 else {"blocks": parsed}
         return out
     except Exception as e:
         logger.warning("serialize tool result: %s", e)
         out["serialization_error"] = str(e)
         return out
+
+
+# ---------------------------------------------------------------------------
+# Payment / UPI QR extraction (Zomato checkout_cart returns an image content
+# block holding a standard ``upi://pay?...`` QR PNG). We surface it to the
+# chat host so the UI can render the QR for the user to scan.
+# ---------------------------------------------------------------------------
+
+
+_QR_DEFAULT_PATH = Path("/tmp/zomato_qr.png")
+
+
+def _safe_qr_filename_suffix(cart_id: str | None) -> str | None:
+    if not cart_id:
+        return None
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(cart_id))[:64]
+    return safe or None
+
+
+def _decode_upi_uri_from_png_bytes(png_bytes: bytes) -> str | None:
+    """Best-effort QR decode via OpenCV. Returns ``None`` if cv2 is missing
+    or the QR could not be decoded."""
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+    except Exception:
+        return None
+    try:
+        arr = np.frombuffer(png_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return None
+        # Zomato's QR is tiny (45x45). Upscale to give the detector more pixels.
+        big = cv2.resize(
+            img,
+            (img.shape[1] * 15, img.shape[0] * 15),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        detector = cv2.QRCodeDetector()
+        data, _, _ = detector.detectAndDecode(big)
+        if not data:
+            big = cv2.resize(
+                img,
+                (img.shape[1] * 30, img.shape[0] * 30),
+                interpolation=cv2.INTER_NEAREST,
+            )
+            data, _, _ = detector.detectAndDecode(big)
+        return data or None
+    except Exception as e:
+        logger.info("QR decode failed: %s", e)
+        return None
+
+
+def _parse_upi_uri(uri: str) -> dict[str, Any]:
+    """Pull standard NPCI fields out of a ``upi://pay?...`` URI."""
+    info: dict[str, Any] = {"upi_link": uri}
+    try:
+        parsed = urlparse(uri)
+        if parsed.scheme.lower() != "upi":
+            return info
+        params = parse_qs(parsed.query)
+
+        def _first(key: str) -> str | None:
+            v = params.get(key)
+            return v[0] if v else None
+
+        info["payee_vpa"] = _first("pa")
+        info["payee_name"] = _first("pn")
+        info["transaction_ref"] = _first("tr")
+        info["amount_inr"] = _first("am")
+        info["currency"] = _first("cu") or "INR"
+        info["merchant_category_code"] = _first("mc")
+        info["transaction_note"] = _first("tn")
+    except Exception as e:
+        logger.info("parse upi uri failed: %s", e)
+    return info
+
+
+def _extract_payment_from_checkout(
+    envelope: dict[str, Any],
+    *,
+    cart_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Build a payment summary from a ``checkout_cart`` envelope.
+
+    Returns ``None`` when the envelope carries no image (e.g. ``cash_on_delivery``
+    checkouts that don't issue a QR).
+
+    Side effect: writes the QR PNG to ``/tmp/zomato_qr.png`` (and a cart-scoped
+    copy when ``cart_id`` is known) so chat hosts can either reference the
+    file path directly or use the inline base64 data from the envelope.
+    """
+    images = envelope.get("images") or []
+    if not images:
+        return None
+    first = images[0]
+    data_b64 = first.get("data_b64") or ""
+    mime = first.get("mime_type") or "image/png"
+    if not data_b64:
+        return None
+    try:
+        raw_bytes = base64.b64decode(data_b64)
+    except Exception as e:
+        logger.warning("Could not decode QR base64: %s", e)
+        return None
+
+    ext = "png"
+    if "/" in mime:
+        ext = mime.split("/")[-1].split(";")[0].lower() or "png"
+
+    payment: dict[str, Any] = {
+        "qr_mime_type": mime,
+        "qr_b64": data_b64,
+    }
+
+    qr_paths: list[str] = []
+    try:
+        _QR_DEFAULT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _QR_DEFAULT_PATH.write_bytes(raw_bytes)
+        qr_paths.append(str(_QR_DEFAULT_PATH))
+    except OSError as e:
+        logger.info("Could not write QR to %s: %s", _QR_DEFAULT_PATH, e)
+
+    suffix = _safe_qr_filename_suffix(cart_id)
+    if suffix:
+        try:
+            scoped = _QR_DEFAULT_PATH.parent / f"zomato_qr_{suffix}.{ext}"
+            scoped.write_bytes(raw_bytes)
+            qr_paths.append(str(scoped))
+        except OSError:
+            pass
+
+    if qr_paths:
+        payment["qr_paths"] = qr_paths
+        payment["qr_path"] = qr_paths[0]
+
+    upi_uri = _decode_upi_uri_from_png_bytes(raw_bytes)
+    if upi_uri:
+        payment.update(_parse_upi_uri(upi_uri))
+
+    return payment
 
 
 def _find_best_address_id(tool_payload: dict[str, Any], location_text: str | None = None) -> str | None:
@@ -682,6 +882,24 @@ async def _run_session_inner(
                         )
                     except Exception as e:
                         logger.info("menu price enrichment failed: %s", e)
+
+                if tool == "checkout_cart" and not envelope.get("is_error"):
+                    try:
+                        payment = _extract_payment_from_checkout(
+                            envelope,
+                            cart_id=str(exec_args.get("cart_id") or "").strip() or None,
+                        )
+                    except Exception as e:
+                        logger.warning("payment extraction failed: %s", e)
+                        payment = None
+                    if payment:
+                        envelope["payment"] = payment
+                        diagnostics["checkout_payment"] = {
+                            "qr_paths": payment.get("qr_paths"),
+                            "upi_link_present": bool(payment.get("upi_link")),
+                            "amount_inr": payment.get("amount_inr"),
+                            "transaction_ref": payment.get("transaction_ref"),
+                        }
 
                 if resolved_id is None and tool == "get_saved_addresses_for_user":
                     nid = _first_address_id_from_saved_payload(envelope)
