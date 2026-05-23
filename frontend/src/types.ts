@@ -25,11 +25,24 @@ export interface Address {
   longitude?: number;
 }
 
+export interface Attachment {
+  kind: string;
+  source?: string;
+  mime_type?: string;
+  data_b64?: string;
+  alt?: string;
+  caption?: string;
+  upi_link?: string;
+  amount_inr?: number | string;
+  oversize?: boolean;
+}
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
   meta?: string[];
   trace?: any[];
+  attachments?: Attachment[];
 }
 
 export interface SessionRestaurant {
@@ -57,6 +70,7 @@ export interface QueryResponse {
   // __CART_ID__, the restaurant index, and the order id.
   session_state?: Record<string, string>;
   session_restaurants?: SessionRestaurant[];
+  attachments?: Attachment[];
 }
 
 export interface McpStatus {

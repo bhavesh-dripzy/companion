@@ -1,13 +1,75 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { Message } from './types';
+import type { Attachment, Message } from './types';
 import { cn } from './utils';
-import { User, Bot, Loader2 } from 'lucide-react';
+import { User, Bot, Loader2, ExternalLink } from 'lucide-react';
 
 interface ChatLogProps {
   messages: Message[];
   isThinking: boolean;
 }
+
+// Render the structured attachments the backend ships alongside
+// `assistant_message` — currently the Zomato checkout QR (kind=image,
+// mime_type=image/png, data_b64=...). The contract matches the Django
+// template's renderAttachments() so any new attachment kinds the
+// executor emits surface in both UIs.
+const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }) => {
+  const cards = attachments
+    .filter((att): att is Attachment => !!att && typeof att === 'object')
+    .map((att, idx) => {
+      const kind = String(att.kind || '').toLowerCase();
+      const mime = String(att.mime_type || 'image/png');
+      const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';
+      const caption = att.caption ? String(att.caption) : '';
+      const upi = typeof att.upi_link === 'string' ? att.upi_link.trim() : '';
+      const showUpi = upi.toLowerCase().startsWith('upi://');
+
+      const hasImage = kind === 'image' && b64 && mime.startsWith('image/');
+      const showOversizeFallback = !hasImage && att.oversize === true;
+
+      if (!hasImage && !showOversizeFallback && !caption && !showUpi) return null;
+
+      return (
+        <div
+          key={idx}
+          className="flex flex-col items-start gap-2 p-3 bg-white border border-border rounded-xl max-w-[280px] shadow-sm"
+        >
+          {hasImage && (
+            <img
+              src={`data:${mime};base64,${b64}`}
+              alt={String(att.alt || 'attachment')}
+              className="w-56 h-56 block bg-white border border-neutral-200 rounded-md p-2"
+              style={{ imageRendering: 'pixelated' }}
+            />
+          )}
+          {showOversizeFallback && (
+            <div className="text-xs text-neutral-600">
+              QR is too large to inline — please use the UPI link.
+            </div>
+          )}
+          {caption && (
+            <div className="text-xs text-neutral-600 leading-snug">{caption}</div>
+          )}
+          {showUpi && (
+            <a
+              href={upi}
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800 transition-colors"
+            >
+              <ExternalLink size={12} />
+              Open in UPI app{att.amount_inr ? ` ₹${att.amount_inr}` : ''}
+            </a>
+          )}
+        </div>
+      );
+    })
+    .filter(Boolean);
+
+  if (cards.length === 0) return null;
+
+  return <div className="flex flex-col gap-3 mt-1">{cards}</div>;
+};
 
 export const ChatLog: React.FC<ChatLogProps> = ({ messages, isThinking }) => {
   return (
@@ -43,7 +105,11 @@ export const ChatLog: React.FC<ChatLogProps> = ({ messages, isThinking }) => {
                 </ReactMarkdown>
               </div>
             </div>
-            
+
+            {msg.attachments && msg.attachments.length > 0 && (
+              <AttachmentList attachments={msg.attachments} />
+            )}
+
             {msg.meta && msg.meta.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-1">
                 {msg.meta.map((m, idx) => (
