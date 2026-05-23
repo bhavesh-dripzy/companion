@@ -156,6 +156,13 @@
     @keyframes pulse { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
     .chat-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .mini-pill { display: inline-flex; align-items: center; border-radius: 999px; background: #eef2f7; color: #374151; padding: 3px 8px; font-size: 11px; font-weight: 700; }
+    .attachment-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+    .attachment-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #ffffff; max-width: 320px; }
+    .attachment-card img { display: block; width: 220px; height: 220px; image-rendering: pixelated; background: #ffffff; border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+    .attachment-caption { font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .attachment-cta { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; background: #111827; color: white; text-decoration: none; font-size: 12px; font-weight: 700; }
+    .attachment-cta:hover { background: #1f2937; }
+    .attachment-fallback { font-size: 12px; color: var(--muted); }
     .trace-list { display: grid; gap: 6px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
     .trace-item { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 12px; color: var(--muted); }
     .trace-item strong { color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
@@ -676,13 +683,67 @@
       return list.childElementCount ? list : null;
     }
 
-    function appendAssistantWithTrace(content, meta, trace) {
-      appendMessage("assistant", content, meta);
-      const traceNode = renderTrace(trace);
-      if (traceNode) {
-        const last = chatLog.lastElementChild;
-        if (last) last.appendChild(traceNode);
+    function renderAttachments(attachments) {
+      if (!Array.isArray(attachments) || attachments.length === 0) return null;
+      const list = document.createElement("div");
+      list.className = "attachment-list";
+      for (const att of attachments) {
+        if (!att || typeof att !== "object") continue;
+        const card = document.createElement("div");
+        card.className = "attachment-card";
+
+        const kind = String(att.kind || "").toLowerCase();
+        const mime = String(att.mime_type || "image/png");
+        const b64 = typeof att.data_b64 === "string" ? att.data_b64 : "";
+
+        if (kind === "image" && b64 && mime.startsWith("image/")) {
+          const img = document.createElement("img");
+          // Use setAttribute (NOT innerHTML) for base64 data URIs — never
+          // template a few KB of base64 through a string interpolation that
+          // could trip an unrelated DOM parser later.
+          img.setAttribute("src", "data:" + mime + ";base64," + b64);
+          img.setAttribute("alt", String(att.alt || "attachment"));
+          card.appendChild(img);
+        } else if (att.oversize) {
+          const note = document.createElement("div");
+          note.className = "attachment-fallback";
+          note.textContent = "QR is too large to inline — please use the UPI link.";
+          card.appendChild(note);
+        }
+
+        const caption = att.caption ? String(att.caption) : "";
+        if (caption) {
+          const cap = document.createElement("div");
+          cap.className = "attachment-caption";
+          cap.textContent = caption;
+          card.appendChild(cap);
+        }
+
+        const upi = typeof att.upi_link === "string" ? att.upi_link.trim() : "";
+        if (upi && upi.toLowerCase().startsWith("upi://")) {
+          const cta = document.createElement("a");
+          cta.className = "attachment-cta";
+          cta.setAttribute("href", upi);
+          // On desktop the upi:// scheme has no handler; the user copies it.
+          // On mobile it opens GPay/PhonePe/etc directly.
+          cta.setAttribute("rel", "noopener noreferrer");
+          const amount = att.amount_inr ? " ₹" + String(att.amount_inr) : "";
+          cta.textContent = "Open in UPI app" + amount;
+          card.appendChild(cta);
+        }
+
+        if (card.childElementCount > 0) list.appendChild(card);
       }
+      return list.childElementCount ? list : null;
+    }
+
+    function appendAssistantWithTrace(content, meta, trace, attachments) {
+      appendMessage("assistant", content, meta);
+      const last = chatLog.lastElementChild;
+      const attachmentNode = renderAttachments(attachments);
+      if (attachmentNode && last) last.appendChild(attachmentNode);
+      const traceNode = renderTrace(trace);
+      if (traceNode && last) last.appendChild(traceNode);
     }
 
     function appendThinking() {
@@ -1108,9 +1169,10 @@
         const assistant = data.assistant_message || "I handled the request.";
         const routed = Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : [];
         const ok = data.tool_execution && data.tool_execution.ok === true ? "tools ok" : data.tool_execution && data.tool_execution.error ? data.tool_execution.error : "";
+        const attachments = Array.isArray(data.attachments) ? data.attachments : [];
         thinkingNode.cleanup && thinkingNode.cleanup();
         thinkingNode.remove();
-        appendAssistantWithTrace(assistant, [...routed, ok].filter(Boolean), data.observable_trace);
+        appendAssistantWithTrace(assistant, [...routed, ok].filter(Boolean), data.observable_trace, attachments);
       } catch (err) {
         thinkingNode.cleanup && thinkingNode.cleanup();
         thinkingNode.remove();

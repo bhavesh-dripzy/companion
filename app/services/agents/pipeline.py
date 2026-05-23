@@ -31,6 +31,108 @@ class CustomMcpNeedsDiscoveryError(ValueError):
     """Raised when a routed custom MCP lacks a cached tool manifest."""
 
 
+# Largest single attachment we'll surface to the chat UI in one turn. The
+# Zomato QR PNG is ~5 KB, but inline base64 images grow as 1.33x the raw
+# byte count and bloat history payloads; cap conservatively so a runaway
+# provider can't tank the chat bubble.
+_MAX_ATTACHMENT_DATA_B64_CHARS = 200_000  # ~150 KB raw
+
+
+def _collect_payment_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lift any ``payment.qr_b64`` blocks out of raw tool steps.
+
+    Walks every provider's executor output (currently only Zomato emits a
+    ``payment`` block, but the contract is generic) and returns a flat list of
+    attachment descriptors the frontend can render inline. The original step
+    output is left untouched so downstream consumers (response-LLM, observable
+    trace, debug payloads) see the same structure.
+
+    Attachment shape (stable contract for ``out["attachments"]``)::
+
+        {
+          "kind": "image",
+          "source": "zomato.checkout_cart" | "<provider>.<tool>",
+          "mime_type": "image/png",
+          "data_b64": "<base64 payload>",
+          "alt": "Payment QR code",
+          "caption": "Scan with any UPI app",
+          # optional, only when the QR was decoded:
+          "upi_link": "upi://pay?pa=...",
+          "amount_inr": "185",
+          "payee_vpa": "...",
+          "payee_name": "...",
+          "transaction_ref": "...",
+        }
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+
+    attachments: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        steps = raw.get("steps") or []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            envelope = step.get("result")
+            if not isinstance(envelope, dict):
+                continue
+            payment = envelope.get("payment")
+            if not isinstance(payment, dict):
+                continue
+            data_b64 = payment.get("qr_b64")
+            if not isinstance(data_b64, str) or not data_b64.strip():
+                continue
+            if len(data_b64) > _MAX_ATTACHMENT_DATA_B64_CHARS:
+                # Refuse to inline absurdly large payloads — drop a breadcrumb
+                # in the attachment so the UI can fall back to a link.
+                attachment_oversize = {
+                    "kind": "image",
+                    "source": f"{provider_name}.{step.get('tool') or 'unknown'}",
+                    "mime_type": payment.get("qr_mime_type") or "image/png",
+                    "data_b64": None,
+                    "oversize": True,
+                    "alt": "Payment QR code",
+                    "caption": "QR image too large to inline; open via UPI link.",
+                    "upi_link": payment.get("upi_link"),
+                    "amount_inr": payment.get("amount_inr"),
+                    "payee_vpa": payment.get("payee_vpa"),
+                    "payee_name": payment.get("payee_name"),
+                    "transaction_ref": payment.get("transaction_ref"),
+                }
+                attachments.append(
+                    {k: v for k, v in attachment_oversize.items() if v is not None}
+                )
+                continue
+
+            amount = payment.get("amount_inr")
+            payee = payment.get("payee_name") or payment.get("payee_vpa")
+            caption_parts = ["Scan with any UPI app"]
+            if amount:
+                caption_parts.append(f"₹{amount}")
+            if payee:
+                caption_parts.append(f"to {payee}")
+            caption = " — ".join(caption_parts)
+
+            attachment: dict[str, Any] = {
+                "kind": "image",
+                "source": f"{provider_name}.{step.get('tool') or 'checkout_cart'}",
+                "mime_type": payment.get("qr_mime_type") or "image/png",
+                "data_b64": data_b64,
+                "alt": "Payment QR code",
+                "caption": caption,
+            }
+            for key in ("upi_link", "amount_inr", "payee_vpa", "payee_name", "transaction_ref"):
+                val = payment.get(key)
+                if val:
+                    attachment[key] = val
+            attachments.append(attachment)
+    return attachments
+
+
 def _format_routing_message(
     current_message: str,
     conversation_history: list[dict[str, str]] | None = None,
@@ -491,6 +593,15 @@ def run_agent_turn(
         else None
     )
 
+    # Hoist any inline image attachments (currently only the Zomato checkout
+    # payment QR) so the chat UI can render them next to the assistant bubble.
+    # The base64 lives buried under `raw_tool_results.<provider>.steps[].result.payment`;
+    # the LLM-written `assistant_message` cannot embed an image (the frontend's
+    # markdown renderer doesn't accept image syntax, and the response-LLM is
+    # told never to paste raw data), so we surface attachments as a separate
+    # top-level field with a stable schema.
+    attachments = _collect_payment_attachments(raw_tool_results)
+
     out: dict[str, Any] = {
         "status": "success",
         "provider": llm.provider,
@@ -545,6 +656,7 @@ def run_agent_turn(
         ),
         "zomato_summary": zomato_summary,
         "provider_summaries": provider_summaries,
+        "attachments": attachments,
         "assistant_message": (
             general_chat_responder.reply_general_chat(
                 user_message=user_message,
@@ -573,6 +685,7 @@ def run_agent_turn(
                 model=llm.model,
                 base_url=llm.base_url,
                 conversation_history=conversation_history,
+                attachments=attachments,
             )
         ),
     }

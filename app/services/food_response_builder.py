@@ -216,6 +216,15 @@ _SYSTEM_PROMPT = (
     "\"__ADDRESS_ID__\", or \"no addresses found\"), explain that you need a delivery "
     "address to proceed. Ask the user to tell you their location or select a "
     "saved address from the selector.\n"
+    "- **UI attachments**: When the input contains a non-empty `ui_attachments` "
+    "list, the chat UI is rendering those images/files *next to* your message — "
+    "the user will see the actual image. So acknowledge it briefly ('Yeh raha "
+    "QR — ₹185 scan karke pay kar do' / 'Here's the payment QR — scan it from "
+    "any UPI app for ₹185') and mention the amount/payee if present. Do NOT "
+    "describe pixel-level visual contents (\"a black-and-white square pattern\") "
+    "and do NOT paste base64 or embed image markdown — that's the frontend's "
+    "job. If a `has_upi_link` is true, mention that the UPI deep-link is also "
+    "available as a one-tap fallback.\n"
     "- Always end with a short, interactive follow-up — 2 to 4 concrete spoken "
 
     "suggestions the user can reply with, chosen to fit the data and the user's "
@@ -228,6 +237,39 @@ _SYSTEM_PROMPT = (
 )
 
 
+def _summarize_attachments_for_prompt(
+    attachments: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Trim attachments to a description-only view (no base64) for the LLM.
+
+    The response LLM only needs to know *that* an image is being shown and
+    *what kind* — it must NOT receive the raw base64 (token cost + temptation
+    to paste it back into the reply). The frontend renders the actual image
+    from the un-trimmed ``attachments`` field on the agent-turn payload.
+    """
+    if not isinstance(attachments, list):
+        return []
+    summarized: list[dict[str, Any]] = []
+    for att in attachments:
+        if not isinstance(att, dict):
+            continue
+        summarized.append(
+            {
+                "kind": att.get("kind"),
+                "source": att.get("source"),
+                "mime_type": att.get("mime_type"),
+                "caption": att.get("caption"),
+                "alt": att.get("alt"),
+                "amount_inr": att.get("amount_inr"),
+                "payee_name": att.get("payee_name"),
+                "transaction_ref": att.get("transaction_ref"),
+                "has_upi_link": bool(att.get("upi_link")),
+                "has_inline_image": bool(att.get("data_b64")),
+            }
+        )
+    return summarized
+
+
 def build_assistant_message_with_llm(
     *,
     user_message: str,
@@ -238,6 +280,7 @@ def build_assistant_message_with_llm(
     model: str,
     base_url: str | None = None,
     conversation_history: list[dict[str, str]] | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> str:
     """Generate the final assistant reply from raw tool output.
 
@@ -254,6 +297,11 @@ def build_assistant_message_with_llm(
     conversation_history:
         Recent ``user`` / ``assistant`` turns so the reply stays coherent with
         the ongoing conversation.
+    attachments:
+        Optional list of image/file attachments the chat UI will render next
+        to this reply (e.g. a Zomato payment QR). The LLM is told they will
+        appear so the spoken reply can reference them ("here's the QR…")
+        without describing visual content in detail.
     """
     history_transcript = _format_conversation_history(conversation_history)
 
@@ -265,11 +313,14 @@ def build_assistant_message_with_llm(
             "constraints": plan.get("constraints"),
         }
 
+    attachment_descriptors = _summarize_attachments_for_prompt(attachments)
+
     payload: dict[str, Any] = {
         "current_user_message": user_message,
         "conversation_history": history_transcript,
         "planner_context": plan_context,
         "tool_results": tool_results or {},
+        "ui_attachments": attachment_descriptors,
     }
 
     user_prompt = (
