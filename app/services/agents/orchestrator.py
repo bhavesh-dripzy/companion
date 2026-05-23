@@ -31,14 +31,50 @@ def _load_orchestrator_prompt() -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def classify_agent_routing(*, user_message: str, llm: ResolvedLlm) -> dict[str, Any]:
+def _previous_provider_fallback(previous_provider: str | None) -> tuple[str, list[str]]:
+    """Map a previous_provider hint to (task_type, provider_list) for safe fallback.
+
+    Used when the orchestrator LLM fails to return parseable JSON — instead of
+    silently swapping to `swiggy_food` (and breaking address resolution for any
+    user mid-flow on Zomato/Instamart), stick with the provider the previous
+    successful turn used.
+    """
+    if previous_provider in _KNOWN_FOOD:
+        return "food_delivery", [previous_provider]
+    if previous_provider in _KNOWN_FINANCE:
+        return "finance_investing", [previous_provider]
+    if previous_provider in _KNOWN_HEALTH:
+        return "health_nutrition", [previous_provider]
+    return "food_delivery", ["zomato"]
+
+
+def classify_agent_routing(
+    *,
+    user_message: str,
+    llm: ResolvedLlm,
+    previous_provider: str | None = None,
+) -> dict[str, Any]:
     """
     Returns keys: task_type, food_providers, finance_providers, reasoning.
+
+    ``previous_provider`` is an optional hint about which provider the previous
+    successful turn used. It is appended to the routing message so the LLM can
+    keep the user on the same provider mid-flow, and is also used as the safe
+    fallback if the LLM returns malformed JSON (instead of the legacy hardcoded
+    ``swiggy_food`` fallback which silently broke cross-provider sessions).
     """
+    framed_message = user_message
+    if previous_provider and isinstance(previous_provider, str):
+        framed_message = (
+            f"Previous successful turn used provider: {previous_provider}.\n"
+            "Stay on this provider unless the user explicitly switches.\n\n"
+            f"{user_message}"
+        )
+
     raw: dict[str, Any]
     try:
         raw = complete_json_object(
-            user_message=user_message,
+            user_message=framed_message,
             system_prompt=_load_orchestrator_prompt(),
             api_key=llm.api_key,
             model=llm.model,
@@ -46,13 +82,15 @@ def classify_agent_routing(*, user_message: str, llm: ResolvedLlm) -> dict[str, 
             base_url=llm.base_url,
         )
     except ValueError:
+        fb_task, fb_providers = _previous_provider_fallback(previous_provider)
         return {
-            "task_type": "food_delivery",
-            "food_providers": ["swiggy_food"],
-            "finance_providers": [],
-            "health_providers": [],
+            "task_type": fb_task,
+            "food_providers": fb_providers if fb_task == "food_delivery" else [],
+            "finance_providers": fb_providers if fb_task == "finance_investing" else [],
+            "health_providers": fb_providers if fb_task == "health_nutrition" else [],
             "reasoning": (
-                "Orchestrator returned non-JSON; defaulting to Swiggy Food for safety."
+                "Orchestrator returned non-JSON; "
+                f"sticking with previous_provider={previous_provider or 'zomato (default)'}."
             ),
         }
 

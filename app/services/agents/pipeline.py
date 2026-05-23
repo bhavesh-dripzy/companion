@@ -55,6 +55,56 @@ def _format_routing_message(
     return f"Conversation so far:\n{transcript}\n\nCurrent user message:\n{current}"
 
 
+_KNOWN_PROVIDER_IDS = frozenset(
+    {"zomato", "swiggy_food", "swiggy_instamart", "zepto", "kite", "groww", "daily_calorie_tracker"}
+)
+
+
+def _extract_previous_provider(
+    conversation_history: list[dict[str, str]] | None,
+) -> str | None:
+    """Best-effort provider stickiness signal.
+
+    Priority:
+      1. Explicit ``provider`` field on the most recent assistant history item
+         (forward-compatible with frontends that echo back routing info).
+      2. Heuristic scan of the last few assistant turns for unambiguous
+         provider markers in the message text. Prefers the *latest* non-empty
+         signal to avoid drifting back to a stale provider.
+
+    Returns ``None`` when nothing reliable is found — callers must treat that
+    as "no hint" rather than as a default.
+    """
+    if not conversation_history:
+        return None
+    recent = [
+        item
+        for item in conversation_history[-6:]
+        if isinstance(item, dict) and item.get("role") == "assistant"
+    ]
+    for item in reversed(recent):
+        pid = item.get("provider")
+        if isinstance(pid, str) and pid.strip() in _KNOWN_PROVIDER_IDS:
+            return pid.strip()
+    for item in reversed(recent):
+        content = str(item.get("content") or "").lower()
+        if not content:
+            continue
+        has_instamart = "instamart" in content
+        has_zepto = "zepto" in content
+        has_zomato = "zomato" in content
+        has_swiggy = "swiggy" in content and not has_instamart
+        if has_instamart:
+            return "swiggy_instamart"
+        if has_zepto:
+            return "zepto"
+        if has_zomato:
+            return "zomato"
+        if has_swiggy:
+            return "swiggy_food"
+    return None
+
+
 def _ensure_custom_providers_ready(routed_providers: set[str], user_id: str) -> None:
     for pid in sorted(routed_providers):
         tp = get_tool_provider(pid, user_id=user_id)
@@ -300,7 +350,12 @@ def run_agent_turn(
     Flow: orchestrator LLM → per-provider domain LLM (tool_plan) → MCP executor → response LLM.
     """
     routing_message = _format_routing_message(user_message, conversation_history)
-    orchestration = classify_agent_routing(user_message=routing_message, llm=llm)
+    previous_provider = _extract_previous_provider(conversation_history)
+    orchestration = classify_agent_routing(
+        user_message=routing_message,
+        llm=llm,
+        previous_provider=previous_provider,
+    )
 
     task_type = str(orchestration.get("task_type") or "food_delivery")
     if task_type == "finance_investing":
@@ -439,6 +494,12 @@ def run_agent_turn(
     out: dict[str, Any] = {
         "status": "success",
         "provider": llm.provider,
+        # Single "primary" routed provider so frontends can echo it back on the
+        # next turn's assistant history item as `provider`, giving the
+        # orchestrator a deterministic stickiness signal (see RCA: silent
+        # swiggy_food fallback). Falls back to the first routed provider in
+        # alphabetical order when multiple providers ran (rare: compare flows).
+        "routed_provider": (next(iter(sorted(routed))) if routed else None),
         "intent_routing": orchestration,
         "selected_tool_providers": sorted(routed),
         "food_routing_plan": plan,

@@ -12,7 +12,7 @@ Companion runs your plan via `run_tool_plan_sync` in `app.services.zomato.mcp_ex
 2. **Address prefetch (fallback)** — If a step still has unresolved **`__ADDRESS_ID__`** and no saved id was passed, the executor may **auto-call `get_saved_addresses_for_user` once** and use the **first** saved address (weaker than asking the user). Still **prefer** emitting `__ADDRESS_ID__` on search/menu tools when the request already has a saved address — **omit** `get_saved_addresses_for_user` in that case.
 3. **Restaurant chaining (mandatory for menus)** — **`__RESTAURANT_ID__`** is learned from JSON in the **prior step’s response** (typically `res_id` from `get_restaurants_for_keyword`). Companion walks results and fills placeholders for later steps. You **must** run **`get_restaurants_for_keyword`** in the **same** plan before any menu tool that uses **`res_id`: `"__RESTAURANT_ID__"`**.
 4. **Placeholder failure** — Steps with unresolved placeholders are **skipped** (not executed). Never emit `get_menu_items_listing` or `get_restaurant_menu_by_categories` with `__RESTAURANT_ID__` and **no** preceding `get_restaurants_for_keyword`.
-5. **Variant / cart placeholders** — After menu tools return items, responses may expose `variant_id` / `cart_id`; downstream steps may use **`__VARIANT_ID__`**, **`__CART_ID__`** when the user already picked an item or cart from prior tool output in the same session turn chain. Do not invent numeric ids.
+5. **Cart placeholders** — After menu tools return items, responses expose `variant_id` per row and (after `create_cart`) a `cart_id`. Use the literal `variant_id` from the menu listing **or** an item `name` field that matches the menu (see "create_cart" section). `__CART_ID__` is fine when chaining `create_cart` → `checkout_cart` in one plan. **Do not** use `__VARIANT_ID__` — it is structurally broken for multi-item carts and is no longer supported by the executor. Do not invent numeric ids.
 6. **Menu prices** — `get_menu_items_listing` returns categories without full rupee prices; Companion may **auto-enrich** listing rows by calling `get_restaurant_menu_by_categories` for category names. For “show prices for Burgers”, still include an explicit **`get_restaurant_menu_by_categories`** step with a concrete `categories` list when the user names categories or dishes.
 7. **Locality mismatch** — If the user names a **different area** than their saved pin (e.g. “pizza in Indiranagar” but UI address is Gurgaon), set **`constraints.requested_location_text`** to that locality. Companion may refuse to search with the wrong saved address; do not silently ignore the named area.
 8. **Auth** — Normal Companion users authenticate via MCP OAuth (`mcp-remote`). Use **`bind_user_number`** / **`bind_user_number_verify_code`** only when the user is explicitly completing phone OTP in chat (rare).
@@ -130,7 +130,14 @@ Detailed items with **prices** for specific category names.
 - User asks for **prices**, specific **dishes**, or a **category** (“show burgers”, “veg mains”).
 - After listing when you know category names, or alongside listing when user named categories upfront.
 
-Each cart line needs **`variant_id`** from these results — use **`__VARIANT_ID__`** only when chaining from a prior menu step in the same plan.
+Each cart line needs a `variant_id` from these results. Two ways to supply it (no `__VARIANT_ID__` placeholder — that placeholder is **forbidden** because it binds globally to the first item in the menu and silently turns multi-item carts into duplicates of one wrong row):
+
+1. **Literal variant_id** — copy the `variant_id` string (e.g. `"v_992713485"`) from the menu listing returned earlier in *this* plan.
+2. **Name-based** — provide `{"name": "<exact item_name from the menu listing>", "quantity": N}` and omit `variant_id`. The executor resolves the name against the per-session menu index built from `get_menu_items_listing` / `get_restaurant_menu_by_categories` (case-insensitive, exact-match preferred; unambiguous prefix/substring as fallback). Use the **canonical item_name** (e.g. `"Veg Nikku Singh Burger"`, not `"veg nikku burger"` or `"Veg Nikku Singh Burger Combo"`).
+
+Cart plans **must** include the menu fetch tools in the same plan so the index exists when `create_cart` runs — ids and menu index do **not** carry across HTTP requests.
+
+**Menu envelope truncation.** To keep the response prompt small, the executor caps `item_mappings` / `menu_items` arrays in the *returned tool envelope* to the top ~10 rows and adds a `_menu_truncation: {shown: 10, total: <N>}` breadcrumb. The executor's per-session menu index still holds **all** items (the trim happens *after* the index is built), so `create_cart` can resolve any item by `name` even when it didn't appear in the visible top 10. You do **not** need to plan extra menu calls just to "expose more rows" for the cart resolver.
 
 ---
 
@@ -140,11 +147,19 @@ Build a delivery cart.
 
 **Typical arguments:**
 - `res_id`, `address_id` (placeholders as above).
-- `items`: `[{"variant_id": "<from menu>", "quantity": 1}, ...]` — use real variant ids from menu output when known; otherwise minimal plan with note in `execution_notes_for_downstream` that user must pick items.
+- `items`: `[{"variant_id": "<from menu>", "quantity": 1}, ...]` **or** `[{"name": "<exact item_name>", "quantity": 1}, ...]`. **Never** use `__VARIANT_ID__` — it is a single scalar and silently binds every row to the first item in the menu listing (a known footgun). For multi-item carts you **must** disambiguate per-row, either with literal variant_ids or with item names that match the menu output. Mixing the two styles across rows is fine.
 - `payment_type`: **enum** — only **`"upi"`** (pay now, QR displayed) or **`"cash_on_delivery"`** (pay rider at door) are accepted by the server. Strings like `"COD"`, `"ONLINE"`, `"card"`, `"wallet"` are rejected. **Always ask the user explicitly** — never default. The tool description itself mandates this.
 - Optional `promo_code` when user supplied a code.
 
-**Never plan without explicit user intent to add those items.** Confirm variants exist from menu tools when possible.
+**Never plan without explicit user intent to add those items.** Confirm variants exist from menu tools when possible — every `create_cart` in a plan **must** be preceded by `get_menu_items_listing` (and/or `get_restaurant_menu_by_categories`) for the same restaurant in the same plan, so the name resolver can find a match.
+
+### Clearing the cart (no `clear_cart` tool exists)
+
+Zomato MCP has **no** `clear_cart`, `delete_cart`, or `remove_item` tool. Cart replacement is implicit: calling `create_cart` returns a fresh `cart_id` and the previous cart is abandoned server-side. So when the user says *"clear the cart and add X"* or *"remove everything and add X"*:
+
+- Plan a normal `create_cart` with **only the new items**. Do not ask for confirmation — the user already said clear-and-add.
+- Do not promise "I'll clear the cart" without also planning the `create_cart` step in the same tool_plan; without it, nothing happens and the user goes around the loop again.
+- Confirmation is required **only** for `checkout_cart` (placing the order), never for `create_cart`.
 
 ---
 
@@ -240,10 +255,31 @@ Example (Tossin Pizza menu):
 
 | User intent | Minimal plan |
 |-------------|----------------|
-| Add items / build cart | `get_restaurants_for_keyword` → menu tools → `create_cart` (with variant ids from menu) |
-| Apply coupon on cart | `create_cart` → `get_cart_offers` (or offers after cart exists) |
+| Add items / build cart | `get_restaurants_for_keyword` → `get_menu_items_listing` → `create_cart` (items by literal `variant_id` or by `name`) |
+| **Clear & add** ("clear cart and add X") | Same as add — just `create_cart` with the new items. No separate clear step. No confirmation. |
+| Apply coupon on cart | `create_cart` → `get_cart_offers` |
 | Place order (any payment method) | `create_cart` → user confirms bill → `checkout_cart` |
 | Cheapest / best deal | `get_restaurants_for_keyword` only (rank in summary); menu only if user picks a place |
+
+### Example — add 2 different items by name
+
+```json
+"tool_plan": [
+  {"tool": "get_restaurants_for_keyword", "arguments": {"address_id": "__ADDRESS_ID__", "keyword": "Burger Singh"}},
+  {"tool": "get_menu_items_listing", "arguments": {"res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__"}},
+  {"tool": "create_cart", "arguments": {
+    "res_id": "__RESTAURANT_ID__",
+    "address_id": "__ADDRESS_ID__",
+    "items": [
+      {"name": "Veg Nikku Singh Burger", "quantity": 1},
+      {"name": "Chicken Nikku Singh Burger", "quantity": 1}
+    ],
+    "payment_type": "upi"
+  }}
+]
+```
+
+The executor resolves `name → variant_id` against the menu fetched in the same plan. **Never** use `__VARIANT_ID__` for these rows.
 
 ---
 

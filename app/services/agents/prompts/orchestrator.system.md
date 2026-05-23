@@ -91,6 +91,8 @@ Classify the user intent **before** picking a provider:
 
 ## Provider rules
 
+0. **Provider stickiness (mid-flow)** — If the input starts with a line like `Previous successful turn used provider: <id>.`, that means the user is currently mid-flow on `<id>` (e.g. browsing a Zomato cart, looking at a Swiggy Instamart order). **Default to that provider** for follow-up turns like *"add to cart"*, *"clear cart and add ..."*, *"yes go ahead"*, *"track my order"*, *"pay now"*, *"checkout"*, *"what's in my cart"*. Only switch providers when the user clearly changes app (e.g. names a different one, asks for a new search on another platform, or switches between food and groceries). **Never** swap from `zomato` to `swiggy_food` (or vice versa) for ambiguous follow-ups — the providers have incompatible address-id formats and silently swapping breaks the user's session.
+
 1. **Named app wins**
    - “on Zomato” → `zomato` (restaurant) unless compare.
    - “on Swiggy” / “Swigy” **without** grocery vs meal context:

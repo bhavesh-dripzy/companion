@@ -38,13 +38,27 @@ _PLACEHOLDER_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "__MENU_ITEM_ID__": ("menu_item_id", "menuItemId", "item_id", "itemId"),
     "__ITEM_ID__": ("item_id", "itemId", "menu_item_id", "menuItemId"),
-    "__VARIANT_ID__": ("variant_id", "variantId"),
     "__CART_ID__": ("cart_id", "cartId"),
     "__ORDER_ID__": ("order_id", "orderId"),
+    # NOTE: __VARIANT_ID__ is intentionally *not* in this map. It is a
+    # single-valued scalar but `create_cart.items[]` needs distinct variants
+    # per row, so global-binding (first-seen wins) silently pinned every row
+    # to whatever item the menu listed first (a recommendation/combo at the
+    # top), causing systematic mis-adds. Variant resolution is now done by
+    # name via `_resolve_cart_items_by_name` against the per-session menu
+    # index built from `get_menu_items_listing` / `get_restaurant_menu_by_categories`.
 }
 _TOKEN_SECRET_ID = "companion/mcp-tokens"
 _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
 _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
+# Cap how many menu items we hand to the *response* LLM. The executor's
+# menu_index (used to resolve item names -> variant_ids for create_cart) is
+# built from the FULL response and is unaffected — only the trimmed envelope
+# is what flows into `step.result` and on to the response-builder LLM /
+# downstream chat host. A 115-item Burger Singh menu was ~25 KB / ~6.4K
+# tokens; trimming to 10 cuts that ~10x. Tunable via env so we can dial it
+# per environment without code changes.
+_MAX_MENU_ITEMS_FOR_RESPONSE = max(1, int(os.getenv("ZOMATO_MENU_RESPONSE_ITEM_LIMIT", "10")))
 _MAX_TOKEN_FILE_BYTES = 256 * 1024
 _OAUTH_PENDING_TTL_SECONDS = 15 * 60
 _PAIRING_TTL_SECONDS = 15 * 60
@@ -666,6 +680,270 @@ def _variant_price_map_from_category_menu(category_envelope: dict[str, Any]) -> 
     return out
 
 
+# ---------------------------------------------------------------------------
+# Menu index — per-session memory of name -> variant_id for cart resolution.
+# Built from get_menu_items_listing / get_restaurant_menu_by_categories
+# responses so that create_cart can resolve items by user-visible name even
+# when the LLM omits or guesses variant_id. See RCA for "Udta Punjab vs
+# Nikku Singh" hallucination — this index replaces the broken __VARIANT_ID__
+# placeholder.
+# ---------------------------------------------------------------------------
+
+
+def _norm_item_key(name: str) -> str:
+    s = (name or "").strip().lower()
+    while s.endswith(".") or s.endswith(",") or s.endswith(";"):
+        s = s[:-1].rstrip()
+    return " ".join(s.split())
+
+
+def _collect_menu_index_from_envelope(envelope: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return {normalized_name -> {variant_id, item_name, price?, discounted_price?}}.
+
+    Walks both shapes Zomato uses:
+      * get_menu_items_listing → result.data.item_mappings[]
+      * get_restaurant_menu_by_categories → result.data.menu_items[]
+    Multiple variants with the same normalized name collapse to the shortest
+    `item_name` (treated as the canonical entry) — e.g. "Veg Nikku Singh
+    Burger" wins over "Veg Nikku Singh Burger Combo".
+    """
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
+        return out
+
+    def _candidate_rows() -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
+        result = data.get("result") if isinstance(data.get("result"), dict) else {}
+        inner = result.get("data") if isinstance(result.get("data"), dict) else {}
+        ims = inner.get("item_mappings")
+        if isinstance(ims, list):
+            rows.extend(r for r in ims if isinstance(r, dict))
+        mis = inner.get("menu_items")
+        if isinstance(mis, list):
+            rows.extend(r for r in mis if isinstance(r, dict))
+        return rows
+
+    for row in _candidate_rows():
+        vid = str(row.get("variant_id") or row.get("variantId") or "").strip()
+        if not vid:
+            continue
+        name = (
+            row.get("item_name")
+            or row.get("itemName")
+            or row.get("name")
+            or row.get("title")
+        )
+        if not isinstance(name, str):
+            continue
+        key = _norm_item_key(name)
+        if not key:
+            continue
+        entry = {
+            "variant_id": vid,
+            "item_name": name.strip(),
+            "price": row.get("price"),
+            "discounted_price": row.get("discounted_price"),
+            "categories": row.get("categories"),
+        }
+        prev = out.get(key)
+        if prev is None or len(name.strip()) < len(prev.get("item_name") or ""):
+            out[key] = entry
+    return out
+
+
+def _lookup_variant_id_by_name(
+    query: str,
+    menu_index: dict[str, dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    """Resolve a user-facing item name to a variant_id.
+
+    Match cascade (most-specific first; stop at the first unambiguous hit):
+      1. Exact (normalized) match.
+      2. Prefix on either side ("Veg Nikku" matches "Veg Nikku Singh Burger" when unique).
+      3. Token-set containment — every token of the shorter side appears in the
+         longer side. This is the common LLM failure mode ("Veg Nikku Burger" vs
+         the canonical "Veg Nikku Singh Burger" — the LLM drops middle words).
+      4. Plain substring containment.
+    If a step has multiple candidates, refuse to guess (returns None) — silent
+    wrong-match is worse than asking the user.
+    """
+    if not menu_index:
+        return None, None
+    key = _norm_item_key(query)
+    if not key:
+        return None, None
+    entry = menu_index.get(key)
+    if entry:
+        return entry["variant_id"], entry.get("item_name")
+    # Prefix on either side
+    prefix_hits = [
+        (k, e)
+        for k, e in menu_index.items()
+        if k.startswith(key) or key.startswith(k)
+    ]
+    if len(prefix_hits) == 1:
+        _, e = prefix_hits[0]
+        return e["variant_id"], e.get("item_name")
+    # Token-set containment (shorter ⊆ longer, in either direction)
+    query_tokens = set(key.split())
+    if query_tokens:
+        token_hits: list[tuple[str, dict[str, Any]]] = []
+        for k, e in menu_index.items():
+            cand_tokens = set(k.split())
+            if not cand_tokens:
+                continue
+            if query_tokens.issubset(cand_tokens) or cand_tokens.issubset(query_tokens):
+                token_hits.append((k, e))
+        if len(token_hits) == 1:
+            _, e = token_hits[0]
+            return e["variant_id"], e.get("item_name")
+        if len(token_hits) > 1:
+            # Tie-break: prefer the candidate whose token-count is closest to
+            # the query's (i.e. the shortest superset / least over-specified).
+            token_hits.sort(key=lambda kv: abs(len(kv[0].split()) - len(query_tokens)))
+            best_diff = abs(len(token_hits[0][0].split()) - len(query_tokens))
+            best = [
+                kv for kv in token_hits
+                if abs(len(kv[0].split()) - len(query_tokens)) == best_diff
+            ]
+            if len(best) == 1:
+                _, e = best[0]
+                return e["variant_id"], e.get("item_name")
+    # Substring containment
+    sub_hits = [(k, e) for k, e in menu_index.items() if key in k or k in key]
+    if len(sub_hits) == 1:
+        _, e = sub_hits[0]
+        return e["variant_id"], e.get("item_name")
+    return None, None
+
+
+def _resolve_cart_items_by_name(
+    args: dict[str, Any],
+    menu_index: dict[str, dict[str, Any]],
+    diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    """Mutate `args.items[]` so every row has a real `variant_id`.
+
+    Each row may carry any of: `variant_id`, `name`, `item_name`, `title`,
+    `quantity`. Rules:
+      * Literal variant_id (e.g. `v_992713485`) → keep as-is.
+      * Missing/empty variant_id → look up by name via menu_index.
+      * Unresolvable rows are dropped and reported under
+        `diagnostics["cart_item_resolution"]`.
+    """
+    items = args.get("items") if isinstance(args.get("items"), list) else None
+    if not items:
+        return args
+
+    resolved: list[dict[str, Any]] = []
+    notes: list[dict[str, Any]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        vid_raw = str(raw.get("variant_id") or raw.get("variantId") or "").strip()
+        name = (
+            raw.get("name")
+            or raw.get("item_name")
+            or raw.get("itemName")
+            or raw.get("title")
+        )
+        # Strip placeholder-shaped values; the LLM may still emit them.
+        if vid_raw.startswith("__") and vid_raw.endswith("__"):
+            vid_raw = ""
+        if not vid_raw:
+            looked_up, matched_name = _lookup_variant_id_by_name(
+                str(name or ""), menu_index
+            )
+            if looked_up:
+                vid_raw = looked_up
+                notes.append(
+                    {
+                        "requested_name": str(name or ""),
+                        "matched_name": matched_name,
+                        "variant_id": looked_up,
+                        "source": "menu_index",
+                    }
+                )
+            else:
+                notes.append(
+                    {
+                        "requested_name": str(name or ""),
+                        "variant_id": None,
+                        "source": "menu_index",
+                        "reason": "no_match_or_ambiguous",
+                    }
+                )
+                continue
+        new_row: dict[str, Any] = {
+            "variant_id": vid_raw,
+            "quantity": int(raw.get("quantity") or 1),
+        }
+        # Forward through additional fields the server may want.
+        for extra in ("addons", "addon_groups", "customizations"):
+            if extra in raw:
+                new_row[extra] = raw[extra]
+        resolved.append(new_row)
+
+    if notes:
+        diagnostics.setdefault("cart_item_resolution", []).extend(notes)
+    args["items"] = resolved
+    return args
+
+
+def _truncate_menu_envelope_for_response(
+    envelope: dict[str, Any],
+    *,
+    max_items: int = _MAX_MENU_ITEMS_FOR_RESPONSE,
+) -> dict[str, Any] | None:
+    """Trim a menu-tool envelope in-place so the response LLM sees at most N rows.
+
+    Mutates the envelope (which is the same object already stored in
+    ``step_results`` — so the trim propagates to the response builder without
+    a copy). The caller is expected to have populated ``menu_index`` from the
+    *full* envelope first; only the user-facing slice is trimmed here.
+
+    Two shapes are handled:
+      * ``get_menu_items_listing``       → ``data.result.data.item_mappings[]``
+      * ``get_restaurant_menu_by_categories`` → ``data.result.data.menu_items[]``
+
+    Adds breadcrumb metadata under ``data.result.data._menu_truncation`` so the
+    response LLM (and any debug consumer) can mention "showing top 10 of N" if
+    helpful. Returns the breadcrumb dict if any trimming happened, else None.
+    """
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
+        return None
+    data = envelope.get("data") if isinstance(envelope.get("data"), dict) else None
+    if not data:
+        return None
+    result = data.get("result") if isinstance(data.get("result"), dict) else None
+    if not result:
+        return None
+    inner = result.get("data") if isinstance(result.get("data"), dict) else None
+    if not inner:
+        return None
+
+    breadcrumb: dict[str, Any] = {}
+    for key in ("item_mappings", "menu_items"):
+        items = inner.get(key)
+        if not isinstance(items, list):
+            continue
+        original = len(items)
+        if original <= max_items:
+            continue
+        inner[key] = items[:max_items]
+        breadcrumb[key] = {"shown": max_items, "total": original}
+
+    if breadcrumb:
+        existing = inner.get("_menu_truncation")
+        if isinstance(existing, dict):
+            existing.update(breadcrumb)
+        else:
+            inner["_menu_truncation"] = breadcrumb
+        return breadcrumb
+    return None
+
+
 async def _enrich_menu_listing_with_category_prices(
     session: Any,
     listing_envelope: dict[str, Any],
@@ -781,6 +1059,9 @@ async def _run_session_inner(
     if resolved_id:
         placeholder_values["__ADDRESS_ID__"] = resolved_id
     prefetch_done = False
+    # Per-session menu memory: populated after each menu tool, consumed by
+    # create_cart to resolve items by user-visible name. See RCA notes above.
+    menu_index: dict[str, dict[str, Any]] = {}
 
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -857,6 +1138,19 @@ async def _run_session_inner(
                 if tool == "get_saved_addresses_for_user":
                     prefetch_done = True
 
+                # For create_cart, resolve any items[] entries that are
+                # name-only (or carry the broken __VARIANT_ID__ placeholder)
+                # using the per-session menu_index built from prior menu tools
+                # in *this* plan. Without this, the LLM either invents
+                # variant_ids or relies on placeholder substitution that pins
+                # every row to the first menu item.
+                if tool == "create_cart":
+                    exec_args = _resolve_cart_items_by_name(
+                        exec_args if isinstance(exec_args, dict) else {},
+                        menu_index,
+                        diagnostics,
+                    )
+
                 result = await asyncio.wait_for(
                     session.call_tool(tool, arguments=exec_args or {}),
                     timeout=_MCP_TOOL_TIMEOUT_SECONDS,
@@ -882,6 +1176,29 @@ async def _run_session_inner(
                         )
                     except Exception as e:
                         logger.info("menu price enrichment failed: %s", e)
+
+                if tool in {"get_menu_items_listing", "get_restaurant_menu_by_categories"}:
+                    try:
+                        new_entries = _collect_menu_index_from_envelope(envelope)
+                    except Exception as e:
+                        logger.info("menu index extraction failed: %s", e)
+                        new_entries = {}
+                    if new_entries:
+                        menu_index.update(new_entries)
+                        diagnostics["menu_index_size"] = len(menu_index)
+                    # IMPORTANT: trim AFTER the menu_index has captured the
+                    # full list. The index keeps the full name->variant_id
+                    # mapping (so create_cart can still resolve any item the
+                    # user names later in this plan), while the envelope
+                    # itself — which is what flows to the response LLM —
+                    # is reduced to the top-N rows.
+                    try:
+                        trimmed = _truncate_menu_envelope_for_response(envelope)
+                    except Exception as e:
+                        logger.info("menu envelope truncation failed: %s", e)
+                        trimmed = None
+                    if trimmed:
+                        diagnostics.setdefault("menu_truncation", {})[tool] = trimmed
 
                 if tool == "checkout_cart" and not envelope.get("is_error"):
                     try:
