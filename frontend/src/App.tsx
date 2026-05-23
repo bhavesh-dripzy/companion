@@ -4,9 +4,9 @@ import { ChatLog } from './ChatLog'
 import { MessageInput } from './MessageInput'
 import { SettingsModal } from './SettingsModal'
 import { api, clearToken, getToken } from './api'
-import type { GeoCoordinate, Message, Address, QueryResponse, SessionAddress, SessionRestaurant, ToolProvider } from './types'
+import type { GeoCoordinate, Message, QueryResponse, SessionAddress, SessionRestaurant, ToolProvider } from './types'
 import { useUserLocation } from './useUserLocation'
-import { Settings, LogOut } from 'lucide-react'
+import { Settings, LogOut, Sparkles } from 'lucide-react'
 import './index.css'
 
 function App() {
@@ -16,14 +16,9 @@ function App() {
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
-  
-  const [addresses, setAddresses] = useState<Address[]>([]);
-  const [selectedAddressId, setSelectedAddressId] = useState('');
-  const [isLoadingAddresses, setIsLoadingAddresses] = useState(false);
-  
+
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
-  const [selectedToolProvider, setSelectedToolProvider] = useState('zomato');
-  
+
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Carry-forward state from the backend across turns. Every successful
@@ -81,11 +76,7 @@ function App() {
   const loadInitialData = async () => {
     try {
       const providersData = await api.get('/api/tools/providers/');
-      const providers = providersData.providers || [];
-      setToolProviders(providers);
-      if (providers.length > 0) {
-        setSelectedToolProvider(providers[0].id);
-      }
+      setToolProviders(providersData.providers || []);
     } catch (err) {
       console.error('Failed to load initial data', err);
     }
@@ -107,25 +98,13 @@ function App() {
     setSessionAddresses([]);
   };
 
-  const fetchAddresses = async () => {
-    setIsLoadingAddresses(true);
-    try {
-      const data = await api.get(`/api/food/saved-addresses/?provider=${selectedToolProvider}`);
-      setAddresses(data.addresses || []);
-      if (data.addresses?.length > 0) {
-        setSelectedAddressId(data.addresses[0].address_id);
-      }
-    } catch (err) {
-      console.error('Failed to fetch addresses', err);
-    } finally {
-      setIsLoadingAddresses(false);
-    }
-  };
-
   const buildAgentBody = (content: string, geo?: GeoCoordinate | null) => {
     const body: Record<string, any> = {
       message: content,
-      address_id: selectedAddressId,
+      // Address is auto-resolved server-side from session_addresses on the
+      // very first turn and persisted in session_state across the rest of
+      // the conversation. The frontend no longer pre-selects one.
+      address_id: '',
       execute_tools: true,
       history: messages.map((m) => ({ role: m.role, content: m.content })),
     };
@@ -220,7 +199,7 @@ function App() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-8 h-8 border-4 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -230,45 +209,53 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-gray-100 flex flex-col">
-      <header className="h-16 border-b border-border bg-surface/50 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
+    <div className="min-h-screen bg-background text-gray-800 flex flex-col">
+      <header className="h-16 border-b border-border bg-white/70 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-accent/20">
-            C
+          <div className="w-9 h-9 brand-gradient rounded-xl flex items-center justify-center text-white shadow-md shadow-violet-500/30">
+            <Sparkles size={18} strokeWidth={2.5} />
           </div>
-          <h1 className="text-lg font-bold tracking-tight">Companion</h1>
+          <h1 className="text-lg font-bold tracking-tight text-gray-900">Companion</h1>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-end mr-2">
-            <span className="text-xs font-bold text-gray-300">{username}</span>
+            <span className="text-xs font-bold text-gray-800">{username}</span>
             <span className="text-[10px] text-gray-500 font-medium">Online</span>
           </div>
           <button
             onClick={() => setIsSettingsOpen(true)}
             title="Settings"
-            className="p-2 rounded-xl hover:bg-neutral-800 text-gray-400 hover:text-white transition-all"
+            className="p-2 rounded-xl hover:bg-violet-50 text-gray-500 hover:text-violet-700 transition-all"
           >
             <Settings size={20} />
           </button>
           <button
             onClick={handleLogout}
             title="Logout"
-            className="p-2 rounded-xl hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-all"
+            className="p-2 rounded-xl hover:bg-red-50 text-gray-500 hover:text-red-500 transition-all"
           >
             <LogOut size={20} />
           </button>
         </div>
       </header>
 
-      <ChatLog messages={messages} isThinking={isThinking} />
+      <ChatLog
+        messages={messages}
+        isThinking={isThinking}
+        sessionAddresses={sessionAddresses}
+        onSelectAddress={(addr) => {
+          // Single-click address switch — fires off a natural-language
+          // "switch" turn the planner already knows how to handle (it
+          // emits a literal address_id pulled from session_addresses,
+          // and the executor records the switch in placeholder_values).
+          const label = (addr.location_name || addr.address_id || '').trim();
+          if (!label || isThinking) return;
+          handleSendMessage(`Switch my delivery address to: ${label}.`);
+        }}
+      />
 
       <MessageInput
         onSendMessage={handleSendMessage}
-        addresses={addresses}
-        selectedAddressId={selectedAddressId}
-        onAddressChange={setSelectedAddressId}
-        onFetchAddresses={fetchAddresses}
-        isLoadingAddresses={isLoadingAddresses}
         disabled={isThinking}
       />
 

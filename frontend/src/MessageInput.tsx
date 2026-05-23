@@ -1,25 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, MapPin, ChevronDown } from 'lucide-react';
-import type { Address } from './types';
+import { ArrowUp } from 'lucide-react';
 
 interface MessageInputProps {
   onSendMessage: (message: string) => void;
-  addresses: Address[];
-  selectedAddressId: string;
-  onAddressChange: (id: string) => void;
-  onFetchAddresses: () => void;
-  isLoadingAddresses: boolean;
   disabled: boolean;
 }
 
 export const MessageInput: React.FC<MessageInputProps> = ({
   onSendMessage,
-  addresses,
-  selectedAddressId,
-  onAddressChange,
-  onFetchAddresses,
-  isLoadingAddresses,
-  disabled
+  disabled,
 }) => {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -53,66 +42,46 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   ];
 
   return (
-    <div className="p-4 md:p-6 bg-background/80 backdrop-blur-xl border-t border-border">
-      <div className="max-w-4xl mx-auto space-y-4">
-        {/* Quick Actions */}
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+    <div className="p-4 md:p-6 bg-background/70 backdrop-blur-xl border-t border-border">
+      <div className="max-w-4xl mx-auto space-y-3">
+        {/* Quick Actions — soft pill chips above the composer. */}
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {quickActions.map((action) => (
             <button
               key={action.label}
               onClick={() => setMessage(action.query)}
-              className="px-4 py-1.5 rounded-full bg-surface border border-border text-xs font-semibold text-gray-400 hover:text-white hover:border-accent transition-all whitespace-nowrap"
+              className="px-4 py-1.5 rounded-full bg-white border border-border text-xs font-semibold text-gray-600 hover:text-violet-700 hover:border-violet-300 hover:bg-violet-50 transition-all whitespace-nowrap shadow-sm"
             >
               {action.label}
             </button>
           ))}
         </div>
 
-        {/* Address Selector & Input */}
-        <div className="relative bg-surface border border-border rounded-2xl shadow-xl focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/50 transition-all">
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50">
-              <MapPin size={16} className="text-accent" />
-              <select
-                value={selectedAddressId}
-                onChange={(e) => onAddressChange(e.target.value)}
-                className="bg-transparent text-xs font-bold text-gray-300 focus:outline-none appearance-none cursor-pointer flex-1"
-              >
-                <option value="">Select Delivery Address (Optional)</option>
-                {addresses.map((addr) => (
-                  <option key={addr.address_id} value={addr.address_id}>
-                    {addr.location_name}
-                  </option>
-                ))}
-              </select>
-              <button 
-                onClick={onFetchAddresses}
-                disabled={isLoadingAddresses}
-                className="text-[10px] font-black uppercase tracking-tighter text-accent hover:text-accent-hover disabled:opacity-50"
-              >
-                {isLoadingAddresses ? 'Loading...' : 'Fetch'}
-              </button>
-              <ChevronDown size={14} className="text-gray-500" />
-            </div>
-
-            <div className="flex items-end gap-2 p-2">
-              <textarea
-                ref={textareaRef}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask for food or groceries..."
-                rows={1}
-                className="flex-1 bg-transparent text-gray-200 px-3 py-2 focus:outline-none resize-none min-h-[44px] text-[15px] leading-relaxed"
-              />
-              <button
-                onClick={handleSubmit}
-                disabled={!message.trim() || disabled}
-                className="w-10 h-10 rounded-xl bg-accent text-white flex items-center justify-center disabled:opacity-30 disabled:grayscale transition-all shadow-lg shadow-accent/20 flex-shrink-0"
-              >
-                <Send size={18} />
-              </button>
-            </div>
+        {/* Composer — single white rounded card. The dedicated address
+            selector + Fetch button that used to live above the textarea
+            is gone: the backend now auto-resolves the user's saved Zomato
+            address on the first food turn and the chat surfaces a
+            click-to-switch picker under the assistant bubble whenever a
+            new address pick is needed. */}
+        <div className="relative bg-white border border-border rounded-3xl shadow-[0_8px_32px_-12px_rgba(99,102,241,0.18)] focus-within:border-violet-300 focus-within:ring-4 focus-within:ring-violet-100 transition-all">
+          <div className="flex items-end gap-2 p-2">
+            <textarea
+              ref={textareaRef}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask, write or search for anything..."
+              rows={1}
+              className="flex-1 bg-transparent text-gray-800 placeholder:text-gray-400 px-3 py-2 focus:outline-none resize-none min-h-[44px] text-[15px] leading-relaxed"
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={!message.trim() || disabled}
+              aria-label="Send message"
+              className="w-10 h-10 rounded-full bg-gray-900 text-white flex items-center justify-center disabled:opacity-30 disabled:grayscale transition-all hover:bg-gray-800 shadow-md flex-shrink-0"
+            >
+              <ArrowUp size={18} strokeWidth={2.5} />
+            </button>
           </div>
         </div>
       </div>
