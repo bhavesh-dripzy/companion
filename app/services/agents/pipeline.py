@@ -140,6 +140,8 @@ def _format_routing_message(
     *,
     session_state_keys: list[str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
+    session_addresses: list[dict[str, Any]] | None = None,
+    selected_address_id: str | None = None,
 ) -> str:
     """Build planner/orchestrator input: recent transcript + current user turn.
 
@@ -201,6 +203,37 @@ def _format_routing_message(
                 "instead of running get_restaurants_for_keyword again "
                 "(Zomato's keyword search is fuzzy and often returns the wrong "
                 "restaurant for short brand names):\n" + "\n".join(rows)
+            )
+    if session_addresses:
+        # Surface the user's saved delivery addresses so the planner can
+        # disambiguate "use my work address" without having to re-fetch.
+        # Mark the currently-selected one so the planner doesn't propose
+        # changing addresses when the user is just continuing a flow.
+        sel = (selected_address_id or "").strip()
+        addr_rows: list[str] = []
+        for entry in session_addresses[:8]:
+            if not isinstance(entry, dict):
+                continue
+            aid = str(entry.get("address_id") or "").strip()
+            if not aid:
+                continue
+            label = str(
+                entry.get("label")
+                or entry.get("location_name")
+                or entry.get("addressTag")
+                or entry.get("address_tag")
+                or entry.get("address_line")
+                or aid
+            ).strip()
+            marker = "  * " if aid == sel else "  - "
+            addr_rows.append(f"{marker}{label} → address_id={aid}")
+        if addr_rows:
+            parts.append(
+                "Saved delivery addresses available this session (executor "
+                "auto-uses the first / starred one for `__ADDRESS_ID__`; "
+                "switch ONLY when the user explicitly asks to change "
+                "address, then put the chosen literal address_id in your "
+                "tool args):\n" + "\n".join(addr_rows)
             )
     parts.append(f"Current user message:\n{current}")
     return "\n\n".join(parts) if len(parts) > 1 else current
@@ -503,6 +536,7 @@ def run_agent_turn(
     user_geo: dict[str, Any] | None = None,
     session_state: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
+    session_addresses: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Orchestrated agent turn producing the same response envelope as legacy /api/food/query/.
@@ -536,6 +570,24 @@ def run_agent_turn(
             if not isinstance(name, str) or not name.strip():
                 continue
             seed_restaurants.append({**entry, "res_id": rid.strip(), "name": name.strip()})
+
+    # Saved-address seed (parallel to seed_restaurants). Echoed back to
+    # the client so each session keeps a stable address index, and surfaced
+    # to the planner so it can disambiguate "use my work address" without
+    # a fresh MCP round-trip.
+    seed_addresses: list[dict[str, Any]] = []
+    if isinstance(session_addresses, list):
+        for entry in session_addresses:
+            if not isinstance(entry, dict):
+                continue
+            aid = entry.get("address_id") or entry.get("addressId") or entry.get("id")
+            if aid is None:
+                continue
+            sid = str(aid).strip()
+            if not sid:
+                continue
+            seed_addresses.append({**entry, "address_id": sid})
+
     trace(
         "pipeline.in",
         user_id=user_id,
@@ -544,6 +596,7 @@ def run_agent_turn(
         history_turns=len(conversation_history or []),
         execute_tools=execute_tools,
         session_state_keys=sorted((session_state or {}).keys()),
+        seed_addresses=len(seed_addresses),
     )
     # Orchestrator sees ONLY the transcript — it classifies task_type and
     # provider, neither of which should depend on stored placeholders.
@@ -552,11 +605,20 @@ def run_agent_turn(
     # it can (a) skip a redundant restaurant search when the user picks a
     # known restaurant and (b) avoid re-running upstream tools when downstream
     # state is already known.
+    # ``selected_address_id`` lets the planner star the address currently
+    # being used in the prompt — same shape as the "*" marker for the
+    # active restaurant in the index. Prefer the explicit request param,
+    # then fall back to whatever the executor learned on a prior turn.
+    selected_addr = (address_id or "").strip() or (
+        str((session_state or {}).get("__ADDRESS_ID__") or "").strip() or None
+    )
     planner_routing_message = _format_routing_message(
         user_message,
         conversation_history,
         session_state_keys=sorted((session_state or {}).keys()) or None,
         session_restaurants=seed_restaurants or None,
+        session_addresses=seed_addresses or None,
+        selected_address_id=selected_addr,
     )
     previous_provider = _extract_previous_provider(conversation_history)
     trace(
@@ -696,6 +758,7 @@ def run_agent_turn(
             user_id=user_id,
             session_placeholders=session_state,
             session_restaurants=seed_restaurants or None,
+            session_addresses=seed_addresses or None,
         )
         provider_results = tool_execution.get("provider_results")
         if isinstance(provider_results, dict):
@@ -754,6 +817,12 @@ def run_agent_turn(
     # Start the next-turn restaurant index from the seed; the executor's
     # diagnostics will override it if the current turn ran a search.
     next_session_restaurants: list[dict[str, Any]] = list(seed_restaurants)
+    # Same pattern for saved addresses — if the executor (re)fetched the
+    # list this turn, its result wins; otherwise we just echo the seed
+    # back so the frontend can keep persisting it.
+    next_session_addresses: list[dict[str, Any]] = list(seed_addresses)
+    address_source: str | None = None
+    address_context: dict[str, Any] | None = None
     for _provider_name, _raw in (raw_tool_results or {}).items():
         if not isinstance(_raw, dict):
             continue
@@ -780,6 +849,59 @@ def run_agent_turn(
                     cleaned.append({**entry, "res_id": rid.strip(), "name": name.strip()})
             if cleaned:
                 next_session_restaurants = cleaned
+        _addrs = _diag.get("session_addresses")
+        if isinstance(_addrs, list) and _addrs:
+            cleaned_a: list[dict[str, Any]] = []
+            for entry in _addrs:
+                if not isinstance(entry, dict):
+                    continue
+                aid = entry.get("address_id") or entry.get("addressId") or entry.get("id")
+                if aid is None:
+                    continue
+                sid = str(aid).strip()
+                if not sid:
+                    continue
+                cleaned_a.append({**entry, "address_id": sid})
+            if cleaned_a:
+                next_session_addresses = cleaned_a
+        _src = _diag.get("address_source")
+        if isinstance(_src, str) and _src.strip():
+            address_source = _src.strip()
+
+    # Build a compact `address_context` for the response LLM. Lets the
+    # reply nudge the user ("using your home address — change kar dena ho
+    # toh batao") without leaking raw IDs into the reply.
+    if next_session_addresses or next_session_state.get("__ADDRESS_ID__"):
+        active_aid = (next_session_state.get("__ADDRESS_ID__") or "").strip()
+        active_label: str | None = None
+        for entry in next_session_addresses:
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("address_id") or "").strip() == active_aid:
+                active_label = str(
+                    entry.get("label")
+                    or entry.get("location_name")
+                    or entry.get("addressTag")
+                    or entry.get("address_tag")
+                    or entry.get("address_line")
+                    or ""
+                ).strip() or None
+                break
+        # Treat "auto" as the source whenever the address wasn't seeded
+        # from the request and wasn't already in the inbound session_state.
+        if not address_source:
+            if (address_id or "").strip():
+                address_source = "request"
+            elif (session_state or {}).get("__ADDRESS_ID__"):
+                address_source = "session"
+            elif active_aid:
+                address_source = "auto"
+        address_context = {
+            "address_id": active_aid or None,
+            "label": active_label,
+            "source": address_source,
+            "options_count": len(next_session_addresses),
+        }
     trace(
         "session_state.out",
         in_keys=sorted((session_state or {}).keys()),
@@ -854,6 +976,14 @@ def run_agent_turn(
         # Multi-restaurant memory — see ``run_agent_turn`` docstring. Echo
         # back as-is on the next turn's request.
         "session_restaurants": next_session_restaurants,
+        # Saved-address memory — same echo contract as session_restaurants.
+        # Lets the chat work with zero "fetch addresses" clicks on the
+        # frontend: turn 1 auto-prefetches Zomato addresses, turns 2+ just
+        # round-trip the list back and skip the MCP call.
+        "session_addresses": next_session_addresses,
+        # Compact view the chat UI / debug surface can show without having to
+        # cross-reference session_state + session_addresses themselves.
+        "address_context": address_context,
     }
     trace(
         "response_builder.in",
@@ -897,6 +1027,7 @@ def run_agent_turn(
             base_url=llm.base_url,
             conversation_history=conversation_history,
             attachments=attachments,
+            address_context=address_context,
         )
     trace("response_builder.out", assistant_message=assistant_message)
     out["assistant_message"] = assistant_message

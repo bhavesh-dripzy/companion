@@ -8,8 +8,10 @@ Turn that into a **minimal ordered `tool_plan`**. Output **nothing except one JS
 
 Companion runs your plan via `run_tool_plan_sync` in `app.services.zomato.mcp_executor` after `finalize_tool_plan` in `food_llm_router`:
 
-1. **Saved UI/API address** — The user selects an **`address_id`** on `POST /api/agent/query/` (or `/api/food/query/`). Companion passes it into execution and substitutes any literal **`__ADDRESS_ID__`** in tool arguments before MCP calls.
-2. **Address prefetch (fallback)** — If a step still has unresolved **`__ADDRESS_ID__`** and no saved id was passed, the executor may **auto-call `get_saved_addresses_for_user` once** and use the **first** saved address (weaker than asking the user). Still **prefer** emitting `__ADDRESS_ID__` on search/menu tools when the request already has a saved address — **omit** `get_saved_addresses_for_user` in that case.
+1. **Address is auto-managed — always emit `__ADDRESS_ID__`.** The executor resolves `__ADDRESS_ID__` from (a) the `address_id` on the API request, (b) the carried `session_state.__ADDRESS_ID__` from a prior turn, (c) the carried `session_addresses[0]` index, or (d) a one-shot auto-fetch of `get_saved_addresses_for_user`. **Every** tool that takes `address_id` must use `"address_id": "__ADDRESS_ID__"` — never invent a numeric id, never branch on whether the user "has" an address (you don't know, and the executor handles all four cases identically).
+2. **Do NOT preemptively plan `get_saved_addresses_for_user`.** The executor auto-calls it exactly when needed and surfaces the resulting list back to the next turn via `session_addresses`. Only plan it when the user **explicitly** asks ("show my saved addresses", "list my Zomato addresses", "what addresses do I have") — never as a "just in case" prelude to a search/menu tool. A redundant `get_saved_addresses_for_user` adds 3-5s of latency for zero information you couldn't already have for free.
+
+   **Switching addresses mid-conversation:** When the user wants to change which address is used (*"order from my work address instead"* / *"use my home address"* / *"deliver to my office"*), the saved-address block in the prompt context lists `label → address_id=NNN` pairs. Match the user's phrase to a label and put that **literal** `address_id` (NOT `__ADDRESS_ID__`) on the next tool's `address_id`. Example: if the block shows `Work — DLF Cyber City → address_id=812345`, plan `get_restaurants_for_keyword` with `"address_id": "812345"`. The executor will override the carried `__ADDRESS_ID__` for this turn and persist the new one for subsequent turns.
 3. **Restaurant chaining (mandatory for menus)** — **`__RESTAURANT_ID__`** is learned from JSON in the **prior step’s response** (typically `res_id` from `get_restaurants_for_keyword`). Companion walks results and fills placeholders for later steps. You **must** run **`get_restaurants_for_keyword`** in the **same** plan before any menu tool that uses **`res_id`: `"__RESTAURANT_ID__"`**.
 4. **Placeholder failure** — Steps with unresolved placeholders are **skipped** (not executed). Never emit `get_menu_items_listing` or `get_restaurant_menu_by_categories` with `__RESTAURANT_ID__` and **no** preceding `get_restaurants_for_keyword`.
 5. **Cart placeholders** — After menu tools return items, responses expose `variant_id` per row and (after `create_cart`) a `cart_id`. Use the literal `variant_id` from the menu listing **or** an item `name` field that matches the menu (see "create_cart" section). `__CART_ID__` is fine when chaining `create_cart` → `checkout_cart` in one plan. **Do not** use `__VARIANT_ID__` — it is structurally broken for multi-item carts and is no longer supported by the executor. Do not invent numeric ids.
@@ -89,13 +91,11 @@ Use **only** these exact tool names in `tool_plan`:
 Fetch the user’s saved Zomato delivery addresses. **No arguments.**
 
 **When to plan it:**
-- User has **not** selected an address in Companion UI **and** you need `address_id` for search.
-- User explicitly asks “what are my saved addresses?”
+- User **explicitly asks** to see, list, or manage their saved Zomato addresses — *"what are my saved addresses?"* / *"show me my Zomato addresses"* / *"list my delivery addresses"*. That's the only valid trigger.
 
-**When to omit it:**
-- Companion already passed a saved **`address_id`** — use **`"address_id": "__ADDRESS_ID__"`** on `get_restaurants_for_keyword` and menu tools instead.
-
-Present addresses in the assistant layer; pick the UI-selected id via placeholder, not by guessing.
+**When to omit it (the default):**
+- Any search / menu / cart / checkout flow. The executor auto-resolves `__ADDRESS_ID__` for you (request → session_state → session_addresses → auto-fetch, in that order) and surfaces the resulting list back as `session_addresses` for free. Adding a manual `get_saved_addresses_for_user` step before a search is a redundant 3-5s round-trip with no upside.
+- The user wants to **change** which address is used. Don't re-list — the saved-address block in your prompt already has them. Match the user's phrase to one of those `label → address_id=NNN` rows and put the literal `address_id` on the next tool. (See rule 1 above for the switching workflow.)
 
 ---
 

@@ -240,6 +240,32 @@ _SYSTEM_PROMPT = (
     "and do NOT paste base64 or embed image markdown — that's the frontend's "
     "job. If a `has_upi_link` is true, mention that the UPI deep-link is also "
     "available as a one-tap fallback.\n"
+    "- **Address nudge**: The input may include an `address_context` block "
+    "with `{label, source, options_count}`. Read `source` to decide whether "
+    "to mention the address at all:\n"
+    "  - `source = \"auto\"` (executor auto-picked the first saved address "
+    "because the user didn't choose one) → add a short, friendly one-liner "
+    "at the very end of the reply, after the follow-up suggestions, "
+    "telling the user which address you used and that they can switch. "
+    "Use the `label` field. Example (English): *\"(Using your saved "
+    "address — Home, MG Road. Want me to use a different one? Say 'change "
+    "address'.)\"*. Example (Hinglish): *\"(Aapke saved address pe order "
+    "kar raha hoon — Home, MG Road. Doosre address pe karwana ho toh "
+    "bolo 'change address'.)\"*. Keep it parenthetical / italicised — "
+    "it's a footnote, not the main message.\n"
+    "  - `source = \"session_addresses\"` (user has been on this address "
+    "for ≥ 1 prior turn) → do NOT mention the address. They already know.\n"
+    "  - `source = \"request\"` (user just picked an address in the UI) → "
+    "do NOT mention the address.\n"
+    "  - `source = \"session_state\"` (carried via session_state from a "
+    "prior turn) → do NOT mention the address.\n"
+    "  - `source = \"switched\"` (user just asked to switch addresses on "
+    "this turn) → do NOT add the nudge footer; the user already chose. "
+    "Briefly confirming the switch in the main body is fine (e.g. "
+    "*\"Aapke Sector 38 Gurgaon address pe ...\"*), but don't repeat "
+    "with a parenthetical footer.\n"
+    "  - `address_context` absent / null → do NOT mention the address.\n"
+    "  Never read out the raw `address_id`. Only the `label`.\n"
     "- Always end with a short, interactive follow-up — 2 to 4 concrete spoken "
 
     "suggestions the user can reply with, chosen to fit the data and the user's "
@@ -296,6 +322,7 @@ def build_assistant_message_with_llm(
     base_url: str | None = None,
     conversation_history: list[dict[str, str]] | None = None,
     attachments: list[dict[str, Any]] | None = None,
+    address_context: dict[str, Any] | None = None,
 ) -> str:
     """Generate the final assistant reply from raw tool output.
 
@@ -330,12 +357,23 @@ def build_assistant_message_with_llm(
 
     attachment_descriptors = _summarize_attachments_for_prompt(attachments)
 
+    # Sanitize address_context so we only ship the fields the LLM is
+    # allowed to surface — never the raw address_id.
+    safe_address_context: dict[str, Any] | None = None
+    if isinstance(address_context, dict):
+        safe_address_context = {
+            "label": address_context.get("label"),
+            "source": address_context.get("source"),
+            "options_count": address_context.get("options_count"),
+        }
+
     payload: dict[str, Any] = {
         "current_user_message": user_message,
         "conversation_history": history_transcript,
         "planner_context": plan_context,
         "tool_results": tool_results or {},
         "ui_attachments": attachment_descriptors,
+        "address_context": safe_address_context,
     }
 
     user_prompt = (
@@ -348,6 +386,7 @@ def build_assistant_message_with_llm(
         provider=provider,
         model=model,
         ui_attachments=attachment_descriptors,
+        address_context=safe_address_context,
         tool_results=snip(payload.get("tool_results")),
         planner_context=payload.get("planner_context"),
         user_message=user_message,

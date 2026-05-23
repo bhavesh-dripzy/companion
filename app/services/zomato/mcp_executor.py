@@ -629,6 +629,66 @@ def _first_address_id_from_saved_payload(tool_payload: dict[str, Any]) -> str | 
     return _find_best_address_id(tool_payload)
 
 
+def _extract_address_rows_from_envelope(
+    tool_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Pull the user's saved Zomato addresses out of a ``get_saved_addresses_for_user`` envelope.
+
+    Each returned row has ``address_id`` + ``label`` plus any of the
+    upstream fields the response LLM and frontend can use as nudge context
+    (``addressTag``, ``address_line``, ``location_name``, …). The shape is
+    deliberately permissive — frontends only need ``address_id`` + ``label``,
+    everything else just rides along untouched.
+    """
+    blob = tool_payload.get("data") if isinstance(tool_payload, dict) else None
+    if blob is None:
+        return []
+    data_dict = blob if isinstance(blob, dict) else (blob[0] if isinstance(blob, list) and blob else {})
+    if not isinstance(data_dict, dict):
+        return []
+    raw = (
+        data_dict.get("addresses")
+        or (data_dict.get("result") or {}).get("addresses")
+    )
+    if not isinstance(raw, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        aid = item.get("address_id") or item.get("addressId") or item.get("id")
+        if aid is None:
+            continue
+        sid = str(aid).strip()
+        if not sid:
+            continue
+        # Build a friendly label: prefer tag + line, fall back to line, tag,
+        # or whatever string field is present. Matches the same priority
+        # ``saved_address_label_from_mcp_item`` uses for the addresses
+        # dropdown in the React frontend, so labels are consistent across
+        # both surfaces.
+        tag = str(item.get("addressTag") or item.get("address_tag") or "").strip()
+        line = str(
+            item.get("address_line")
+            or item.get("addressLine")
+            or item.get("location_name")
+            or item.get("formatted_address")
+            or ""
+        ).strip()
+        if tag and line and line.lower() != tag.lower():
+            label = f"{tag} — {line}"
+        else:
+            label = line or tag or sid
+        rows.append(
+            {
+                **item,
+                "address_id": sid,
+                "label": label,
+            }
+        )
+    return rows
+
+
 def _walk_json(obj: Any):
     if isinstance(obj, dict):
         yield obj
@@ -1259,6 +1319,7 @@ async def _run_session_inner(
     location_text: str | None = None,
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
+    session_addresses: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -1302,10 +1363,46 @@ async def _run_session_inner(
             if isinstance(k, str) and k.startswith("__") and k.endswith("__"):
                 if isinstance(v, (str, int)) and str(v).strip():
                     placeholder_values[k] = str(v).strip()
+    # Where did the active __ADDRESS_ID__ come from? Used by the response
+    # LLM to decide whether to nudge the user about changing addresses
+    # ("auto" / "session_addresses" → mention it; "request" → assume the
+    # user just picked it, stay quiet).
+    address_source: str | None = None
     if resolved_id:
         placeholder_values["__ADDRESS_ID__"] = resolved_id
+        address_source = "request"
+    elif placeholder_values.get("__ADDRESS_ID__"):
+        resolved_id = placeholder_values["__ADDRESS_ID__"]
+        address_source = "session_state"
+    # Carry-forward saved-address list (the LRU of {address_id, label, …}
+    # rows the frontend echoes back across turns). If we don't already have
+    # an address from the request or from session_state, eagerly pick the
+    # first entry — this is what makes the chat work without the user ever
+    # clicking "Fetch addresses" in the UI: turn 1 fetches the list (via
+    # ``prefetch_addresses`` below), turns 2+ just reuse what was learned.
+    seed_addresses: list[dict[str, Any]] = []
+    if isinstance(session_addresses, list):
+        for entry in session_addresses:
+            if not isinstance(entry, dict):
+                continue
+            aid = entry.get("address_id") or entry.get("addressId") or entry.get("id")
+            if aid is None:
+                continue
+            sid = str(aid).strip()
+            if not sid:
+                continue
+            seed_addresses.append({**entry, "address_id": sid})
+    if not resolved_id and seed_addresses:
+        resolved_id = seed_addresses[0]["address_id"]
+        placeholder_values["__ADDRESS_ID__"] = resolved_id
+        address_source = "session_addresses"
     if placeholder_values:
         diagnostics["seeded_placeholders"] = sorted(placeholder_values.keys())
+    # Surface the seed list immediately so the pipeline can echo it back
+    # even on a turn where no address-fetching tool runs (e.g. the user
+    # asks a general follow-up like "show me other options").
+    if seed_addresses:
+        diagnostics["session_addresses"] = list(seed_addresses)
     prefetch_done = False
     # Per-session menu memory: populated after each menu tool, consumed by
     # create_cart to resolve items by user-visible name. See RCA notes above.
@@ -1337,7 +1434,7 @@ async def _run_session_inner(
             step_index = 0
 
             async def prefetch_addresses() -> None:
-                nonlocal resolved_id, prefetch_done, step_index
+                nonlocal resolved_id, prefetch_done, step_index, address_source
                 if prefetch_done:
                     return
                 prefetch_done = True
@@ -1360,10 +1457,30 @@ async def _run_session_inner(
                     resolved_id = nid
                     placeholder_values["__ADDRESS_ID__"] = nid
                     diagnostics["resolved_address_id"] = resolved_id
+                    # Only flag as auto-resolved when we didn't already have
+                    # an address from the request / session — keep the
+                    # original source for telemetry / response-LLM nudging.
+                    if address_source is None:
+                        address_source = "auto"
                 else:
                     diagnostics["auto_address_failure"] = (
                         "Could not extract address_id from Zomato response."
                     )
+                # Learn the FULL list of saved addresses so future turns can
+                # skip this MCP call entirely (frontend echoes back
+                # ``session_addresses``). Merge with any seed so we don't
+                # lose entries on a partial response.
+                fresh_rows = _extract_address_rows_from_envelope(envelope)
+                if fresh_rows:
+                    existing_ids = {row["address_id"] for row in seed_addresses}
+                    merged = list(seed_addresses)
+                    for row in fresh_rows:
+                        if row["address_id"] not in existing_ids:
+                            merged.append(row)
+                            existing_ids.add(row["address_id"])
+                    # Replace; the fresh list is authoritative (covers
+                    # newly-added or removed addresses on the user's account).
+                    diagnostics["session_addresses"] = fresh_rows if not seed_addresses else merged
                 _learn_placeholders_from_payload(placeholder_values, envelope)
                 diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
 
@@ -1388,6 +1505,39 @@ async def _run_session_inner(
                         exec_args = substitute_placeholders(
                             copy.deepcopy(base_args), placeholder_values
                         )
+
+                # Address-switching: when the planner emits a *literal*
+                # address_id that differs from the carried __ADDRESS_ID__,
+                # treat it as the user changing addresses ("use my work
+                # address") and update the placeholder so subsequent turns
+                # carry the new one. Without this, the tool runs against
+                # the new address (good) but session_state still says the
+                # old address (silent revert next turn). See planner prompt
+                # rule 1 — "the executor will override the carried
+                # __ADDRESS_ID__ for this turn and persist the new one".
+                if (
+                    isinstance(exec_args, dict)
+                    and tool != "get_saved_addresses_for_user"
+                ):
+                    literal_aid = exec_args.get("address_id") or exec_args.get("addressId")
+                    if isinstance(literal_aid, str) and literal_aid.strip():
+                        sid = literal_aid.strip()
+                        # Skip placeholder strings — those went through
+                        # substitution above. Only react to actual numeric
+                        # / opaque ids the planner pasted in.
+                        if not (sid.startswith("__") and sid.endswith("__")):
+                            current = placeholder_values.get("__ADDRESS_ID__")
+                            if current != sid:
+                                placeholder_values["__ADDRESS_ID__"] = sid
+                                resolved_id = sid
+                                address_source = "switched"
+                                diagnostics["resolved_address_id"] = sid
+                                trace(
+                                    "executor.zomato.address_switch",
+                                    tool=tool,
+                                    from_id=current,
+                                    to_id=sid,
+                                )
 
                 if _mentions_placeholder(exec_args):
                     unresolved = _unresolved_placeholders(exec_args)
@@ -1569,17 +1719,37 @@ async def _run_session_inner(
                             note="checkout_cart did not produce a parseable payment block",
                         )
 
-                if resolved_id is None and tool == "get_saved_addresses_for_user":
-                    nid = _first_address_id_from_saved_payload(envelope)
-                    if nid:
-                        resolved_id = nid
-                        placeholder_values["__ADDRESS_ID__"] = nid
-                        diagnostics["resolved_address_id"] = resolved_id
+                if tool == "get_saved_addresses_for_user":
+                    if resolved_id is None:
+                        nid = _first_address_id_from_saved_payload(envelope)
+                        if nid:
+                            resolved_id = nid
+                            placeholder_values["__ADDRESS_ID__"] = nid
+                            diagnostics["resolved_address_id"] = resolved_id
+                            if address_source is None:
+                                address_source = "auto"
+                    # Refresh the saved-address index from the explicit call
+                    # too, so the next turn can carry the fresh list and the
+                    # response LLM has labels to nudge with.
+                    try:
+                        fresh_rows = _extract_address_rows_from_envelope(envelope)
+                    except Exception as e:
+                        logger.info("address index extraction failed: %s", e)
+                        fresh_rows = []
+                    if fresh_rows:
+                        diagnostics["session_addresses"] = fresh_rows
                 _learn_placeholders_from_payload(placeholder_values, envelope)
                 diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
 
     diagnostics["resolved_address_id"] = resolved_id
     diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
+    if address_source:
+        # ``request | session_state | session_addresses | auto`` — lets the
+        # response LLM phrase its nudge correctly ("using your home address —
+        # change kar dena ho toh batao" vs "okay, switched to your work
+        # address") without us having to thread the same boolean through
+        # multiple layers.
+        diagnostics["address_source"] = address_source
     # Surface the *values* — not just the keys — so the pipeline can hand them
     # back to the frontend as ``session_state`` and seed the next turn. This
     # is the bridge that lets a Zomato cart created in turn N be checked out
@@ -2303,6 +2473,7 @@ def run_tool_plan_sync(
     location_text: str | None = None,
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
+    session_addresses: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv(
@@ -2334,6 +2505,7 @@ def run_tool_plan_sync(
                 location_text=location_text,
                 session_placeholders=session_placeholders,
                 session_restaurants=session_restaurants,
+                session_addresses=session_addresses,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))

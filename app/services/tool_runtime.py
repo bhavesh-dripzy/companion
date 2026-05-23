@@ -663,6 +663,7 @@ def execute_tool_plan_sync(
     user_id: str | None = None,
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
+    session_addresses: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not any(isinstance(step, dict) and str(step.get("tool") or "").strip() for step in tool_plan):
         return {
@@ -733,6 +734,7 @@ def execute_tool_plan_sync(
             location_text=requested_location,
             session_placeholders=session_placeholders,
             session_restaurants=session_restaurants,
+            session_addresses=session_addresses,
         )
 
     # Compute requested_location for non-zomato providers

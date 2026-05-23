@@ -4,7 +4,7 @@ import { ChatLog } from './ChatLog'
 import { MessageInput } from './MessageInput'
 import { SettingsModal } from './SettingsModal'
 import { api, clearToken, getToken } from './api'
-import type { GeoCoordinate, Message, Address, QueryResponse, SessionRestaurant, ToolProvider } from './types'
+import type { GeoCoordinate, Message, Address, QueryResponse, SessionAddress, SessionRestaurant, ToolProvider } from './types'
 import { useUserLocation } from './useUserLocation'
 import { Settings, LogOut } from 'lucide-react'
 import './index.css'
@@ -36,6 +36,15 @@ function App() {
   // is the prod regression we just hit on houzzat.in.
   const [sessionState, setSessionState] = useState<Record<string, string>>({});
   const [sessionRestaurants, setSessionRestaurants] = useState<SessionRestaurant[]>([]);
+  // The user's saved Zomato delivery addresses, fetched once by the backend
+  // on the first food turn and then round-tripped through every subsequent
+  // request so the executor never has to re-call get_saved_addresses_for_user.
+  // This is what lets the chat "just work" without the user pressing the
+  // address-fetch button: the very first zomato turn auto-resolves an
+  // address, ships it back here, and turns 2+ reuse it. The user can still
+  // change addresses by saying "use my work address" (planner picks from
+  // this list) or by picking from the dropdown above the input.
+  const [sessionAddresses, setSessionAddresses] = useState<SessionAddress[]>([]);
 
   const { location: userLocation, ensureLocation } = useUserLocation();
 
@@ -95,6 +104,7 @@ function App() {
     setMessages([]);
     setSessionState({});
     setSessionRestaurants([]);
+    setSessionAddresses([]);
   };
 
   const fetchAddresses = async () => {
@@ -136,6 +146,9 @@ function App() {
     }
     if (sessionRestaurants.length > 0) {
       body.session_restaurants = sessionRestaurants;
+    }
+    if (sessionAddresses.length > 0) {
+      body.session_addresses = sessionAddresses;
     }
     return body;
   };
@@ -187,6 +200,9 @@ function App() {
       }
       if (Array.isArray(data.session_restaurants)) {
         setSessionRestaurants(data.session_restaurants);
+      }
+      if (Array.isArray(data.session_addresses)) {
+        setSessionAddresses(data.session_addresses);
       }
 
       setMessages(prev => [...prev, assistantMsg]);

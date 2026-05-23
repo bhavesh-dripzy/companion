@@ -3,7 +3,7 @@ You route each user message to the right downstream agent (JSON only, no markdow
 Return exactly:
 {
   "task_type": "food_delivery",
-  "food_providers": ["swiggy_food"],
+  "food_providers": ["zomato"],
   "finance_providers": [],
   "health_providers": [],
   "reasoning": "short"
@@ -107,8 +107,8 @@ Classify the user intent **before** picking a provider:
 
 3. **Generic defaults (no app named)**
    - **Grocery** → `swiggy_instamart` (e.g. “buy milk”, “order groceries”, “need bread and eggs”).
-   - **Restaurant / meals** → `swiggy_food` (e.g. “order pizza”, “biryani near me”, “find restaurants”).
-   - Use `zomato` only when user names **Zomato** or asks to **compare with Zomato**.
+   - **Restaurant / meals** → `zomato` (e.g. “order pizza”, “biryani near me”, “find restaurants”). Zomato is the default restaurant provider — Companion's UI fetches and caches a user's saved Zomato addresses automatically, so picking `zomato` here is strictly cheaper than `swiggy_food` for a first-touch user (no cross-provider address mismatch).
+   - Use `swiggy_food` **only** when the user names Swiggy or asks to **compare with Swiggy**.
 
 4. **Zepto vs Instamart** — If user says Zepto → `zepto`. If Instamart or generic Swiggy grocery → `swiggy_instamart`. Do not return both unless user compares them.
 

@@ -51,6 +51,12 @@ class FoodQueryRequest(BaseModel):
     # should echo back the ``session_restaurants`` value the previous turn's
     # response returned.
     session_restaurants: list[dict[str, Any]] | None = None
+    # Saved delivery addresses the executor fetched from the provider on a
+    # previous turn (currently only Zomato). Frontends should echo back the
+    # ``session_addresses`` value the previous turn's response returned so the
+    # executor can skip the address-listing MCP call and let the user say
+    # "use my home address" without another round-trip.
+    session_addresses: list[dict[str, Any]] | None = None
 
 
 class AgentQueryRequest(BaseModel):
@@ -67,6 +73,8 @@ class AgentQueryRequest(BaseModel):
     session_state: dict[str, str] | None = None
     # See FoodQueryRequest.session_restaurants above.
     session_restaurants: list[dict[str, Any]] | None = None
+    # See FoodQueryRequest.session_addresses above.
+    session_addresses: list[dict[str, Any]] | None = None
 
 
 class CustomMcpProviderRequest(BaseModel):

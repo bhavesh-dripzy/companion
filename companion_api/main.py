@@ -1362,6 +1362,26 @@ def _companion_agent_turn(
                 clean.append({**entry, "res_id": rid.strip(), "name": name.strip()})
         session_restaurants = clean or None
 
+    # Saved-address memory carried forward from prior turns. Same shape as
+    # ``session_restaurants`` — sanitize so the executor only sees rows with
+    # a real address_id; everything else (label, address_line, …) is
+    # passed through opaquely for the planner's nudge context.
+    session_addresses: list[dict[str, Any]] | None = None
+    raw_addresses = getattr(payload, "session_addresses", None)
+    if isinstance(raw_addresses, list) and raw_addresses:
+        clean_addr: list[dict[str, Any]] = []
+        for entry in raw_addresses:
+            if not isinstance(entry, dict):
+                continue
+            aid = entry.get("address_id") or entry.get("addressId") or entry.get("id")
+            if aid is None:
+                continue
+            sid = str(aid).strip()
+            if not sid:
+                continue
+            clean_addr.append({**entry, "address_id": sid})
+        session_addresses = clean_addr or None
+
     try:
         return run_agent_turn(
             user_message=payload.message.strip(),
@@ -1373,6 +1393,7 @@ def _companion_agent_turn(
             user_geo=user_geo,
             session_state=session_state,
             session_restaurants=session_restaurants,
+            session_addresses=session_addresses,
         )
     except CustomMcpNeedsDiscoveryError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
