@@ -299,6 +299,7 @@ async def _run_instamart_session(
     node_binary: str,
     user_id: str | None,
     location_text: str | None,
+    session_placeholders: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -322,7 +323,14 @@ async def _run_instamart_session(
         env=_stdio_env(repo_root, user_id=user_id),
     )
 
+    # Seed with persisted IDs from prior turn (cart_id, order_id, etc.).
+    # The current-turn address always wins over a stale seed.
     placeholder_values: dict[str, Any] = {}
+    if isinstance(session_placeholders, dict):
+        for k, v in session_placeholders.items():
+            if isinstance(k, str) and k.startswith("__") and k.endswith("__"):
+                if isinstance(v, (str, int)) and str(v).strip():
+                    placeholder_values[k] = str(v).strip()
     if effective_address_id:
         placeholder_values[_ADDRESS_ID_PLACEHOLDER] = effective_address_id
 
@@ -332,6 +340,8 @@ async def _run_instamart_session(
         "requested_location_text": location_text,
         "executor": "instamart.mcp_executor",
     }
+    if placeholder_values:
+        diagnostics["seeded_placeholders"] = sorted(placeholder_values.keys())
 
     plan_tools = {
         str(step.get("tool") or "").strip()
@@ -547,6 +557,10 @@ async def _run_instamart_session(
                         diagnostics["resolved_order_id"] = oid
 
     diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
+    # Surface values so pipeline can hand them back as session_state for next turn.
+    diagnostics["session_placeholders"] = {
+        k: str(v) for k, v in placeholder_values.items() if v is not None
+    }
     return step_results, diagnostics
 
 
@@ -559,6 +573,7 @@ def run_tool_plan_sync(
     node_binary: str | None = None,
     user_id: str | None = None,
     location_text: str | None = None,
+    session_placeholders: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Execute a Swiggy Instamart MCP tool plan."""
     root = repo_root or repo_root_from_settings()
@@ -576,6 +591,7 @@ def run_tool_plan_sync(
                 node_binary=node,
                 user_id=user_id,
                 location_text=location_text,
+                session_placeholders=session_placeholders,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))

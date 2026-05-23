@@ -161,6 +161,7 @@ async def _run_swiggy_session_inner(
     node_binary: str,
     user_id: str | None = None,
     location_text: str | None = None,
+    session_placeholders: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -193,9 +194,18 @@ async def _run_swiggy_session_inner(
     )
 
     resolved_id = (effective_address_id or "").strip() or None
+    # Seed placeholder_values with IDs persisted from prior turn (cart_id,
+    # order_id, etc.). Current-turn address always wins over any stale seed.
     placeholder_values: dict[str, str] = {}
+    if isinstance(session_placeholders, dict):
+        for k, v in session_placeholders.items():
+            if isinstance(k, str) and k.startswith("__") and k.endswith("__"):
+                if isinstance(v, (str, int)) and str(v).strip():
+                    placeholder_values[k] = str(v).strip()
     if resolved_id:
         placeholder_values["__ADDRESS_ID__"] = resolved_id
+    if placeholder_values:
+        diagnostics["seeded_placeholders"] = sorted(placeholder_values.keys())
     prefetch_done = False
     prefetch_tool = "get_addresses"
 
@@ -315,6 +325,8 @@ async def _run_swiggy_session_inner(
 
     diagnostics["resolved_address_id"] = resolved_id
     diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
+    # Expose values so the pipeline can persist them as session_state.
+    diagnostics["session_placeholders"] = dict(placeholder_values)
     return step_results, diagnostics
 
 
@@ -327,6 +339,7 @@ def run_swiggy_tool_plan_sync(
     node_binary: str | None = None,
     user_id: str | None = None,
     location_text: str | None = None,
+    session_placeholders: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Execute a Swiggy MCP tool plan (Food or Instamart URL)."""
     root = repo_root or repo_root_from_settings()
@@ -355,6 +368,7 @@ def run_swiggy_tool_plan_sync(
                 node,
                 user_id,
                 location_text=location_text,
+                session_placeholders=session_placeholders,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))

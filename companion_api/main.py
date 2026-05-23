@@ -1336,6 +1336,32 @@ def _companion_agent_turn(
     if payload.geo is not None:
         user_geo = payload.geo.model_dump(exclude_none=True)
 
+    # Pass session_state through as opaque IDs (executor validates keys).
+    session_state: dict[str, str] | None = None
+    if isinstance(payload.session_state, dict) and payload.session_state:
+        session_state = {
+            k: str(v)
+            for k, v in payload.session_state.items()
+            if isinstance(k, str) and isinstance(v, (str, int))
+        }
+
+    # Multi-restaurant memory carried forward from prior turns. Frontends
+    # echo back whatever ``session_restaurants`` they received in the last
+    # response; we sanitize it here so the executor only sees well-formed
+    # entries (defensive: an old browser could send junk).
+    session_restaurants: list[dict[str, Any]] | None = None
+    raw_restaurants = getattr(payload, "session_restaurants", None)
+    if isinstance(raw_restaurants, list) and raw_restaurants:
+        clean: list[dict[str, Any]] = []
+        for entry in raw_restaurants:
+            if not isinstance(entry, dict):
+                continue
+            rid = entry.get("res_id")
+            name = entry.get("name")
+            if isinstance(rid, str) and rid.strip() and isinstance(name, str) and name.strip():
+                clean.append({**entry, "res_id": rid.strip(), "name": name.strip()})
+        session_restaurants = clean or None
+
     try:
         return run_agent_turn(
             user_message=payload.message.strip(),
@@ -1345,6 +1371,8 @@ def _companion_agent_turn(
             llm=llm_cfg,
             conversation_history=recent_history,
             user_geo=user_geo,
+            session_state=session_state,
+            session_restaurants=session_restaurants,
         )
     except CustomMcpNeedsDiscoveryError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

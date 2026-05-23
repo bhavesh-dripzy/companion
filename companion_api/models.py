@@ -39,6 +39,18 @@ class FoodQueryRequest(BaseModel):
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
     geo: UserGeoLocation | None = None
+    # Opaque carry-forward IDs the executor learned on previous turns
+    # (cart_id, restaurant_id, order_id, ...). Frontends should echo back the
+    # ``session_state`` value the previous turn's response returned. Keys must
+    # look like ``__SOMETHING__``; non-conforming entries are silently dropped
+    # by the executor.
+    session_state: dict[str, str] | None = None
+    # Multi-restaurant memory: every (res_id, name) pair the user has been
+    # shown across this session. Lets the planner pick a known restaurant
+    # without a redundant — and Zomato-fuzzy — keyword search. Frontends
+    # should echo back the ``session_restaurants`` value the previous turn's
+    # response returned.
+    session_restaurants: list[dict[str, Any]] | None = None
 
 
 class AgentQueryRequest(BaseModel):
@@ -51,6 +63,10 @@ class AgentQueryRequest(BaseModel):
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
     geo: UserGeoLocation | None = None
+    # See FoodQueryRequest.session_state above.
+    session_state: dict[str, str] | None = None
+    # See FoodQueryRequest.session_restaurants above.
+    session_restaurants: list[dict[str, Any]] | None = None
 
 
 class CustomMcpProviderRequest(BaseModel):

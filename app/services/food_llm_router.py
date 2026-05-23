@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -213,15 +214,157 @@ def finalize_tool_plan(
 _finalize_from_parsed_json = finalize_tool_plan
 
 
+# ---------------------------------------------------------------------------
+# Robust JSON extraction for LLM output
+# ---------------------------------------------------------------------------
+# Real-world LLM responses for "give me JSON" come back in many shapes:
+#   1. Pure JSON (best case, what we ask for)
+#   2. Markdown-fenced JSON:   ```json\n{...}\n```           ← Gemini default
+#   3. Plain code-fenced:      ```\n{...}\n```
+#   4. JSON followed by chatter / explanation prose
+#   5. Chatter, then JSON      ("Here is the plan: {...}")
+#   6. Stray BOM / whitespace
+# A strict ``json.loads`` rejects everything but case 1, so we lose ~50% of
+# turns to flaky parsing (see RCA: ``Expecting value: line 1 column 1``).
+#
+# Strategy: try strict first (zero cost on the happy path), then peel a
+# single markdown fence if the whole payload is fenced, then walk byte-by-byte
+# to find the first brace-balanced JSON object. We deliberately do NOT use a
+# greedy regex because nested objects + strings containing braces are too
+# easy to corrupt.
+# ---------------------------------------------------------------------------
+
+# Single-fenced block, optional language tag (``json``, ``JSON``, etc.).
+# Anchored to the whole string so we don't strip fences that appear mid-text.
+_WHOLE_FENCE_RE = re.compile(
+    r"\A\s*```[a-zA-Z0-9_-]*\s*\n?(?P<body>.*?)\n?\s*```\s*\Z",
+    re.DOTALL,
+)
+
+
+def _strip_outer_code_fence(text: str) -> str:
+    """If ``text`` is *entirely* one markdown code fence, return the inner body.
+
+    No-op when there's no fence, or when the fence isn't the outermost wrapper
+    (e.g. a JSON value that itself contains backticks).
+    """
+    m = _WHOLE_FENCE_RE.match(text or "")
+    return m.group("body") if m else (text or "")
+
+
+def _extract_first_balanced_json(text: str) -> str | None:
+    """Return the substring of the first balanced ``{...}`` block in ``text``.
+
+    Skips characters before the first ``{``, tracks brace depth, and correctly
+    ignores braces that appear inside JSON strings (including escaped quotes).
+    Returns ``None`` when no balanced object is found.
+    """
+    if not text:
+        return None
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None  # unbalanced — let the caller surface a clean error
+
+
 def _json_from_llm(content: str) -> dict[str, Any]:
+    """Parse JSON the model produced. Tolerant of markdown fences + surrounding prose.
+
+    Tried-and-true rule of engagement for LLM JSON outputs — see comment block
+    above for the failure modes this handles. The function preserves the
+    strict-first-then-relax pattern so a perfectly-formed response has zero
+    extra parsing overhead.
+    """
+    raw = content or ""
+    cleaned_path = "strict"
+
+    # Path 1: strict parse — covers OpenAI ``response_format=json_object`` cleanly.
     try:
-        data = json.loads(content)
-    except json.JSONDecodeError as e:
-        logger.warning("food_llm_router: invalid JSON from model: %s", e)
-        raise ValueError("Model returned invalid JSON.") from e
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Path 2: peel a single outer markdown fence (Gemini's default wrap).
+        unfenced = _strip_outer_code_fence(raw)
+        cleaned_path = "unfenced"
+        try:
+            data = json.loads(unfenced)
+        except json.JSONDecodeError:
+            # Path 3: walk the body and extract the first balanced object.
+            # Handles "preface text {...} trailing chatter" and similar.
+            extracted = _extract_first_balanced_json(unfenced) or _extract_first_balanced_json(raw)
+            cleaned_path = "balanced_extract"
+            if not extracted:
+                logger.warning(
+                    "food_llm_router: invalid JSON from model (no balanced object found)\n"
+                    "raw content (first 600 chars): %r",
+                    raw[:600],
+                )
+                try:
+                    from app.services.debug_trace import trace as _trace
+
+                    _trace(
+                        "planner.llm_invalid_json",
+                        error="no_balanced_object",
+                        raw_content_preview=raw[:1500],
+                        raw_content_len=len(raw),
+                    )
+                except Exception:
+                    pass
+                raise ValueError("Model returned invalid JSON.")
+            try:
+                data = json.loads(extracted)
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    "food_llm_router: invalid JSON from model: %s\n"
+                    "raw content (first 600 chars): %r",
+                    e,
+                    raw[:600],
+                )
+                try:
+                    from app.services.debug_trace import trace as _trace
+
+                    _trace(
+                        "planner.llm_invalid_json",
+                        error=str(e),
+                        raw_content_preview=raw[:1500],
+                        raw_content_len=len(raw),
+                    )
+                except Exception:
+                    pass
+                raise ValueError("Model returned invalid JSON.") from e
 
     if not isinstance(data, dict):
         raise ValueError("Model payload must be a JSON object.")
+
+    if cleaned_path != "strict":
+        # Trace which path actually parsed — lets us measure how often Gemini
+        # ships fenced JSON vs prose-wrapped JSON in real traffic.
+        try:
+            from app.services.debug_trace import trace as _trace
+
+            _trace("planner.json_recovered", path=cleaned_path, raw_content_len=len(raw))
+        except Exception:
+            pass
 
     return data
 

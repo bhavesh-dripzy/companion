@@ -661,6 +661,8 @@ def execute_tool_plan_sync(
     constraints: dict[str, Any] | None = None,
     enabled_providers: set[str] | None = None,
     user_id: str | None = None,
+    session_placeholders: dict[str, str] | None = None,
+    session_restaurants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not any(isinstance(step, dict) and str(step.get("tool") or "").strip() for step in tool_plan):
         return {
@@ -729,6 +731,8 @@ def execute_tool_plan_sync(
             address_id=address_id,
             user_id=user_id,
             location_text=requested_location,
+            session_placeholders=session_placeholders,
+            session_restaurants=session_restaurants,
         )
 
     # Compute requested_location for non-zomato providers
@@ -800,6 +804,7 @@ def execute_tool_plan_sync(
                 mcp_url=resolved_url,
                 user_id=user_id,
                 location_text=requested_location,
+                session_placeholders=session_placeholders,
             )
         elif name == "swiggy_instamart":
             from app.services.instamart_mcp_executor import run_tool_plan_sync as run_instamart_plan
@@ -810,6 +815,7 @@ def execute_tool_plan_sync(
                 mcp_url=resolved_url,
                 user_id=user_id,
                 location_text=requested_location,
+                session_placeholders=session_placeholders,
             )
         else:
             provider_results[name] = run_tool_plan_sync(
@@ -818,6 +824,7 @@ def execute_tool_plan_sync(
                 mcp_url=resolved_url,
                 user_id=user_id,
                 location_text=requested_location,
+                session_placeholders=session_placeholders,
             )
 
     ok = all(

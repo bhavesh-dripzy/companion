@@ -13,6 +13,27 @@ Companion runs your plan via `run_tool_plan_sync` in `app.services.zomato.mcp_ex
 3. **Restaurant chaining (mandatory for menus)** — **`__RESTAURANT_ID__`** is learned from JSON in the **prior step’s response** (typically `res_id` from `get_restaurants_for_keyword`). Companion walks results and fills placeholders for later steps. You **must** run **`get_restaurants_for_keyword`** in the **same** plan before any menu tool that uses **`res_id`: `"__RESTAURANT_ID__"`**.
 4. **Placeholder failure** — Steps with unresolved placeholders are **skipped** (not executed). Never emit `get_menu_items_listing` or `get_restaurant_menu_by_categories` with `__RESTAURANT_ID__` and **no** preceding `get_restaurants_for_keyword`.
 5. **Cart placeholders** — After menu tools return items, responses expose `variant_id` per row and (after `create_cart`) a `cart_id`. Use the literal `variant_id` from the menu listing **or** an item `name` field that matches the menu (see "create_cart" section). `__CART_ID__` is fine when chaining `create_cart` → `checkout_cart` in one plan. **Do not** use `__VARIANT_ID__` — it is structurally broken for multi-item carts and is no longer supported by the executor. Do not invent numeric ids.
+6. **Carry-forward across turns** — `__CART_ID__`, `__RESTAURANT_ID__`, and `__ORDER_ID__` set by a prior turn’s tool call are automatically available on the next turn (the executor receives them as a seed). The user message you receive will include a line that starts with **`Carried-forward placeholders available: ...`** listing the placeholder names — that's your authoritative signal for which IDs survive without re-running their issuer tool.
+
+   - When the user follows up with *"checkout this cart"*, *"pay UPI for it"*, *"place the order"*, *"yes go ahead"* and **`__CART_ID__`** is in the carried-forward list, plan **just** `checkout_cart` with `"cart_id": "__CART_ID__"`. Do not re-plan `get_restaurants_for_keyword`, `get_menu_items_listing`, or `create_cart`. Re-running `create_cart` replaces the user's cart and discards the bill they just confirmed.
+   - When the user says *"add another <item> from the same place"* / *"same restaurant"* and **`__RESTAURANT_ID__`** is carried forward, you can reuse it for `get_menu_items_listing` without re-running `get_restaurants_for_keyword`. (You still need a menu fetch in this plan because the menu index is in-process and resets each turn — only the IDs persist.)
+   - When the user follows up with *"track my order"* / *"is it placed?"* and **`__ORDER_ID__`** is carried forward, plan just `get_order_tracking_info` (the tool itself takes no required args; the executor uses the carried order_id where the response shape needs it).
+   - If the user's intent requires a placeholder that is **not** in the carried-forward list (e.g. they say "checkout" but no `__CART_ID__` is carried), do **not** silently invent a plan that uses the missing placeholder — that step will be skipped by the executor. Plan the issuer tool first (search → menu → create_cart → checkout) in the same plan.
+
+7. **Restaurants already shown — reuse, don't re-search.** The user message may include a block that starts with **`Restaurants already shown to the user this session — if the user picks one of these by name, use the literal res_id below ...`** followed by a list of `name → res_id=NNN` rows. This is the canonical mapping from restaurant name → `res_id` for *every* restaurant the user has seen in earlier turns (not just the most recent one). The index has **exactly one purpose**: skip the keyword search when the user has explicitly named **one** restaurant from it.
+
+   **Use the index (the fast path):**
+   - The user names a restaurant **by name** that appears in the list — e.g. previously you showed *"BOX8 - Desi Meals", "NH1 Bowls", "Domino's Pizza"* and now they say *"show BOX8 menu"* / *"give me NH1 Bowls' menu"* / *"order chicken bucket from KFC"*. Plan straight to `get_menu_items_listing` / `get_restaurant_menu_by_categories` / `create_cart` with `"res_id": "<literal_id_from_the_list>"`. This is strictly better than a re-search: Zomato's keyword search is fuzzy and routinely returns the wrong restaurant for short brand names (e.g. `"BOX8"` → Domino's), so reusing the known id avoids that misroute entirely.
+   - **Disambiguation tie-breaker:** when two entries match the user's typed name (e.g. *"Paradise"* could be "Paradise Biryani" and "Paradise Food Court"), prefer the one closest to the top of the list — entries are ordered most-recently-shown first.
+
+   **Do NOT use the index for filter narrowing (anti-pattern).** When the user takes a previously-shown *list* of restaurants and adds a constraint to the **list** — e.g. you showed 25 biryani places in turn N and now in turn N+1 they say *"only veg ones"* / *"under ₹250"* / *"highest rated only"* / *"within 2 km"* / *"with BOGO offers"* — that is **still a restaurant-list query**, not a per-restaurant menu pick. The right plan is **exactly one** `get_restaurants_for_keyword` call with the appropriate `keyword` (e.g. `"veg biryani"`) and/or `filter={...}` (see "Filter intents" cheat-sheet). The restaurant-search response's preview `items[]` carries `is_veg` and `price` per dish, which is enough to answer veg + price-range intents from one call. **Never** fan `get_menu_items_listing` across N res_ids from the index to filter a list — that is N expensive round-trips for a query that one keyword search already answers, and it ignores the preview signal Zomato gives you for free.
+
+   **Re-running `get_restaurants_for_keyword` is the right move when:**
+   - The user adds / changes filters on a previously-shown list (see anti-pattern above).
+   - The user names a restaurant or cuisine **not** in the index.
+   - The user explicitly asks to *"search again"* / *"find new options"* / *"what else is around me"*.
+
+   When you re-run it, the executor refreshes `__RESTAURANT_ID__` and merges new (name, res_id) pairs into the carry-forward index — your downstream steps in this plan can keep using `"__RESTAURANT_ID__"` for the *latest* search hit, and future turns gain access to the new restaurants by name.
 6. **Menu prices** — `get_menu_items_listing` returns categories without full rupee prices; Companion may **auto-enrich** listing rows by calling `get_restaurant_menu_by_categories` for category names. For “show prices for Burgers”, still include an explicit **`get_restaurant_menu_by_categories`** step with a concrete `categories` list when the user names categories or dishes.
 7. **Locality mismatch** — If the user names a **different area** than their saved pin (e.g. “pizza in Indiranagar” but UI address is Gurgaon), set **`constraints.requested_location_text`** to that locality. Companion may refuse to search with the wrong saved address; do not silently ignore the named area.
 8. **Auth** — Normal Companion users authenticate via MCP OAuth (`mcp-remote`). Use **`bind_user_number`** / **`bind_user_number_verify_code`** only when the user is explicitly completing phone OTP in chat (rare).
@@ -240,7 +261,9 @@ Plan after `create_cart` when user asks for coupons/deals on the current basket.
 
 Place the order for a cart.
 
-**Required:** `cart_id` (from prior `create_cart`).
+**Required:** `cart_id` — supply as `"__CART_ID__"` whenever it was set by `create_cart` in *this plan* **or in a previous turn**. The executor carries `__CART_ID__` forward automatically, so a follow-up turn like *"yes go ahead, I want UPI payment"* or *"checkout please"* can plan **just** `checkout_cart` with `"cart_id": "__CART_ID__"`. You do not need to re-run restaurant search / menu / `create_cart` again — that wastes calls and may replace the user’s cart.
+
+**Argument shape:** `checkout_cart` accepts **only** `cart_id`. Do **not** pass `payment_type` here — the payment method was already locked in on the preceding `create_cart` step. Adding `payment_type` to `checkout_cart` causes a pydantic "unexpected_keyword_argument" rejection from the MCP server.
 
 **NEVER** unless the user explicitly confirms checkout (YES / place order / confirm).
 
@@ -286,21 +309,31 @@ Phone OTP login path. **Only** when the user is giving a phone number and OTP in
 
 When the user wants a **menu** for a specific restaurant (e.g. “Tossin Pizza menu”, “show Pizza Hut menu on Zomato”, follow-up “show me the menu” after you listed restaurants):
 
-1. **`get_restaurants_for_keyword`** — `keyword` = **short restaurant name** (e.g. `"Tossin Pizza"`, `"Pizza Hut"`). `address_id`: `"__ADDRESS_ID__"`.
+1. **Resolve the `res_id`** — there are two valid paths, pick the cheaper one:
+   - **Preferred (zero round-trip):** if the requested restaurant's `res_id` is in the routing message's **"Restaurants already shown to the user this session"** block, use that **literal** id and skip directly to step 2.
+   - **Fallback (one round-trip):** otherwise, plan **`get_restaurants_for_keyword`** with `keyword` = the short restaurant name (e.g. `"Tossin Pizza"`, `"Pizza Hut"`) and `address_id`: `"__ADDRESS_ID__"`. The executor will set `__RESTAURANT_ID__` for the next step.
 2. Then **one or both**:
-   - **`get_menu_items_listing`** — `res_id`: `"__RESTAURANT_ID__"`, `address_id`: `"__ADDRESS_ID__"`.
+   - **`get_menu_items_listing`** — `res_id`: the literal id (preferred) or `"__RESTAURANT_ID__"`, `address_id`: `"__ADDRESS_ID__"`.
    - **`get_restaurant_menu_by_categories`** — same `res_id` / `address_id`, plus `categories` when the user wants **prices** or a named category.
 
-**Forbidden:** `tool_plan` with only `get_menu_items_listing` or `get_restaurant_menu_by_categories` using `__RESTAURANT_ID__` and **no** preceding `get_restaurants_for_keyword` in the same plan.
+**Forbidden:** `tool_plan` with `get_menu_items_listing` / `get_restaurant_menu_by_categories` that uses `"__RESTAURANT_ID__"` **without** a preceding `get_restaurants_for_keyword` **in the same plan**. (If you have a literal id from the shown-restaurants block, use that literal — don't use `__RESTAURANT_ID__` at all.)
 
-**Follow-up turns:** If history shows the user already picked a restaurant, still include **`get_restaurants_for_keyword`** with that name in **this** plan (ids do not carry across HTTP requests).
+**Follow-up turns where the restaurant is in the shown-restaurants block:** Use the literal `res_id` directly — *do not* re-run `get_restaurants_for_keyword`. This is the fast path for "show BOX8 menu" / "give me NH1 Bowls menu" / "back to that Domino's" after a multi-restaurant list.
 
-Example (Tossin Pizza menu):
+Example A (first time we're seeing "Tossin Pizza"):
 
 ```json
 "tool_plan": [
   {"tool": "get_restaurants_for_keyword", "arguments": {"address_id": "__ADDRESS_ID__", "keyword": "Tossin Pizza"}},
   {"tool": "get_menu_items_listing", "arguments": {"res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__"}}
+]
+```
+
+Example B (the routing message lists `BOX8 - Desi Meals → res_id=20791234` from a previous search):
+
+```json
+"tool_plan": [
+  {"tool": "get_menu_items_listing", "arguments": {"res_id": "20791234", "address_id": "__ADDRESS_ID__"}}
 ]
 ```
 
@@ -320,6 +353,7 @@ Example (Tossin Pizza menu):
 |---|---|---|
 | "veg pizza near me" | `get_restaurants_for_keyword(keyword="veg pizza")` | Restaurant preview `items[]` already leans veg — answer from preview, no menu call needed. |
 | "show veg pizza options under ₹200" | `get_restaurants_for_keyword(keyword="veg pizza")` and post-filter preview `items[]` by `is_veg==True` AND `price<=200` in your `summary` | No menu round-trip; preview gives you `is_veg` + `price` for top dishes per restaurant. |
+| **Filter-narrowing follow-up** ("only veg now", "under ₹250 ones", "now only the ones > 4 rating") **after** a prior discovery list of N restaurants | **One** `get_restaurants_for_keyword` call with the narrower `keyword` (e.g. `"veg biryani"`) and/or `filter={...}`. Post-filter the preview `items[]` client-side in `summary` if no server-side `filter` covers the constraint. | The carry-forward restaurant index exists to skip a *name pick*'s search, not to re-discover the list. Fanning `get_menu_items_listing` across the N carried-over res_ids is N expensive round-trips for what is *still one search query*. |
 | "veg pizzas at Domino's" | `get_restaurants_for_keyword(keyword="Domino's")` → `get_restaurant_menu_by_categories(categories=["Pizza Mania","Pizza & More"])` → response builder filters by `item_tags` containing `"veg"` and not `"non-veg"` | Need full menu rows for accurate veg filtering at the named outlet. |
 | "pizza under ₹200 at Domino's" | `get_restaurants_for_keyword(keyword="Domino's")` → `get_restaurant_menu_by_categories(..., menu_filter={"max_price":200})` | Server-side menu price filter — cheapest. |
 | "pizza between ₹150-₹400 at any place" | Per-restaurant menu calls are wasteful. Use search preview + client-side range filter on `items[].price` instead. | One round-trip vs N. |
@@ -339,6 +373,7 @@ Example (Tossin Pizza menu):
 | **Clear & add** ("clear cart and add X") | Same as add — just `create_cart` with the new items. No separate clear step. No confirmation. |
 | Apply coupon on cart | `create_cart` → `get_cart_offers` |
 | Place order (any payment method) | `create_cart` → user confirms bill → `checkout_cart` |
+| **Follow-up checkout** (cart was created on a previous turn; user now says *"yes pay UPI"* / *"checkout"* / *"place the order"*) | Just `checkout_cart` with `"cart_id": "__CART_ID__"` and `"payment_type": "upi"` or `"cash_on_delivery"`. **Do not** re-plan the restaurant search / menu / create_cart — that wipes the existing cart and asks the user to confirm again. |
 | Cheapest / best deal | `get_restaurants_for_keyword` only (rank in summary); menu only if user picks a place |
 
 ### Example — add 2 different items by name
@@ -360,6 +395,18 @@ Example (Tossin Pizza menu):
 ```
 
 The executor resolves `name → variant_id` against the menu fetched in the same plan. **Never** use `__VARIANT_ID__` for these rows.
+
+### Example — follow-up checkout in a later turn
+
+User just said *"yes go ahead, I want UPI payment"* after we previously confirmed the bill from `create_cart`. The executor already remembers `__CART_ID__` from the prior turn, and the payment_type (`upi` / `cash_on_delivery`) was already set on that earlier `create_cart`. So the entire plan is:
+
+```json
+"tool_plan": [
+  {"tool": "checkout_cart", "arguments": {"cart_id": "__CART_ID__"}}
+]
+```
+
+Do **not** plan `get_restaurants_for_keyword`, `get_menu_items_listing`, or another `create_cart` here. Doing so replaces the user's existing cart with a new one and discards the bill they just confirmed. Do **not** add `payment_type` — `checkout_cart` rejects unknown kwargs.
 
 ---
 

@@ -496,6 +496,15 @@
     const gcalDetail = document.getElementById("gcalDetail");
     let knownProviders = [];
     let chatHistory = [];
+    // Opaque carry-forward IDs (cart_id, restaurant_id, order_id, ...) that
+    // the backend learned during a previous turn. We echo this back on the
+    // next request so the executor can resolve placeholders like __CART_ID__
+    // even when the LLM doesn't know the raw ID. Reset on logout.
+    let sessionState = {};
+    // Companion to sessionState: every (res_id, name) pair the agent has
+    // shown the user this session, most-recent first. The planner reuses
+    // these literal res_ids to skip a redundant restaurant search.
+    let sessionRestaurants = [];
 
     function token() { return localStorage.getItem(TOKEN_KEY); }
     function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
@@ -1161,7 +1170,9 @@
           message: msg,
           address_id: aid,
           execute_tools: true,
-          history: chatHistory.slice(0, -1)
+          history: chatHistory.slice(0, -1),
+          session_state: sessionState && Object.keys(sessionState).length ? sessionState : undefined,
+          session_restaurants: Array.isArray(sessionRestaurants) && sessionRestaurants.length ? sessionRestaurants : undefined
         };
         const selectedModelProvider = provider();
         if (selectedModelProvider && selectedModelProvider !== "auto") body.provider = selectedModelProvider;
@@ -1170,6 +1181,12 @@
         const routed = Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : [];
         const ok = data.tool_execution && data.tool_execution.ok === true ? "tools ok" : data.tool_execution && data.tool_execution.error ? data.tool_execution.error : "";
         const attachments = Array.isArray(data.attachments) ? data.attachments : [];
+        if (data.session_state && typeof data.session_state === "object") {
+          sessionState = data.session_state;
+        }
+        if (Array.isArray(data.session_restaurants)) {
+          sessionRestaurants = data.session_restaurants;
+        }
         thinkingNode.cleanup && thinkingNode.cleanup();
         thinkingNode.remove();
         appendAssistantWithTrace(assistant, [...routed, ok].filter(Boolean), data.observable_trace, attachments);
@@ -1190,7 +1207,7 @@
     }
 
     loginBtn.addEventListener("click", doLogin);
-    logoutBtn.addEventListener("click", () => { clearAuth(); showLogin(); });
+    logoutBtn.addEventListener("click", () => { clearAuth(); sessionState = {}; sessionRestaurants = []; showLogin(); });
     sendBtn.addEventListener("click", runQuery);
     fetchAddressesBtn.addEventListener("click", fetchSavedAddresses);
     mcpCheckBtn.addEventListener("click", checkMcp);

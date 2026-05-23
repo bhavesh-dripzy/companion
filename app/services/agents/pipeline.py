@@ -6,6 +6,7 @@ from typing import Any
 
 from app.services.agents.orchestrator import classify_agent_routing
 from app.services.agents.tool_trace import build_tool_execution_trace
+from app.services.debug_trace import new_turn, snip, trace
 from app.services.food_llm_router import route_food_query
 from app.services.food_response_builder import (
     build_assistant_message_with_llm,
@@ -136,25 +137,73 @@ def _collect_payment_attachments(raw_tool_results: dict[str, Any]) -> list[dict[
 def _format_routing_message(
     current_message: str,
     conversation_history: list[dict[str, str]] | None = None,
+    *,
+    session_state_keys: list[str] | None = None,
+    session_restaurants: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Build planner/orchestrator input: recent transcript + current user turn."""
+    """Build planner/orchestrator input: recent transcript + current user turn.
+
+    When ``session_state_keys`` is non-empty, append a compact line listing the
+    placeholder names the executor already remembers from prior turns (e.g.
+    ``__CART_ID__``, ``__RESTAURANT_ID__``). Values are intentionally **not**
+    included — the planner only needs to know *what* state exists so it can
+    decide whether to re-run a tool or rely on placeholder substitution. The
+    executor still owns the actual ID values.
+
+    When ``session_restaurants`` is non-empty, append a small table of
+    (name, res_id) pairs the user has already been shown. The planner can use
+    these literal res_ids in tool arguments (e.g. ``get_menu_items_listing``
+    or ``create_cart``) to skip a redundant — and often unreliable, since
+    Zomato's keyword search is fuzzy — re-search.
+    """
     current = (current_message or "").strip()
-    if not conversation_history:
-        return current
-    recent = [
-        item
-        for item in conversation_history[-8:]
-        if isinstance(item, dict)
-        and item.get("role") in {"user", "assistant"}
-        and item.get("content")
-    ]
-    if not recent:
-        return current
-    transcript = "\n".join(
-        f"{item.get('role')}: {str(item.get('content') or '')[:700]}"
-        for item in recent
-    )
-    return f"Conversation so far:\n{transcript}\n\nCurrent user message:\n{current}"
+    parts: list[str] = []
+    if conversation_history:
+        recent = [
+            item
+            for item in conversation_history[-8:]
+            if isinstance(item, dict)
+            and item.get("role") in {"user", "assistant"}
+            and item.get("content")
+        ]
+        if recent:
+            transcript = "\n".join(
+                f"{item.get('role')}: {str(item.get('content') or '')[:700]}"
+                for item in recent
+            )
+            parts.append(f"Conversation so far:\n{transcript}")
+    if session_state_keys:
+        keys = sorted({str(k) for k in session_state_keys if isinstance(k, str) and k.strip()})
+        if keys:
+            parts.append(
+                "Carried-forward placeholders available (set by previous turns; "
+                "use them directly in tool arguments — the executor will substitute "
+                "the real values): " + ", ".join(keys)
+            )
+    if session_restaurants:
+        # Cap how many we surface to the planner — too long bloats every prompt.
+        # 10 is the same order of magnitude as a typical user-visible result list.
+        rows: list[str] = []
+        for entry in session_restaurants[:10]:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            rid = str(entry.get("res_id") or "").strip()
+            if not name or not rid:
+                continue
+            rating = entry.get("rating")
+            tail = f" (rating {rating})" if rating not in (None, "") else ""
+            rows.append(f"  - {name} → res_id={rid}{tail}")
+        if rows:
+            parts.append(
+                "Restaurants already shown to the user this session — if the "
+                "user picks one of these by name, use the literal res_id below "
+                "instead of running get_restaurants_for_keyword again "
+                "(Zomato's keyword search is fuzzy and often returns the wrong "
+                "restaurant for short brand names):\n" + "\n".join(rows)
+            )
+    parts.append(f"Current user message:\n{current}")
+    return "\n\n".join(parts) if len(parts) > 1 else current
 
 
 _KNOWN_PROVIDER_IDS = frozenset(
@@ -359,19 +408,26 @@ def _plan_for_provider(
 ) -> dict[str, Any]:
     """Delegate to the provider's domain agent (LLM + prompt → tool_plan)."""
     tp = get_tool_provider(provider_id, user_id=user_id)
+    trace("planner.in", provider=provider_id, routing_message=routing_message)
 
     if provider_id == "swiggy_food":
         from app.services.swiggy.planner import plan_swiggy_food
 
-        return plan_swiggy_food(user_message=routing_message, llm=llm)
+        out = plan_swiggy_food(user_message=routing_message, llm=llm)
+        trace("planner.out", provider=provider_id, plan=snip(out))
+        return out
     if provider_id == "swiggy_instamart":
         from app.services.instamart.planner import plan_instamart
 
-        return plan_instamart(user_message=routing_message, llm=llm)
+        out = plan_instamart(user_message=routing_message, llm=llm)
+        trace("planner.out", provider=provider_id, plan=snip(out))
+        return out
     if provider_id == "zomato":
         from app.services.zomato.planner import plan_zomato_food
 
-        return plan_zomato_food(user_message=routing_message, llm=llm)
+        out = plan_zomato_food(user_message=routing_message, llm=llm)
+        trace("planner.out", provider=provider_id, plan=snip(out))
+        return out
 
     if tp and not tp.tools:
         return _empty_provider_plan(
@@ -445,19 +501,75 @@ def run_agent_turn(
     llm: ResolvedLlm,
     conversation_history: list[dict[str, str]] | None = None,
     user_geo: dict[str, Any] | None = None,
+    session_state: dict[str, str] | None = None,
+    session_restaurants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Orchestrated agent turn producing the same response envelope as legacy /api/food/query/.
 
     Flow: orchestrator LLM → per-provider domain LLM (tool_plan) → MCP executor → response LLM.
+
+    ``session_state`` carries forward IDs the executor learned on previous turns
+    (cart_id, restaurant_id, order_id, …). Frontends should echo back the
+    ``session_state`` returned from the previous turn's response. This is the
+    mechanism that allows a Zomato cart created in turn N to be checked out
+    in turn N+1 without the LLM ever having to see raw IDs.
+
+    ``session_restaurants`` is the LRU-style list of every (name, res_id) pair
+    the user has been shown across the session. It lets the planner pick a
+    restaurant the user has seen *without* re-running Zomato's unreliable
+    fuzzy keyword search. Like ``session_state``, frontends should echo back
+    whatever the previous turn returned.
     """
+    new_turn()
+    # Normalize the restaurants seed once so we can both echo it back and
+    # surface it in the planner prompt below.
+    seed_restaurants: list[dict[str, Any]] = []
+    if isinstance(session_restaurants, list):
+        for entry in session_restaurants:
+            if not isinstance(entry, dict):
+                continue
+            rid = entry.get("res_id")
+            name = entry.get("name")
+            if not isinstance(rid, str) or not rid.strip():
+                continue
+            if not isinstance(name, str) or not name.strip():
+                continue
+            seed_restaurants.append({**entry, "res_id": rid.strip(), "name": name.strip()})
+    trace(
+        "pipeline.in",
+        user_id=user_id,
+        user_message=user_message,
+        address_id=address_id,
+        history_turns=len(conversation_history or []),
+        execute_tools=execute_tools,
+        session_state_keys=sorted((session_state or {}).keys()),
+    )
+    # Orchestrator sees ONLY the transcript — it classifies task_type and
+    # provider, neither of which should depend on stored placeholders.
     routing_message = _format_routing_message(user_message, conversation_history)
+    # Planner needs the placeholder hint AND the recent-restaurants index so
+    # it can (a) skip a redundant restaurant search when the user picks a
+    # known restaurant and (b) avoid re-running upstream tools when downstream
+    # state is already known.
+    planner_routing_message = _format_routing_message(
+        user_message,
+        conversation_history,
+        session_state_keys=sorted((session_state or {}).keys()) or None,
+        session_restaurants=seed_restaurants or None,
+    )
     previous_provider = _extract_previous_provider(conversation_history)
+    trace(
+        "orchestrator.in",
+        routing_message=routing_message,
+        previous_provider=previous_provider,
+    )
     orchestration = classify_agent_routing(
         user_message=routing_message,
         llm=llm,
         previous_provider=previous_provider,
     )
+    trace("orchestrator.out", orchestration=snip(orchestration))
 
     task_type = str(orchestration.get("task_type") or "food_delivery")
     if task_type == "finance_investing":
@@ -530,7 +642,7 @@ def run_agent_turn(
         else:
             _ensure_custom_providers_ready(routed, user_id)
             plan = _resolve_food_routing_plan(
-                routing_message=routing_message,
+                routing_message=planner_routing_message,
                 routed_providers=routed,
                 llm=llm,
                 user_id=user_id,
@@ -542,7 +654,7 @@ def run_agent_turn(
     else:
         _ensure_custom_providers_ready(routed, user_id)
         plan = _resolve_food_routing_plan(
-            routing_message=routing_message,
+            routing_message=planner_routing_message,
             routed_providers=routed,
             llm=llm,
             user_id=user_id,
@@ -568,6 +680,13 @@ def run_agent_turn(
     elif execute_tools:
         tool_plan = plan.get("tool_plan") if isinstance(plan, dict) else []
         enabled_providers = routed or None
+        trace(
+            "executor.in",
+            providers=sorted(enabled_providers or []),
+            tool_plan=snip(tool_plan),
+            address_id=address_id,
+            constraints=snip(plan.get("constraints") if isinstance(plan, dict) else {}),
+        )
         tool_execution = execute_tool_plan_sync(
             tool_plan if isinstance(tool_plan, list) else [],
             address_id=address_id,
@@ -575,6 +694,8 @@ def run_agent_turn(
             user_message=user_message,
             enabled_providers=enabled_providers,
             user_id=user_id,
+            session_placeholders=session_state,
+            session_restaurants=seed_restaurants or None,
         )
         provider_results = tool_execution.get("provider_results")
         if isinstance(provider_results, dict):
@@ -584,6 +705,19 @@ def run_agent_turn(
                     provider_summaries[provider_name] = build_zomato_summary(raw)
             zraw = provider_results.get("zomato")
             zomato_summary = build_zomato_summary(zraw if isinstance(zraw, dict) else None)
+        trace(
+            "executor.out",
+            ok=tool_execution.get("ok"),
+            error=tool_execution.get("error"),
+            steps_by_provider={
+                p: len((r or {}).get("steps") or [])
+                for p, r in (provider_results or {}).items()
+            },
+            diagnostics_by_provider={
+                p: snip((r or {}).get("diagnostics") or {})
+                for p, r in (provider_results or {}).items()
+            },
+        )
 
     domain_execution: dict[str, Any] | None = (
         calendar_execution
@@ -601,6 +735,61 @@ def run_agent_turn(
     # told never to paste raw data), so we surface attachments as a separate
     # top-level field with a stable schema.
     attachments = _collect_payment_attachments(raw_tool_results)
+    trace(
+        "hoister.out",
+        attachment_count=len(attachments),
+        attachments=snip(attachments),
+    )
+
+    # Build the outgoing session_state. Start from whatever the caller sent in
+    # (so IDs that weren't touched this turn carry forward — e.g. a restaurant
+    # id from turn 1 still applies in turn 4) and overlay the values the
+    # executor learned this turn. Executor wins for any collision because it
+    # just observed the live MCP state.
+    next_session_state: dict[str, str] = {}
+    if isinstance(session_state, dict):
+        for k, v in session_state.items():
+            if isinstance(k, str) and isinstance(v, (str, int)) and str(v).strip():
+                next_session_state[k] = str(v).strip()
+    # Start the next-turn restaurant index from the seed; the executor's
+    # diagnostics will override it if the current turn ran a search.
+    next_session_restaurants: list[dict[str, Any]] = list(seed_restaurants)
+    for _provider_name, _raw in (raw_tool_results or {}).items():
+        if not isinstance(_raw, dict):
+            continue
+        _diag = _raw.get("diagnostics")
+        if not isinstance(_diag, dict):
+            continue
+        _learned = _diag.get("session_placeholders")
+        if isinstance(_learned, dict):
+            for k, v in _learned.items():
+                if isinstance(k, str) and isinstance(v, (str, int)) and str(v).strip():
+                    next_session_state[k] = str(v).strip()
+        _restos = _diag.get("session_restaurants")
+        if isinstance(_restos, list) and _restos:
+            # Executor already merged seed + new entries, so its list is the
+            # authoritative next state. Overwriting (not appending) is what
+            # keeps the LRU ordering meaningful — most-recent at the front.
+            cleaned: list[dict[str, Any]] = []
+            for entry in _restos:
+                if not isinstance(entry, dict):
+                    continue
+                rid = entry.get("res_id")
+                name = entry.get("name")
+                if isinstance(rid, str) and rid.strip() and isinstance(name, str) and name.strip():
+                    cleaned.append({**entry, "res_id": rid.strip(), "name": name.strip()})
+            if cleaned:
+                next_session_restaurants = cleaned
+    trace(
+        "session_state.out",
+        in_keys=sorted((session_state or {}).keys()),
+        out_keys=sorted(next_session_state.keys()),
+        # Mask values: the keys are enough to debug stickiness, values can
+        # contain customer-identifying IDs we don't want in trace logs.
+        delta_keys=sorted(
+            set(next_session_state.keys()) - set((session_state or {}).keys())
+        ),
+    )
 
     out: dict[str, Any] = {
         "status": "success",
@@ -657,36 +846,65 @@ def run_agent_turn(
         "zomato_summary": zomato_summary,
         "provider_summaries": provider_summaries,
         "attachments": attachments,
-        "assistant_message": (
-            general_chat_responder.reply_general_chat(
-                user_message=user_message,
-                llm=llm,
-                conversation_history=conversation_history,
-            )
-            if task_type == "normal_query"
-            else reply_reminder_calendar(
-                user_message=user_message,
-                execution=calendar_execution,
-                execute_tools=execute_tools,
-            )
-            if task_type == "reminder_calendar"
-            else reply_maps_query(
-                user_message=user_message,
-                execution=maps_execution,
-                execute_tools=execute_tools,
-            )
-            if task_type == "maps_query"
-            else build_assistant_message_with_llm(
-                user_message=user_message,
-                plan=plan,
-                tool_results=raw_tool_results,
-                provider=llm.provider,
-                api_key=llm.api_key,
-                model=llm.model,
-                base_url=llm.base_url,
-                conversation_history=conversation_history,
-                attachments=attachments,
-            )
-        ),
+        # Frontends should treat this as opaque and echo it back on the next
+        # turn's request. Keys are the placeholder names the planner emits
+        # (__CART_ID__, __RESTAURANT_ID__, __ORDER_ID__, ...); values are the
+        # IDs the executor learned from MCP responses.
+        "session_state": next_session_state,
+        # Multi-restaurant memory — see ``run_agent_turn`` docstring. Echo
+        # back as-is on the next turn's request.
+        "session_restaurants": next_session_restaurants,
     }
+    trace(
+        "response_builder.in",
+        task_type=task_type,
+        attachment_count=len(attachments),
+        raw_tool_results_summary={
+            p: {
+                "ok": (r or {}).get("ok"),
+                "steps": len((r or {}).get("steps") or []),
+                "skipped_tools": ((r or {}).get("diagnostics") or {}).get("skipped_tools"),
+            }
+            for p, r in (raw_tool_results or {}).items()
+        },
+    )
+    if task_type == "normal_query":
+        assistant_message = general_chat_responder.reply_general_chat(
+            user_message=user_message,
+            llm=llm,
+            conversation_history=conversation_history,
+        )
+    elif task_type == "reminder_calendar":
+        assistant_message = reply_reminder_calendar(
+            user_message=user_message,
+            execution=calendar_execution,
+            execute_tools=execute_tools,
+        )
+    elif task_type == "maps_query":
+        assistant_message = reply_maps_query(
+            user_message=user_message,
+            execution=maps_execution,
+            execute_tools=execute_tools,
+        )
+    else:
+        assistant_message = build_assistant_message_with_llm(
+            user_message=user_message,
+            plan=plan,
+            tool_results=raw_tool_results,
+            provider=llm.provider,
+            api_key=llm.api_key,
+            model=llm.model,
+            base_url=llm.base_url,
+            conversation_history=conversation_history,
+            attachments=attachments,
+        )
+    trace("response_builder.out", assistant_message=assistant_message)
+    out["assistant_message"] = assistant_message
+    trace(
+        "pipeline.out",
+        routed_provider=out.get("routed_provider"),
+        attachment_count=len(out.get("attachments") or []),
+        tool_execution_ok=(out.get("tool_execution") or {}).get("ok"),
+        tool_execution_error=(out.get("tool_execution") or {}).get("error"),
+    )
     return out

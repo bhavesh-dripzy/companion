@@ -22,6 +22,8 @@ from typing import Any
 
 from openai import OpenAI
 
+from app.services.debug_trace import snip, trace
+
 
 def saved_address_label_from_mcp_item(item: dict[str, Any]) -> str:
     """
@@ -211,11 +213,24 @@ _SYSTEM_PROMPT = (
     "visible slice.\n"
     "- When the tool failed or returned nothing useful, acknowledge it gracefully "
     "in plain language, and give the user a clear next step.\n"
-    "- **Missing Address Handling**: If the tool results or diagnostics indicate that "
-    "an address_id was required but not found (e.g., \"placeholder_unresolved\" for "
-    "\"__ADDRESS_ID__\", or \"no addresses found\"), explain that you need a delivery "
-    "address to proceed. Ask the user to tell you their location or select a "
-    "saved address from the selector.\n"
+    "- **Unresolved placeholders — read the diagnostics literally.** If the "
+    "tool execution was incomplete the diagnostics contain a `skipped_tools` "
+    "list, each item carrying `tool`, `reason`, and `placeholders`. The "
+    "missing placeholders tell you *exactly* what's wrong — do not pattern-"
+    "match on the tool name and guess. Specifically:\n"
+    "  - `__ADDRESS_ID__` missing → ask the user to share their delivery "
+    "location or pick a saved address.\n"
+    "  - `__CART_ID__` missing on a `checkout_cart` step → the cart no "
+    "longer exists or was never created. Tell the user the cart wasn't "
+    "found and offer to re-add the items (don't say 'address chahiye'; the "
+    "address is fine, the cart is the problem).\n"
+    "  - `__RESTAURANT_ID__` missing → the previous restaurant search "
+    "returned nothing relevant. Ask the user which place they meant or "
+    "offer to search again.\n"
+    "  - `__ORDER_ID__` missing on a tracking call → ask the user which "
+    "order they mean, or offer to fetch order history.\n"
+    "Never blame the address when the missing placeholder list does not "
+    "include `__ADDRESS_ID__`.\n"
     "- **UI attachments**: When the input contains a non-empty `ui_attachments` "
     "list, the chat UI is rendering those images/files *next to* your message — "
     "the user will see the actual image. So acknowledge it briefly ('Yeh raha "
@@ -328,6 +343,15 @@ def build_assistant_message_with_llm(
         "Write the assistant's spoken reply to the user:\n"
         + json.dumps(payload, ensure_ascii=True, default=str)
     )
+    trace(
+        "response_llm.in",
+        provider=provider,
+        model=model,
+        ui_attachments=attachment_descriptors,
+        tool_results=snip(payload.get("tool_results")),
+        planner_context=payload.get("planner_context"),
+        user_message=user_message,
+    )
 
     try:
         if provider in ("openai", "deepseek"):
@@ -339,7 +363,9 @@ def build_assistant_message_with_llm(
                 base_url=base_url if provider == "deepseek" else None,
             )
             if text:
+                trace("response_llm.out", provider=provider, text=text)
                 return text
+            trace("response_llm.fallback", reason="empty_text", provider=provider)
             return _fallback_assistant_message(tool_results=tool_results)
 
         from google import genai as google_genai
@@ -351,7 +377,10 @@ def build_assistant_message_with_llm(
         )
         text = (response.text or "").strip()
         if text:
+            trace("response_llm.out", provider=provider, text=text)
             return text
+        trace("response_llm.fallback", reason="empty_text", provider=provider)
         return _fallback_assistant_message(tool_results=tool_results)
-    except Exception:
+    except Exception as e:
+        trace("response_llm.error", provider=provider, error=f"{type(e).__name__}: {e}")
         return _fallback_assistant_message(tool_results=tool_results)

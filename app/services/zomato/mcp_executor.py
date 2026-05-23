@@ -24,6 +24,8 @@ from typing import Any
 import boto3
 import requests
 
+from app.services.debug_trace import trace
+
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = "__ADDRESS_ID__"
@@ -47,6 +49,26 @@ _PLACEHOLDER_ALIASES: dict[str, tuple[str, ...]] = {
     # top), causing systematic mis-adds. Variant resolution is now done by
     # name via `_resolve_cart_items_by_name` against the per-session menu
     # index built from `get_menu_items_listing` / `get_restaurant_menu_by_categories`.
+}
+
+# Tools that issue a fresh value for a placeholder. When a turn re-runs one of
+# these (e.g. user adds another item → planner emits ``create_cart`` again,
+# or pivots to a different restaurant → planner emits ``get_restaurants_for_keyword``
+# again), any value seeded from a previous turn is stale and must be cleared
+# so the new response's value is re-learned. Mirrors the MCP semantics — not
+# a business rule. Keep this map narrow: only include tools whose contract is
+# "I create / select the named resource".
+_TOOL_ISSUES_PLACEHOLDER: dict[str, tuple[str, ...]] = {
+    # Each call selects a *new* restaurant from the user's keyword. Without
+    # clearing, a __RESTAURANT_ID__ seeded from turn N silently survives a
+    # turn N+1 pivot ("show me Domino's instead") because the existing
+    # "first-wins" learning in _learn_placeholders_from_payload refuses to
+    # overwrite. Result: subsequent menu/cart tools target the wrong
+    # restaurant. Same fix-class as cart_id.
+    "get_restaurants_for_keyword": ("__RESTAURANT_ID__",),
+    "create_cart": ("__CART_ID__",),
+    "checkout_cart": ("__ORDER_ID__",),
+    "place_order": ("__ORDER_ID__",),
 }
 _TOKEN_SECRET_ID = "companion/mcp-tokens"
 _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
@@ -697,6 +719,129 @@ def _norm_item_key(name: str) -> str:
     return " ".join(s.split())
 
 
+# ---------------------------------------------------------------------------
+# Restaurant index (multi-restaurant memory across turns)
+# ---------------------------------------------------------------------------
+# `__RESTAURANT_ID__` is a single scalar — it can only point at one restaurant
+# at a time, typically the first hit of the latest keyword search. That breaks
+# a very common flow:
+#   T1: user asks "show me biryani options"           → list of 5 places
+#   T2: user picks one ("show me BOX8 menu")          → planner re-searches
+#         Zomato's keyword search is fuzzy and may return Domino's #1, so the
+#         menu fetched is the wrong restaurant.
+# Fix: every time `get_restaurants_for_keyword` (or any other tool that lists
+# restaurants) runs, we extract every (name, res_id) pair shown and persist
+# them as a small index. The pipeline echoes this index back to the next
+# turn, and surfaces it to the planner so it can use the *literal* res_id
+# for a restaurant the user has already seen — no re-search needed.
+# ---------------------------------------------------------------------------
+
+# Cap how many restaurants we remember per session. The user-visible
+# response list rarely exceeds 5-8 rows, and the planner only needs the
+# index when the user picks one by name — keeping more than that bloats
+# every prompt for no real recall benefit. Env-tunable.
+_MAX_REMEMBERED_RESTAURANTS = max(
+    1, int(os.getenv("ZOMATO_REMEMBERED_RESTAURANT_CAP", "8"))
+)
+
+
+def _norm_restaurant_key(name: str) -> str:
+    """Normalize restaurant name for lookup. Matches the user-typed form.
+
+    Strips punctuation, collapses whitespace, lowercases. Symmetric to
+    ``_norm_item_key`` so the same comparison rules apply.
+    """
+    if not isinstance(name, str):
+        return ""
+    s = name.strip().lower()
+    # Strip trailing tagline-style suffixes ("Paradise Biryani - A Legend Since 1953")
+    # — we keep the head for matching, full name in the value.
+    if " - " in s:
+        s = s.split(" - ", 1)[0]
+    while s.endswith(".") or s.endswith(",") or s.endswith(";"):
+        s = s[:-1].rstrip()
+    return " ".join(s.split())
+
+
+def _collect_restaurants_from_envelope(envelope: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract (res_id, name, rating, distance_km, eta) pairs from a search envelope.
+
+    Operates on the `get_restaurants_for_keyword` response shape — but is
+    tolerant of nested ``data.results[]`` and ``data.data.results[]`` since
+    Zomato wraps things differently across endpoints.
+    """
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
+        return []
+    data = envelope.get("data")
+    candidates: list[Any] = []
+    if isinstance(data, dict):
+        if isinstance(data.get("results"), list):
+            candidates = data["results"]
+        elif isinstance(data.get("data"), dict) and isinstance(data["data"].get("results"), list):
+            candidates = data["data"]["results"]
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in candidates:
+        if not isinstance(row, dict):
+            continue
+        rid_raw = row.get("res_id") or row.get("restaurant_id") or row.get("resId")
+        name = row.get("name") or row.get("restaurant_name")
+        if rid_raw is None or not isinstance(name, str) or not name.strip():
+            continue
+        rid = str(rid_raw).strip()
+        if not rid or rid in seen:
+            continue
+        seen.add(rid)
+        entry: dict[str, Any] = {"res_id": rid, "name": name.strip()}
+        # Keep a few signals that help disambiguation in the prompt; all optional.
+        for k_src, k_dst in (
+            ("rating", "rating"),
+            ("eta", "eta"),
+            ("distance", "distance_km"),
+            ("serviceability_status", "serviceability_status"),
+        ):
+            v = row.get(k_src)
+            if v is not None:
+                entry[k_dst] = v
+        out.append(entry)
+    return out
+
+
+def _merge_recent_restaurants(
+    existing: list[dict[str, Any]],
+    new_entries: list[dict[str, Any]],
+    *,
+    cap: int = _MAX_REMEMBERED_RESTAURANTS,
+) -> list[dict[str, Any]]:
+    """LRU-style merge: new entries land at the *front*, duplicates by res_id
+    are replaced, and the list is trimmed to ``cap``.
+
+    Ordering by recency lets the planner prefer "the restaurant just shown"
+    when names are ambiguous, while the older tail still answers callbacks
+    like "actually try the second one I saw earlier".
+    """
+    by_id: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    # New entries first (most recent context wins on conflict)
+    for e in new_entries:
+        rid = e.get("res_id")
+        if not isinstance(rid, str) or not rid:
+            continue
+        if rid not in by_id:
+            order.append(rid)
+        by_id[rid] = e
+    # Then existing, skipping anything already inserted
+    for e in existing or []:
+        if not isinstance(e, dict):
+            continue
+        rid = e.get("res_id")
+        if not isinstance(rid, str) or not rid or rid in by_id:
+            continue
+        by_id[rid] = e
+        order.append(rid)
+    return [by_id[r] for r in order[:cap]]
+
+
 def _collect_menu_index_from_envelope(envelope: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Return {normalized_name -> {variant_id, item_name, price?, discounted_price?}}.
 
@@ -1112,6 +1257,8 @@ async def _run_session_inner(
     node_binary: str,
     user_id: str | None = None,
     location_text: str | None = None,
+    session_placeholders: dict[str, str] | None = None,
+    session_restaurants: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -1142,13 +1289,44 @@ async def _run_session_inner(
     )
 
     resolved_id = (effective_address_id or "").strip() or None
+    # Seed placeholder_values with any IDs persisted from a previous turn
+    # (cart_id, restaurant_id, order_id, etc. — every alias in
+    # ``_PLACEHOLDER_ALIASES`` is eligible). This is what makes a multi-turn
+    # flow possible: the executor remembers what create_cart returned in turn
+    # N so it can resolve __CART_ID__ for checkout_cart in turn N+1. The
+    # current-turn address_id (passed in directly) always wins over a stale
+    # one in the seed.
     placeholder_values: dict[str, str] = {}
+    if isinstance(session_placeholders, dict):
+        for k, v in session_placeholders.items():
+            if isinstance(k, str) and k.startswith("__") and k.endswith("__"):
+                if isinstance(v, (str, int)) and str(v).strip():
+                    placeholder_values[k] = str(v).strip()
     if resolved_id:
         placeholder_values["__ADDRESS_ID__"] = resolved_id
+    if placeholder_values:
+        diagnostics["seeded_placeholders"] = sorted(placeholder_values.keys())
     prefetch_done = False
     # Per-session menu memory: populated after each menu tool, consumed by
     # create_cart to resolve items by user-visible name. See RCA notes above.
     menu_index: dict[str, dict[str, Any]] = {}
+    # Per-session restaurant memory: every (res_id, name) pair we've ever
+    # shown the user, with the most-recent search at the front. Seeded
+    # from the previous turn's session_state, refreshed by each
+    # ``get_restaurants_for_keyword`` response, and echoed back through
+    # diagnostics so the pipeline can persist it for the next turn.
+    recent_restaurants: list[dict[str, Any]] = []
+    if isinstance(session_restaurants, list):
+        for entry in session_restaurants:
+            if not isinstance(entry, dict):
+                continue
+            rid = entry.get("res_id")
+            name = entry.get("name")
+            if not isinstance(rid, str) or not rid.strip():
+                continue
+            if not isinstance(name, str) or not name.strip():
+                continue
+            recent_restaurants.append({**entry, "res_id": rid.strip(), "name": name.strip()})
 
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -1220,6 +1398,13 @@ async def _run_session_inner(
                             "placeholders": unresolved,
                         }
                     )
+                    trace(
+                        "executor.zomato.skip",
+                        tool=tool,
+                        reason="placeholder_unresolved",
+                        unresolved=unresolved,
+                        known_placeholders=sorted(placeholder_values.keys()),
+                    )
                     continue
 
                 if tool == "get_saved_addresses_for_user":
@@ -1250,11 +1435,53 @@ async def _run_session_inner(
                         tool=tool,
                     )
 
+                # checkout_cart's MCP schema only accepts `cart_id` — passing
+                # `payment_type` (an arg that belongs to create_cart) causes a
+                # pydantic "unexpected_keyword_argument" rejection from the
+                # server. The planner LLM occasionally tries to be helpful and
+                # echoes payment_type onto the checkout step; strip it here so
+                # a single planner slip doesn't break the whole flow.
+                if tool == "checkout_cart" and isinstance(exec_args, dict):
+                    _dropped_for_checkout = [
+                        k for k in ("payment_type", "paymentType")
+                        if k in exec_args
+                    ]
+                    if _dropped_for_checkout:
+                        for k in _dropped_for_checkout:
+                            exec_args.pop(k, None)
+                        diagnostics.setdefault("scrubbed_args", []).append(
+                            {"tool": tool, "dropped": _dropped_for_checkout}
+                        )
+
+                # Clear any placeholder this tool is about to *issue* so the
+                # next `_learn_placeholders_from_payload` walk re-learns the
+                # fresh value from this response. Without this, a stale
+                # __CART_ID__ seeded from the previous turn would block a new
+                # create_cart's cart_id from being picked up — leading to the
+                # next turn's checkout pointing at the stale (now-empty) cart.
+                _issued = _TOOL_ISSUES_PLACEHOLDER.get(tool)
+                if _issued:
+                    for _ph in _issued:
+                        placeholder_values.pop(_ph, None)
+
+                trace(
+                    "executor.zomato.call",
+                    tool=tool,
+                    arguments=exec_args or {},
+                    known_placeholders=sorted(placeholder_values.keys()),
+                )
                 result = await asyncio.wait_for(
                     session.call_tool(tool, arguments=exec_args or {}),
                     timeout=_MCP_TOOL_TIMEOUT_SECONDS,
                 )
                 envelope = _tool_result_payload(result)
+                trace(
+                    "executor.zomato.result",
+                    tool=tool,
+                    is_error=bool(envelope.get("is_error")),
+                    has_payment=isinstance(envelope.get("payment"), dict),
+                    envelope_keys=sorted(envelope.keys()),
+                )
                 step_results.append(
                     {
                         "tool": tool,
@@ -1285,6 +1512,17 @@ async def _run_session_inner(
                     if new_entries:
                         menu_index.update(new_entries)
                         diagnostics["menu_index_size"] = len(menu_index)
+
+                if tool == "get_restaurants_for_keyword" and not envelope.get("is_error"):
+                    try:
+                        new_restos = _collect_restaurants_from_envelope(envelope)
+                    except Exception as e:
+                        logger.info("restaurant index extraction failed: %s", e)
+                        new_restos = []
+                    if new_restos:
+                        recent_restaurants = _merge_recent_restaurants(
+                            recent_restaurants, new_restos
+                        )
                     # IMPORTANT: trim AFTER the menu_index has captured the
                     # full list. The index keeps the full name->variant_id
                     # mapping (so create_cart can still resolve any item the
@@ -1316,6 +1554,20 @@ async def _run_session_inner(
                             "amount_inr": payment.get("amount_inr"),
                             "transaction_ref": payment.get("transaction_ref"),
                         }
+                        trace(
+                            "executor.zomato.payment_extracted",
+                            has_qr_b64=bool(payment.get("qr_b64")),
+                            qr_paths=payment.get("qr_paths"),
+                            upi_link_present=bool(payment.get("upi_link")),
+                            amount_inr=payment.get("amount_inr"),
+                            transaction_ref=payment.get("transaction_ref"),
+                        )
+                    else:
+                        trace(
+                            "executor.zomato.payment_missing",
+                            envelope_keys=sorted(envelope.keys()),
+                            note="checkout_cart did not produce a parseable payment block",
+                        )
 
                 if resolved_id is None and tool == "get_saved_addresses_for_user":
                     nid = _first_address_id_from_saved_payload(envelope)
@@ -1328,6 +1580,18 @@ async def _run_session_inner(
 
     diagnostics["resolved_address_id"] = resolved_id
     diagnostics["resolved_placeholders"] = sorted(placeholder_values.keys())
+    # Surface the *values* — not just the keys — so the pipeline can hand them
+    # back to the frontend as ``session_state`` and seed the next turn. This
+    # is the bridge that lets a Zomato cart created in turn N be checked out
+    # in turn N+1 without the LLM ever having to see the raw cart_id.
+    diagnostics["session_placeholders"] = dict(placeholder_values)
+    # Echo the multi-restaurant memory so the pipeline can persist it. The
+    # planner uses this to skip a re-search when the user picks a restaurant
+    # we've already shown them — Zomato's fuzzy keyword search is unreliable
+    # for short brand names (e.g. "BOX8" → returns Domino's), so reusing the
+    # known res_id is strictly better than re-querying.
+    if recent_restaurants:
+        diagnostics["session_restaurants"] = list(recent_restaurants)
     return step_results, diagnostics
 
 
@@ -2037,6 +2301,8 @@ def run_tool_plan_sync(
     node_binary: str | None = None,
     user_id: str | None = None,
     location_text: str | None = None,
+    session_placeholders: dict[str, str] | None = None,
+    session_restaurants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv(
@@ -2066,6 +2332,8 @@ def run_tool_plan_sync(
                 node,
                 user_id,
                 location_text=location_text,
+                session_placeholders=session_placeholders,
+                session_restaurants=session_restaurants,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))

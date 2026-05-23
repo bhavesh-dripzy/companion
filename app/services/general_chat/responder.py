@@ -89,17 +89,18 @@ def reply_general_chat(
             if text:
                 return text
 
-        from google import genai as google_genai
+        from app.services.food_llm_router import _gemini_generate_text
 
-        client = google_genai.Client(api_key=llm.api_key)
         transcript = "\n".join(
             f"{m['role'].upper()}: {m['content']}" for m in messages
         )
-        response = client.models.generate_content(
+        text = _gemini_generate_text(
+            api_key=llm.api_key,
             model=llm.model,
-            contents=f"SYSTEM:\n{system_prompt}\n\n{transcript}",
-        )
-        text = (response.text or "").strip()
+            system_prompt=system_prompt,
+            user_message=transcript,
+            label="general_chat",
+        ).strip()
         if text:
             return text
     except Exception:
