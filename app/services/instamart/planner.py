@@ -11,18 +11,31 @@ from app.services.llm_config import ResolvedLlm
 
 _PROMPTS = Path(__file__).resolve().parent / "prompts"
 
-# Exact Instamart MCP tool names (must match tool_runtime.SWIGGY_INSTAMART_PROVIDER.tools)
+# Exact Instamart MCP tool names — extends ``tool_runtime.SWIGGY_INSTAMART_PROVIDER.tools``
+# with the address-management, payment, and confirmation tools the server exposes.
 _INSTAMART_GROCERY_TOOLS = frozenset(
     {
+        # Address book
         "get_addresses",
+        "create_address",
+        "delete_address",
+        # Catalog
         "search_products",
         "your_go_to_items",
+        # Cart
         "get_cart",
         "update_cart",
         "clear_cart",
+        # Payments / checkout
+        "get_payment_options",
         "checkout",
+        "check_payment_status",
+        "confirm_order",
+        # Orders & tracking
         "get_orders",
+        "get_order_details",
         "track_order",
+        # Diagnostics
         "report_error",
     }
 )
