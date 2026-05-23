@@ -4,7 +4,7 @@ import { ChatLog } from './ChatLog'
 import { MessageInput } from './MessageInput'
 import { SettingsModal } from './SettingsModal'
 import { api, clearToken, getToken } from './api'
-import type { GeoCoordinate, Message, Address, QueryResponse, ToolProvider } from './types'
+import type { GeoCoordinate, Message, Address, QueryResponse, SessionRestaurant, ToolProvider } from './types'
 import { useUserLocation } from './useUserLocation'
 import { Settings, LogOut } from 'lucide-react'
 import './index.css'
@@ -25,6 +25,17 @@ function App() {
   const [selectedToolProvider, setSelectedToolProvider] = useState('zomato');
   
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Carry-forward state from the backend across turns. Every successful
+  // /api/agent/query/ returns the placeholder IDs (cart_id, restaurant_id,
+  // order_id, ...) the executor learned this turn and the LRU index of
+  // restaurants the user has been shown. We echo BOTH back on the next
+  // request so the backend can resolve __CART_ID__ for checkout, skip a
+  // re-search when the user picks a known restaurant by name, etc.
+  // Without this echo, every multi-turn flow loses cart context — which
+  // is the prod regression we just hit on houzzat.in.
+  const [sessionState, setSessionState] = useState<Record<string, string>>({});
+  const [sessionRestaurants, setSessionRestaurants] = useState<SessionRestaurant[]>([]);
 
   const { location: userLocation, ensureLocation } = useUserLocation();
 
@@ -82,6 +93,8 @@ function App() {
     setIsAuthenticated(false);
     setUsername('');
     setMessages([]);
+    setSessionState({});
+    setSessionRestaurants([]);
   };
 
   const fetchAddresses = async () => {
@@ -113,6 +126,16 @@ function App() {
         ...(geo.accuracyMeters !== undefined ? { accuracy_meters: geo.accuracyMeters } : {}),
         captured_at: new Date().toISOString(),
       };
+    }
+    // Echo prior-turn state so the backend can resolve carried placeholders
+    // (cart_id, restaurant_id, order_id) and reuse the restaurant index
+    // instead of re-running an unreliable keyword search. Omit empty
+    // values to keep the wire payload small for the very first turn.
+    if (Object.keys(sessionState).length > 0) {
+      body.session_state = sessionState;
+    }
+    if (sessionRestaurants.length > 0) {
+      body.session_restaurants = sessionRestaurants;
     }
     return body;
   };
@@ -153,6 +176,17 @@ function App() {
         meta: [...data.selected_tool_providers, data.tool_execution.ok ? 'tools ok' : data.tool_execution.error].filter(Boolean) as string[],
         trace: data.observable_trace,
       };
+
+      // Persist the carry-forward state the backend just learned. Doing
+      // this after the message is rendered guarantees we never echo back
+      // a half-updated state if the user fires off another message
+      // before the assistant message lands.
+      if (data.session_state && typeof data.session_state === 'object') {
+        setSessionState(data.session_state);
+      }
+      if (Array.isArray(data.session_restaurants)) {
+        setSessionRestaurants(data.session_restaurants);
+      }
 
       setMessages(prev => [...prev, assistantMsg]);
     } catch (err: any) {

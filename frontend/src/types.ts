@@ -32,6 +32,15 @@ export interface Message {
   trace?: any[];
 }
 
+export interface SessionRestaurant {
+  res_id: string;
+  name: string;
+  rating?: number;
+  eta?: string;
+  distance_km?: number;
+  serviceability_status?: string;
+}
+
 export interface QueryResponse {
   assistant_message: string;
   selected_tool_providers: string[];
@@ -41,6 +50,13 @@ export interface QueryResponse {
     error_code?: string;
   };
   observable_trace: any[];
+  // Opaque carry-forward state from the backend. The frontend MUST echo
+  // both of these back on the next /api/agent/query/ request — they are
+  // how the executor remembers the user's cart, restaurant index, etc.
+  // across HTTP turns. Without this echo, every multi-turn flow loses
+  // __CART_ID__, the restaurant index, and the order id.
+  session_state?: Record<string, string>;
+  session_restaurants?: SessionRestaurant[];
 }
 
 export interface McpStatus {
