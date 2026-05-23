@@ -891,6 +891,93 @@ def _resolve_cart_items_by_name(
     return args
 
 
+# ---------------------------------------------------------------------------
+# menu_filter sanitisation
+# ---------------------------------------------------------------------------
+# Zomato's tool *description* claims `menu_filter` supports `flash_sale` and
+# rating filters, but the actual JSON schema declares ONLY `min_price` and
+# `max_price`, and the server silently drops everything else (no error, no
+# filtering). On top of that, `min_price=0` / `max_price=0` are treated as
+# "no filter applied", so passing 0 to express "free items" yields the full
+# (unfiltered) menu — which is the opposite of what the user asked for.
+#
+# This sanitiser is purely defensive: it lets the LLM be sloppy without us
+# silently shipping a meaningless filter. Empirically verified semantics
+# (see RCA notes in repo):
+#   * Only `min_price` and `max_price` are honoured.
+#   * Both endpoints are inclusive.
+#   * The filter compares against `discounted_price` when present, else
+#     `price` — i.e. the *effective* price the user actually pays. This
+#     guidance lives in the system prompt; here we only enforce shape.
+# ---------------------------------------------------------------------------
+_MENU_FILTER_SUPPORTED_FIELDS = frozenset({"min_price", "max_price"})
+
+
+def _sanitize_menu_filter(
+    args: dict[str, Any],
+    diagnostics: dict[str, Any],
+    *,
+    tool: str,
+) -> dict[str, Any]:
+    """Normalise ``args.menu_filter`` in place and return ``args``.
+
+    Drops fields not in ``_MENU_FILTER_SUPPORTED_FIELDS``, drops 0-valued
+    min/max (Zomato treats 0 as "skip filter"), and removes the
+    ``menu_filter`` key entirely if nothing usable remains. Logs anything it
+    had to strip under ``diagnostics["menu_filter_sanitisation"]`` so a tool
+    misuse is observable downstream.
+    """
+    raw = args.get("menu_filter") if isinstance(args, dict) else None
+    if raw is None:
+        return args
+    if not isinstance(raw, dict):
+        diagnostics.setdefault("menu_filter_sanitisation", []).append(
+            {"tool": tool, "reason": "non_dict", "value_type": type(raw).__name__}
+        )
+        args.pop("menu_filter", None)
+        return args
+
+    cleaned: dict[str, Any] = {}
+    dropped: dict[str, Any] = {}
+    for key, val in raw.items():
+        if key not in _MENU_FILTER_SUPPORTED_FIELDS:
+            dropped[key] = val
+            continue
+        if val is None:
+            continue
+        try:
+            num = float(val)
+        except (TypeError, ValueError):
+            dropped[key] = val
+            continue
+        if num <= 0:
+            # 0 (and negatives) are sentinels for "no filter applied" on Zomato.
+            # Drop them so the LLM saying "max_price=0 = free items" doesn't
+            # accidentally request the full menu.
+            dropped[key] = val
+            continue
+        cleaned[key] = num
+
+    if "min_price" in cleaned and "max_price" in cleaned and cleaned["min_price"] > cleaned["max_price"]:
+        # Inverted range: drop both rather than silently swap; the LLM should
+        # see the result and recover.
+        dropped["range_inverted"] = (cleaned["min_price"], cleaned["max_price"])
+        cleaned.pop("min_price", None)
+        cleaned.pop("max_price", None)
+
+    if cleaned:
+        args["menu_filter"] = cleaned
+    else:
+        args.pop("menu_filter", None)
+
+    if dropped:
+        diagnostics.setdefault("menu_filter_sanitisation", []).append(
+            {"tool": tool, "dropped": dropped, "kept": cleaned}
+        )
+
+    return args
+
+
 def _truncate_menu_envelope_for_response(
     envelope: dict[str, Any],
     *,
@@ -1149,6 +1236,18 @@ async def _run_session_inner(
                         exec_args if isinstance(exec_args, dict) else {},
                         menu_index,
                         diagnostics,
+                    )
+
+                # For menu tools, scrub `menu_filter` so we never send fields
+                # the server silently ignores (flash_sale / min_rating) or
+                # 0-sentinels (which yield the *full* menu instead of the
+                # intended subset). See `_sanitize_menu_filter` for the
+                # empirical Zomato semantics.
+                if tool in {"get_menu_items_listing", "get_restaurant_menu_by_categories"}:
+                    exec_args = _sanitize_menu_filter(
+                        exec_args if isinstance(exec_args, dict) else {},
+                        diagnostics,
+                        tool=tool,
                     )
 
                 result = await asyncio.wait_for(

@@ -99,6 +99,20 @@ Zomato MCP: *Main tool to do a general search for restaurants or to search resta
 - For **deals** (“cheapest pizza”), search first; rank `res_offer` / discount text in `summary`.
 - Do not put long conversational prose in `keyword`.
 
+**Restaurant search response preview — free signal:** Each row in `get_restaurants_for_keyword`'s `results[]` includes an `items[]` preview (3-12 dishes) with **`is_veg`** (bool) and **`price`** (₹) per dish. Use this preview to answer many "veg pizza under ₹200" / "cheapest paneer biryani" / "show veg options" intents WITHOUT a follow-up menu call. Plan `get_restaurants_for_keyword` only, surface the matching previews per restaurant in `summary`, and let the response builder render them.
+
+**Optional `filter` — empirically verified behaviour (NOT what the schema description implies):**
+| Field | Works? | Use it for |
+|---|---|---|
+| `min_rating` (0-5) | ✅ Yes | "top-rated pizza", "good places", "4.0+ rated" |
+| `offers_tag` (`"default"` / `"DOTD"` / `"GOLD"` / `"BOGO"`) | ✅ Yes | "best deals", "Gold offers", "BOGO" |
+| `near_and_fast` (bool) | ✅ Yes | "quick delivery", "fast", "ASAP" |
+| `flash_sale` (bool) | ✅ Yes | "50% off", "flash sale" |
+| `distance` (km) | ✅ Yes | "within 2 km", "nearby" |
+| `is_gourmet` (bool) | ✅ Yes | "premium", "gourmet" |
+| `new_for_you_filter` (bool) | ✅ Yes | "new places", "discover" |
+| `max_price` / `min_price` | ⚠️ **Avoid** | Empirically returns **0 restaurants** for most keywords — this is a restaurant-level cost-for-two filter that's too aggressive in practice. **Do not use** for "under ₹X" intents — that's an *item-level* signal; either use `menu_filter` on menu tools, or filter the restaurant preview `items[]` client-side via your `summary`. |
+
 ---
 
 ### `get_menu_items_listing`
@@ -108,6 +122,8 @@ Returns **menu categories** (item_mappings) for one restaurant. Does **not** inc
 **Required arguments:**
 - **`res_id`** — `"__RESTAURANT_ID__"` after `get_restaurants_for_keyword`, or a numeric id only if the user supplied it explicitly.
 - **`address_id`** — `"__ADDRESS_ID__"`.
+
+**Optional `menu_filter` — same semantics as `get_restaurant_menu_by_categories` (see Filters cheat-sheet below). Even though the listing doesn't surface prices, the *row count* is still filtered, so this is a cheap way to ask "is anything under ₹150 here?".**
 
 **When to plan:**
 - User picked or named a restaurant and wants “the menu”, “what do they have”, “categories”.
@@ -129,6 +145,53 @@ Detailed items with **prices** for specific category names.
 **When to plan:**
 - User asks for **prices**, specific **dishes**, or a **category** (“show burgers”, “veg mains”).
 - After listing when you know category names, or alongside listing when user named categories upfront.
+
+#### Menu-filter cheat-sheet (`menu_filter` argument)
+
+Empirically verified against the live server — **trust this table over the tool's own description**, which lists fields the server silently ignores.
+
+| Field | Works? | Notes |
+|---|---|---|
+| `min_price` (₹, > 0) | ✅ | Inclusive lower bound. |
+| `max_price` (₹, > 0) | ✅ | Inclusive upper bound. |
+| `flash_sale` (bool) | ❌ | Mentioned in description, **silently ignored**. Do not send. |
+| `min_rating` (number) | ❌ | Mentioned in description, **silently ignored**. Do not send. |
+| Anything else | ❌ | Silently ignored. |
+
+Key rules:
+1. **What the filter compares against** — `discounted_price` when present, else `price`. i.e. the **effective** price the user actually pays. So for "pizzas under ₹200", an item priced ₹410 with a ₹205 discount IS included (it's effectively ₹205).
+2. **Both endpoints inclusive.** `{"min_price": 119, "max_price": 119}` matches items at exactly ₹119.
+3. **NEVER send `0` for `min_price` or `max_price`.** Zomato treats 0 as a "skip filter" sentinel, so `{"max_price": 0}` returns the *full* menu — the opposite of "free items". For "free items" / "freebies" intent, just omit the filter and post-rank in `summary` from the unfiltered result. (The executor also strips 0-valued fields defensively.)
+4. **Inverted range is dropped.** Both `min_price > max_price` are ignored.
+
+**Filter examples** (after `get_restaurants_for_keyword` → res_id resolved):
+
+```json
+// "pizza under ₹200 at Domino's"
+{"tool":"get_restaurant_menu_by_categories",
+ "arguments":{"res_id":"__RESTAURANT_ID__","address_id":"__ADDRESS_ID__",
+              "categories":["Pizza Mania","Pizza & More"],
+              "menu_filter":{"max_price":200}}}
+
+// "biryani between ₹250 and ₹400 at Behrouz"
+{"tool":"get_restaurant_menu_by_categories",
+ "arguments":{"res_id":"__RESTAURANT_ID__","address_id":"__ADDRESS_ID__",
+              "categories":["Biryani"],
+              "menu_filter":{"min_price":250,"max_price":400}}}
+```
+
+#### Veg / non-veg filtering — no MCP filter, post-filter on `item_tags`
+
+There is **no `is_veg` parameter** on any menu tool. Filter client-side using each row's `item_tags` array (string list):
+- `"veg"` in tags AND `"non-veg"` not in tags → **veg item**
+- `"non-veg"` in tags → **non-veg item**
+- Other tags you might see: `"egg"`, `"contains-egg"`, `"high-repeat"`, `"non-promo"`, `"services"`, `"delivery-enabled"`, `"non-gold"`, `"promo-*"`.
+
+Strategy when the user says "**veg pizza**" / "**only veg**":
+- Step 1: `get_restaurants_for_keyword(keyword="veg pizza")` — Zomato biases the response's restaurant preview `items[]` toward veg dishes; the restaurant list itself doesn't shrink, but each row's preview leans veg.
+- Step 2 (if user picks one): fetch `get_restaurant_menu_by_categories` for the relevant categories and surface only rows where `item_tags` contains `"veg"` and not `"non-veg"`. Mention non-veg counts in summary so the user knows what's hidden.
+
+For "**non-veg only**" / "**chicken**" / "**egg**" intents, mirror the strategy — keyword bias, then post-filter on tags.
 
 Each cart line needs a `variant_id` from these results. Two ways to supply it (no `__VARIANT_ID__` placeholder — that placeholder is **forbidden** because it binds globally to the first item in the menu and silently turns multi-item carts into duplicates of one wrong row):
 
@@ -250,6 +313,23 @@ Example (Tossin Pizza menu):
 ```
 
 ---
+
+## Filter intents — quick reference
+
+| User says | Best plan | Why |
+|---|---|---|
+| "veg pizza near me" | `get_restaurants_for_keyword(keyword="veg pizza")` | Restaurant preview `items[]` already leans veg — answer from preview, no menu call needed. |
+| "show veg pizza options under ₹200" | `get_restaurants_for_keyword(keyword="veg pizza")` and post-filter preview `items[]` by `is_veg==True` AND `price<=200` in your `summary` | No menu round-trip; preview gives you `is_veg` + `price` for top dishes per restaurant. |
+| "veg pizzas at Domino's" | `get_restaurants_for_keyword(keyword="Domino's")` → `get_restaurant_menu_by_categories(categories=["Pizza Mania","Pizza & More"])` → response builder filters by `item_tags` containing `"veg"` and not `"non-veg"` | Need full menu rows for accurate veg filtering at the named outlet. |
+| "pizza under ₹200 at Domino's" | `get_restaurants_for_keyword(keyword="Domino's")` → `get_restaurant_menu_by_categories(..., menu_filter={"max_price":200})` | Server-side menu price filter — cheapest. |
+| "pizza between ₹150-₹400 at any place" | Per-restaurant menu calls are wasteful. Use search preview + client-side range filter on `items[].price` instead. | One round-trip vs N. |
+| "highest-rated pizza places" | `get_restaurants_for_keyword(keyword="pizza", filter={"min_rating":4.3})` | Restaurant-level `min_rating` works. |
+| "best deals on pizza" / "BOGO" | `get_restaurants_for_keyword(keyword="pizza", filter={"offers_tag":"BOGO"})` (or `"DOTD"` / `"GOLD"`) | Restaurant-level `offers_tag` works. |
+| "fastest delivery pizza" / "ASAP" | `get_restaurants_for_keyword(keyword="pizza", filter={"near_and_fast":true})` | Restaurant-level quick-delivery filter. |
+| "pizza within 2 km" | `get_restaurants_for_keyword(keyword="pizza", filter={"distance":2})` | Restaurant-level distance (km). |
+| "flash sale" / "50% off pizza" | `get_restaurants_for_keyword(keyword="pizza", filter={"flash_sale":true})` | Restaurant-level only — menu-level `flash_sale` is silently ignored. |
+| "show top-rated cheap pizza" | `get_restaurants_for_keyword(keyword="pizza", filter={"min_rating":4.2})`, then rank preview `items[].price` ascending in `summary` | Stack rating filter with client-side price ranking. |
+| "free items" / "items under ₹1" | Omit `menu_filter` entirely; surface the cheapest 3-5 items from the full menu | **Never** send `min_price`/`max_price` = 0 — Zomato treats 0 as "skip filter" and returns the full menu. |
 
 ## Cart & checkout workflows
 
