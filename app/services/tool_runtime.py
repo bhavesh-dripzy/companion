@@ -715,12 +715,12 @@ def execute_tool_plan_sync(
             "provider_results": provider_results,
         }
 
-    requested_location = (
-        _requested_location_from_constraints(constraints)
-        or _explicit_location_from_message(user_message)
-    )
-
+    requested_location: str | None = None
     if "zomato" in routed:
+        requested_location = (
+            _requested_location_from_constraints(constraints)
+            or _explicit_location_from_message(user_message)
+        )
         # We used to refuse to substitute the first address if a different location was requested.
         # Now we let it proceed to run_tool_plan_sync, which will try to prefetch and resolve.
         # The response LLM will handle the result (success or skipped tools).
@@ -729,6 +729,13 @@ def execute_tool_plan_sync(
             address_id=address_id,
             user_id=user_id,
             location_text=requested_location,
+        )
+
+    # Compute requested_location for non-zomato providers
+    if not requested_location:
+        requested_location = (
+            _requested_location_from_constraints(constraints)
+            or _explicit_location_from_message(user_message)
         )
 
     routed_names = tuple(name for name in sorted(routed.keys()) if name != "zomato")
