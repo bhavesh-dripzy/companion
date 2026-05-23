@@ -112,23 +112,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleConnectMcp = async () => {
     try {
-      const data = await api.get(`/api/mcp/oauth/start?provider=${selectedProviderId}`);
+      const data = await api.get(`/api/mcp/hosted_oauth/start?provider=${selectedProviderId}`);
+      if (data.authorization_url) {
+        const popup = window.open(data.authorization_url, 'oauth', 'width=600,height=700');
+        if (popup) {
+          startOAuthStatusPolling(selectedProviderId);
+        }
+        return;
+      }
       if (data.command) {
         setPairingCommand(data.command);
         return;
       }
-      if (data.authorization_url) {
-        window.location.assign(data.authorization_url);
-        return;
-      }
-      
-      const pairing = await api.post(`/api/mcp/pairing/?provider=${selectedProviderId}`);
-      if (pairing.command) {
-        setPairingCommand(pairing.command);
-      }
     } catch (err) {
       console.error('Failed to connect MCP', err);
     }
+  };
+
+  const startOAuthStatusPolling = (provider: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await api.get(`/api/mcp/status/?provider=${provider}`);
+        if (status.status === 'ready') {
+          clearInterval(pollInterval);
+          setMcpStatus(status);
+        }
+      } catch {
+        // Keep polling
+      }
+    }, 2000);
+
+    setTimeout(() => clearInterval(pollInterval), 5 * 60 * 1000);
   };
 
   const handleConnectGcal = async () => {
