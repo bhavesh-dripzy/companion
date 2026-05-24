@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import aws_cdk as cdk
@@ -216,6 +217,7 @@ class CompanionStack(Stack):
             code=lambda_.DockerImageCode.from_image_asset(
                 str(repo_root),
                 exclude=image_excludes,
+                build_args={"SARVAM_API_KEY": os.environ.get("SARVAM_API_KEY", "")},
             ),
             architecture=lambda_.Architecture.X86_64,
             memory_size=1024,

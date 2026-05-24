@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ArrowUp } from 'lucide-react';
+import { VoiceInput } from './VoiceInput';
 
 interface MessageInputProps {
   onSendMessage: (message: string) => void;
@@ -73,6 +74,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               placeholder="Ask, write or search for anything..."
               rows={1}
               className="flex-1 bg-transparent text-gray-100 placeholder:text-gray-500 px-3 py-2 focus:outline-none resize-none min-h-[44px] text-[15px] leading-relaxed"
+            />
+            <VoiceInput
+              onTranscript={(text) => setMessage((prev) => (prev ? `${prev} ${text}` : text))}
+              onAutoSubmit={handleSubmit}
+              autoSubmit
+              disabled={disabled}
             />
             <button
               onClick={handleSubmit}

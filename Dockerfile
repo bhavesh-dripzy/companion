@@ -20,11 +20,15 @@ COPY requirements.txt package.json package-lock.json ./
 RUN pip install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}" && \
     npm ci --omit=dev
 
+ARG SARVAM_API_KEY
+
 # Copy frontend source and build it
 COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN cd frontend && npm ci
 COPY frontend/ ./frontend/
-RUN cd frontend && npm run build && rm -rf node_modules
+RUN cd frontend && \
+  echo "VITE_SARVAM_API_KEY=${SARVAM_API_KEY}" > .env && \
+  npm run build && rm -rf node_modules .env
 
 COPY app/__init__.py ./app/__init__.py
 COPY app/services ./app/services

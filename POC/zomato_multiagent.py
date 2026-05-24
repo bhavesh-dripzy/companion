@@ -185,6 +185,40 @@ def load_tokens() -> dict | None:
     return None
 
 
+def validate_token(token: str) -> bool:
+    """Test if a token is valid by calling get_saved_addresses_for_user."""
+    result = make_mcp_request("get_saved_addresses_for_user", {}, token)
+    if isinstance(result, dict):
+        error = result.get("error", "")
+        if isinstance(error, str) and any(x in error.lower() for x in ["invalid_token", "unauthorized", "401", "authentication required"]):
+            return False
+        if "result" in result:
+            return True
+    return True
+
+
+def reauthenticate() -> bool:
+    """Re-authenticate and save new tokens. Returns True if successful."""
+    import subprocess
+    import tempfile
+    import hashlib
+
+    print("\n[→] Tokens invalid. Starting re-authentication...")
+    result = run_mcp_remote_oauth()
+    if "error" in result:
+        print(f"\n[✗] {result['error']}")
+        return False
+
+    tokens = find_tokens_in_dir(result["config_dir"])
+    if tokens:
+        save_tokens(tokens)
+        print("\n[✓] Re-authentication successful! Tokens saved.")
+        return True
+
+    print("\n[✗] Could not find tokens after re-authentication.")
+    return False
+
+
 # ── MCP Communication (reused from original script) ──────────────────
 def make_mcp_request(
     tool_name: str, arguments: dict[str, Any], token: str | None = None
@@ -772,27 +806,29 @@ def setup_authentication() -> bool:
 
     tokens = load_tokens()
     if tokens and tokens.get("access_token"):
-        state.tokens = tokens
-        state.authenticated = True
-        print("\n[✓] Loaded existing session — you are authenticated")
-        return True
-
-    print("\n[→] No saved session found. Starting Zomato authentication...")
-    result = run_mcp_remote_oauth()
-
-    if "error" in result:
-        print(f"\n[✗] {result['error']}")
+        if validate_token(tokens["access_token"]):
+            state.tokens = tokens
+            state.authenticated = True
+            print("\n[✓] Loaded existing session — you are authenticated")
+            return True
+        print("\n[!] Existing session expired. Re-authenticating...")
+        if reauthenticate():
+            tokens = load_tokens()
+            if tokens:
+                state.tokens = tokens
+                state.authenticated = True
+                return True
         return False
 
-    tokens = find_tokens_in_dir(result["config_dir"])
-    if tokens:
-        save_tokens(tokens)
-        state.tokens = tokens
-        state.authenticated = True
-        print("\n[✓] Authentication successful! Tokens saved.")
-        return True
+    print("\n[→] No saved session found. Starting Zomato authentication...")
+    if reauthenticate():
+        tokens = load_tokens()
+        if tokens:
+            state.tokens = tokens
+            state.authenticated = True
+            return True
 
-    print("\n[✗] Could not find tokens after authentication.")
+    print("\n[✗] Authentication failed.")
     return False
 
 
