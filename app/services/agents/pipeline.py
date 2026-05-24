@@ -142,6 +142,7 @@ def _format_routing_message(
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
     selected_address_id: str | None = None,
+    pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build planner/orchestrator input: recent transcript + current user turn.
 
@@ -234,6 +235,49 @@ def _format_routing_message(
                 "switch ONLY when the user explicitly asks to change "
                 "address, then put the chosen literal address_id in your "
                 "tool args):\n" + "\n".join(addr_rows)
+            )
+    if pending_variant_choice:
+        # Surface the variant menu the previous turn deferred so the
+        # planner can emit literal groupId / variation.id values when
+        # the user replies with their pick ("medium new hand tossed").
+        # Without this, the planner hallucinates ``__VARIANT_ID__`` /
+        # ``__GROUP_ID__`` placeholders which the executor can't resolve.
+        pvc_blocks: list[str] = []
+        for item in pending_variant_choice[:3]:
+            if not isinstance(item, dict):
+                continue
+            iname = str(item.get("item_name") or "").strip() or "(unnamed item)"
+            iid = str(item.get("item_id") or "").strip()
+            head = f"  - {iname} (item_id={iid}):" if iid else f"  - {iname}:"
+            pvc_blocks.append(head)
+            for group in (item.get("groups") or [])[:4]:
+                if not isinstance(group, dict):
+                    continue
+                gname = str(group.get("name") or "Choose").strip()
+                gid = str(group.get("groupId") or "").strip()
+                pvc_blocks.append(
+                    f"      group {gname!r} (group_id={gid}):"
+                )
+                for choice in (group.get("choices") or [])[:12]:
+                    if not isinstance(choice, dict):
+                        continue
+                    cname = str(choice.get("name") or "").strip()
+                    cid = str(choice.get("id") or "").strip()
+                    price = choice.get("price")
+                    price_tail = f" ₹{price}" if price not in (None, "") else ""
+                    pvc_blocks.append(
+                        f"        * {cname} → variation_id={cid}{price_tail}"
+                    )
+        if pvc_blocks:
+            parts.append(
+                "Pending variant choice from the previous turn — the user is "
+                "replying with their pick now. Build a fresh `update_food_cart` "
+                "with literal `cartItems[].variantsV2 = [{groupId: <group_id>, "
+                "variations: [{id: <variation_id>}]}]` using the ids below. "
+                "Pick one variation per group matching the user's words "
+                "(\"medium\" → Size group's Medium variation, etc.). "
+                "Never emit `__VARIANT_ID__` / `__GROUP_ID__` placeholders — "
+                "they don't exist.\n" + "\n".join(pvc_blocks)
             )
     parts.append(f"Current user message:\n{current}")
     return "\n\n".join(parts) if len(parts) > 1 else current
@@ -537,6 +581,7 @@ def run_agent_turn(
     session_state: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
+    pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Orchestrated agent turn producing the same response envelope as legacy /api/food/query/.
@@ -612,6 +657,17 @@ def run_agent_turn(
     selected_addr = (address_id or "").strip() or (
         str((session_state or {}).get("__ADDRESS_ID__") or "").strip() or None
     )
+    # Sanitize the pending_variant_choice echo so a malformed client
+    # can't inject arbitrary strings into the planner prompt.
+    seed_variant_choices: list[dict[str, Any]] = []
+    if isinstance(pending_variant_choice, list):
+        for entry in pending_variant_choice:
+            if not isinstance(entry, dict):
+                continue
+            if not str(entry.get("item_id") or "").strip():
+                continue
+            seed_variant_choices.append(entry)
+
     planner_routing_message = _format_routing_message(
         user_message,
         conversation_history,
@@ -619,6 +675,7 @@ def run_agent_turn(
         session_restaurants=seed_restaurants or None,
         session_addresses=seed_addresses or None,
         selected_address_id=selected_addr,
+        pending_variant_choice=seed_variant_choices or None,
     )
     previous_provider = _extract_previous_provider(conversation_history)
     trace(
@@ -821,6 +878,12 @@ def run_agent_turn(
     # list this turn, its result wins; otherwise we just echo the seed
     # back so the frontend can keep persisting it.
     next_session_addresses: list[dict[str, Any]] = list(seed_addresses)
+    # ``pending_variant_choice`` is single-turn state: if the executor
+    # deferred a cart this turn we echo it back so the next turn's
+    # planner can resolve the user's pick. If the executor did NOT
+    # defer (turn succeeded or never tried), we DO NOT echo it back —
+    # the choice was either satisfied or no longer relevant.
+    next_pending_variant_choice: list[dict[str, Any]] = []
     address_source: str | None = None
     address_context: dict[str, Any] | None = None
     for _provider_name, _raw in (raw_tool_results or {}).items():
@@ -834,6 +897,11 @@ def run_agent_turn(
             for k, v in _learned.items():
                 if isinstance(k, str) and isinstance(v, (str, int)) and str(v).strip():
                     next_session_state[k] = str(v).strip()
+        _pvc = _diag.get("pending_variant_choice")
+        if isinstance(_pvc, list) and _pvc:
+            for entry in _pvc:
+                if isinstance(entry, dict) and entry.get("item_id"):
+                    next_pending_variant_choice.append(entry)
         _restos = _diag.get("session_restaurants")
         if isinstance(_restos, list) and _restos:
             # Executor already merged seed + new entries, so its list is the
@@ -984,6 +1052,13 @@ def run_agent_turn(
         # Compact view the chat UI / debug surface can show without having to
         # cross-reference session_state + session_addresses themselves.
         "address_context": address_context,
+        # Single-turn deferral: if the executor skipped ``update_food_cart``
+        # because the menu item has a real user choice (size 8"/10"/12",
+        # crust hand-tossed vs thin), the variant menu rides here so the
+        # next turn's planner can emit literal variation ids when the user
+        # replies. Empty list when nothing is pending — frontends should
+        # echo it back verbatim.
+        "pending_variant_choice": next_pending_variant_choice,
     }
     trace(
         "response_builder.in",

@@ -807,6 +807,8 @@ def execute_tool_plan_sync(
                 user_id=user_id,
                 location_text=requested_location,
                 session_placeholders=session_placeholders,
+                session_restaurants=session_restaurants,
+                session_addresses=session_addresses,
             )
         elif name == "swiggy_instamart":
             from app.services.instamart_mcp_executor import run_tool_plan_sync as run_instamart_plan

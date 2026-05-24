@@ -1382,6 +1382,21 @@ def _companion_agent_turn(
             clean_addr.append({**entry, "address_id": sid})
         session_addresses = clean_addr or None
 
+    # Variant-choice deferral state — only ever set when the previous
+    # turn skipped a Swiggy ``update_food_cart`` for a multi-option item.
+    pending_variant_choice: list[dict[str, Any]] | None = None
+    raw_pvc = getattr(payload, "pending_variant_choice", None)
+    if isinstance(raw_pvc, list) and raw_pvc:
+        clean_pvc: list[dict[str, Any]] = []
+        for entry in raw_pvc:
+            if not isinstance(entry, dict):
+                continue
+            iid = entry.get("item_id")
+            if not isinstance(iid, str) or not iid.strip():
+                continue
+            clean_pvc.append(entry)
+        pending_variant_choice = clean_pvc or None
+
     try:
         return run_agent_turn(
             user_message=payload.message.strip(),
@@ -1394,6 +1409,7 @@ def _companion_agent_turn(
             session_state=session_state,
             session_restaurants=session_restaurants,
             session_addresses=session_addresses,
+            pending_variant_choice=pending_variant_choice,
         )
     except CustomMcpNeedsDiscoveryError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

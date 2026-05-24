@@ -6,16 +6,38 @@ Turn that into a **minimal ordered `tool_plan`**. Output **nothing except one JS
 
 ## Companion (production): how arguments & placeholders behave
 
-Companion runs your plan via `run_swiggy_tool_plan_sync` after `normalize_tool_plan` in `food_llm_router`:
+Companion runs your plan via `run_swiggy_tool_plan_sync` after `normalize_tool_plan` in `food_llm_router`. **The executor manages address resolution for you** — your job is to plan the right *food* tools, not address bookkeeping.
 
-1. **Saved UI/API address** — The authenticated user selects a **`address_id`** on `POST /api/agent/query/` (or `/api/food/query/`). Companion passes it into execution and **prefills** substitutions for any literal **`__ADDRESS_ID__`** string in arguments.
-2. **Dual keys for Swiggy** — Normalization keeps **`addressId` AND `address_id`**, **`restaurantId` AND `restaurant_id`**, **`orderId` AND `order_id`** in sync wherever applicable so MCP receives camelCase.
-3. **Executor auto-fetch (fallback)** — If a Swiggy tool needs **`__ADDRESS_ID__`** but Companion has **no** `address_id`, the executor may **auto-invoke `get_addresses` once**, parse **`addressId`** from the response (**first address heuristic** — last-order ordering from Swiggy), then substitute. This is weaker than MCP’s “STOP and ask the user”; still **prefer emitting `get_addresses` first** whenever the MCP rules below require user-visible address selection.
-4. **Restaurant chaining (mandatory for menus)** — **`__RESTAURANT_ID__`** is filled only after **`search_restaurants`** in the **same** `tool_plan`. Companion uses the **first** matching restaurant row’s `id`. You **must** run **`search_restaurants`** immediately before any menu tool that needs a restaurant scope.
-5. **Placeholder failure** — If **`search_menu`** or **`get_restaurant_menu`** includes **`__RESTAURANT_ID__`** / **`restaurantId`** / **`restaurantIdOfAddedItem`** but there is **no** earlier **`search_restaurants`** step in this plan, execution **skips** the menu call. Never emit a lone `search_menu` with `restaurantIdOfAddedItem: "__RESTAURANT_ID__"`.
-6. **Placeholder failure (address)** — Unresolved **`__ADDRESS_ID__`** also causes skips. Rely on the request’s saved `address_id` via **`__ADDRESS_ID__`** placeholders.
-7. **Literal placeholder strings allowed as values** — e.g. `"addressId": "__ADDRESS_ID__"` is intentionally expanded before `tools/call`.
+1. **Address is auto-managed — ALWAYS emit `"addressId": "__ADDRESS_ID__"` AND `"address_id": "__ADDRESS_ID__"`** on every Swiggy tool that needs an address. Never paste a literal numeric address id from the request, never invent one, never put `"default"` / `"1"` / `"N/A"`. The executor will substitute:
+   - the address the user attached to this turn (if any), then
+   - the address persisted from a prior turn’s `session_state.__ADDRESS_ID__`, then
+   - the first row of `session_addresses` (saved-address index — see the context block in your input), then
+   - as a last resort, auto-invoke `get_addresses` once and pick the first saved address.
+
+   The exception is **switching addresses mid-conversation** — see rule 1b.
+
+   **1b. Switching addresses mid-conversation.** When the user explicitly asks to change addresses ("use my work address", "switch to Gurgaon", "deliver to home this time"), pick the literal `address_id` of the matching entry from the `Saved delivery addresses available this session` block in your input and emit it as `"addressId": "<that id>"` AND `"address_id": "<that id>"` on the first tool that needs an address. The executor sees a literal (non-placeholder) id, detects the switch, and persists the new id for the rest of the conversation — you do NOT need to call `get_addresses` to confirm.
+
+2. **NEVER preemptively plan `get_addresses`** just because the MCP description below says “STOP and let the user choose”. Companion already shows the saved-address picker in the UI. Only emit `get_addresses` when the user **explicitly** asks to see their saved addresses ("show my saved addresses", "what addresses do I have?"). On every other turn the executor handles address resolution silently.
+
+3. **Dual keys for Swiggy** — normalization keeps **`addressId` AND `address_id`**, **`restaurantId` AND `restaurant_id`**, **`orderId` AND `order_id`** in sync wherever applicable so MCP receives the camelCase shape it expects.
+
+4. **Restaurant chaining (mandatory for menus)** — `__RESTAURANT_ID__` is filled either:
+   - **In-plan** from the first hit of a `search_restaurants` step earlier in the same `tool_plan`, OR
+   - **Across turns** if the user references a restaurant from `Restaurants already shown to the user this session` in your input — paste that literal `res_id` into `restaurantId` AND `restaurantIdOfAddedItem` and skip the redundant `search_restaurants`.
+
+   When you must run `search_restaurants` first (no prior session row matches), use the **short brand name** as `query` (e.g. `"Tossin Pizza"`, `"Pizza Hut"`), not the user's full sentence.
+
+   **⚠️ DO NOT trust `__RESTAURANT_ID__` blindly when the user names a specific restaurant.** A `Carried-forward placeholder` for `__RESTAURANT_ID__` only means "the executor remembers *some* restaurant" — it might be from turn 1's pizza search, not the Pizza Hut the user just asked for. Whenever the current user message names a restaurant (Pizza Hut, Domino's, La Pino'z, …), scan `Restaurants already shown` first; if you find a row whose name matches, paste that literal `res_id` into both `restaurantId` and `restaurantIdOfAddedItem`. The placeholder is only safe when the user is continuing a flow on the same restaurant ("add another one", "checkout").
+
+5. **Placeholder failure** — if `search_menu` / `get_restaurant_menu` includes `__RESTAURANT_ID__` but there is no earlier `search_restaurants` step AND no matching session row, execution **skips** the menu call. Never emit a lone `search_menu` with `restaurantIdOfAddedItem: "__RESTAURANT_ID__"`.
+
+6. **Carried-forward placeholders** — `Carried-forward placeholders available` in your input lists names like `__CART_ID__`, `__RESTAURANT_ID__`, `__ORDER_ID__`, `__ADDRESS_ID__` set by the previous turn. Use them directly in tool arguments — the executor substitutes real values. This is how a cart created on turn N gets checked out on turn N+1 without you ever seeing the raw `cart_id`.
+
+7. **Literal placeholder strings as values** — e.g. `"addressId": "__ADDRESS_ID__"` is intentionally expanded before `tools/call`.
+
 8. **`track_food_order`** — `orderId` is **optional**; normalization does **not** inject `__ORDER_ID__`. Omit keys to track active orders broadly.
+
 9. **Never invent** numeric-looking OAuth tokens/coordinates; MCP handles auth via mcp-remote.
 
 ---
@@ -36,15 +58,9 @@ Paraphrasing is minimized; wording follows the Swiggy Food MCP **`tools/list` de
 
 Swiggy (Instamart/Food): Get all saved delivery addresses for the authenticated Swiggy user, sorted by last order date. Works for Food and Instamart. Addresses returned **without coordinates** for privacy.
 
-**📍 IMPORTANT — STOP here and let the user choose:**
+**🚫 DO NOT plan this preemptively.** Companion already auto-resolves the active address (see Rule 1 above) and shows a saved-address picker in the UI. Only emit `get_addresses` when the user **explicitly** asks to see their list ("show me my saved addresses", "what addresses do I have?"). For "switch to my work address" use Rule 1b instead — paste the literal `address_id` from the session block, do **not** call `get_addresses`.
 
-1. Show the address list to the user.
-2. Ask: “Which address would you like to use for delivery?”
-3. Do **NOT** call any other tool until the user has selected an address.
-4. Remember the **`addressId`** for all subsequent operations.
-5. If no addresses returned, inform the user they need to add an address first.
-
-*Parameters: none (auth automatic). Companion may prefetch this tool when address substitution is unresolved.*
+*Parameters: none (auth automatic).*
 
 ---
 
@@ -52,7 +68,7 @@ Swiggy (Instamart/Food): Get all saved delivery addresses for the authenticated 
 
 Search and order food from restaurants for delivery. **PRIMARY food delivery.** Not dine-out.
 
-**⚠️ REQUIRED WORKFLOW:** You MUST call **`get_addresses` first** for a valid `addressId`, then pass **`addressId`**. NEVER guess placeholders like `"default"`, `"1"`, `"N/A"`.
+**ADDRESS:** Always emit `"addressId": "__ADDRESS_ID__"` AND `"address_id": "__ADDRESS_ID__"` per Rule 1. The executor handles substitution — do **not** call `get_addresses` first.
 
 **IMPORTANT:** Response includes **`availabilityStatus`**: `OPEN`, `CLOSED`, or `UNAVAILABLE`. Only recommend/order from **`OPEN`**; explain closed/unavailable and suggest open picks.
 
@@ -119,6 +135,23 @@ Add/update cart items.**CRITICAL variants vs variantsV2**—mirror `search_menu`
 Brief assistant copy + cart refresh.
 
 Addon workflow: variants first ⇒ read `valid_addons` ⇒ addons respecting min/max constraints.
+
+**🚨 MANDATORY CHAIN — search_menu BEFORE every update_food_cart in the SAME plan.** Item IDs in conversation history are stale (the executor never persists them across turns). Always emit `search_menu` first in the plan with `query` set to the item the user named ("Margherita Pizza", "Farmhouse"), then `update_food_cart` second. In the cart step use `cartItems: [{menu_item_id: "__MENU_ITEM_ID__", quantity: N}]` — the executor substitutes the freshly-learned item id from your in-plan `search_menu`. **NEVER paste literal item ids from conversation history. NEVER invent placeholders like `__ITEM_ID__`, `"item_id_from_search_menu_for_X"`, etc.** Only `__MENU_ITEM_ID__` (or `__RESTAURANT_ID__` / `__ADDRESS_ID__`) are real.
+
+**REQUEST SHAPE (strict, snake_case + flat).** Swiggy MCP rejects the response-shape (`itemId` / nested `variations`). Use exactly:
+```json
+"cartItems": [{
+  "menu_item_id": "<id>",
+  "quantity": N,
+  "variantsV2": [{"group_id": "<gid>", "variation_id": "<vid>"}, ...],
+  "addons": [{"group_id": "<gid>", "choice_id": "<cid>"}, ...]
+}]
+```
+Field rules: `menu_item_id` (NOT `itemId`); each `variantsV2[]` row is **flat** `{group_id, variation_id}` (NOT nested `{groupId, variations:[{id}]}`); each `addons[]` row is `{group_id, choice_id}`. Use the `variants` field (same flat snake_case shape) only for legacy items that expose `variations` in `search_menu` instead of `variantsV2`. Send EITHER `variantsV2` OR `variants` per item, never both. (The executor will still coerce the older shapes into this one as a safety net, but emit the right thing yourself.)
+
+**Companion variant-resolution contract:** The executor auto-resolves variants in two ways:
+1. **Trivial items** (one in-stock variation per group) — executor silently injects the default. You may emit `cartItems: [{menu_item_id: "__MENU_ITEM_ID__", quantity: N}]` without variants.
+2. **Real choices** (size 8″/10″/12″, hand-tossed vs thin) — executor DEFERS the cart call and the assistant asks the user to pick. The next turn you'll receive a `Pending variant choice from the previous turn` block in your input containing the actual `item_id`, `group_id` and `variation_id` literals. **Plan ONLY `[update_food_cart, get_food_cart]` (no `search_menu` — the item is already identified) with ALL three values copied as literals from the block**: `cartItems: [{menu_item_id: "<item_id from block>", quantity: 1, variantsV2: [{group_id: "<group_id>", variation_id: "<variation_id>"}]}]`. Match each group's chosen variation to the user's words ("medium" → the Size group's Medium variation). The `restaurantId` should be the literal `res_id` from the `Restaurants already shown` block for that item's restaurant — same one the previous turn used. **NEVER emit `__MENU_ITEM_ID__` here** (a fresh `search_menu` could resolve it to a different Margherita than the one you offered the user) — and **NEVER emit `__GROUP_ID__` / `__VARIANT_ID__` placeholders** (they don't exist).
 
 *`restaurantId`, `cartItems`, `addressId` required at MCP layer.*
 
@@ -218,9 +251,12 @@ Example (Tossin Pizza menu):
 
 | Situation | Plan guidance |
 |-----------|---------------|
-| Saved `address_id` on the request | Omit `get_addresses`; use **`__ADDRESS_ID__`** on search/menu tools |
+| Any food turn (default) | Always emit `__ADDRESS_ID__` placeholders — executor resolves silently |
+| User says "show me my addresses" / "what addresses do I have?" | `get_addresses` (only case where you plan it) |
+| User says "switch to my work address" / "use Gurgaon" | Pick literal `address_id` from `Saved delivery addresses` context block; emit on the first address-taking tool — do NOT call `get_addresses` |
+| User picks a restaurant already shown this session | Paste literal `res_id` from `Restaurants already shown to the user this session`; skip `search_restaurants` |
 | User only asked “find pizza / restaurants near me” | **`search_restaurants` only** — no menu step |
-| User asked for **menu** at named restaurant | **`search_restaurants` → `search_menu` or `get_restaurant_menu`** (same plan) |
+| User asked for **menu** at a new restaurant | **`search_restaurants` → `search_menu` or `get_restaurant_menu`** (same plan) |
 | Showing cart edits | **`update_food_cart` ⇒ `get_food_cart`** back-to-back |
 | Order history / tracking | **`get_food_orders`** / **`track_food_order`** as appropriate |
 | Long prose in user message | Short **`query` / `keyword`** fields only; reasoning in **`summary`** |
