@@ -13,11 +13,16 @@
    component-level classes (`bg-background`, `bg-surface`, `bg-accent`,
    `border-border`) keep working unchanged. */
 @theme {
-  --color-background: #161616;
-  --color-surface: #232323;
-  --color-surface-elevated: #2c2c2c;
-  --color-border: #2f2f2f;
-  --color-border-strong: #3a3a3a;
+  /* Canvas base is a deep purple-tinted near-black so the magenta
+     radial bloom in `body { background-image }` reads as a designed
+     gradient instead of a flat wash. Surfaces (chat bubbles, modals,
+     composer) stay neutral dark gray so they pop cleanly against the
+     purple canvas — the amber accent palette is unchanged. */
+  --color-background: #0c0008;
+  --color-surface: #1f1d22;
+  --color-surface-elevated: #2a2730;
+  --color-border: #322c38;
+  --color-border-strong: #3f3845;
   --color-accent: #ffb800;
   --color-accent-hover: #e0a000;
   --color-accent-soft: rgba(255, 184, 0, 0.12);
@@ -54,11 +59,16 @@ body {
   @apply bg-background text-gray-100;
   margin: 0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  /* Very subtle warm glow in the corners so the canvas reads as a
-     designed dark, not flat black. */
+  /* Magenta / violet radial bloom centered on the viewport, fading to
+     deep purple-black at the edges. Two overlapping ellipses give the
+     glow a soft, painterly falloff (the inner one is hotter and tighter,
+     the outer one is a wider purple wash). A final dark corner vignette
+     keeps the four corners near-black like the reference comp. */
   background-image:
-    radial-gradient(circle at 100% 0%, rgba(255, 184, 0, 0.05), transparent 45%),
-    radial-gradient(circle at 0% 100%, rgba(255, 184, 0, 0.04), transparent 40%);
+    radial-gradient(ellipse 70% 50% at 50% 55%, rgba(190, 50, 170, 0.55) 0%, transparent 65%),
+    radial-gradient(ellipse 110% 90% at 50% 60%, rgba(110, 25, 100, 0.45) 0%, transparent 70%),
+    radial-gradient(circle at 50% 100%, rgba(140, 30, 130, 0.35) 0%, transparent 55%),
+    radial-gradient(ellipse 120% 100% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.6) 100%);
   background-attachment: fixed;
 }
 
@@ -78,4 +88,13 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background-color: rgba(255, 184, 0, 0.32);
+}
+
+/* The chat scroll container and the sticky header / composer both pick
+   up `bg-background` (or background/X alpha variants) which would
+   otherwise re-paint the magenta bloom on top of itself and double up
+   the brightness. Force these surfaces to a fully transparent canvas
+   so the body gradient shows through cleanly. */
+body > #root {
+  background: transparent;
 }

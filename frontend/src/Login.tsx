@@ -30,8 +30,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-background">
-      <div className="w-full max-w-md bg-surface border border-border rounded-3xl shadow-2xl shadow-black/60 p-8">
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="w-full max-w-md bg-surface/90 backdrop-blur-md border border-border rounded-3xl shadow-2xl shadow-black/60 p-8">
         <div className="flex flex-col items-center mb-8">
           <div className="w-14 h-14 brand-gradient rounded-2xl flex items-center justify-center text-gray-900 mb-4 shadow-lg shadow-amber-500/30">
             <Sparkles size={26} strokeWidth={2.5} />

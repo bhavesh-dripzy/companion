@@ -198,7 +198,7 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
@@ -208,9 +208,13 @@ function App() {
     return <Login onLoginSuccess={handleLoginSuccess} />;
   }
 
+  // Outer wrapper intentionally has no bg-* class so the magenta /
+  // violet radial bloom painted on <body> in index.css is visible
+  // through the layout. The sticky header + composer use surface
+  // alpha tints + backdrop-blur so the bloom shows through them too.
   return (
-    <div className="min-h-screen bg-background text-gray-100 flex flex-col">
-      <header className="h-16 border-b border-border bg-surface/60 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
+    <div className="min-h-screen text-gray-100 flex flex-col">
+      <header className="h-16 border-b border-border bg-surface/40 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 brand-gradient rounded-xl flex items-center justify-center text-gray-900 shadow-md shadow-amber-500/30">
             <Sparkles size={18} strokeWidth={2.5} />
