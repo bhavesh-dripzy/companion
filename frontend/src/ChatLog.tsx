@@ -55,9 +55,9 @@ const AddressChoices: React.FC<{
           <button
             key={addr.address_id || idx}
             onClick={() => onSelect(addr)}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-violet-200 text-xs font-semibold text-violet-700 hover:bg-violet-50 hover:border-violet-300 transition-all shadow-sm"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface border border-amber-500/30 text-xs font-semibold text-amber-300 hover:bg-amber-500/10 hover:border-amber-500/60 transition-all"
           >
-            <MapPin size={12} className="text-violet-500" />
+            <MapPin size={12} className="text-amber-400" />
             <span className="max-w-[220px] truncate">
               {addr.location_name || addr.address_id}
             </span>
@@ -66,7 +66,7 @@ const AddressChoices: React.FC<{
         {!expanded && remaining > 0 && (
           <button
             onClick={() => setExpanded(true)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-gray-50 border border-border text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-all"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-surface border border-border text-xs font-semibold text-gray-400 hover:text-gray-200 hover:border-border-strong transition-all"
           >
             <ChevronDown size={12} />
             {remaining} more
@@ -101,7 +101,7 @@ const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }
       return (
         <div
           key={idx}
-          className="flex flex-col items-start gap-2 p-3 bg-white border border-border rounded-2xl max-w-[280px] shadow-[0_4px_20px_-8px_rgba(99,102,241,0.18)]"
+          className="flex flex-col items-start gap-2 p-3 bg-surface border border-border rounded-2xl max-w-[280px] shadow-lg shadow-black/40"
         >
           {hasImage && (
             <img
@@ -112,18 +112,18 @@ const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }
             />
           )}
           {showOversizeFallback && (
-            <div className="text-xs text-gray-600">
+            <div className="text-xs text-gray-400">
               QR is too large to inline — please use the UPI link.
             </div>
           )}
           {caption && (
-            <div className="text-xs text-gray-600 leading-snug">{caption}</div>
+            <div className="text-xs text-gray-400 leading-snug">{caption}</div>
           )}
           {showUpi && (
             <a
               href={upi}
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full brand-gradient text-white text-xs font-bold hover:opacity-90 transition-opacity shadow-md shadow-violet-500/20"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent text-gray-900 text-xs font-bold hover:bg-accent-hover transition-colors shadow-md shadow-amber-500/20"
             >
               <ExternalLink size={12} />
               Open in UPI app{att.amount_inr ? ` ₹${att.amount_inr}` : ''}
@@ -167,16 +167,16 @@ export const ChatLog: React.FC<ChatLogProps> = ({
             msg.role === 'user' ? "flex-row-reverse" : "flex-row"
           )}
         >
-          {/* Avatar — small gradient circle for both sides. Assistant gets
-              the sparkle glyph; user side is intentionally a glyph-less
-              dot so the bubble itself stays the focal point, matching the
-              reference design. */}
-          <div className={cn(
-            "rounded-full flex items-center justify-center flex-shrink-0 brand-gradient text-white shadow-md shadow-violet-500/25 ring-2 ring-white",
-            msg.role === 'user' ? "w-5 h-5 mb-1" : "w-8 h-8 mb-1"
-          )}>
-            {msg.role === 'assistant' && <Sparkles size={14} strokeWidth={2.5} />}
-          </div>
+          {/* Avatar — only on the assistant side, matching the reference.
+              User messages right-align without an avatar so the amber
+              bubble itself is the focal point. */}
+          {msg.role === 'assistant' ? (
+            <div className="w-8 h-8 rounded-full brand-gradient text-gray-900 flex items-center justify-center flex-shrink-0 shadow-md shadow-amber-500/30 mb-1">
+              <Sparkles size={14} strokeWidth={2.5} />
+            </div>
+          ) : (
+            <div className="w-1 flex-shrink-0" />
+          )}
 
           <div className={cn(
             "flex flex-col gap-2 min-w-0",
@@ -185,14 +185,14 @@ export const ChatLog: React.FC<ChatLogProps> = ({
             <div className={cn(
               "px-5 py-3 text-[15px] leading-relaxed max-w-full",
               msg.role === 'user'
-                ? "brand-gradient text-white rounded-full rounded-br-md shadow-lg shadow-violet-500/25"
-                : "bg-surface border border-border text-gray-800 rounded-2xl rounded-bl-md shadow-[0_4px_24px_-12px_rgba(99,102,241,0.25)]"
+                ? "bg-accent text-gray-900 rounded-3xl rounded-br-md shadow-lg shadow-amber-500/20"
+                : "bg-surface border border-border text-gray-100 rounded-3xl rounded-bl-md shadow-md shadow-black/30"
             )}>
               <div className={cn(
                 "prose max-w-none prose-p:leading-relaxed prose-p:my-1.5",
                 msg.role === 'user'
-                  ? "prose-invert prose-strong:text-white prose-a:text-white prose-a:underline"
-                  : "prose-gray prose-pre:bg-gray-50 prose-pre:border prose-pre:border-border prose-code:text-violet-600 prose-strong:text-gray-900 prose-a:text-violet-600"
+                  ? "prose-gray prose-strong:text-gray-900 prose-a:text-gray-900 prose-a:underline prose-code:text-gray-900"
+                  : "prose-invert prose-pre:bg-black/50 prose-pre:border prose-pre:border-border prose-code:text-amber-300 prose-strong:text-white prose-a:text-amber-300"
               )}>
                 <ReactMarkdown>
                   {msg.content}
@@ -215,7 +215,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
             {msg.meta && msg.meta.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-1">
                 {msg.meta.map((m, idx) => (
-                  <span key={idx} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-white border border-border rounded-md text-gray-500">
+                  <span key={idx} className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-surface border border-border rounded-md text-gray-400">
                     {m}
                   </span>
                 ))}
@@ -224,13 +224,13 @@ export const ChatLog: React.FC<ChatLogProps> = ({
 
             {msg.trace && msg.trace.length > 0 && (
               <details className="mt-2 w-full">
-                <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 transition-colors font-medium">
+                <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300 transition-colors font-medium">
                   View trace details
                 </summary>
-                <div className="mt-2 space-y-2 p-3 bg-white/70 rounded-xl border border-border">
+                <div className="mt-2 space-y-2 p-3 bg-black/30 rounded-xl border border-border">
                   {msg.trace.map((t, idx) => (
                     <div key={idx} className="text-[11px] grid grid-cols-[80px_1fr] gap-2">
-                      <span className="text-gray-700 font-semibold">{t.provider || t.stage}:</span>
+                      <span className="text-gray-300 font-semibold">{t.provider || t.stage}:</span>
                       <span className="text-gray-500 truncate">{t.detail}</span>
                     </div>
                   ))}
@@ -243,12 +243,12 @@ export const ChatLog: React.FC<ChatLogProps> = ({
 
       {isThinking && (
         <div className="flex items-end gap-3 max-w-4xl mx-auto">
-          <div className="w-8 h-8 rounded-full brand-gradient text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-violet-500/25 ring-2 ring-white">
+          <div className="w-8 h-8 rounded-full brand-gradient text-gray-900 flex items-center justify-center flex-shrink-0 shadow-md shadow-amber-500/30">
             <Sparkles size={14} strokeWidth={2.5} />
           </div>
           <div className="flex items-center gap-2 px-1 py-2">
-            <Loader2 size={16} className="animate-spin text-violet-500" />
-            <span className="text-sm text-gray-500 font-medium">Analyzing, please wait…</span>
+            <Loader2 size={16} className="animate-spin text-amber-400" />
+            <span className="text-sm text-gray-400 font-medium">Analyzing, please wait…</span>
           </div>
         </div>
       )}

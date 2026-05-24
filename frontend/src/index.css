@@ -2,35 +2,33 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
-/* Light theme inspired by the new Companion brand — soft lavender canvas,
-   crisp white surfaces, a vivid indigo→violet→fuchsia gradient accent for
-   the user-side bubbles, sparkle avatars, and primary CTAs. All colors are
-   exposed as Tailwind tokens via @theme so component-level classes like
-   `bg-background`, `bg-accent`, `border-border` keep working unchanged
-   from the previous dark theme. */
+/* Companion dark/amber theme — inspired by the "Secret Chat" reference
+   comp: a near-black canvas with a vivid amber accent for user bubbles,
+   CTA buttons and active-state highlights. Assistant bubbles sit on a
+   subtly elevated dark surface so the contrast against the canvas is
+   gentle, never harsh. Tokens are exposed via Tailwind v4 @theme so
+   component-level classes (`bg-background`, `bg-surface`, `bg-accent`,
+   `border-border`) keep working unchanged. */
 @theme {
-  --color-background: #f4f1fa;
-  --color-surface: #ffffff;
-  --color-border: #e7e3f1;
-  --color-border-strong: #d4cee5;
-  --color-accent: #8b5cf6;
-  --color-accent-hover: #7c3aed;
-  --color-accent-soft: #f1ebff;
+  --color-background: #161616;
+  --color-surface: #232323;
+  --color-surface-elevated: #2c2c2c;
+  --color-border: #2f2f2f;
+  --color-border-strong: #3a3a3a;
+  --color-accent: #ffb800;
+  --color-accent-hover: #e0a000;
+  --color-accent-soft: rgba(255, 184, 0, 0.12);
 
-  /* Brand gradient stops — used by `.brand-gradient` and inline
-     `bg-gradient-to-br from-[--color-brand-from] via-[--color-brand-via]
-     to-[--color-brand-to]` for one-off bubbles / avatars. */
-  --color-brand-from: #6366f1;
-  --color-brand-via: #a855f7;
-  --color-brand-to: #d946ef;
+  /* Brand gradient kept for the avatar tile / logo — a warm amber-to-
+     gold blend that feels of-a-piece with the accent. */
+  --color-brand-from: #ffd54f;
+  --color-brand-via: #ffb800;
+  --color-brand-to: #f59e0b;
 }
 
-/* Reusable gradient used by user bubbles, primary avatars, and the logo
-   tile. Kept as a single class so all four surfaces stay in sync if we
-   ever retune the brand stops. */
 .brand-gradient {
   background-image: linear-gradient(
     135deg,
@@ -53,18 +51,18 @@
 }
 
 body {
-  @apply bg-background text-gray-800;
+  @apply bg-background text-gray-100;
   margin: 0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  /* Subtle radial blush so the canvas reads as designed lavender rather
-     than flat gray. Pinned behind everything; pointer-events stay normal. */
+  /* Very subtle warm glow in the corners so the canvas reads as a
+     designed dark, not flat black. */
   background-image:
-    radial-gradient(circle at 15% 0%, rgba(168, 85, 247, 0.08), transparent 45%),
-    radial-gradient(circle at 85% 100%, rgba(99, 102, 241, 0.08), transparent 45%);
+    radial-gradient(circle at 100% 0%, rgba(255, 184, 0, 0.05), transparent 45%),
+    radial-gradient(circle at 0% 100%, rgba(255, 184, 0, 0.04), transparent 40%);
   background-attachment: fixed;
 }
 
-/* Light-theme scrollbar. */
+/* Dark amber-tinted scrollbar. */
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -74,10 +72,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(139, 92, 246, 0.18);
+  background-color: rgba(255, 184, 0, 0.18);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(139, 92, 246, 0.32);
+  background-color: rgba(255, 184, 0, 0.32);
 }

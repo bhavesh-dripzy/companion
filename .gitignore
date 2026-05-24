@@ -19,3 +19,7 @@ env/
 staticfiles/
 cdk.out/
 infra/.venv/
+
+# Local-only credentials bundles (never commit)
+CREDENTIALS.local.txt
+*.credentials.local.*

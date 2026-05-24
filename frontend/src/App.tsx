@@ -199,7 +199,7 @@ function App() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -209,30 +209,30 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-gray-800 flex flex-col">
-      <header className="h-16 border-b border-border bg-white/70 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
+    <div className="min-h-screen bg-background text-gray-100 flex flex-col">
+      <header className="h-16 border-b border-border bg-surface/60 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 brand-gradient rounded-xl flex items-center justify-center text-white shadow-md shadow-violet-500/30">
+          <div className="w-9 h-9 brand-gradient rounded-xl flex items-center justify-center text-gray-900 shadow-md shadow-amber-500/30">
             <Sparkles size={18} strokeWidth={2.5} />
           </div>
-          <h1 className="text-lg font-bold tracking-tight text-gray-900">Companion</h1>
+          <h1 className="text-lg font-bold tracking-tight text-white">Companion</h1>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex flex-col items-end mr-2">
-            <span className="text-xs font-bold text-gray-800">{username}</span>
-            <span className="text-[10px] text-gray-500 font-medium">Online</span>
+            <span className="text-xs font-bold text-gray-100">{username}</span>
+            <span className="text-[10px] text-amber-400 font-medium">Online</span>
           </div>
           <button
             onClick={() => setIsSettingsOpen(true)}
             title="Settings"
-            className="p-2 rounded-xl hover:bg-violet-50 text-gray-500 hover:text-violet-700 transition-all"
+            className="p-2 rounded-xl hover:bg-surface text-gray-400 hover:text-amber-300 transition-all"
           >
             <Settings size={20} />
           </button>
           <button
             onClick={handleLogout}
             title="Logout"
-            className="p-2 rounded-xl hover:bg-red-50 text-gray-500 hover:text-red-500 transition-all"
+            className="p-2 rounded-xl hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-all"
           >
             <LogOut size={20} />
           </button>

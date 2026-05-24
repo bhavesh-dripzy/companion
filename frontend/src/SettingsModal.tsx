@@ -151,15 +151,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm">
-      <div className="w-full max-w-2xl bg-surface border border-border rounded-3xl shadow-[0_32px_80px_-24px_rgba(99,102,241,0.35)] flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-2xl bg-surface border border-border rounded-3xl shadow-2xl shadow-black/60 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-6 border-b border-border">
-          <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900">
-            <SettingsIcon size={20} className="text-violet-500" />
+          <h2 className="text-xl font-bold flex items-center gap-2 text-white">
+            <SettingsIcon size={20} className="text-amber-400" />
             Settings
           </h2>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500">
+          <button onClick={onClose} className="p-2 hover:bg-surface-elevated rounded-full transition-colors text-gray-400 hover:text-white">
             <X size={20} />
           </button>
         </div>
@@ -174,8 +174,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className={cn(
                   "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all",
                   activeTab === tab.id
-                    ? "bg-violet-50 text-violet-700"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                    ? "bg-amber-500/10 text-amber-300"
+                    : "text-gray-400 hover:text-white hover:bg-surface-elevated"
                 )}
               >
                 <tab.icon size={18} />
@@ -189,7 +189,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {activeTab === 'mcp' && (
               <div className="space-y-8">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-4 uppercase tracking-wider">Select Provider</label>
+                  <label className="block text-sm font-bold text-gray-300 mb-4 uppercase tracking-wider">Select Provider</label>
                   <div className="grid grid-cols-2 gap-3">
                     {toolProviders.map((p) => (
                       <button
@@ -198,51 +198,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         className={cn(
                           "p-4 rounded-2xl border text-left transition-all",
                           selectedProviderId === p.id
-                            ? "border-violet-300 bg-violet-50 ring-2 ring-violet-100"
-                            : "border-border hover:border-violet-200 bg-gray-50"
+                            ? "border-amber-500/60 bg-amber-500/10"
+                            : "border-border hover:border-border-strong bg-surface-elevated"
                         )}
                       >
-                        <div className="font-bold text-sm mb-1 text-gray-900">{p.label}</div>
+                        <div className="font-bold text-sm mb-1 text-white">{p.label}</div>
                         <div className="text-[10px] text-gray-500 uppercase font-black">{p.available ? 'Ready' : 'Setup Required'}</div>
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="p-6 bg-gray-50 border border-border rounded-2xl space-y-4">
+                <div className="p-6 bg-surface-elevated border border-border rounded-2xl space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-gray-900">Status:</span>
+                      <span className="text-sm font-bold text-white">Status:</span>
                       {mcpStatus?.status === 'ready' ? (
-                        <div className="flex items-center gap-1 text-emerald-600 text-xs font-bold uppercase">
+                        <div className="flex items-center gap-1 text-emerald-400 text-xs font-bold uppercase">
                           <CheckCircle2 size={14} /> Connected
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1 text-amber-600 text-xs font-bold uppercase">
+                        <div className="flex items-center gap-1 text-amber-400 text-xs font-bold uppercase">
                           <AlertCircle size={14} /> {mcpStatus?.status || 'Unknown'}
                         </div>
                       )}
                     </div>
                     <button
                       onClick={checkMcpStatus}
-                      className="p-2 hover:bg-white rounded-lg text-gray-500 transition-colors"
+                      className="p-2 hover:bg-surface rounded-lg text-gray-400 transition-colors"
                     >
                       <RefreshCw size={14} className={isLoadingMcp ? 'animate-spin' : ''} />
                     </button>
                   </div>
 
-                  <p className="text-xs text-gray-600 leading-relaxed">
+                  <p className="text-xs text-gray-400 leading-relaxed">
                     {mcpStatus?.detail || 'No status details available.'}
                   </p>
 
                   <div className="pt-2 flex gap-3">
                     <button
                       onClick={handleConnectMcp}
-                      className="flex-1 brand-gradient text-white text-sm font-bold py-2.5 rounded-xl transition-all shadow-md shadow-violet-500/25 hover:opacity-95"
+                      className="flex-1 bg-accent hover:bg-accent-hover text-gray-900 text-sm font-bold py-2.5 rounded-xl transition-all shadow-md shadow-amber-500/25"
                     >
                       Connect Account
                     </button>
-                    <button className="px-6 border border-border hover:bg-gray-100 text-gray-700 text-sm font-bold rounded-xl transition-all">
+                    <button className="px-6 border border-border hover:bg-surface text-gray-300 text-sm font-bold rounded-xl transition-all">
                       Test
                     </button>
                   </div>
@@ -251,11 +251,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {pairingCommand && (
                   <div className="space-y-3">
                     <label className="block text-[10px] font-black uppercase text-gray-500 tracking-tighter">Connection Command</label>
-                    <div className="p-4 bg-gray-900 rounded-xl border border-gray-800 font-mono text-[11px] text-violet-300 break-all overflow-hidden relative group">
+                    <div className="p-4 bg-black rounded-xl border border-border font-mono text-[11px] text-amber-300 break-all overflow-hidden relative group">
                       {pairingCommand}
                       <button
                         onClick={() => navigator.clipboard.writeText(pairingCommand)}
-                        className="absolute right-2 top-2 p-1.5 bg-gray-800 rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-violet-300"
+                        className="absolute right-2 top-2 p-1.5 bg-surface rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-amber-300"
                       >
                         <Zap size={12} />
                       </button>
@@ -268,20 +268,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {activeTab === 'calendar' && (
               <div className="space-y-8">
-                <div className="p-6 bg-gray-50 border border-border rounded-3xl flex items-start gap-5">
-                  <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600 flex-shrink-0">
+                <div className="p-6 bg-surface-elevated border border-border rounded-3xl flex items-start gap-5">
+                  <div className="w-12 h-12 bg-blue-500/15 rounded-2xl flex items-center justify-center text-blue-400 flex-shrink-0">
                     <Calendar size={24} />
                   </div>
                   <div className="flex-1 space-y-4">
                     <div>
-                      <h3 className="font-bold text-gray-900">Google Calendar</h3>
-                      <p className="text-xs text-gray-600 mt-1 leading-relaxed">Sync your reminders directly to your Google Calendar.</p>
+                      <h3 className="font-bold text-white">Google Calendar</h3>
+                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">Sync your reminders directly to your Google Calendar.</p>
                     </div>
 
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-black uppercase text-gray-500">Status:</span>
                       {gcalStatus?.connected ? (
-                        <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                        <span className="text-[10px] font-black uppercase text-emerald-400 flex items-center gap-1">
                           <CheckCircle2 size={12} /> Connected
                         </span>
                       ) : (
@@ -291,7 +291,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     <button
                       onClick={handleConnectGcal}
-                      className="w-full bg-gray-900 text-white hover:bg-gray-800 text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2"
+                      className="w-full bg-white text-gray-900 hover:bg-gray-100 text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2"
                     >
                       {gcalStatus?.connected ? 'Reconnect Google' : 'Connect Google Calendar'}
                       <ExternalLink size={14} />
@@ -299,14 +299,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                <div className="p-6 bg-gray-50 border border-border rounded-3xl flex items-start gap-5">
-                  <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-600 flex-shrink-0">
+                <div className="p-6 bg-surface-elevated border border-border rounded-3xl flex items-start gap-5">
+                  <div className="w-12 h-12 bg-emerald-500/15 rounded-2xl flex items-center justify-center text-emerald-400 flex-shrink-0">
                     <MapPin size={24} />
                   </div>
                   <div className="flex-1 space-y-4 min-w-0">
                     <div>
-                      <h3 className="font-bold text-gray-900">Google Maps</h3>
-                      <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                      <h3 className="font-bold text-white">Google Maps</h3>
+                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">
                         Distance and ETA from your current location. Your browser will ask for location permission the first time you use it.
                       </p>
                     </div>
@@ -316,11 +316,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {mapsConfigured === null ? (
                         <span className="text-[10px] font-black uppercase text-gray-500">Checking…</span>
                       ) : mapsConfigured ? (
-                        <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                        <span className="text-[10px] font-black uppercase text-emerald-400 flex items-center gap-1">
                           <CheckCircle2 size={12} /> Ready
                         </span>
                       ) : (
-                        <span className="text-[10px] font-black uppercase text-amber-600 flex items-center gap-1">
+                        <span className="text-[10px] font-black uppercase text-amber-400 flex items-center gap-1">
                           <AlertCircle size={12} /> Not configured
                         </span>
                       )}
@@ -334,7 +334,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onKeyDown={(e) => { if (e.key === 'Enter') handleComputeRoute(); }}
                         placeholder="Where to? e.g. Phoenix Mall, Bangalore"
                         disabled={!mapsConfigured || mapsLoading}
-                        className="w-full bg-white border border-border rounded-xl px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-violet-300 focus:ring-4 focus:ring-violet-100 focus:outline-none disabled:opacity-50"
+                        className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:border-amber-500/50 focus:ring-4 focus:ring-amber-500/10 focus:outline-none disabled:opacity-50"
                       />
 
                       <div className="flex flex-wrap gap-2">
@@ -347,8 +347,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             className={cn(
                               'px-3 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all',
                               mapsTravelMode === mode.value
-                                ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
-                                : 'border border-border text-gray-500 hover:text-gray-800 bg-white',
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : 'border border-border text-gray-400 hover:text-white bg-surface',
                             )}
                           >
                             {mode.label}
@@ -359,7 +359,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <button
                         onClick={handleComputeRoute}
                         disabled={!mapsConfigured || mapsLoading || !mapsDestination.trim()}
-                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-emerald-500 hover:bg-emerald-400 text-gray-900 text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {mapsLoading ? (
                           <><Loader2 size={14} className="animate-spin" /> Computing…</>
@@ -369,23 +369,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </button>
 
                       {mapsError && (
-                        <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 leading-relaxed">
+                        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 leading-relaxed">
                           {mapsError}
                         </div>
                       )}
 
                       {mapsResult && (
-                        <div className="p-4 bg-white border border-emerald-200 rounded-2xl space-y-2">
+                        <div className="p-4 bg-background border border-emerald-500/30 rounded-2xl space-y-2">
                           <div className="flex items-baseline justify-between">
                             <span className="text-[10px] font-black uppercase text-gray-500">Distance</span>
-                            <span className="font-bold text-gray-900">{mapsResult.distance_text}</span>
+                            <span className="font-bold text-white">{mapsResult.distance_text}</span>
                           </div>
                           <div className="flex items-baseline justify-between">
                             <span className="text-[10px] font-black uppercase text-gray-500">ETA</span>
-                            <span className="font-bold text-emerald-600">{mapsResult.duration_text}</span>
+                            <span className="font-bold text-emerald-300">{mapsResult.duration_text}</span>
                           </div>
                           {mapsResult.description && (
-                            <p className="text-[11px] text-gray-500 italic pt-1 border-t border-border">
+                            <p className="text-[11px] text-gray-400 italic pt-1 border-t border-border">
                               {mapsResult.description}
                             </p>
                           )}
@@ -395,14 +395,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                <div className="p-6 bg-gray-50 border border-border rounded-3xl flex items-start gap-5 opacity-60 grayscale">
-                  <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center text-orange-600 flex-shrink-0">
+                <div className="p-6 bg-surface-elevated border border-border rounded-3xl flex items-start gap-5 opacity-60 grayscale">
+                  <div className="w-12 h-12 bg-orange-500/15 rounded-2xl flex items-center justify-center text-orange-400 flex-shrink-0">
                     <Zap size={24} />
                   </div>
                   <div className="flex-1 space-y-4">
                     <div>
-                      <h3 className="font-bold text-gray-900">Zapier MCP</h3>
-                      <p className="text-xs text-gray-600 mt-1 leading-relaxed">Connect to 6,000+ apps via Zapier's MCP server.</p>
+                      <h3 className="font-bold text-white">Zapier MCP</h3>
+                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">Connect to 6,000+ apps via Zapier's MCP server.</p>
                     </div>
                     <button disabled className="w-full border border-border text-gray-500 text-sm font-bold py-2.5 rounded-xl">
                       Coming Soon
@@ -415,7 +415,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {activeTab === 'models' && (
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-4 uppercase tracking-wider">AI Model Provider</label>
+                  <label className="block text-sm font-bold text-gray-300 mb-4 uppercase tracking-wider">AI Model Provider</label>
                   <div className="space-y-3">
                     {['Auto-detect', 'Gemini', 'OpenAI', 'DeepSeek'].map((provider) => (
                       <button
@@ -423,12 +423,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         className={cn(
                           "w-full p-4 rounded-2xl border text-left transition-all flex items-center justify-between",
                           provider === 'Auto-detect'
-                            ? "border-violet-300 bg-violet-50 ring-2 ring-violet-100"
-                            : "border-border hover:border-violet-200 bg-white"
+                            ? "border-amber-500/60 bg-amber-500/10"
+                            : "border-border hover:border-border-strong bg-surface-elevated"
                         )}
                       >
-                        <span className="font-bold text-sm text-gray-900">{provider}</span>
-                        {provider === 'Auto-detect' && <CheckCircle2 size={16} className="text-violet-600" />}
+                        <span className="font-bold text-sm text-white">{provider}</span>
+                        {provider === 'Auto-detect' && <CheckCircle2 size={16} className="text-amber-400" />}
                       </button>
                     ))}
                   </div>
