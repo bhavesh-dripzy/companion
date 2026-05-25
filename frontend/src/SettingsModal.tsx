@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Globe, Calendar, Zap, MapPin, Settings as SettingsIcon, CheckCircle2, AlertCircle, ExternalLink, RefreshCw, Loader2 } from 'lucide-react';
+import { X, Globe, Calendar, Zap, MapPin, Settings as SettingsIcon, CheckCircle2, AlertCircle, ExternalLink, RefreshCw, Loader2, Unplug } from 'lucide-react';
 import { api } from './api';
 import type { ToolProvider, McpStatus, MapsRouteSummary, MapsTravelMode } from './types';
 import { cn } from './utils';
@@ -19,6 +19,52 @@ interface SettingsModalProps {
   toolProviders: ToolProvider[];
 }
 
+// A provider is "Connected" if it has any usable credential — either an
+// active token file on the Lambda's /tmp disk (`has_local_tokens`) OR a
+// durably-persisted copy in AWS Secrets Manager (`has_secret_tokens`).
+// The backend auto-restores from Secrets on cold starts, so both states
+// are functionally identical from the user's point of view.
+function isProviderConnected(status?: McpStatus | null): boolean {
+  if (!status) return false;
+  const s = status.status;
+  if (s === 'ready') return true;
+  // ready_pending = tokens live in Secrets Manager; backend will restore
+  // them transparently before the next MCP call. Surfacing this as
+  // "disconnected" is what caused users to think connecting Swiggy was
+  // wiping their Zomato session after a Lambda cold start.
+  if (s === 'ready_pending') return true;
+  // Belt-and-braces: if either token store has the file, treat as connected.
+  if ((status as any).has_local_tokens || (status as any).has_secret_tokens) return true;
+  return false;
+}
+
+// Pairing commands are returned by the backend with a short TTL (the
+// underlying mcp-remote session expires in a few minutes), but the user
+// often hard-refreshes the browser between clicking Connect and pasting
+// into a terminal. We persist them per-provider so a refresh doesn't
+// lose the freshly-issued command — without this the user has to click
+// Connect again, generating a new code and forgetting the old terminal.
+const PAIRING_STORAGE_KEY = 'companion_mcp_pairing_commands';
+
+function readStoredPairings(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(PAIRING_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredPairings(map: Record<string, string>): void {
+  try {
+    localStorage.setItem(PAIRING_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore quota / privacy-mode failures */
+  }
+}
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
@@ -26,10 +72,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'mcp' | 'calendar' | 'models'>('mcp');
   const [selectedProviderId, setSelectedProviderId] = useState('zomato');
-  const [mcpStatus, setMcpStatus] = useState<McpStatus | null>(null);
+  const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
   const [isLoadingMcp, setIsLoadingMcp] = useState(false);
-  const [pairingCommand, setPairingCommand] = useState('');
-  
+  // Pairing command is keyed per-provider so the user can have multiple
+  // outstanding terminals open (one for Zomato, one for Swiggy, etc.)
+  // without clobbering each other.
+  const [pairingCommands, setPairingCommands] = useState<Record<string, string>>(() => readStoredPairings());
+
   const [gcalStatus, setGcalStatus] = useState<{connected: boolean, configured: boolean} | null>(null);
 
   const [mapsConfigured, setMapsConfigured] = useState<boolean | null>(null);
@@ -39,19 +88,58 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [mapsResult, setMapsResult] = useState<MapsRouteSummary | null>(null);
   const [mapsError, setMapsError] = useState<string | null>(null);
 
+  const mcpStatus: McpStatus | null = mcpStatuses[selectedProviderId] || null;
+  const pairingCommand: string = pairingCommands[selectedProviderId] || '';
+
   useEffect(() => {
     if (isOpen) {
-      checkMcpStatus();
+      checkAllMcpStatuses();
       checkGcalStatus();
       checkMapsStatus();
     }
-  }, [isOpen, selectedProviderId]);
+    // We intentionally do NOT re-run on selectedProviderId changes: the
+    // bulk endpoint already returned everyone's status, and re-fetching
+    // per-provider on every tile click is what caused the previous
+    // version to flicker pairings off-and-on during the round-trip.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
-  const checkMcpStatus = async () => {
+  const checkAllMcpStatuses = async () => {
+    setIsLoadingMcp(true);
+    try {
+      const data = await api.get('/api/mcp/status/all/');
+      const list: McpStatus[] = Array.isArray(data?.statuses) ? data.statuses : [];
+      const next: Record<string, McpStatus> = {};
+      for (const entry of list) {
+        const id = (entry as any).provider;
+        if (typeof id === 'string' && id) {
+          next[id] = entry;
+        }
+      }
+      setMcpStatuses(next);
+    } catch (err) {
+      console.error('Failed to load MCP statuses', err);
+    } finally {
+      setIsLoadingMcp(false);
+    }
+  };
+
+  const refreshSelectedStatus = async () => {
     setIsLoadingMcp(true);
     try {
       const data = await api.get(`/api/mcp/status/?provider=${selectedProviderId}`);
-      setMcpStatus(data);
+      setMcpStatuses((prev) => ({ ...prev, [selectedProviderId]: data }));
+      // Once we observe a connected state, clear any stale pairing command
+      // for that provider so the UI stops nagging the user to run it.
+      if (isProviderConnected(data)) {
+        setPairingCommands((prev) => {
+          if (!prev[selectedProviderId]) return prev;
+          const next = { ...prev };
+          delete next[selectedProviderId];
+          writeStoredPairings(next);
+          return next;
+        });
+      }
     } catch (err) {
       console.error('Failed to check MCP status', err);
     } finally {
@@ -110,24 +198,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const recordPairingCommand = (providerId: string, command: string) => {
+    setPairingCommands((prev) => {
+      const next = { ...prev, [providerId]: command };
+      writeStoredPairings(next);
+      return next;
+    });
+  };
+
   const handleConnectMcp = async () => {
     try {
       const data = await api.get(`/api/mcp/oauth/start?provider=${selectedProviderId}`);
       if (data.command) {
-        setPairingCommand(data.command);
+        recordPairingCommand(selectedProviderId, data.command);
         return;
       }
       if (data.authorization_url) {
         window.location.assign(data.authorization_url);
         return;
       }
-      
+
       const pairing = await api.post(`/api/mcp/pairing/?provider=${selectedProviderId}`);
       if (pairing.command) {
-        setPairingCommand(pairing.command);
+        recordPairingCommand(selectedProviderId, pairing.command);
       }
     } catch (err) {
       console.error('Failed to connect MCP', err);
+    }
+  };
+
+  const handleDisconnectMcp = async () => {
+    const provider = toolProviders.find((p) => p.id === selectedProviderId);
+    const label = provider?.label || selectedProviderId;
+    if (!window.confirm(`Disconnect ${label}? Other connected MCPs will stay linked.`)) {
+      return;
+    }
+    setIsLoadingMcp(true);
+    try {
+      await api.post(`/api/mcp/disconnect/?provider=${selectedProviderId}`);
+      // Clear any cached pairing command for this provider and re-fetch
+      // the bulk status so every tile updates at once (otherwise the
+      // green pill would linger on the just-disconnected provider until
+      // the user toggled the modal closed and back open).
+      setPairingCommands((prev) => {
+        if (!prev[selectedProviderId]) return prev;
+        const next = { ...prev };
+        delete next[selectedProviderId];
+        writeStoredPairings(next);
+        return next;
+      });
+      await checkAllMcpStatuses();
+    } catch (err) {
+      console.error('Failed to disconnect MCP', err);
+    } finally {
+      setIsLoadingMcp(false);
     }
   };
 
@@ -191,21 +315,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div>
                   <label className="block text-sm font-bold text-gray-300 mb-4 uppercase tracking-wider">Select Provider</label>
                   <div className="grid grid-cols-2 gap-3">
-                    {toolProviders.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => setSelectedProviderId(p.id)}
-                        className={cn(
-                          "p-4 rounded-2xl border text-left transition-all",
-                          selectedProviderId === p.id
-                            ? "border-amber-500/60 bg-amber-500/10"
-                            : "border-border hover:border-border-strong bg-surface-elevated"
-                        )}
-                      >
-                        <div className="font-bold text-sm mb-1 text-white">{p.label}</div>
-                        <div className="text-[10px] text-gray-500 uppercase font-black">{p.available ? 'Ready' : 'Setup Required'}</div>
-                      </button>
-                    ))}
+                    {toolProviders.map((p) => {
+                      const status = mcpStatuses[p.id];
+                      const connected = isProviderConnected(status);
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => setSelectedProviderId(p.id)}
+                          className={cn(
+                            "p-4 rounded-2xl border text-left transition-all relative",
+                            selectedProviderId === p.id
+                              ? "border-amber-500/60 bg-amber-500/10"
+                              : "border-border hover:border-border-strong bg-surface-elevated"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <div className="font-bold text-sm text-white">{p.label}</div>
+                            {connected && (
+                              <span className="flex items-center gap-1 text-emerald-400 text-[9px] font-black uppercase tracking-wider">
+                                <CheckCircle2 size={10} /> Connected
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-gray-500 uppercase font-black">
+                            {!p.available ? 'Setup Required' : connected ? 'Linked' : 'Ready'}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -213,7 +350,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold text-white">Status:</span>
-                      {mcpStatus?.status === 'ready' ? (
+                      {isProviderConnected(mcpStatus) ? (
                         <div className="flex items-center gap-1 text-emerald-400 text-xs font-bold uppercase">
                           <CheckCircle2 size={14} /> Connected
                         </div>
@@ -224,8 +361,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       )}
                     </div>
                     <button
-                      onClick={checkMcpStatus}
+                      onClick={refreshSelectedStatus}
                       className="p-2 hover:bg-surface rounded-lg text-gray-400 transition-colors"
+                      title="Refresh status"
                     >
                       <RefreshCw size={14} className={isLoadingMcp ? 'animate-spin' : ''} />
                     </button>
@@ -240,17 +378,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClick={handleConnectMcp}
                       className="flex-1 bg-accent hover:bg-accent-hover text-gray-900 text-sm font-bold py-2.5 rounded-xl transition-all shadow-md shadow-amber-500/25"
                     >
-                      Connect Account
+                      {isProviderConnected(mcpStatus) ? 'Reconnect' : 'Connect Account'}
                     </button>
-                    <button className="px-6 border border-border hover:bg-surface text-gray-300 text-sm font-bold rounded-xl transition-all">
-                      Test
-                    </button>
+                    {isProviderConnected(mcpStatus) && (
+                      <button
+                        onClick={handleDisconnectMcp}
+                        title="Forget stored credentials for this MCP"
+                        className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-300 text-sm font-bold rounded-xl transition-all flex items-center gap-2"
+                      >
+                        <Unplug size={14} />
+                        Disconnect
+                      </button>
+                    )}
                   </div>
                 </div>
 
                 {pairingCommand && (
                   <div className="space-y-3">
-                    <label className="block text-[10px] font-black uppercase text-gray-500 tracking-tighter">Connection Command</label>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[10px] font-black uppercase text-gray-500 tracking-tighter">Connection Command</label>
+                      <button
+                        onClick={() => {
+                          setPairingCommands((prev) => {
+                            const next = { ...prev };
+                            delete next[selectedProviderId];
+                            writeStoredPairings(next);
+                            return next;
+                          });
+                        }}
+                        className="text-[10px] font-bold uppercase text-gray-500 hover:text-gray-300 tracking-wider"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
                     <div className="p-4 bg-black rounded-xl border border-border font-mono text-[11px] text-amber-300 break-all overflow-hidden relative group">
                       {pairingCommand}
                       <button
@@ -260,7 +420,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <Zap size={12} />
                       </button>
                     </div>
-                    <p className="text-[10px] text-gray-500 italic">Run this in your terminal to complete pairing.</p>
+                    <p className="text-[10px] text-gray-500 italic">Run this in your terminal to complete pairing. After it finishes, click the refresh icon above.</p>
                   </div>
                 )}
               </div>

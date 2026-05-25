@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from html import escape
 from datetime import datetime
@@ -63,6 +64,8 @@ from companion_api.google_maps import (
     google_maps_configured,
 )
 from app.services.whatsapp.handler import handle_whatsapp_webhook_event
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Companion API", version="2.0.0")
 app.add_middleware(
@@ -468,12 +471,19 @@ def _extract_saved_addresses_from_mcp_step(step: dict[str, Any]) -> list[dict[st
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/mcp/status/")
-def mcp_status(
-    provider: str = Query(default="zomato"),
-    user: str = Depends(get_current_user),
-):
-    from app.services.zomato_mcp_executor import diagnose_mcp_environment, get_mcp_token_status, repo_root_from_settings
+def _compute_mcp_status(provider: str, user: str) -> dict[str, Any]:
+    """Compute the MCP status for a single provider.
+
+    Auto-restores OAuth tokens from Secrets Manager on cold Lambdas or after
+    a browser hard-refresh so the UI can show "Connected" the moment the
+    user opens Settings, instead of momentarily flashing "ready_pending".
+    """
+    from app.services.zomato_mcp_executor import (
+        diagnose_mcp_environment,
+        get_mcp_token_status,
+        repo_root_from_settings,
+        restore_mcp_auth_tokens,
+    )
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if tool_provider and not tool_provider.available:
@@ -522,9 +532,25 @@ def mcp_status(
 
     root = repo_root_from_settings()
     token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
-    diagnostics = diagnose_mcp_environment(root, mcp_url=mcp_url, node_binary=node_binary, user_id=user)
     has_local = token_status["has_local_tokens"]
     has_secret = token_status["has_secret_tokens"]
+
+    # On cold Lambdas (or after a browser hard refresh) the ephemeral
+    # /tmp/.mcp-auth is empty even when tokens are durably persisted in
+    # Secrets Manager. Restore them eagerly so the UI shows "Connected"
+    # immediately — without this, every provider that was paired during
+    # a previous warm container would appear disconnected until the next
+    # MCP call manually triggered the restore.
+    if not has_local and has_secret:
+        try:
+            restore_mcp_auth_tokens(root, user_id=user)
+            token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
+            has_local = token_status["has_local_tokens"]
+            has_secret = token_status["has_secret_tokens"]
+        except Exception:
+            logger.exception("Auto-restore of MCP tokens failed for provider=%s", provider)
+
+    diagnostics = diagnose_mcp_environment(root, mcp_url=mcp_url, node_binary=node_binary, user_id=user)
     url_authenticated = bool(tool_provider and tool_provider.auth_mode == "url")
 
     if not url_set:
@@ -570,6 +596,122 @@ def mcp_status(
         "token_status": token_status,
         "diagnostics": diagnostics,
     }
+
+
+@app.get("/api/mcp/status/")
+def mcp_status(
+    provider: str = Query(default="zomato"),
+    user: str = Depends(get_current_user),
+):
+    return _compute_mcp_status(provider, user)
+
+
+@app.post("/api/mcp/disconnect/")
+def mcp_disconnect(
+    provider: str = Query(...),
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Forget every credential for a single MCP provider.
+
+    Wipes both the durable Secrets Manager copy and the ephemeral Lambda
+    /tmp copy of *only* the chosen provider's OAuth files. Other providers
+    the user has paired (Zomato, Swiggy, District, ...) keep their tokens
+    — disconnecting one MUST NOT log them out of the others.
+    """
+    from app.services.zomato_mcp_executor import (
+        _mcp_remote_config_dir,
+        _mcp_token_secret,
+        _merge_mcp_token_secret,
+        _server_url_hash,
+        repo_root_from_settings,
+    )
+
+    tool_provider, mcp_url = _provider_mcp_url(provider, user)
+    if not tool_provider:
+        raise HTTPException(status_code=404, detail=f"Unknown MCP provider {provider!r}.")
+    if not mcp_url:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{tool_provider.label} has no MCP URL configured; nothing to disconnect.",
+        )
+
+    url_hash = _server_url_hash(mcp_url)
+    root = repo_root_from_settings()
+
+    # 1. Strip the provider's files from the durable Secrets Manager copy.
+    #    mcp-remote names files `<md5(mcp_url)>_<kind>` so filtering by the
+    #    hash leaves every other provider's tokens untouched.
+    secret = _mcp_token_secret(user)
+    files = secret.get("files") if isinstance(secret, dict) else None
+    removed_secret: list[str] = []
+    if isinstance(files, dict) and files:
+        kept: dict[str, str] = {}
+        for key, value in files.items():
+            if url_hash in str(key):
+                removed_secret.append(str(key))
+            else:
+                kept[str(key)] = value
+        if removed_secret:
+            _merge_mcp_token_secret(user, files=kept)
+
+    # 2. Delete the same files from the live Lambda /tmp (or local dev dir).
+    cfg_dir = _mcp_remote_config_dir(root, user_id=user)
+    removed_local: list[str] = []
+    if cfg_dir.is_dir():
+        for path in cfg_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            if url_hash in path.name:
+                try:
+                    path.unlink()
+                    removed_local.append(path.name)
+                except OSError:
+                    logger.exception("Failed to delete MCP token file %s", path)
+
+    return {
+        "status": "disconnected",
+        "provider": tool_provider.name,
+        "provider_label": tool_provider.label,
+        "removed_secret_files": removed_secret,
+        "removed_local_files": removed_local,
+        "detail": (
+            f"{tool_provider.label} credentials cleared."
+            if (removed_secret or removed_local)
+            else f"{tool_provider.label} had no stored credentials to remove."
+        ),
+    }
+
+
+@app.get("/api/mcp/status/all/")
+def mcp_status_all(user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """Return the connection status for every tool provider in one call.
+
+    Lets the Settings UI render a "Connected" badge next to every provider
+    without firing N separate requests on modal open (which made earlier
+    pairings briefly appear disconnected during the round-trip).
+    """
+    providers = list_tool_providers(user_id=user)
+    statuses: list[dict[str, Any]] = []
+    for entry in providers:
+        provider_id = str(entry.get("id") or "").strip()
+        if not provider_id:
+            continue
+        try:
+            status_payload = _compute_mcp_status(provider_id, user)
+        except Exception as exc:
+            logger.exception("mcp_status_all failed for provider=%s", provider_id)
+            status_payload = {
+                "provider": provider_id,
+                "provider_label": entry.get("label") or provider_id,
+                "status": "error",
+                "detail": f"{type(exc).__name__}: {exc}",
+                "has_local_tokens": False,
+                "has_secret_tokens": False,
+            }
+        status_payload.setdefault("provider", provider_id)
+        status_payload.setdefault("provider_label", entry.get("label") or provider_id)
+        statuses.append(status_payload)
+    return {"statuses": statuses}
 
 
 @app.post("/api/mcp/oauth/")
