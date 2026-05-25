@@ -1463,29 +1463,29 @@ def _lookup_variant_id_by_name(
 # Variant + addon resolution for create_cart
 # ---------------------------------------------------------------------------
 # Zomato uses two orthogonal customization mechanisms (verified live across
-# WeFit / California Burrito / Pizza Hut / Domino's):
+# WeFit / California Burrito / Pizza Hut / Domino's / Subway / McDonald's):
 #
 #   Mechanism A — property variants (item.variants[])
 #     Size / Crust / "Choose your Rice" style. Each variant is a separate
 #     variant_id with its own price and (sometimes) its own addon group list.
 #     Selection = send the chosen variant's variant_id in items[].variant_id.
+#     **ACTIVE.** ``_resolve_variant_from_properties`` does the picking.
 #
 #   Mechanism B — add-on groups (available_add_ons[] → all_addons_data[])
 #     Modifier groups with min/max selection counts. The parent item OR each
 #     variant references a list of mg_ ids; the full group definitions live
 #     in the envelope-root all_addons_data block.
-#     Selection = send items[].add_ons: [{id: "ctl_...", quantity: 1}, ...].
-#
-# Both can be present on the same item. The resolver below produces a clean
-# ``{variant_id, quantity, add_ons[]}`` for create_cart by walking:
-#   1. Find the catalog entry by name (already done by the caller).
-#   2. Pick a variant from entry.variants[] using user-named property_values
-#      (or default to entry.variant_id if user didn't name a size).
-#   3. Honour user-supplied addon picks (matched by leaf name into the
-#      chosen variant's eligible groups).
-#   4. Auto-default any required group (min_selection >= 1) the user left
-#      empty — Zomato silently accepts under-pick but applies no promo,
-#      so a missing required group => user pays the wrong (higher) price.
+#     **CURRENTLY DISABLED.** Zomato's create_cart endpoint has a
+#     non-deterministic server bug (``ModifierGroupMetaMissing``) on certain
+#     variants when an explicit add_ons[] is sent — empirically 0/5 success
+#     on Subway's Paneer Tikka Sandwich 15cm when all 4 required groups are
+#     enumerated, vs. 10/10 with ``add_ons: []``. We unconditionally emit
+#     ``add_ons: []`` and let Zomato auto-fill the required defaults
+#     server-side. The cart response carries Zomato's picks back as
+#     ``cart.items[].add_ons[]`` (with full leaf name + group name + group_id)
+#     so the assistant can surface them to the user verbatim. The helper
+#     ``_resolve_addons_for_variant`` below is parked for the future override
+#     path (partial picks + retry).
 # ---------------------------------------------------------------------------
 
 
@@ -1568,13 +1568,18 @@ def _resolve_variant_from_properties(
     return default_vid, fallback_addons, None
 
 
-def _resolve_addons_for_variant(
+def _resolve_addons_for_variant(  # noqa: ARG001 — parked helper, see module note
     chosen_variant: dict[str, Any] | None,
     entry: dict[str, Any],
     user_addons: list[Any] | None,
     eligible_group_ids: list[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Honour user-picked addons + auto-default required groups (Mechanism B).
+
+    *Currently unused.* Cart resolution unconditionally emits
+    ``add_ons: []`` (see ``_resolve_cart_items_by_name``) to dodge Zomato's
+    ``ModifierGroupMetaMissing`` server bug. Kept in tree for the
+    forthcoming Path-2 override flow (partial picks + retry on flakiness).
 
     Returns ``(add_ons_payload, audit_notes)``. ``add_ons_payload`` is the
     list of ``{id: "ctl_...", quantity: int}`` rows ready for create_cart;
@@ -1723,7 +1728,6 @@ def _resolve_cart_items_by_name(
 
     resolved: list[dict[str, Any]] = []
     notes: list[dict[str, Any]] = []
-    addon_audit: list[dict[str, Any]] = []
     for raw in items:
         if not isinstance(raw, dict):
             continue
@@ -1745,7 +1749,7 @@ def _resolve_cart_items_by_name(
         matched_name: str | None = None
         if vid_raw:
             # The planner gave a literal variant_id. Try to find the matching
-            # menu_index entry so we still get addon_groups / variants — fall
+            # menu_index entry so we still get the variants[] block — fall
             # back to a stub if the index is missing it (e.g. listing-tool only).
             for cand in menu_index.values():
                 if str(cand.get("variant_id") or "") == vid_raw:
@@ -1782,23 +1786,23 @@ def _resolve_cart_items_by_name(
         user_props = raw.get("property_values") or raw.get("properties")
         if not isinstance(user_props, dict):
             user_props = None
-        chosen_vid, eligible_groups, chosen_variant_entry = _resolve_variant_from_properties(
+        chosen_vid, _eligible_groups, chosen_variant_entry = _resolve_variant_from_properties(
             entry, user_props, str(name or "")
         )
         chosen_vid = chosen_vid or vid_raw
 
-        # Mechanism B — produce add_ons[].
-        user_addons_raw: Any = None
-        for key in ("add_ons", "addons", "customizations", "addon_groups"):
-            if key in raw and raw[key]:
-                user_addons_raw = raw[key]
-                break
-        if not isinstance(user_addons_raw, list):
-            user_addons_raw = None
-        addons_payload, group_notes = _resolve_addons_for_variant(
-            chosen_variant_entry, entry, user_addons_raw, eligible_groups
-        )
-
+        # Mechanism B is intentionally bypassed — see RCA below. Zomato's
+        # `create_cart` endpoint has a server-side bug (`ModifierGroupMetaMissing`)
+        # that fires non-deterministically when the request enumerates every
+        # required addon group for certain variants (verified across Subway's
+        # Paneer Tikka Sandwich 15cm: 0/5 with full explicit picks, 5/5 with
+        # `add_ons: []`). The empty-payload path triggers Zomato's own
+        # auto-default code, which is reliable across every variant we tested
+        # (Subway / McDonald's / Wraps / Salads — 10/10 each). We always emit
+        # `add_ons: []` and let Zomato pick the default leaf for each required
+        # group; the cart response carries the picks back as
+        # ``cart.items[].add_ons[]`` so the assistant can surface them to the
+        # user verbatim.
         notes.append(
             {
                 "requested_name": str(name or ""),
@@ -1812,27 +1816,17 @@ def _resolve_cart_items_by_name(
                 ),
             }
         )
-        if group_notes:
-            addon_audit.append(
-                {
-                    "variant_id": chosen_vid,
-                    "item_name": matched_name,
-                    "groups": group_notes,
-                }
-            )
 
-        new_row: dict[str, Any] = {
-            "variant_id": chosen_vid,
-            "quantity": quantity,
-        }
-        if addons_payload:
-            new_row["add_ons"] = addons_payload
-        resolved.append(new_row)
+        resolved.append(
+            {
+                "variant_id": chosen_vid,
+                "quantity": quantity,
+                "add_ons": [],
+            }
+        )
 
     if notes:
         diagnostics.setdefault("cart_item_resolution", []).extend(notes)
-    if addon_audit:
-        diagnostics.setdefault("cart_addons", []).extend(addon_audit)
     args["items"] = resolved
     return args
 
