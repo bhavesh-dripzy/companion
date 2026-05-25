@@ -10,7 +10,8 @@ Return exactly:
 }
 
 Allowed **task_type** values:
-- **food_delivery** — restaurant meals, menus, food carts, **and** grocery quick-commerce (Instamart, Zepto).
+- **food_delivery** — restaurant meals **for delivery to the user**, food carts/menus on Zomato/Swiggy, **and** grocery quick-commerce (Instamart, Zepto). Use this only when the user wants food/groceries brought to them.
+- **going_out** — discovering places to **go to in person**: dining restaurants for dine-in/table booking, movies, theatres, showtimes, movie reviews. Routes to `district` only.
 - **finance_investing** — stocks, F&O, holdings, positions, orders, quotes, portfolio analysis, broker account queries.
 - **health_nutrition** — calorie tracking, meal logging, nutrition lookup, daily calorie summaries, weekly calorie reports.
 - **normal_query** — general questions, chat, facts, advice, or anything **not** about ordering food or groceries.
@@ -20,7 +21,7 @@ Allowed **task_type** values:
 Future (not executed yet — still classify correctly):
 - **whatsapp_message** — send WhatsApp, message a contact.
 
-**food_providers** must be zero or more of: `zomato`, `swiggy_food`, `swiggy_instamart`, `zepto`.
+**food_providers** must be zero or more of: `zomato`, `swiggy_food`, `swiggy_instamart`, `zepto`, `district`.
 **finance_providers** must be zero or more of: `kite`, `groww`.
 **health_providers** must be zero or more of: `daily_calorie_tracker`.
 
@@ -55,7 +56,8 @@ Provider rules:
 
 | Intent | User wants | Examples | Route to |
 |--------|------------|----------|----------|
-| **Food / grocery** | Order, search, compare, cart, menu, delivery apps | “order pizza”, “buy milk”, “restaurants near me” | `food_delivery` + providers |
+| **Food / grocery delivery** | Order food/groceries to be **delivered** to the user | "order pizza", "deliver biryani", "buy milk", "checkout my cart" | `food_delivery` + delivery providers |
+| **Going out (dine-in / movies)** | Discover places to **go to** — restaurants for dine-in/table reservation, movies, theatres, showtimes | "book a table for 2", "restaurants near me to go for dinner", "movies playing tonight", "IMAX showtimes", "find theatres near Koramangala", "search restaurants and movies near sector 38 gurgaon" | `going_out` + `district` |
 | **Finance / investing** | Portfolio, broker account, market data, holdings, positions, orders, trades | “show my Zerodha holdings”, “Groww portfolio”, “Nifty quote” | `finance_investing` + providers |
 | **Health / nutrition** | Calorie tracking, meal logging, nutrition lookup | “calories in paneer”, “log lunch”, “weekly calorie report” | `health_nutrition` + providers |
 | **Calendar / reminder** | Schedule, remind, calendar event | “remind me tomorrow at 9am”, “add to calendar”, “schedule dentist Friday 3pm”, “in 30 minutes remind me to…” | `reminder_calendar`, `food_providers": []` |
@@ -68,8 +70,32 @@ Provider rules:
 **Maps cues:** “how long”, “how far”, “distance to/from”, “ETA”, “time to reach”, “directions to”, “drive/walk/bike to”, “from here to”, “from my location to”. The destination is usually a named place or address.
 **Not maps:** asking *about* maps in general (“what is Google Maps?”) → **normal_query**.
 
-If the message has **no** food-ordering, grocery-shopping, finance, nutrition, scheduling/reminder, or maps/distance intent → **normal_query**.
+If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, or maps/distance intent → **normal_query**.
 When unsure between normal chat and food, prefer **food_delivery** only if there are clear food/grocery cues.
+
+### Step 0.5: Delivery vs Going out (only switch on explicit cues)
+
+**Food delivery is the default** for any restaurant/food query. Going-out (`district`) ONLY fires when the user **explicitly** signals one of:
+
+1. **Movies / theatres / tickets** — movie, movies, theatre, theater, cinema, showtime, showtimes, screen, multiplex, IMAX, 4DX, Screen X, movie ticket(s), book tickets.
+2. **Explicit dine-in / table-booking** — "book a table", "reserve a table", "table for N", "table reservation", "make a reservation", "dine in", "dine-in", "dine out", "dining out", "private dining", "fine dining experience", "rooftop dining", "date night reservation".
+3. **Explicit "going out" intent** — "going out", "go out tonight", "head out", "night out", "want to go out", "outing plans", "going somewhere to eat", "step out for dinner".
+4. **Named app** — the user says "District" (the app).
+
+| Signal | Task | Provider |
+|--------|------|----------|
+| Any of the four explicit going-out cues above | **going_out** | `district` |
+| "find pizza", "biryani near me", "restaurants near me", "good restaurants", "best Italian places", "search restaurants near X" — **no explicit going-out cue** | **food_delivery** | `zomato` (default) |
+| "order food", "order from", "deliver", "delivery", "home delivery", "send to my address", "cart", "checkout" | **food_delivery** | `zomato` / `swiggy_food` |
+| "buy", "groceries", milk/atta/eggs/bread/rice/etc. | **food_delivery** | `swiggy_instamart` / `zepto` |
+| Mixed: restaurant query + ANY movie/theatre/showtime word | **going_out** | `district` |
+| Mixed: restaurant query + ANY "book a table" / "going out" / "dine in" cue | **going_out** | `district` |
+
+**Crucial defaults:**
+- "find pizza options" / "biryani near me" / "good restaurants in Koramangala" → `food_delivery` + `zomato`. Do NOT route to District.
+- The response LLM may softly ask "or are you planning to go out instead?" — that's the response layer's job, not the orchestrator's. Your job is to pick the most likely provider for the literal text, and food delivery (Zomato) is the safe default for ambiguous restaurant queries.
+
+**Never** route movies/theatres/showtimes/table-bookings/explicit-dine-in queries to `zomato` or `swiggy_food`. Those are always District.
 
 ---
 
@@ -94,20 +120,22 @@ Classify the user intent **before** picking a provider:
 0. **Provider stickiness (mid-flow)** — If the input starts with a line like `Previous successful turn used provider: <id>.`, that means the user is currently mid-flow on `<id>` (e.g. browsing a Zomato cart, looking at a Swiggy Instamart order). **Default to that provider** for follow-up turns like *"add to cart"*, *"clear cart and add ..."*, *"yes go ahead"*, *"track my order"*, *"pay now"*, *"checkout"*, *"what's in my cart"*. Only switch providers when the user clearly changes app (e.g. names a different one, asks for a new search on another platform, or switches between food and groceries). **Never** swap from `zomato` to `swiggy_food` (or vice versa) for ambiguous follow-ups — the providers have incompatible address-id formats and silently swapping breaks the user's session.
 
 1. **Named app wins**
-   - “on Zomato” → `zomato` (restaurant) unless compare.
+   - “on Zomato” → `zomato` (restaurant **delivery**) unless compare.
    - “on Swiggy” / “Swigy” **without** grocery vs meal context:
      - **Grocery cues** (milk, eggs, atta, groceries, Instamart, household) → `swiggy_instamart` only.
      - **Meal/restaurant cues** (pizza, biryani, restaurant, menu) → `swiggy_food` only.
      - **Truly ambiguous** (“order on Swiggy” only) → `swiggy_food`.
    - “Instamart” / “Swiggy Instamart” → `swiggy_instamart`.
    - “Zepto” → `zepto`.
+   - "District" / movies / theatres / showtimes / table reservation / dine-out / "going out" → `district` with `task_type: "going_out"` (e.g. "movies near Koramangala", "book a table at Chianti", "IMAX showtimes", "restaurants and movies near Sector 38").
 
 2. **Compare** — “Compare pizza on Zomato and Swiggy” → `["zomato", "swiggy_food"]` (restaurant).  
    Grocery compare only if user compares grocery apps explicitly.
 
 3. **Generic defaults (no app named)**
-   - **Grocery** → `swiggy_instamart` (e.g. “buy milk”, “order groceries”, “need bread and eggs”).
-   - **Restaurant / meals** → `zomato` (e.g. “order pizza”, “biryani near me”, “find restaurants”). Zomato is the default restaurant provider — Companion's UI fetches and caches a user's saved Zomato addresses automatically, so picking `zomato` here is strictly cheaper than `swiggy_food` for a first-touch user (no cross-provider address mismatch).
+   - **Grocery** → `swiggy_instamart` (e.g. "buy milk", "order groceries", "need bread and eggs").
+   - **Restaurant / meals** → `zomato` (e.g. "order pizza", "biryani near me", "find restaurants", "good restaurants in Koramangala"). Zomato is the default restaurant provider — Companion's UI fetches and caches a user's saved Zomato addresses automatically, so picking `zomato` here is strictly cheaper than `swiggy_food` for a first-touch user (no cross-provider address mismatch). The response layer may ask "or are you planning to go out?" as a soft nudge; the orchestrator should not pre-empt that by routing to District without explicit going-out cues.
+   - **Going out (explicit only)** → `district` only when the user explicitly mentions movies/theatres/showtimes, table booking/reservation, or says "go out / going out / dine in / dine out". See Step 0.5.
    - Use `swiggy_food` **only** when the user names Swiggy or asks to **compare with Swiggy**.
 
 4. **Zepto vs Instamart** — If user says Zepto → `zepto`. If Instamart or generic Swiggy grocery → `swiggy_instamart`. Do not return both unless user compares them.

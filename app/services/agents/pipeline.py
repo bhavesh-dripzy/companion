@@ -141,6 +141,8 @@ def _format_routing_message(
     session_state_keys: list[str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
+    session_movies: list[dict[str, Any]] | None = None,
+    session_theatres: list[dict[str, Any]] | None = None,
     selected_address_id: str | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> str:
@@ -236,6 +238,36 @@ def _format_routing_message(
                 "address, then put the chosen literal address_id in your "
                 "tool args):\n" + "\n".join(addr_rows)
             )
+    if session_movies:
+        movie_rows: list[str] = []
+        for entry in session_movies[:10]:
+            if not isinstance(entry, dict):
+                continue
+            mid = str(entry.get("movie_id") or "").strip()
+            name = str(entry.get("name") or "").strip()
+            if mid and name:
+                movie_rows.append(f"  - {name} → movie_id={mid}")
+        if movie_rows:
+            parts.append(
+                "Movies already shown this session — use literal movie_id "
+                "below for showtimes/reviews instead of re-searching:\n"
+                + "\n".join(movie_rows)
+            )
+    if session_theatres:
+        theatre_rows: list[str] = []
+        for entry in session_theatres[:10]:
+            if not isinstance(entry, dict):
+                continue
+            tid = str(entry.get("theatre_id") or "").strip()
+            name = str(entry.get("name") or "").strip()
+            if tid and name:
+                theatre_rows.append(f"  - {name} → theatre_id={tid}")
+        if theatre_rows:
+            parts.append(
+                "Theatres already shown this session — use literal theatre_id "
+                "below for showtimes instead of re-searching:\n"
+                + "\n".join(theatre_rows)
+            )
     if pending_variant_choice:
         # Surface the variant menu the previous turn deferred so the
         # planner can emit literal groupId / variation.id values when
@@ -284,7 +316,7 @@ def _format_routing_message(
 
 
 _KNOWN_PROVIDER_IDS = frozenset(
-    {"zomato", "swiggy_food", "swiggy_instamart", "zepto", "kite", "groww", "daily_calorie_tracker"}
+    {"zomato", "swiggy_food", "swiggy_instamart", "zepto", "district", "kite", "groww", "daily_calorie_tracker"}
 )
 
 
@@ -322,10 +354,13 @@ def _extract_previous_provider(
         has_zepto = "zepto" in content
         has_zomato = "zomato" in content
         has_swiggy = "swiggy" in content and not has_instamart
+        has_district = "district" in content
         if has_instamart:
             return "swiggy_instamart"
         if has_zepto:
             return "zepto"
+        if has_district:
+            return "district"
         if has_zomato:
             return "zomato"
         if has_swiggy:
@@ -505,6 +540,12 @@ def _plan_for_provider(
         out = plan_zomato_food(user_message=routing_message, llm=llm)
         trace("planner.out", provider=provider_id, plan=snip(out))
         return out
+    if provider_id == "district":
+        from app.services.district.planner import plan_district
+
+        out = plan_district(user_message=routing_message, llm=llm)
+        trace("planner.out", provider=provider_id, plan=snip(out))
+        return out
 
     if tp and not tp.tools:
         return _empty_provider_plan(
@@ -581,6 +622,8 @@ def run_agent_turn(
     session_state: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
+    session_movies: list[dict[str, Any]] | None = None,
+    session_theatres: list[dict[str, Any]] | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -615,6 +658,26 @@ def run_agent_turn(
             if not isinstance(name, str) or not name.strip():
                 continue
             seed_restaurants.append({**entry, "res_id": rid.strip(), "name": name.strip()})
+
+    seed_movies: list[dict[str, Any]] = []
+    if isinstance(session_movies, list):
+        for entry in session_movies:
+            if not isinstance(entry, dict):
+                continue
+            mid = entry.get("movie_id")
+            name = entry.get("name")
+            if isinstance(mid, str) and mid.strip() and isinstance(name, str) and name.strip():
+                seed_movies.append({**entry, "movie_id": mid.strip(), "name": name.strip()})
+
+    seed_theatres: list[dict[str, Any]] = []
+    if isinstance(session_theatres, list):
+        for entry in session_theatres:
+            if not isinstance(entry, dict):
+                continue
+            tid = entry.get("theatre_id")
+            name = entry.get("name")
+            if isinstance(tid, str) and tid.strip() and isinstance(name, str) and name.strip():
+                seed_theatres.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
 
     # Saved-address seed (parallel to seed_restaurants). Echoed back to
     # the client so each session keeps a stable address index, and surfaced
@@ -674,6 +737,8 @@ def run_agent_turn(
         session_state_keys=sorted((session_state or {}).keys()) or None,
         session_restaurants=seed_restaurants or None,
         session_addresses=seed_addresses or None,
+        session_movies=seed_movies or None,
+        session_theatres=seed_theatres or None,
         selected_address_id=selected_addr,
         pending_variant_choice=seed_variant_choices or None,
     )
@@ -697,6 +762,10 @@ def run_agent_turn(
         routed = set(orchestration.get("health_providers") or [])
     else:
         routed = set(orchestration.get("food_providers") or [])
+    # Going-out is District-only; if the orchestrator forgot to include it
+    # (legacy LLM responses pre-prompt-refresh), force district in.
+    if task_type == "going_out" and not routed:
+        routed = {"district"}
     routed = {
         pid
         for pid in routed
@@ -766,7 +835,7 @@ def run_agent_turn(
                 llm=llm,
                 user_id=user_id,
             )
-    elif task_type != "food_delivery":
+    elif task_type not in ("food_delivery", "going_out"):
         plan = _non_food_plan(reasoning=str(orchestration.get("reasoning") or task_type))
     elif not routed:
         plan = _empty_food_plan(reasoning=str(orchestration.get("reasoning") or ""))
@@ -816,6 +885,9 @@ def run_agent_turn(
             session_placeholders=session_state,
             session_restaurants=seed_restaurants or None,
             session_addresses=seed_addresses or None,
+            session_movies=seed_movies or None,
+            session_theatres=seed_theatres or None,
+            user_geo=user_geo,
         )
         provider_results = tool_execution.get("provider_results")
         if isinstance(provider_results, dict):
@@ -874,6 +946,8 @@ def run_agent_turn(
     # Start the next-turn restaurant index from the seed; the executor's
     # diagnostics will override it if the current turn ran a search.
     next_session_restaurants: list[dict[str, Any]] = list(seed_restaurants)
+    next_session_movies: list[dict[str, Any]] = list(seed_movies)
+    next_session_theatres: list[dict[str, Any]] = list(seed_theatres)
     # Same pattern for saved addresses — if the executor (re)fetched the
     # list this turn, its result wins; otherwise we just echo the seed
     # back so the frontend can keep persisting it.
@@ -917,6 +991,30 @@ def run_agent_turn(
                     cleaned.append({**entry, "res_id": rid.strip(), "name": name.strip()})
             if cleaned:
                 next_session_restaurants = cleaned
+        _movies = _diag.get("session_movies")
+        if isinstance(_movies, list) and _movies:
+            cleaned_m: list[dict[str, Any]] = []
+            for entry in _movies:
+                if not isinstance(entry, dict):
+                    continue
+                mid = entry.get("movie_id")
+                name = entry.get("name")
+                if isinstance(mid, str) and mid.strip() and isinstance(name, str) and name.strip():
+                    cleaned_m.append({**entry, "movie_id": mid.strip(), "name": name.strip()})
+            if cleaned_m:
+                next_session_movies = cleaned_m
+        _theatres = _diag.get("session_theatres")
+        if isinstance(_theatres, list) and _theatres:
+            cleaned_t: list[dict[str, Any]] = []
+            for entry in _theatres:
+                if not isinstance(entry, dict):
+                    continue
+                tid = entry.get("theatre_id")
+                name = entry.get("name")
+                if isinstance(tid, str) and tid.strip() and isinstance(name, str) and name.strip():
+                    cleaned_t.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
+            if cleaned_t:
+                next_session_theatres = cleaned_t
         _addrs = _diag.get("session_addresses")
         if isinstance(_addrs, list) and _addrs:
             cleaned_a: list[dict[str, Any]] = []
@@ -1044,6 +1142,8 @@ def run_agent_turn(
         # Multi-restaurant memory — see ``run_agent_turn`` docstring. Echo
         # back as-is on the next turn's request.
         "session_restaurants": next_session_restaurants,
+        "session_movies": next_session_movies,
+        "session_theatres": next_session_theatres,
         # Saved-address memory — same echo contract as session_restaurants.
         # Lets the chat work with zero "fetch addresses" clicks on the
         # frontend: turn 1 auto-prefetches Zomato addresses, turns 2+ just

@@ -28,6 +28,7 @@ _BUILTIN_PROMPTS: dict[str, Path] = {
     "swiggy_food": _SVC_ROOT / "swiggy" / "prompts" / "food.system.md",
     "swiggy_instamart": _SVC_ROOT / "instamart" / "prompts" / "food.system.md",
     "zepto": _SVC_ROOT / "zepto" / "prompts" / "food.system.md",
+    "district": _SVC_ROOT / "district" / "prompts" / "going_out.system.md",
 }
 
 # Union of known MCP tool names (used only to drop hallucinated tools).
@@ -74,6 +75,17 @@ _ALLOWED_TOOLS = frozenset(
         "your_go_to_items",
         "update_cart",
         "report_error",
+        "search_dining_restaurants",
+        "get_dynamic_filters",
+        "get_dining_restaurants_details",
+        "get_table_reservation_slots",
+        "create_table_reservation_booking",
+        "get_booking_details",
+        "get_dynamic_filters_movie",
+        "search_movies",
+        "search_theatres",
+        "search_shows",
+        "get_movie_critique_reviews",
     }
 )
 

@@ -13,14 +13,16 @@ from app.services.llm_config import ResolvedLlm
 _KNOWN_TASKS = frozenset(
     {
         "food_delivery",
+        "going_out",
         "finance_investing",
         "health_nutrition",
         "normal_query",
         "reminder_calendar",
+        "maps_query",
         "whatsapp_message",
     }
 )
-_KNOWN_FOOD = frozenset({"zomato", "swiggy_food", "swiggy_instamart", "zepto"})
+_KNOWN_FOOD = frozenset({"zomato", "swiggy_food", "swiggy_instamart", "zepto", "district"})
 _KNOWN_FINANCE = frozenset({"kite", "groww"})
 _KNOWN_HEALTH = frozenset({"daily_calorie_tracker"})
 
@@ -122,8 +124,14 @@ def classify_agent_routing(
         for x in health_raw
         if isinstance(x, str) and str(x).strip() in _KNOWN_HEALTH
     ]
-    if task != "food_delivery":
+    if task not in ("food_delivery", "going_out"):
         foods = []
+    if task == "going_out":
+        # Going-out path is District-only; ignore stray delivery providers
+        # the LLM might also have echoed back.
+        foods = [pid for pid in foods if pid == "district"]
+        if not foods:
+            foods = ["district"]
     if task != "finance_investing":
         finance = []
     if task != "health_nutrition":

@@ -57,6 +57,8 @@ class FoodQueryRequest(BaseModel):
     # executor can skip the address-listing MCP call and let the user say
     # "use my home address" without another round-trip.
     session_addresses: list[dict[str, Any]] | None = None
+    session_movies: list[dict[str, Any]] | None = None
+    session_theatres: list[dict[str, Any]] | None = None
     # Single-turn deferral state: when the Swiggy executor skipped a cart
     # update because the menu item has a real variant choice (size 8"/10"/
     # 12", crust hand-tossed vs thin), the response carries the variant
@@ -82,6 +84,8 @@ class AgentQueryRequest(BaseModel):
     session_restaurants: list[dict[str, Any]] | None = None
     # See FoodQueryRequest.session_addresses above.
     session_addresses: list[dict[str, Any]] | None = None
+    session_movies: list[dict[str, Any]] | None = None
+    session_theatres: list[dict[str, Any]] | None = None
     # See FoodQueryRequest.pending_variant_choice above.
     pending_variant_choice: list[dict[str, Any]] | None = None
 

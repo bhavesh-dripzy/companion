@@ -6,6 +6,7 @@ import re
 import time
 from typing import Any
 
+from app.services.district_mcp_executor import run_district_tool_plan_sync
 from app.services.swiggy_mcp_executor import run_swiggy_tool_plan_sync
 from app.services.zomato_mcp_executor import (
     _mcp_token_secret,
@@ -177,6 +178,29 @@ GROWW_PROVIDER = ToolProvider(
     ),
 )
 
+DISTRICT_PROVIDER = ToolProvider(
+    name="district",
+    label="District MCP",
+    mcp_url_env="DISTRICT_MCP_URL",
+    default_mcp_url="https://mcp-server.district.in/mcp",
+    tools=frozenset(
+        {
+            "search_dining_restaurants",
+            "get_dynamic_filters",
+            "get_dining_restaurants_details",
+            "get_table_reservation_slots",
+            "create_table_reservation_booking",
+            "get_booking_details",
+            "get_dynamic_filters_movie",
+            "search_movies",
+            "search_theatres",
+            "search_shows",
+            "get_movie_critique_reviews",
+        }
+    ),
+    notes="District dining table reservations and movie/theatre/show discovery.",
+)
+
 CALORIE_PROVIDER = ToolProvider(
     name="daily_calorie_tracker",
     label="Daily Calorie Tracker MCP",
@@ -201,6 +225,7 @@ BUILTIN_PROVIDERS = (
     ZOMATO_PROVIDER,
     SWIGGY_FOOD_PROVIDER,
     SWIGGY_INSTAMART_PROVIDER,
+    DISTRICT_PROVIDER,
     BLINKIT_PROVIDER,
     ZEPTO_PROVIDER,
     KITE_PROVIDER,
@@ -409,7 +434,29 @@ def select_tool_providers_for_message(message: str, user_id: str | None = None) 
     mentions_zepto = "zepto" in text
     mentions_kite = "kite" in text or "zerodha" in text
     mentions_groww = "groww" in text
+    mentions_district = "district" in text
     mentions_calories = "calorie" in text or "calories" in text
+    movie_words = {
+        "movie",
+        "movies",
+        "theatre",
+        "theater",
+        "cinema",
+        "showtime",
+        "showtimes",
+        "ticket",
+        "tickets",
+        "imax",
+        "screen x",
+        "4dx",
+    }
+    dining_out_words = {
+        "table reservation",
+        "book a table",
+        "dine out",
+        "dining",
+        "restaurant reservation",
+    }
 
     finance_words = {
         "stock",
@@ -454,6 +501,13 @@ def select_tool_providers_for_message(message: str, user_id: str | None = None) 
     }
     meal_log_words = {" log ", " logged ", " track ", " tracked ", " record ", " recorded "}
     meal_type_words = {" breakfast ", " lunch ", " dinner ", " snack ", " meal "}
+
+    if mentions_district and "district" in providers:
+        return {"district"}
+    if any(word in text for word in movie_words) and "district" in providers:
+        return {"district"}
+    if any(word in text for word in dining_out_words) and "district" in providers:
+        return {"district"}
 
     if mentions_calories and "daily_calorie_tracker" in providers:
         return {"daily_calorie_tracker"}
@@ -664,6 +718,9 @@ def execute_tool_plan_sync(
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
+    session_movies: list[dict[str, Any]] | None = None,
+    session_theatres: list[dict[str, Any]] | None = None,
+    user_geo: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not any(isinstance(step, dict) and str(step.get("tool") or "").strip() for step in tool_plan):
         return {
@@ -809,6 +866,18 @@ def execute_tool_plan_sync(
                 session_placeholders=session_placeholders,
                 session_restaurants=session_restaurants,
                 session_addresses=session_addresses,
+            )
+        elif name == "district":
+            provider_results[name] = run_district_tool_plan_sync(
+                routed[name],
+                mcp_url=resolved_url,
+                user_id=user_id,
+                location_text=requested_location,
+                user_geo=user_geo,
+                session_placeholders=session_placeholders,
+                session_restaurants=session_restaurants,
+                session_movies=session_movies,
+                session_theatres=session_theatres,
             )
         elif name == "swiggy_instamart":
             from app.services.instamart_mcp_executor import run_tool_plan_sync as run_instamart_plan

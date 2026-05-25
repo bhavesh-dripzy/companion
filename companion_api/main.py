@@ -1397,6 +1397,32 @@ def _companion_agent_turn(
             clean_pvc.append(entry)
         pending_variant_choice = clean_pvc or None
 
+    session_movies: list[dict[str, Any]] | None = None
+    raw_movies = getattr(payload, "session_movies", None)
+    if isinstance(raw_movies, list) and raw_movies:
+        clean_movies: list[dict[str, Any]] = []
+        for entry in raw_movies:
+            if not isinstance(entry, dict):
+                continue
+            mid = entry.get("movie_id")
+            name = entry.get("name")
+            if isinstance(mid, str) and mid.strip() and isinstance(name, str) and name.strip():
+                clean_movies.append({**entry, "movie_id": mid.strip(), "name": name.strip()})
+        session_movies = clean_movies or None
+
+    session_theatres: list[dict[str, Any]] | None = None
+    raw_theatres = getattr(payload, "session_theatres", None)
+    if isinstance(raw_theatres, list) and raw_theatres:
+        clean_theatres: list[dict[str, Any]] = []
+        for entry in raw_theatres:
+            if not isinstance(entry, dict):
+                continue
+            tid = entry.get("theatre_id")
+            name = entry.get("name")
+            if isinstance(tid, str) and tid.strip() and isinstance(name, str) and name.strip():
+                clean_theatres.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
+        session_theatres = clean_theatres or None
+
     try:
         return run_agent_turn(
             user_message=payload.message.strip(),
@@ -1409,6 +1435,8 @@ def _companion_agent_turn(
             session_state=session_state,
             session_restaurants=session_restaurants,
             session_addresses=session_addresses,
+            session_movies=session_movies,
+            session_theatres=session_theatres,
             pending_variant_choice=pending_variant_choice,
         )
     except CustomMcpNeedsDiscoveryError as exc:

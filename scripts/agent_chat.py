@@ -68,6 +68,8 @@ def _load_state(path: Path) -> dict[str, Any]:
         "history": [],
         "session_state": {},
         "session_restaurants": [],
+        "session_movies": [],
+        "session_theatres": [],
         "session_addresses": [],
         "pending_variant_choice": [],
         "token": None,
@@ -79,6 +81,8 @@ def _load_state(path: Path) -> dict[str, Any]:
     except Exception:
         return empty
     loaded.setdefault("session_restaurants", [])
+    loaded.setdefault("session_movies", [])
+    loaded.setdefault("session_theatres", [])
     loaded.setdefault("session_addresses", [])
     loaded.setdefault("pending_variant_choice", [])
     return loaded
@@ -124,6 +128,8 @@ def main() -> int:
     history: list[dict[str, str]] = state.get("history") or []
     session_state: dict[str, str] = state.get("session_state") or {}
     session_restaurants: list[dict[str, Any]] = state.get("session_restaurants") or []
+    session_movies: list[dict[str, Any]] = state.get("session_movies") or []
+    session_theatres: list[dict[str, Any]] = state.get("session_theatres") or []
     session_addresses: list[dict[str, Any]] = state.get("session_addresses") or []
     pending_variant_choice: list[dict[str, Any]] = state.get("pending_variant_choice") or []
     turn_idx = int(state.get("turn") or 0) + 1
@@ -138,6 +144,10 @@ def main() -> int:
         body["session_state"] = session_state
     if session_restaurants:
         body["session_restaurants"] = session_restaurants
+    if session_movies:
+        body["session_movies"] = session_movies
+    if session_theatres:
+        body["session_theatres"] = session_theatres
     if session_addresses:
         body["session_addresses"] = session_addresses
     if pending_variant_choice:
@@ -166,6 +176,8 @@ def main() -> int:
     attachments = result.get("attachments") or []
     next_state = result.get("session_state") or {}
     next_restaurants = result.get("session_restaurants") or []
+    next_movies = result.get("session_movies") or []
+    next_theatres = result.get("session_theatres") or []
     next_addresses = result.get("session_addresses") or []
     next_pending_variant_choice = result.get("pending_variant_choice") or []
     address_context = result.get("address_context") or None
@@ -227,6 +239,10 @@ def main() -> int:
         state["session_state"] = {k: str(v) for k, v in next_state.items() if isinstance(k, str)}
     if isinstance(next_restaurants, list):
         state["session_restaurants"] = next_restaurants
+    if isinstance(next_movies, list):
+        state["session_movies"] = next_movies
+    if isinstance(next_theatres, list):
+        state["session_theatres"] = next_theatres
     if isinstance(next_addresses, list):
         state["session_addresses"] = next_addresses
     if isinstance(next_pending_variant_choice, list):

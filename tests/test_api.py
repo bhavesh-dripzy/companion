@@ -608,6 +608,8 @@ def test_list_tool_providers_includes_zomato_and_swiggy():
     assert "search_restaurants" in providers["swiggy_food"]["tools"]
     assert "get_addresses" in providers["swiggy_food"]["tools"]
     assert "search_menu" in providers["swiggy_food"]["tools"]
+    assert providers["district"]["label"] == "District MCP"
+    assert "search_movies" in providers["district"]["tools"]
     assert providers["swiggy_instamart"]["label"] == "Swiggy Instamart MCP"
     assert "search_products" in providers["swiggy_instamart"]["tools"]
 
@@ -616,6 +618,8 @@ def test_select_tool_providers_for_message_chooses_correct_providers():
     # Basic food queries go to Zomato
     assert select_tool_providers_for_message("Order pizza") == {"zomato"}
     assert select_tool_providers_for_message("Find biryani near me") == {"zomato"}
+    assert select_tool_providers_for_message("movies near Koramangala") == {"district"}
+    assert select_tool_providers_for_message("book a table for 2") == {"district"}
 
     # Grocery queries prefer Zepto over Swiggy Instamart
     assert select_tool_providers_for_message("Buy milk and eggs") == {"zepto"}
