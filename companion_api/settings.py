@@ -45,6 +45,10 @@ GOOGLE_MAPS_ROUTES_URL = os.getenv(
     "GOOGLE_MAPS_ROUTES_URL",
     "https://routes.googleapis.com/directions/v2:computeRoutes",
 )
+GOOGLE_MAPS_GEOCODE_URL = os.getenv(
+    "GOOGLE_MAPS_GEOCODE_URL",
+    "https://maps.googleapis.com/maps/api/geocode/json",
+)
 GOOGLE_MAPS_DEFAULT_TRAVEL_MODE = os.getenv("GOOGLE_MAPS_DEFAULT_TRAVEL_MODE", "DRIVE")
 GOOGLE_MAPS_REQUEST_TIMEOUT_SECONDS = int(
     os.getenv("GOOGLE_MAPS_REQUEST_TIMEOUT_SECONDS", "10")

@@ -114,6 +114,18 @@ def main() -> int:
     ap.add_argument("--password", default=os.getenv("LEGACY_ADMIN_PASSWORD", DEFAULT_PASSWORD))
     ap.add_argument("--state-file", default=os.getenv("COMPANION_STATE_FILE", DEFAULT_STATE_FILE))
     ap.add_argument("--reset", action="store_true", help="Wipe state before this turn.")
+    ap.add_argument(
+        "--lat",
+        type=float,
+        default=(float(os.getenv("COMPANION_USER_LAT")) if os.getenv("COMPANION_USER_LAT") else None),
+        help="Simulate the frontend's GPS latitude (used by District / Maps).",
+    )
+    ap.add_argument(
+        "--lng",
+        type=float,
+        default=(float(os.getenv("COMPANION_USER_LNG")) if os.getenv("COMPANION_USER_LNG") else None),
+        help="Simulate the frontend's GPS longitude.",
+    )
     args = ap.parse_args()
 
     state_path = Path(args.state_file)
@@ -140,6 +152,8 @@ def main() -> int:
         "execute_tools": True,
         "history": history,
     }
+    if args.lat is not None and args.lng is not None:
+        body["geo"] = {"latitude": args.lat, "longitude": args.lng}
     if session_state:
         body["session_state"] = session_state
     if session_restaurants:
@@ -158,6 +172,8 @@ def main() -> int:
     print(f"{'═' * 78}")
     addr_in = args.address_id or "(none — let executor auto-resolve)"
     print(f"  address_id IN     : {addr_in}")
+    if args.lat is not None and args.lng is not None:
+        print(f"  user_geo IN       : lat={args.lat} lng={args.lng}")
     print(f"  session_state IN  : {session_state}")
     if session_restaurants:
         rests = ", ".join(f"{r.get('name')}({r.get('res_id')})" for r in session_restaurants[:5])

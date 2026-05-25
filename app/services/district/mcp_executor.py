@@ -83,7 +83,10 @@ _MOVIE_LOCATION_TOOLS = frozenset(
     }
 )
 
-# Approximate centroids for common localities (District needs lat/lng, not delivery addresses).
+# Fallback centroids for common localities — used only when the Google Maps
+# Geocoding API is unavailable (no key, offline test runs). The live path
+# prefers Google's Geocoding API so any text the user types ("near Galleria
+# market", "Saket select citywalk", etc.) gets resolved with proper precision.
 _LOCALITY_COORDS: dict[str, tuple[float, float]] = {
     "koramangala": (12.9352, 77.6245),
     "indiranagar": (12.9784, 77.6408),
@@ -233,14 +236,45 @@ def _collect_theatres(envelope: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _geocode_location_text(location_text: str | None) -> tuple[float, float] | None:
-    text = (location_text or "").strip().lower()
+def _geocode_via_google(location_text: str) -> tuple[float, float] | None:
+    """Try Google Maps Geocoding. Returns None if the API isn't configured
+    or fails — callers should fall through to the local lookup table.
+
+    Imported lazily so a missing/misbehaving ``google_maps`` module never
+    breaks the District executor (which has its own offline-friendly path).
+    """
+    try:
+        from companion_api.google_maps import GeoPoint, geocode_address
+    except Exception:  # noqa: BLE001 — defensive: never let import break execution
+        return None
+    try:
+        point = geocode_address(location_text)
+    except Exception:  # noqa: BLE001 — geocoder is best-effort
+        logger.warning("Google Maps geocode failed for %r", location_text, exc_info=True)
+        return None
+    if isinstance(point, GeoPoint):
+        return (point.latitude, point.longitude)
+    return None
+
+
+def _geocode_from_locality_table(location_text: str) -> tuple[float, float] | None:
+    text = location_text.strip().lower()
     if not text:
         return None
     for key, coords in sorted(_LOCALITY_COORDS.items(), key=lambda kv: -len(kv[0])):
         if key in text:
             return coords
     return None
+
+
+def _geocode_location_text(location_text: str | None) -> tuple[float, float] | None:
+    text = (location_text or "").strip()
+    if not text:
+        return None
+    via_google = _geocode_via_google(text)
+    if via_google is not None:
+        return via_google
+    return _geocode_from_locality_table(text)
 
 
 def _coords_from_user_geo(user_geo: dict[str, Any] | None) -> tuple[float, float] | None:

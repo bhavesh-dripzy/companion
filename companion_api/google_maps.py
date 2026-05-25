@@ -24,6 +24,8 @@ Design choices (kept intentionally small):
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -289,3 +291,143 @@ def compute_route(
         polyline=str(polyline) if polyline else None,
         description=str(description) if description else None,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Geocoding API — used by providers (e.g. District) that take lat/lng inputs
+# and have to translate free-text localities ("sector 38 gurgaon",
+# "Koramangala") into coordinates. Kept separate from the Routes API call
+# above so the field mask / billing surface stays minimal.
+# --------------------------------------------------------------------------- #
+
+_GEOCODE_CACHE_TTL_SECONDS = 60 * 60 * 24  # 1 day; localities don't move
+_GEOCODE_CACHE_MAX = 256
+_geocode_cache: dict[str, tuple[float, GeoPoint | None]] = {}
+_geocode_cache_lock = threading.Lock()
+
+
+def _normalise_geocode_key(text: str, region: str | None) -> str:
+    return f"{(region or '').strip().lower()}|{' '.join(text.lower().split())}"
+
+
+def _geocode_cache_get(key: str) -> tuple[bool, GeoPoint | None]:
+    """Returns (hit, value). Value is None for negative cache entries."""
+    with _geocode_cache_lock:
+        entry = _geocode_cache.get(key)
+        if entry is None:
+            return False, None
+        expiry, value = entry
+        if expiry < time.time():
+            _geocode_cache.pop(key, None)
+            return False, None
+        return True, value
+
+
+def _geocode_cache_put(key: str, value: GeoPoint | None) -> None:
+    with _geocode_cache_lock:
+        if len(_geocode_cache) >= _GEOCODE_CACHE_MAX:
+            # Drop the oldest item — dict preserves insertion order in 3.7+.
+            try:
+                first_key = next(iter(_geocode_cache))
+                _geocode_cache.pop(first_key, None)
+            except StopIteration:
+                pass
+        _geocode_cache[key] = (time.time() + _GEOCODE_CACHE_TTL_SECONDS, value)
+
+
+def geocode_address(
+    text: str,
+    *,
+    region: str | None = None,
+    language: str | None = None,
+) -> GeoPoint | None:
+    """Resolve a free-text place (e.g. "Sector 38 Gurgaon") to a GeoPoint.
+
+    Uses Google's Geocoding API. Returns ``None`` when:
+
+    - the input is empty,
+    - no API key is configured,
+    - the API returned ``ZERO_RESULTS`` or an error.
+
+    Successful and negative results are cached for a day so repeated planner
+    turns asking about the same locality don't burn quota. Anything raising
+    network / HTTP errors is caught and converted to ``None`` — callers can
+    fall back to their own lookup table.
+    """
+    needle = (text or "").strip()
+    if not needle:
+        return None
+
+    cache_key = _normalise_geocode_key(needle, region)
+    hit, cached = _geocode_cache_get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        api_key = _api_key()
+    except GoogleMapsError as exc:
+        if exc.code == "not_configured":
+            logger.debug("geocode_address skipped — no API key configured")
+            return None
+        raise
+
+    params: dict[str, Any] = {
+        "address": needle,
+        "key": api_key,
+        "language": language or settings.GOOGLE_MAPS_DEFAULT_LANGUAGE,
+        "region": (region or settings.GOOGLE_MAPS_DEFAULT_REGION or "").lower() or None,
+    }
+    params = {k: v for k, v in params.items() if v is not None}
+
+    try:
+        response = requests.get(
+            settings.GOOGLE_MAPS_GEOCODE_URL,
+            params=params,
+            timeout=settings.GOOGLE_MAPS_REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        logger.warning("geocode_address network error for %r", needle, exc_info=True)
+        _geocode_cache_put(cache_key, None)
+        return None
+
+    if not response.ok:
+        logger.warning(
+            "geocode_address non-2xx for %r: HTTP %s",
+            needle,
+            response.status_code,
+        )
+        _geocode_cache_put(cache_key, None)
+        return None
+
+    try:
+        payload = response.json()
+    except ValueError:
+        _geocode_cache_put(cache_key, None)
+        return None
+
+    status = (payload.get("status") if isinstance(payload, dict) else "") or ""
+    if status != "OK":
+        # ZERO_RESULTS / OVER_QUERY_LIMIT / REQUEST_DENIED / INVALID_REQUEST —
+        # all map to "no usable coords"; cache the negative so we don't retry
+        # immediately for the same query.
+        logger.info("geocode_address status=%s for %r", status, needle)
+        _geocode_cache_put(cache_key, None)
+        return None
+
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(results, list) or not results:
+        _geocode_cache_put(cache_key, None)
+        return None
+
+    first = results[0] if isinstance(results[0], dict) else {}
+    location = ((first.get("geometry") or {}).get("location")) or {}
+    lat = location.get("lat")
+    lng = location.get("lng")
+    try:
+        point = GeoPoint(float(lat), float(lng))
+    except (TypeError, ValueError):
+        _geocode_cache_put(cache_key, None)
+        return None
+
+    _geocode_cache_put(cache_key, point)
+    return point

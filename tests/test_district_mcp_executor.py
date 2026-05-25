@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import app.services.district.mcp_executor as district_executor
 from app.services.district.mcp_executor import (
     _collect_movies,
     _collect_restaurants,
     _collect_theatres,
+    _geocode_from_locality_table,
     _geocode_location_text,
     _normalize_dining_filters,
     _normalize_movie_filters,
@@ -47,10 +49,27 @@ def test_normalize_filters():
     assert movie == [{"filter_name": "language", "filter_values": ["Hindi"]}]
 
 
-def test_geocode_location_text():
+def test_geocode_location_text_falls_back_to_locality_table(monkeypatch):
+    # Force the Google Maps geocoder to return None so we exercise the fallback.
+    monkeypatch.setattr(district_executor, "_geocode_via_google", lambda _t: None)
     coords = _geocode_location_text("restaurants near Koramangala")
     assert coords is not None
     assert abs(coords[0] - 12.9352) < 0.01
+
+
+def test_geocode_location_text_prefers_google_when_available(monkeypatch):
+    # When Google returns coords, the locality table is bypassed.
+    monkeypatch.setattr(
+        district_executor,
+        "_geocode_via_google",
+        lambda _t: (28.5021, 77.0411),
+    )
+    coords = _geocode_location_text("Cyber City near Galleria")
+    assert coords == (28.5021, 77.0411)
+
+
+def test_geocode_locality_table_unknown_locality_returns_none():
+    assert _geocode_from_locality_table("random text with no known locality") is None
 
 
 def test_prepare_tool_args_injects_location():

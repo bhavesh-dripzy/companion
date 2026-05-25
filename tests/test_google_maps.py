@@ -16,6 +16,7 @@ from companion_api.google_maps import (
     GeoPoint,
     GoogleMapsError,
     compute_route,
+    geocode_address,
     google_maps_configured,
 )
 
@@ -165,3 +166,68 @@ def test_compute_route_upstream_error(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(GoogleMapsError) as excinfo:
         compute_route(origin=GeoPoint(0, 0), destination="x")
     assert excinfo.value.code == "upstream_error"
+
+
+def _reset_geocode_cache() -> None:
+    maps_mod._geocode_cache.clear()  # noqa: SLF001 — test reach-in is OK here
+
+
+def test_geocode_address_returns_none_when_no_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    _reset_geocode_cache()
+    _stub_api_key(monkeypatch, None)
+    assert geocode_address("Koramangala") is None
+
+
+def test_geocode_address_parses_first_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    _reset_geocode_cache()
+    _stub_api_key(monkeypatch, "fake-key")
+    captured: dict[str, Any] = {}
+
+    def fake_get(url: str, params: dict[str, Any], timeout: int) -> _FakeResponse:
+        captured.update({"url": url, "params": params, "timeout": timeout})
+        return _FakeResponse(
+            200,
+            {
+                "status": "OK",
+                "results": [
+                    {
+                        "geometry": {
+                            "location": {"lat": 28.4455, "lng": 77.0750},
+                        }
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(maps_mod.requests, "get", fake_get)
+    point = geocode_address("Sector 38 Gurgaon")
+    assert point == GeoPoint(28.4455, 77.0750)
+    assert captured["params"]["address"] == "Sector 38 Gurgaon"
+    assert captured["params"]["key"] == "fake-key"
+
+
+def test_geocode_address_caches_negative_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    _reset_geocode_cache()
+    _stub_api_key(monkeypatch, "fake-key")
+    calls: list[int] = []
+
+    def fake_get(url: str, params: dict[str, Any], timeout: int) -> _FakeResponse:
+        calls.append(1)
+        return _FakeResponse(200, {"status": "ZERO_RESULTS", "results": []})
+
+    monkeypatch.setattr(maps_mod.requests, "get", fake_get)
+
+    assert geocode_address("nowhere-real") is None
+    assert geocode_address("nowhere-real") is None  # second call served from cache
+    assert len(calls) == 1
+
+
+def test_geocode_address_returns_none_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _reset_geocode_cache()
+    _stub_api_key(monkeypatch, "fake-key")
+    monkeypatch.setattr(
+        maps_mod.requests,
+        "get",
+        lambda *a, **k: _FakeResponse(500, text="boom"),
+    )
+    assert geocode_address("some place") is None
