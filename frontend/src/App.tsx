@@ -106,7 +106,16 @@ function App() {
       // the conversation. The frontend no longer pre-selects one.
       address_id: '',
       execute_tools: true,
-      history: messages.map((m) => ({ role: m.role, content: m.content })),
+      // Echo `provider` on assistant turns so the backend's orchestrator can
+      // use its Priority-1 stickiness signal (see _extract_previous_provider
+      // in app/services/agents/pipeline.py). Without this, an ambiguous
+      // follow-up like "coke ad fries regular" silently drifts from
+      // swiggy_food back to the zomato default and breaks the cart session.
+      history: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.role === 'assistant' && m.provider ? { provider: m.provider } : {}),
+      })),
     };
     if (geo) {
       body.geo = {
@@ -168,6 +177,7 @@ function App() {
         meta: [...data.selected_tool_providers, data.tool_execution.ok ? 'tools ok' : data.tool_execution.error].filter(Boolean) as string[],
         trace: data.observable_trace,
         attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
+        provider: typeof data.routed_provider === 'string' && data.routed_provider ? data.routed_provider : undefined,
       };
 
       // Persist the carry-forward state the backend just learned. Doing

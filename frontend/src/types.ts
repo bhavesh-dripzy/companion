@@ -43,6 +43,16 @@ export interface Message {
   meta?: string[];
   trace?: any[];
   attachments?: Attachment[];
+  // Provider stickiness signal — the backend's `routed_provider` for the
+  // turn that produced this assistant message. Echoed back on the `history`
+  // array of subsequent `/api/agent/query/` requests so the orchestrator's
+  // `_extract_previous_provider` Priority-1 path fires and keeps the user
+  // pinned to (e.g.) `swiggy_food` mid-cart instead of silently drifting
+  // back to the `zomato` default on an ambiguous follow-up like "coke ad
+  // fries regular". Without this echo the stickiness check falls back to
+  // substring-scanning the assistant text for "swiggy"/"zomato" — which
+  // almost never appears in natural Hinglish replies about Burger King.
+  provider?: string;
 }
 
 export interface SessionRestaurant {
@@ -84,6 +94,12 @@ export interface AddressContext {
 export interface QueryResponse {
   assistant_message: string;
   selected_tool_providers: string[];
+  // Single primary provider the orchestrator picked this turn (the
+  // alphabetically-first entry in `selected_tool_providers` when multiple
+  // ran). The frontend stores this on the assistant `Message` and echoes
+  // it back on the next request's `history` so the orchestrator can keep
+  // the user on the same provider mid-flow.
+  routed_provider?: string | null;
   tool_execution: {
     ok: boolean;
     error?: string;
