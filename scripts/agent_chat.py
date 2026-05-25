@@ -71,6 +71,7 @@ def _load_state(path: Path) -> dict[str, Any]:
         "session_movies": [],
         "session_theatres": [],
         "session_addresses": [],
+        "session_menu": [],
         "pending_variant_choice": [],
         "token": None,
     }
@@ -84,6 +85,7 @@ def _load_state(path: Path) -> dict[str, Any]:
     loaded.setdefault("session_movies", [])
     loaded.setdefault("session_theatres", [])
     loaded.setdefault("session_addresses", [])
+    loaded.setdefault("session_menu", [])
     loaded.setdefault("pending_variant_choice", [])
     return loaded
 
@@ -143,6 +145,7 @@ def main() -> int:
     session_movies: list[dict[str, Any]] = state.get("session_movies") or []
     session_theatres: list[dict[str, Any]] = state.get("session_theatres") or []
     session_addresses: list[dict[str, Any]] = state.get("session_addresses") or []
+    session_menu: list[dict[str, Any]] = state.get("session_menu") or []
     pending_variant_choice: list[dict[str, Any]] = state.get("pending_variant_choice") or []
     turn_idx = int(state.get("turn") or 0) + 1
 
@@ -164,6 +167,8 @@ def main() -> int:
         body["session_theatres"] = session_theatres
     if session_addresses:
         body["session_addresses"] = session_addresses
+    if session_menu:
+        body["session_menu"] = session_menu
     if pending_variant_choice:
         body["pending_variant_choice"] = pending_variant_choice
 
@@ -195,6 +200,7 @@ def main() -> int:
     next_movies = result.get("session_movies") or []
     next_theatres = result.get("session_theatres") or []
     next_addresses = result.get("session_addresses") or []
+    next_menu = result.get("session_menu") or []
     next_pending_variant_choice = result.get("pending_variant_choice") or []
     address_context = result.get("address_context") or None
     plan = result.get("food_routing_plan") or {}
@@ -222,6 +228,12 @@ def main() -> int:
         )
         if new_addr_ids:
             print(f"  ↑ new addresses    : {new_addr_ids}")
+    if next_menu:
+        items = ", ".join(
+            f"{m.get('item_name')}({m.get('variant_id')})" for m in next_menu[:5]
+        )
+        more = "" if len(next_menu) <= 5 else f" (+{len(next_menu) - 5} more)"
+        print(f"  menu items OUT    : {items}{more}")
     if address_context:
         active_id = address_context.get("address_id")
         label = address_context.get("label")
@@ -261,6 +273,8 @@ def main() -> int:
         state["session_theatres"] = next_theatres
     if isinstance(next_addresses, list):
         state["session_addresses"] = next_addresses
+    if isinstance(next_menu, list):
+        state["session_menu"] = next_menu
     if isinstance(next_pending_variant_choice, list):
         state["pending_variant_choice"] = next_pending_variant_choice
     _save_state(state_path, state)

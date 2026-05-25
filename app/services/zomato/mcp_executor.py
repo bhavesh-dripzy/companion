@@ -160,6 +160,17 @@ def _mcp_remote_token_relative_paths(repo_root: Path, mcp_url: str) -> dict[str,
 
 
 def _has_token_file_for_url(paths: list[str], mcp_url: str) -> bool:
+    """True when *any* version of the token file exists in ``paths``.
+
+    Used as a LOOSE match for ``has_secret_tokens`` — the secret store
+    can hold tokens written under a prior ``mcp-remote-X.Y.Z/`` prefix,
+    and ``restore_mcp_auth_tokens`` will alias them into the current
+    version's subdirectory on the next restore. NEVER use this for the
+    LOCAL readiness signal: a stale ``mcp-remote-<old>/<hash>_tokens.json``
+    is invisible to a newer ``mcp-remote`` binary and pretending it's
+    "present" suppresses the auto-restore that would write the
+    current-version alias.
+    """
     token_name = f"{_server_url_hash(mcp_url)}_tokens.json"
     return any(str(path).replace("\\", "/").endswith("/" + token_name) or str(path) == token_name for path in paths)
 
@@ -3127,12 +3138,25 @@ def get_mcp_token_status(
     expected = _expected_token_paths(root, url, user_id=user_id)
     expected_rel = _mcp_remote_token_relative_paths(root, url)
     expected_token_rel = expected_rel["tokens"]
+    # ``has_local_tokens`` must be STRICT: a token file only counts as
+    # "locally present" when it sits at the exact path the CURRENT
+    # mcp-remote binary will read (``mcp-remote-<current-version>/<hash>_tokens.json``).
+    # After an mcp-remote upgrade (0.1.37 → 0.1.38), files at the OLD
+    # prefix are still on disk but the new binary cannot see them, so a
+    # loose suffix-only match would lie about readiness and suppress the
+    # auto-restore that writes the current-version alias — leaving the
+    # provider stuck reporting ``ready`` while every real MCP call fails.
+    #
+    # ``has_secret_tokens`` stays LOOSE on purpose: a secret stored under
+    # ANY prior version is restoreable, and ``restore_mcp_auth_tokens``
+    # writes both the original path AND a current-version alias on the
+    # next hydration.
     return {
         "config_dir": str(cfg_dir),
         "effective_config_dir": str(_mcp_remote_effective_config_dir(root, user_id=user_id)),
         "local_files": local_paths,
         "secret_files": secret_files,
-        "has_local_tokens": expected_token_rel in local_paths or _has_token_file_for_url(local_paths, url),
+        "has_local_tokens": expected_token_rel in local_paths,
         "has_secret_tokens": expected_token_rel in secret_files or _has_token_file_for_url(secret_files, url),
         "expected_files": expected,
         "expected_secret_files": expected_rel,
