@@ -320,6 +320,26 @@ _KNOWN_PROVIDER_IDS = frozenset(
 )
 
 
+def _first_provider_error_code(raw_tool_results: dict[str, Any] | None) -> str | None:
+    """Lift the first provider-level ``error_code`` to the top-level envelope.
+
+    Currently only the District executor emits this (``needs_location``), but
+    the lookup is provider-agnostic so any provider that wants to trigger the
+    frontend's geolocation auto-prompt or other UI flow can opt in by adding
+    ``error_code`` to its result dict.
+    """
+    if not isinstance(raw_tool_results, dict):
+        return None
+    for provider_name in sorted(raw_tool_results.keys()):
+        raw = raw_tool_results.get(provider_name)
+        if not isinstance(raw, dict):
+            continue
+        code = raw.get("error_code")
+        if isinstance(code, str) and code.strip():
+            return code.strip()
+    return None
+
+
 def _extract_previous_provider(
     conversation_history: list[dict[str, str]] | None,
 ) -> str | None:
@@ -1115,7 +1135,7 @@ def run_agent_turn(
             "error_code": (
                 domain_execution.get("error_code")
                 if isinstance(domain_execution, dict)
-                else None
+                else _first_provider_error_code(raw_tool_results)
             ),
         },
         "calendar_execution": calendar_execution,

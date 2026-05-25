@@ -680,12 +680,26 @@ def run_district_tool_plan_sync(
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))
-        return {
+        # If every dropped tool was dropped specifically for missing
+        # location and we never resolved coords this turn (no GPS, no
+        # text geocode, nothing in placeholder cache), surface a
+        # ``needs_location`` error_code. The pipeline / API will
+        # propagate it to the frontend, which auto-prompts for GPS
+        # (same UX the Maps agent already gets).
+        out: dict[str, Any] = {
             "ok": not skipped,
             "error_detail": "tool_plan_incomplete" if skipped else None,
             "steps": steps,
             "diagnostics": diagnostics,
         }
+        no_coords = "resolved_location" not in diagnostics
+        skipped_for_location = bool(diagnostics.get("skipped_tools")) and all(
+            (entry or {}).get("reason") == "missing_location_or_required_args"
+            for entry in diagnostics.get("skipped_tools") or []
+        )
+        if no_coords and skipped_for_location:
+            out["error_code"] = "needs_location"
+        return out
     except BaseException as e:
         logger.exception("District MCP execution failed for %s", url)
         return {
