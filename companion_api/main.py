@@ -1423,6 +1423,26 @@ def _companion_agent_turn(
                 clean_theatres.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
         session_theatres = clean_theatres or None
 
+    # ``session_menu`` — sanitize so the executor only sees rows with a real
+    # ``variant_id`` + ``item_name``. Everything else (addon_groups, variants,
+    # price, etc.) is passed through verbatim because it was emitted by our
+    # own executor on a previous turn and we trust its shape.
+    session_menu: list[dict[str, Any]] | None = None
+    raw_menu = getattr(payload, "session_menu", None)
+    if isinstance(raw_menu, list) and raw_menu:
+        clean_menu: list[dict[str, Any]] = []
+        for entry in raw_menu:
+            if not isinstance(entry, dict):
+                continue
+            vid = entry.get("variant_id")
+            name = entry.get("item_name") or entry.get("name")
+            if not isinstance(vid, str) or not vid.strip():
+                continue
+            if not isinstance(name, str) or not name.strip():
+                continue
+            clean_menu.append({**entry, "variant_id": vid.strip(), "item_name": name.strip()})
+        session_menu = clean_menu or None
+
     try:
         return run_agent_turn(
             user_message=payload.message.strip(),
@@ -1437,6 +1457,7 @@ def _companion_agent_turn(
             session_addresses=session_addresses,
             session_movies=session_movies,
             session_theatres=session_theatres,
+            session_menu=session_menu,
             pending_variant_choice=pending_variant_choice,
         )
     except CustomMcpNeedsDiscoveryError as exc:

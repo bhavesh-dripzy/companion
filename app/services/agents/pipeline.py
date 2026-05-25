@@ -143,6 +143,7 @@ def _format_routing_message(
     session_addresses: list[dict[str, Any]] | None = None,
     session_movies: list[dict[str, Any]] | None = None,
     session_theatres: list[dict[str, Any]] | None = None,
+    session_menu: list[dict[str, Any]] | None = None,
     selected_address_id: str | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> str:
@@ -267,6 +268,73 @@ def _format_routing_message(
                 "Theatres already shown this session — use literal theatre_id "
                 "below for showtimes instead of re-searching:\n"
                 + "\n".join(theatre_rows)
+            )
+    if session_menu:
+        # Surface the recently-shown menu items so the planner can emit
+        # ``create_cart`` directly when the user picks one (no redundant
+        # menu fetch), and can use the addon_groups schema below to drive
+        # customization picks without another round-trip.
+        menu_rows: list[str] = []
+        for entry in session_menu[:25]:
+            if not isinstance(entry, dict):
+                continue
+            vid = str(entry.get("variant_id") or "").strip()
+            iname = str(entry.get("item_name") or "").strip()
+            if not vid or not iname:
+                continue
+            rid = str(entry.get("res_id") or "").strip()
+            price_raw = entry.get("discounted_price") or entry.get("price")
+            price = (
+                f" — ₹{price_raw}"
+                if price_raw not in (None, "", 0, "0")
+                else ""
+            )
+            tail_bits: list[str] = []
+            if rid:
+                tail_bits.append(f"res_id={rid}")
+            variants = entry.get("variants") or []
+            if isinstance(variants, list) and variants:
+                names = []
+                for v in variants[:6]:
+                    if not isinstance(v, dict):
+                        continue
+                    pv = v.get("property_values") or {}
+                    if isinstance(pv, dict) and pv:
+                        names.append(
+                            "/".join(
+                                f"{k}={vv}" for k, vv in pv.items() if vv
+                            )
+                            or str(v.get("variant_id") or "")
+                        )
+                if names:
+                    tail_bits.append(f"variants: {', '.join(names)}")
+            groups = entry.get("addon_groups") or []
+            if isinstance(groups, list) and groups:
+                gtags: list[str] = []
+                for g in groups[:4]:
+                    if not isinstance(g, dict):
+                        continue
+                    gname = str(g.get("name") or g.get("id") or "").strip()
+                    mn = int(g.get("min") or 0)
+                    mx = int(g.get("max") or 0)
+                    if gname:
+                        gtags.append(f"{gname} (min={mn}, max={mx})")
+                if gtags:
+                    tail_bits.append("addon_groups: " + "; ".join(gtags))
+            tail = f" [{' | '.join(tail_bits)}]" if tail_bits else ""
+            menu_rows.append(f"  - {iname} → variant_id={vid}{price}{tail}")
+        if menu_rows:
+            parts.append(
+                "Menu items already shown to the user this session — when the "
+                "user picks one by name, put the literal variant_id below into "
+                "your `create_cart` items[] (no need to re-run "
+                "get_menu_items_listing / get_restaurant_menu_by_categories). "
+                "If the item has `variants:` listed, pick the variant_id whose "
+                "property values best match what the user said (size/crust/"
+                "etc.). If `addon_groups:` are listed with min>=1, the executor "
+                "will auto-default missing required groups, but you can include "
+                "explicit picks in items[].add_ons when the user names them:\n"
+                + "\n".join(menu_rows)
             )
     if pending_variant_choice:
         # Surface the variant menu the previous turn deferred so the
@@ -644,6 +712,7 @@ def run_agent_turn(
     session_addresses: list[dict[str, Any]] | None = None,
     session_movies: list[dict[str, Any]] | None = None,
     session_theatres: list[dict[str, Any]] | None = None,
+    session_menu: list[dict[str, Any]] | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -698,6 +767,23 @@ def run_agent_turn(
             name = entry.get("name")
             if isinstance(tid, str) and tid.strip() and isinstance(name, str) and name.strip():
                 seed_theatres.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
+
+    # ``session_menu`` carry-forward — same shape as the Zomato executor
+    # emits and consumes. Each entry must have a real ``variant_id`` +
+    # ``item_name``; richer metadata (variants[], addon_groups[]) flows
+    # through verbatim.
+    seed_menu: list[dict[str, Any]] = []
+    if isinstance(session_menu, list):
+        for entry in session_menu:
+            if not isinstance(entry, dict):
+                continue
+            vid = entry.get("variant_id")
+            name = entry.get("item_name") or entry.get("name")
+            if not isinstance(vid, str) or not vid.strip():
+                continue
+            if not isinstance(name, str) or not name.strip():
+                continue
+            seed_menu.append({**entry, "variant_id": vid.strip(), "item_name": name.strip()})
 
     # Saved-address seed (parallel to seed_restaurants). Echoed back to
     # the client so each session keeps a stable address index, and surfaced
@@ -759,6 +845,7 @@ def run_agent_turn(
         session_addresses=seed_addresses or None,
         session_movies=seed_movies or None,
         session_theatres=seed_theatres or None,
+        session_menu=seed_menu or None,
         selected_address_id=selected_addr,
         pending_variant_choice=seed_variant_choices or None,
     )
@@ -907,6 +994,7 @@ def run_agent_turn(
             session_addresses=seed_addresses or None,
             session_movies=seed_movies or None,
             session_theatres=seed_theatres or None,
+            session_menu=seed_menu or None,
             user_geo=user_geo,
         )
         provider_results = tool_execution.get("provider_results")
@@ -968,6 +1056,10 @@ def run_agent_turn(
     next_session_restaurants: list[dict[str, Any]] = list(seed_restaurants)
     next_session_movies: list[dict[str, Any]] = list(seed_movies)
     next_session_theatres: list[dict[str, Any]] = list(seed_theatres)
+    # Same pattern for the per-item LRU — seed-first, then overwrite with
+    # whatever the executor emitted (richness-aware merge already done
+    # inside the executor).
+    next_session_menu: list[dict[str, Any]] = list(seed_menu)
     # Same pattern for saved addresses — if the executor (re)fetched the
     # list this turn, its result wins; otherwise we just echo the seed
     # back so the frontend can keep persisting it.
@@ -1035,6 +1127,23 @@ def run_agent_turn(
                     cleaned_t.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
             if cleaned_t:
                 next_session_theatres = cleaned_t
+        _menu = _diag.get("session_menu")
+        if isinstance(_menu, list) and _menu:
+            cleaned_menu: list[dict[str, Any]] = []
+            for entry in _menu:
+                if not isinstance(entry, dict):
+                    continue
+                vid = entry.get("variant_id")
+                iname = entry.get("item_name") or entry.get("name")
+                if not isinstance(vid, str) or not vid.strip():
+                    continue
+                if not isinstance(iname, str) or not iname.strip():
+                    continue
+                cleaned_menu.append(
+                    {**entry, "variant_id": vid.strip(), "item_name": iname.strip()}
+                )
+            if cleaned_menu:
+                next_session_menu = cleaned_menu
         _addrs = _diag.get("session_addresses")
         if isinstance(_addrs, list) and _addrs:
             cleaned_a: list[dict[str, Any]] = []
@@ -1164,6 +1273,13 @@ def run_agent_turn(
         "session_restaurants": next_session_restaurants,
         "session_movies": next_session_movies,
         "session_theatres": next_session_theatres,
+        # Per-item LRU memory — every (res_id, variant_id, addon_groups)
+        # tuple the user has been shown this session. Lets the next turn's
+        # planner emit ``create_cart`` directly when the user picks one,
+        # and carries the customization schema across turns so addon picks
+        # ("with buttermilk") can be resolved against the already-known
+        # leaf options.
+        "session_menu": next_session_menu,
         # Saved-address memory — same echo contract as session_restaurants.
         # Lets the chat work with zero "fetch addresses" clicks on the
         # frontend: turn 1 auto-prefetches Zomato addresses, turns 2+ just

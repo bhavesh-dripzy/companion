@@ -219,7 +219,49 @@ Each cart line needs a `variant_id` from these results. Two ways to supply it (n
 1. **Literal variant_id** — copy the `variant_id` string (e.g. `"v_992713485"`) from the menu listing returned earlier in *this* plan.
 2. **Name-based** — provide `{"name": "<exact item_name from the menu listing>", "quantity": N}` and omit `variant_id`. The executor resolves the name against the per-session menu index built from `get_menu_items_listing` / `get_restaurant_menu_by_categories` (case-insensitive, exact-match preferred; unambiguous prefix/substring as fallback). Use the **canonical item_name** (e.g. `"Veg Nikku Singh Burger"`, not `"veg nikku burger"` or `"Veg Nikku Singh Burger Combo"`).
 
-Cart plans **must** include the menu fetch tools in the same plan so the index exists when `create_cart` runs — ids and menu index do **not** carry across HTTP requests.
+Cart plans **must either** include the menu fetch tools in the same plan **or** rely on the carried-forward `session_menu` block from a prior turn. The executor maintains an in-memory menu index per turn and also rehydrates it from `session_menu` at turn entry — so a follow-up turn like *"add the chicken keto salad"* can plan `create_cart` directly when the item appears in **Menu items already shown to the user this session** (see the routing-message block). Cross-turn ids/menu schema persist via `session_menu`; the in-process index does **not** persist across HTTP requests.
+
+### Variants + customization (universal algorithm)
+
+Zomato uses two **orthogonal** customization mechanisms. Both can appear on the same item, neither, or just one:
+
+| Mechanism | Where it lives | What it means | How to send |
+|---|---|---|---|
+| **A. Property variants** | `entry.variants[]` in the menu fetch / `variants:` in the session_menu block | Distinct sizes / crusts / "Choose your Rice" — each is a separate `variant_id` with its own price. Pizza Hut, California Burrito, Domino's. | Pick the specific `variant_id` whose `property_values` match what the user said (e.g. *"medium pan margherita"* → variant_id for size=Medium AND base=Pan). When the user doesn't name a size, the executor falls back to the parent default — that is the right behaviour, do not guess. |
+| **B. Add-on groups** | `entry.addon_groups[]` in the session_menu block (originally from `all_addons_data[]` at envelope root) | Modifier groups with min/max selections — *"Choice of Protein Sandwich"*, *"Add Drink"*, *"Pizza Toppings"*. Each group has `items: [{id: "ctl_…", name, price, …}]` leaves. WeFit "Any Protein Sandwich + Drink" is a canonical example. | Send `items[].add_ons: [{"id": "<ctl_id>", "quantity": 1}]` (preferred) **or** `items[].add_ons: [{"name": "<leaf name>", "quantity": 1}]` — the executor will resolve leaf names against the group definitions. |
+
+**The executor's safety net (still cheaper to plan the picks explicitly):**
+- If a required group (`min >= 1`) has no user pick, the executor auto-defaults the first available leaf and records it in `diagnostics.cart_addons[].groups[].auto_filled` so the response LLM can mention it (*"I added the cheapest protein — say if you'd rather have grilled chicken"*).
+- Over-picks (more than `max_selection`) are trimmed; user can re-issue with a different pick.
+- Unknown leaf names that don't match any group are dropped silently — that is acceptable because the response LLM will not see them as "picked", so the user knows to retry.
+
+**Worked examples** (assume `session_menu` shows the items already):
+
+```json
+// User: "add a medium pan margherita pizza"
+// session_menu has: Margherita → variant_id=v_BASE [variants: Size=Small/Medium/Large × Base=Pan/Hand-tossed/Thin]
+"tool_plan": [
+  {"tool": "create_cart", "arguments": {
+    "res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__",
+    "items": [{"name": "Margherita", "quantity": 1,
+               "property_values": {"Size": "Medium", "Base": "Pan"}}],
+    "payment_type": "upi"
+  }}
+]
+
+// User: "add 'Any Protein Sandwich + Drink' with grilled chicken and pesto paneer"
+// session_menu has: addon_groups including "Choice of Protein Sandwich" (min=1,max=1)
+"tool_plan": [
+  {"tool": "create_cart", "arguments": {
+    "res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__",
+    "items": [{"name": "Any Protein [Up to 41g] Sandwich + Drink", "quantity": 1,
+               "add_ons": [{"name": "Pesto Paneer with Charred Veggies Sandwich", "quantity": 1}]}],
+    "payment_type": "upi"
+  }}
+]
+```
+
+Both fields (`property_values` for Mechanism A, `add_ons` for Mechanism B) are **optional from your side** — when omitted the executor uses the parent defaults. Include them **only** when the user named the size/customization explicitly; never invent picks.
 
 **Menu envelope truncation.** To keep the response prompt small, the executor caps `item_mappings` / `menu_items` arrays in the *returned tool envelope* to the top ~10 rows and adds a `_menu_truncation: {shown: 10, total: <N>}` breadcrumb. The executor's per-session menu index still holds **all** items (the trim happens *after* the index is built), so `create_cart` can resolve any item by `name` even when it didn't appear in the visible top 10. You do **not** need to plan extra menu calls just to "expose more rows" for the cart resolver.
 

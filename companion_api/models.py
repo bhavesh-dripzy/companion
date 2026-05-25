@@ -59,6 +59,15 @@ class FoodQueryRequest(BaseModel):
     session_addresses: list[dict[str, Any]] | None = None
     session_movies: list[dict[str, Any]] | None = None
     session_theatres: list[dict[str, Any]] | None = None
+    # Multi-item menu memory (Zomato-only today): every (res_id, variant_id,
+    # item_name, addon_groups) tuple the user has been shown this session.
+    # Lets the planner produce a direct create_cart for "add chicken keto
+    # salad" without re-fetching the menu, and carries the addon/variant
+    # schema across turns so customization picks ("with buttermilk") can be
+    # resolved against the already-known leaf options. Same echo contract
+    # as ``session_restaurants`` — frontends round-trip whatever the prior
+    # response returned.
+    session_menu: list[dict[str, Any]] | None = None
     # Single-turn deferral state: when the Swiggy executor skipped a cart
     # update because the menu item has a real variant choice (size 8"/10"/
     # 12", crust hand-tossed vs thin), the response carries the variant
@@ -86,6 +95,8 @@ class AgentQueryRequest(BaseModel):
     session_addresses: list[dict[str, Any]] | None = None
     session_movies: list[dict[str, Any]] | None = None
     session_theatres: list[dict[str, Any]] | None = None
+    # See FoodQueryRequest.session_menu above.
+    session_menu: list[dict[str, Any]] | None = None
     # See FoodQueryRequest.pending_variant_choice above.
     pending_variant_choice: list[dict[str, Any]] | None = None
 
