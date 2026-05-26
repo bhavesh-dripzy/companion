@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { Attachment, Message, SessionAddress } from './types';
+import type { Attachment, MenuCardItem, Message, SessionAddress } from './types';
 import { cn } from './utils';
-import { Loader2, ExternalLink, Sparkles, MapPin, ChevronDown } from 'lucide-react';
+import { Loader2, ExternalLink, Sparkles, MapPin, ChevronDown, Star, UtensilsCrossed } from 'lucide-react';
 
 interface ChatLogProps {
   messages: Message[];
@@ -77,16 +77,149 @@ const AddressChoices: React.FC<{
   );
 };
 
+// Zomato-style menu tile. Renders the dish image (or a fallback when
+// Zomato didn't ship one), name, optional description, price (with
+// strike-through original when a discount is active), rating chip, and
+// a small veg/non-veg/egg dot in the top-left of the image. Designed
+// to slot into a two-column responsive grid (single column on mobile)
+// matching the rest of the chat bubble's spacing scale.
+//
+// Read-only by design — the chat is the action layer. The user adds an
+// item by saying "add the paneer tikka", which routes through the
+// existing planner/executor with the same name they read off the card.
+const VEG_DOT_COLOR: Record<NonNullable<MenuCardItem["veg_kind"]>, string> = {
+  veg: "bg-green-500 ring-green-700/60",
+  non_veg: "bg-red-500 ring-red-700/60",
+  egg: "bg-amber-400 ring-amber-700/60",
+};
+
+const formatPriceINR = (value: number | undefined): string | null => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  // Whole rupees only — Zomato prices are always integral and decimals
+  // make the card look "off" against the official UI.
+  return `₹${Math.round(value)}`;
+};
+
+const MenuCard: React.FC<{ item: MenuCardItem }> = ({ item }) => {
+  const [imageBroken, setImageBroken] = useState(false);
+  const price = formatPriceINR(item.price);
+  const disc = formatPriceINR(item.discounted_price);
+  const hasDiscount = !!disc && !!price && disc !== price;
+  const showRating = typeof item.rating === "number" && item.rating > 0;
+  const showImage = !!item.image_url && !imageBroken;
+
+  return (
+    <div className="flex flex-col gap-2 p-3 bg-surface border border-border rounded-2xl shadow-md shadow-black/30 transition-colors hover:border-border-strong">
+      <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-black/40 border border-border">
+        {showImage ? (
+          <img
+            src={item.image_url}
+            alt={item.name}
+            loading="lazy"
+            onError={() => setImageBroken(true)}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-500">
+            <UtensilsCrossed size={28} strokeWidth={1.5} />
+          </div>
+        )}
+        {item.veg_kind && (
+          <div className="absolute top-2 left-2 w-4 h-4 rounded-sm bg-black/40 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/20">
+            <span
+              className={cn(
+                "block w-2 h-2 rounded-full ring-1",
+                VEG_DOT_COLOR[item.veg_kind]
+              )}
+              aria-label={item.veg_kind === "non_veg" ? "Non-vegetarian" : item.veg_kind === "egg" ? "Contains egg" : "Vegetarian"}
+            />
+          </div>
+        )}
+        {showRating && (
+          <div className="absolute bottom-2 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/65 backdrop-blur-sm text-[11px] font-semibold text-amber-300">
+            <Star size={10} className="fill-amber-300 text-amber-300" />
+            {item.rating!.toFixed(1)}
+            {typeof item.votes === "number" && item.votes > 0 && (
+              <span className="text-[10px] text-gray-300 font-medium">({item.votes})</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1 min-w-0">
+        <div className="text-sm font-semibold text-gray-100 leading-snug line-clamp-2">
+          {item.name}
+        </div>
+        {item.description && (
+          <div className="text-[11px] text-gray-400 leading-snug line-clamp-2">
+            {item.description}
+          </div>
+        )}
+        <div className="flex items-baseline gap-2 mt-1">
+          {hasDiscount ? (
+            <>
+              <span className="text-sm font-bold text-amber-300">{disc}</span>
+              <span className="text-[11px] text-gray-500 line-through">{price}</span>
+            </>
+          ) : (
+            price && <span className="text-sm font-bold text-amber-300">{price}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const MenuCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
+  const items = Array.isArray(attachment.items) ? attachment.items : [];
+  if (items.length === 0) return null;
+  const heading = attachment.restaurant_name
+    ? `Menu — ${attachment.restaurant_name}`
+    : "Menu";
+  const subhead =
+    Array.isArray(attachment.categories) && attachment.categories.length > 0
+      ? attachment.categories.join(" • ")
+      : null;
+
+  return (
+    <div className="mt-1 w-full max-w-2xl">
+      <div className="flex items-baseline justify-between mb-2 px-1">
+        <div className="text-xs font-bold uppercase tracking-wider text-gray-400">
+          {heading}
+        </div>
+        {subhead && (
+          <div className="text-[10px] text-gray-500 truncate ml-3 max-w-[55%]">
+            {subhead}
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {items.map((item, idx) => (
+          <MenuCard key={item.variant_id || item.item_id || `${item.name}-${idx}`} item={item} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // Render the structured attachments the backend ships alongside
-// `assistant_message` — currently the Zomato checkout QR (kind=image,
-// mime_type=image/png, data_b64=...). The contract matches the Django
-// template's renderAttachments() so any new attachment kinds the
-// executor emits surface in both UIs.
+// `assistant_message` — payment QR (kind=image, mime_type=image/png,
+// data_b64=...) or menu_cards (kind=menu_cards, items=[...]). Every
+// new attachment kind the executor emits should add a branch below.
 const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }) => {
   const cards = attachments
     .filter((att): att is Attachment => !!att && typeof att === 'object')
     .map((att, idx) => {
       const kind = String(att.kind || '').toLowerCase();
+
+      // Menu card grid lives in its own component; the rest of this
+      // function handles image/QR/UPI-style attachments only.
+      if (kind === 'menu_cards') {
+        return <MenuCardGrid key={`menu-${idx}`} attachment={att} />;
+      }
+
       const mime = String(att.mime_type || 'image/png');
       const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';
       const caption = att.caption ? String(att.caption) : '';

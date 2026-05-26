@@ -209,7 +209,21 @@ _SYSTEM_PROMPT = (
     "of them by name on a follow-up turn — including items beyond the "
     "first batch you surfaced. Don't truncate to 5 unless the user "
     "explicitly asked for fewer; *and* don't pad to 8 when there are "
-    "only 3 genuinely relevant items.\n"
+    "only 3 genuinely relevant items. "
+    "**Exception — menu_cards attachment**: when the response payload "
+    "carries an `attachments[]` entry with `kind: \"menu_cards\"`, the "
+    "user is already seeing a Zomato-style visual grid of every item "
+    "(image, price, rating, veg/non-veg dot) right under your bubble. "
+    "**Do not repeat the list in markdown.** Instead, write 2–4 sentences "
+    "of companion-style guidance: call out 1–2 standout picks by name "
+    "and explain *why* (the cheapest, the highest-rated, the best deal, "
+    "the healthiest, the popular bestseller — use whatever signal is "
+    "actually there in the data), surface one real trade-off if one "
+    "exists (combo saves ₹X but adds Y cal, large is ₹Z more than "
+    "medium, etc.), and end with an open question that invites the user "
+    "to pick (*\"anything jump out?\"*, *\"want me to pull up the salads "
+    "next?\"*). Tone: a friend recommending dinner, not a waiter reading "
+    "a menu.\n"
     "- **Customization defaults (Zomato)**: After a successful `create_cart`, "
     "look at `cart.items[].add_ons[]` in the tool result — that's the set of "
     "required modifiers Zomato auto-picked (e.g. bread, prep, veg, sauce on a "
@@ -353,6 +367,37 @@ def _summarize_attachments_for_prompt(
     summarized: list[dict[str, Any]] = []
     for att in attachments:
         if not isinstance(att, dict):
+            continue
+        kind = str(att.get("kind") or "")
+        if kind == "menu_cards":
+            # Card attachments don't carry base64; what the LLM needs is the
+            # *signal* that a visual grid is on screen plus a thin per-item
+            # summary so it can name the standout picks without parroting the
+            # full list. We ship name + price + rating + veg_kind only —
+            # everything else (image, description, ids) is the frontend's job
+            # and would burn prompt tokens. Cap at the top 12 cards for
+            # token budget; the user can still see all 25 in the UI.
+            items = att.get("items") or []
+            preview: list[dict[str, Any]] = []
+            if isinstance(items, list):
+                for it in items[:12]:
+                    if not isinstance(it, dict):
+                        continue
+                    row: dict[str, Any] = {"name": it.get("name")}
+                    for k in ("price", "discounted_price", "rating", "votes", "veg_kind", "category"):
+                        if it.get(k) not in (None, "", 0):
+                            row[k] = it[k]
+                    preview.append(row)
+            summarized.append(
+                {
+                    "kind": "menu_cards",
+                    "source": att.get("source"),
+                    "restaurant_name": att.get("restaurant_name"),
+                    "categories": att.get("categories"),
+                    "items_count": len(items) if isinstance(items, list) else 0,
+                    "items_preview": preview,
+                }
+            )
             continue
         summarized.append(
             {

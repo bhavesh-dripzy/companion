@@ -25,6 +25,26 @@ export interface Address {
   longitude?: number;
 }
 
+// A single dish tile inside a `menu_cards` attachment. Mirrors
+// `_build_menu_card` in pipeline.py — every field except `name` is
+// optional because Zomato populates them inconsistently across
+// restaurants (e.g. small chains rarely have ratings, image-less
+// items get veg-coloured placeholder tiles, etc.).
+export interface MenuCardItem {
+  name: string;
+  item_id?: string;
+  variant_id?: string;
+  price?: number;
+  discounted_price?: number;
+  image_url?: string;
+  rating?: number;
+  votes?: number;
+  description?: string;
+  // Derived from Zomato's `item_tags`: "veg" / "non_veg" / "egg".
+  veg_kind?: "veg" | "non_veg" | "egg";
+  category?: string;
+}
+
 export interface Attachment {
   kind: string;
   source?: string;
@@ -35,6 +55,13 @@ export interface Attachment {
   upi_link?: string;
   amount_inr?: number | string;
   oversize?: boolean;
+  // menu_cards-specific fields. Populated only when `kind === "menu_cards"`;
+  // the frontend's <MenuCardGrid /> reads these to render the Zomato-style
+  // tile grid below the assistant bubble.
+  restaurant_name?: string;
+  res_id?: number | string;
+  categories?: string[];
+  items?: MenuCardItem[];
 }
 
 export interface Message {

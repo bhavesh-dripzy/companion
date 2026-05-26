@@ -38,6 +38,20 @@ class CustomMcpNeedsDiscoveryError(ValueError):
 # provider can't tank the chat bubble.
 _MAX_ATTACHMENT_DATA_B64_CHARS = 200_000  # ~150 KB raw
 
+# Max cards we ship in a single menu_cards attachment. Matches the
+# ``session_menu`` LRU cap so what we *show* on screen mirrors what the
+# executor *remembers* for cart resolution on follow-up turns. The
+# Zomato executor already trims menu_items[] to top-N (10 by default)
+# inside the envelope so the response LLM stays bounded; we use the same
+# trimmed list here, with this cap as a defensive upper bound.
+_MAX_MENU_CARDS = 25
+
+# Tools whose Zomato envelopes carry rich menu_item rows we can render
+# as cards (image / price / rating). The thin ``get_menu_items_listing``
+# response is intentionally excluded — it only has name + variant_id +
+# categories, which is not enough for a card.
+_MENU_CARD_TOOLS = {"get_restaurant_menu_by_categories"}
+
 
 def _collect_payment_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str, Any]]:
     """Lift any ``payment.qr_b64`` blocks out of raw tool steps.
@@ -132,6 +146,198 @@ def _collect_payment_attachments(raw_tool_results: dict[str, Any]) -> list[dict[
                     attachment[key] = val
             attachments.append(attachment)
     return attachments
+
+
+def _derive_veg_kind(item_tags: Any) -> str | None:
+    """Map Zomato's ``item_tags`` list onto a card-friendly veg flag.
+
+    Returns ``"veg"`` / ``"non_veg"`` / ``"egg"`` so the frontend can paint the
+    classic green / red / orange dot. Returns ``None`` when the tags don't
+    name a food-class (rare — Zomato applies these consistently across
+    Subway / McDonald's / WeFit / Domino's / KFC, verified live).
+    """
+    if not isinstance(item_tags, list):
+        return None
+    norm = {str(t).strip().lower() for t in item_tags if isinstance(t, str)}
+    if not norm:
+        return None
+    if "non-veg" in norm or "nonveg" in norm:
+        return "non_veg"
+    if "egg" in norm or "egg-veg" in norm:
+        return "egg"
+    if "veg" in norm:
+        return "veg"
+    return None
+
+
+def _build_menu_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalise a Zomato ``menu_items[]`` row into a renderable card.
+
+    Returns ``None`` for rows missing the minimum-viable fields (name +
+    either ``item_id`` or ``variant_id``) so the grid never renders a
+    blank tile. Everything else is best-effort — fields that aren't
+    populated are simply omitted (the frontend treats them as missing).
+
+    Field choices are deliberate:
+      * ``image_url`` — only when Zomato returned a non-empty CDN URL.
+        We don't synthesise placeholders here; the UI falls back to a
+        veg-coloured tile when the field is absent.
+      * ``rating`` / ``votes`` — Zomato returns ``0`` for "no rating yet";
+        coerce those to ``None`` so the UI can hide the chip entirely
+        instead of showing "★ 0".
+      * ``price`` / ``discounted_price`` — both shipped; the UI shows
+        the discounted price prominently with the original struck-through.
+      * ``description`` — trimmed to 140 chars (a card line) at the
+        source so we don't ship long-form prose just to truncate it client-side.
+    """
+    if not isinstance(item, dict):
+        return None
+    name = item.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    item_id = item.get("item_id")
+    variant_id = item.get("variant_id")
+    if not (isinstance(item_id, str) and item_id.strip()) and not (
+        isinstance(variant_id, str) and variant_id.strip()
+    ):
+        return None
+
+    card: dict[str, Any] = {"name": name.strip()}
+    if isinstance(item_id, str) and item_id.strip():
+        card["item_id"] = item_id.strip()
+    if isinstance(variant_id, str) and variant_id.strip():
+        card["variant_id"] = variant_id.strip()
+
+    price = item.get("price")
+    if isinstance(price, (int, float)) and price > 0:
+        card["price"] = price
+    disc = item.get("discounted_price")
+    if isinstance(disc, (int, float)) and disc > 0 and disc != price:
+        card["discounted_price"] = disc
+
+    image = item.get("image_url")
+    if isinstance(image, str) and image.strip().startswith(("http://", "https://")):
+        card["image_url"] = image.strip()
+
+    rating = item.get("rating")
+    if isinstance(rating, (int, float)) and rating > 0:
+        card["rating"] = round(float(rating), 1)
+    votes = item.get("reviews") or item.get("votes")
+    if isinstance(votes, (int, float)) and votes > 0:
+        card["votes"] = int(votes)
+
+    description = item.get("description")
+    if isinstance(description, str) and description.strip():
+        desc = description.strip()
+        card["description"] = (desc[:140] + "…") if len(desc) > 140 else desc
+
+    veg_kind = _derive_veg_kind(item.get("item_tags"))
+    if veg_kind:
+        card["veg_kind"] = veg_kind
+
+    cats = item.get("categories")
+    if isinstance(cats, list):
+        clean = [c.strip() for c in cats if isinstance(c, str) and c.strip()]
+        if clean:
+            card["category"] = clean[0]
+
+    return card
+
+
+def _collect_menu_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lift Zomato menu_items[] out of raw tool steps into renderable cards.
+
+    Walks ``raw_tool_results[<provider>].steps[]`` looking for menu-fetch
+    tools (currently only ``get_restaurant_menu_by_categories`` — the
+    listing tool returns a thin index without the image / price / rating
+    fields a card needs). For each matching step we emit one attachment::
+
+        {
+          "kind": "menu_cards",
+          "source": "<provider>.get_restaurant_menu_by_categories",
+          "restaurant_name": "Subway",
+          "res_id": 55634,
+          "items": [
+            {item_id, variant_id?, name, price?, discounted_price?,
+             image_url?, rating?, votes?, description?, veg_kind?,
+             category?},
+            ...
+          ]
+        }
+
+    The frontend renders this into a Zomato-style grid below the assistant
+    bubble. The original ``step.result`` envelope is left untouched so
+    the response LLM, observable trace, and debug payloads still see the
+    raw structure.
+
+    Idempotent against the Zomato executor's response-time menu trim
+    (``_truncate_menu_envelope_for_response``) because we only iterate
+    over whatever rows are present in the envelope — i.e. we always
+    show *exactly* the items the LLM saw.
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        steps = raw.get("steps") or []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tool = str(step.get("tool") or "").strip()
+            if tool not in _MENU_CARD_TOOLS:
+                continue
+            envelope = step.get("result")
+            if not isinstance(envelope, dict) or envelope.get("is_error"):
+                continue
+            # The Zomato envelope nests the actual payload at
+            # data.result.data — same structure the executor walks in
+            # _listing_item_mappings_blob / _variant_price_map_from_category_menu.
+            data = envelope.get("data") if isinstance(envelope.get("data"), dict) else None
+            if not data:
+                continue
+            result = data.get("result") if isinstance(data.get("result"), dict) else None
+            if not result:
+                continue
+            inner = result.get("data") if isinstance(result.get("data"), dict) else None
+            if not inner:
+                continue
+            menu_items = inner.get("menu_items")
+            if not isinstance(menu_items, list) or not menu_items:
+                continue
+            cards: list[dict[str, Any]] = []
+            for it in menu_items:
+                card = _build_menu_card(it)
+                if card is not None:
+                    cards.append(card)
+                if len(cards) >= _MAX_MENU_CARDS:
+                    break
+            if not cards:
+                continue
+            attachment: dict[str, Any] = {
+                "kind": "menu_cards",
+                "source": f"{provider_name}.{tool}",
+                "items": cards,
+            }
+            res_id = inner.get("res_id") or (step.get("arguments") or {}).get("res_id")
+            if res_id not in (None, ""):
+                attachment["res_id"] = res_id
+            rname = inner.get("restaurant_name")
+            if isinstance(rname, str) and rname.strip():
+                attachment["restaurant_name"] = rname.strip()
+            # Surface which categories were requested so the response LLM
+            # can mention them naturally ("from the Recommended list...").
+            args = step.get("arguments") or {}
+            cats = args.get("categories") if isinstance(args, dict) else None
+            if isinstance(cats, list):
+                clean = [c.strip() for c in cats if isinstance(c, str) and c.strip()]
+                if clean:
+                    attachment["categories"] = clean
+            out.append(attachment)
+    return out
 
 
 def _format_routing_message(
@@ -1035,9 +1241,14 @@ def run_agent_turn(
     # told never to paste raw data), so we surface attachments as a separate
     # top-level field with a stable schema.
     attachments = _collect_payment_attachments(raw_tool_results)
+    menu_attachments = _collect_menu_attachments(raw_tool_results)
+    if menu_attachments:
+        attachments = attachments + menu_attachments
     trace(
         "hoister.out",
         attachment_count=len(attachments),
+        payment_attachments=len(attachments) - len(menu_attachments),
+        menu_attachments=len(menu_attachments),
         attachments=snip(attachments),
     )
 
