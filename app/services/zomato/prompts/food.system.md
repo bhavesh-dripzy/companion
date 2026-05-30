@@ -14,7 +14,7 @@ Companion runs your plan via `run_tool_plan_sync` in `app.services.zomato.mcp_ex
    **Switching addresses mid-conversation:** When the user wants to change which address is used (*"order from my work address instead"* / *"use my home address"* / *"deliver to my office"*), the saved-address block in the prompt context lists `label → address_id=NNN` pairs. Match the user's phrase to a label and put that **literal** `address_id` (NOT `__ADDRESS_ID__`) on the next tool's `address_id`. Example: if the block shows `Work — DLF Cyber City → address_id=812345`, plan `get_restaurants_for_keyword` with `"address_id": "812345"`. The executor will override the carried `__ADDRESS_ID__` for this turn and persist the new one for subsequent turns.
 3. **Restaurant chaining (mandatory for menus)** — **`__RESTAURANT_ID__`** is learned from JSON in the **prior step’s response** (typically `res_id` from `get_restaurants_for_keyword`). Companion walks results and fills placeholders for later steps. You **must** run **`get_restaurants_for_keyword`** in the **same** plan before any menu tool that uses **`res_id`: `"__RESTAURANT_ID__"`**.
 4. **Placeholder failure** — Steps with unresolved placeholders are **skipped** (not executed). Never emit `get_menu_items_listing` or `get_restaurant_menu_by_categories` with `__RESTAURANT_ID__` and **no** preceding `get_restaurants_for_keyword`.
-5. **Cart placeholders** — After menu tools return items, responses expose `variant_id` per row and (after `create_cart`) a `cart_id`. Use the literal `variant_id` from the menu listing **or** an item `name` field that matches the menu (see "create_cart" section). `__CART_ID__` is fine when chaining `create_cart` → `checkout_cart` in one plan. **Do not** use `__VARIANT_ID__` — it is structurally broken for multi-item carts and is no longer supported by the executor. Do not invent numeric ids.
+5. **Cart placeholders + cart-row shape** — After menu tools return items, responses expose `variant_id` per row and (after `create_cart`) a `cart_id`. Every `create_cart` row is **exactly** `{"variant_id": "<literal>", "quantity": N, "add_ons": []}` — three keys, no more, no less. Copy the `variant_id` verbatim from the menu fetched in the same plan or from the `session_menu` block in the routing message (which carries `variant_id` for every item already shown to the user this session). Always include the empty `"add_ons": []` array — Zomato's schema requires the field, and the server auto-fills required modifier defaults when it's empty; populated picks trigger a `ModifierGroupMetaMissing` server bug. `__CART_ID__` is fine when chaining `create_cart` → `checkout_cart` in one plan. **Never** use `__VARIANT_ID__` (single-scalar; pins every row to the same item) and **never** put a `name` / `item_name` / `property_values` field on a cart row — the executor no longer resolves names to variant_ids and Zomato will reject any row missing a valid `variant_id`. If you cannot identify a specific variant_id from the conversation context, **do not guess** — answer the user with a question (in `summary`) listing the candidate items + variant_ids and plan no `create_cart` step on that turn.
 6. **Carry-forward across turns** — `__CART_ID__`, `__RESTAURANT_ID__`, and `__ORDER_ID__` set by a prior turn’s tool call are automatically available on the next turn (the executor receives them as a seed). The user message you receive will include a line that starts with **`Carried-forward placeholders available: ...`** listing the placeholder names — that's your authoritative signal for which IDs survive without re-running their issuer tool.
 
    - When the user follows up with *"checkout this cart"*, *"pay UPI for it"*, *"place the order"*, *"yes go ahead"* and **`__CART_ID__`** is in the carried-forward list, plan **just** `checkout_cart` with `"cart_id": "__CART_ID__"`. Do not re-plan `get_restaurants_for_keyword`, `get_menu_items_listing`, or `create_cart`. Re-running `create_cart` replaces the user's cart and discards the bill they just confirmed.
@@ -214,52 +214,107 @@ Strategy when the user says "**veg pizza**" / "**only veg**":
 
 For "**non-veg only**" / "**chicken**" / "**egg**" intents, mirror the strategy — keyword bias, then post-filter on tags.
 
-Each cart line needs a `variant_id` from these results. Two ways to supply it (no `__VARIANT_ID__` placeholder — that placeholder is **forbidden** because it binds globally to the first item in the menu and silently turns multi-item carts into duplicates of one wrong row):
+Each cart line needs a **literal `variant_id`** that you copied verbatim from a menu fetch in this plan or from the `session_menu` block in the routing message. The executor does **no** name-matching — a row missing `variant_id`, or with a `variant_id` the executor can't find in the current turn's menu data, is dropped before the call. `__VARIANT_ID__` is forbidden (single scalar; pins every row to the same item).
 
-1. **Literal variant_id** — copy the `variant_id` string (e.g. `"v_992713485"`) from the menu listing returned earlier in *this* plan.
-2. **Name-based** — provide `{"name": "<exact item_name from the menu listing>", "quantity": N}` and omit `variant_id`. The executor resolves the name against the per-session menu index built from `get_menu_items_listing` / `get_restaurant_menu_by_categories` (case-insensitive, exact-match preferred; unambiguous prefix/substring as fallback). Use the **canonical item_name** (e.g. `"Veg Nikku Singh Burger"`, not `"veg nikku burger"` or `"Veg Nikku Singh Burger Combo"`).
-
-Cart plans **must either** include the menu fetch tools in the same plan **or** rely on the carried-forward `session_menu` block from a prior turn. The executor maintains an in-memory menu index per turn and also rehydrates it from `session_menu` at turn entry — so a follow-up turn like *"add the chicken keto salad"* can plan `create_cart` directly when the item appears in **Menu items already shown to the user this session** (see the routing-message block). Cross-turn ids/menu schema persist via `session_menu`; the in-process index does **not** persist across HTTP requests.
+Cart plans **must either** include the menu fetch tools in the same plan **or** rely on the carried-forward `session_menu` block from a prior turn. The executor rehydrates `session_menu` at turn entry, so a follow-up like *"add the chicken keto salad"* can plan `create_cart` directly when the item appears in **Menu items already shown to the user this session** (see the routing-message block) — copy that row's `variant_id` straight onto the cart row. Cross-turn ids/menu schema persist via `session_menu`; the in-process index does **not** persist across HTTP requests.
 
 ### Variants + customization (current rules)
 
-Zomato carts have two customisation surfaces; we currently only plan one:
+Zomato carts have two customisation surfaces; you only emit one:
 
 | Mechanism | Where it lives | What you do |
 |---|---|---|
-| **A. Property variants** | `entry.variants[]` in the menu fetch / `variants:` in the session_menu block | **You pick the variant_id.** When the user names a size / crust / base ("medium pan margherita", "30cm sub"), set `items[].property_values: {"Size": "Medium", "Base": "Pan"}` or pass the exact `variant_id` from the menu. When the user doesn't name a size, omit both — the executor falls back to the parent default. |
-| **B. Add-on groups** *(disabled)* | `available_add_ons[]` / `all_addons_data[]` | **Do not send `add_ons[]`.** The executor unconditionally emits `add_ons: []` so Zomato auto-fills the required addon defaults on its end (reliable across every restaurant we tested). Sending explicit ctl_ids triggers a non-deterministic `ModifierGroupMetaMissing` server bug on certain variants. |
+| **A. Property variants** | `entry.variants[*].variant_id` in the menu fetch / `variants:` in the session_menu block | **You pick the exact child variant_id.** When the user names a size / crust / base ("medium pan margherita", "30cm sub"), walk `entry.variants[]`, find the row whose `property_values` matches (e.g. `{"Size": "Medium", "Base": "Pan"}`), and put **that child's `variant_id`** on the cart row. When the user does NOT name a size and the item has multiple variants, **ask the user** in `summary` (list each variant's properties + price + variant_id) and plan no `create_cart` — never pick a default silently. When the item has exactly one variant (or none nested in `variants[]`), use the parent `variant_id`. |
+| **B. Add-on groups** *(server-managed)* | `available_add_ons[]` / `all_addons_data[]` | **Always emit `"add_ons": []` (empty array) on every cart row — never a populated `add_ons` list, never omit the key.** Zomato's `create_cart` endpoint requires the field to be present, and an *empty* array tells the server to auto-fill the required addon defaults itself. Sending explicit `ctl_...` ids triggers a non-deterministic `ModifierGroupMetaMissing` server bug on certain variants (verified: 0/5 success on Subway's Paneer Tikka 15cm with explicit picks, 10/10 with `add_ons: []`). The executor enforces `add_ons: []` as a defensive backstop, but you must still emit it — both for schema clarity and so the planner output reads correctly. |
 
-So a cart row is just `{name | variant_id, quantity, property_values?}` — never a `add_ons[]` array. Whatever the user says about toppings/sauces/breads/sides, **acknowledge it in your reply** but do **not** plan an `add_ons[]` payload. The cart response comes back with `cart.items[].add_ons[]` showing Zomato's auto-picks; the response LLM surfaces those to the user so they can edit on Zomato's checkout screen if needed.
+So a cart row is **exactly** `{"variant_id": "v_...", "quantity": N, "add_ons": []}` — three keys, no more, no less. Never a `name`, never `property_values`, never a populated `add_ons[]` array. Whatever the user says about toppings/sauces/breads/sides, **acknowledge it in your reply** but do **not** plan a populated `add_ons[]` payload. The cart response comes back with `cart.items[].add_ons[]` showing Zomato's auto-picks; the response LLM surfaces those to the user so they can edit on Zomato's checkout screen if needed.
 
 **Worked example:**
 
 ```json
 // User: "add a medium pan margherita pizza"
+// Menu (earlier this turn / from session_menu) lists Margherita with:
+//   variants: [
+//     {"variant_id":"v_111","property_values":{"Size":"Small","Base":"Pan"},"price":199},
+//     {"variant_id":"v_222","property_values":{"Size":"Medium","Base":"Pan"},"price":349},
+//     {"variant_id":"v_333","property_values":{"Size":"Large","Base":"Pan"},"price":499}
+//   ]
+// → user said Medium + Pan → child variant_id = v_222.
 "tool_plan": [
   {"tool": "create_cart", "arguments": {
     "res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__",
-    "items": [{"name": "Margherita", "quantity": 1,
-               "property_values": {"Size": "Medium", "Base": "Pan"}}],
+    "items": [{"variant_id": "v_222", "quantity": 1, "add_ons": []}],
     "payment_type": "upi"
   }}
 ]
 
 // User: "add a 30cm paneer tikka sub with multigrain bread and bbq sauce"
-// → pick the 30cm variant; ignore the bread/sauce ask (executor sends add_ons:[]).
+// → pick the 30cm child variant_id; silently ignore bread/sauce (Mechanism B is auto-filled by server).
 "tool_plan": [
   {"tool": "create_cart", "arguments": {
     "res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__",
-    "items": [{"name": "Paneer Tikka Sandwich", "quantity": 1,
-               "property_values": {"Size": "30cm(SAVE UPTO 27%)"}}],
+    "items": [{"variant_id": "v_888", "quantity": 1, "add_ons": []}],
+    "payment_type": "upi"
+  }}
+]
+
+// User: "add the OG Thalaiva chicken biryani to my cart"
+// Menu shows TWO matches (no nested variants[], each is a top-level item):
+//   - "OG Thalaiva Chicken Biryani (Boneless) (Serves 1 - 530gms)" → v_AAA, ₹299
+//   - "OG Thalaiva Chicken Biryani Bowl (380gms)" → v_BBB, ₹259
+// → Ambiguous. DO NOT plan create_cart. Ask in summary:
+"summary": "Do you want the 530g Serves-1 (v_AAA, ₹299) or the 380g Bowl (v_BBB, ₹259)?"
+"tool_plan": []
+
+// Next turn — user says "the second one" / "the bowl":
+"tool_plan": [
+  {"tool": "create_cart", "arguments": {
+    "res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__",
+    "items": [{"variant_id": "v_BBB", "quantity": 1, "add_ons": []}],
+    "payment_type": "upi"
+  }}
+]
+
+// === Two-turn dance: item NOT in session_menu ===
+// Setup: earlier we showed the user the top 8 biryani rows at Thalaiva Biryani.
+// session_menu carries exactly those 8 (with variant_ids). Now user says:
+//   User: "actually add the Mutton Haleem"
+// Mutton Haleem is NOT in the carried-forward session_menu (it was past the
+// top-8 cap, and by contract the user never saw it either). You DO NOT have
+// its variant_id. Plan ONLY the menu fetch:
+"summary": "Mutton Haleem session menu mein nahi mil raha — pehle uska variant fetch kar leta hoon, fir aap confirm karoge tab cart mein add karunga."
+"tool_plan": [
+  {"tool": "get_restaurant_menu_by_categories", "arguments": {
+    "res_id": "<literal from session_restaurants>",
+    "address_id": "__ADDRESS_ID__",
+    "categories": ["Haleem", "Mutton Specials"]
+  }}
+]
+
+// After this turn the response LLM tells the user "Mutton Haleem (150g) ₹279 mila — add karun?"
+// session_menu is now refreshed with the Haleem row + its variant_id.
+
+// Next turn — user: "haan add kar de"
+"tool_plan": [
+  {"tool": "create_cart", "arguments": {
+    "res_id": "<literal from session_restaurants>",
+    "address_id": "__ADDRESS_ID__",
+    "items": [{"variant_id": "v_FRESHLY_LEARNED", "quantity": 1, "add_ons": []}],
     "payment_type": "upi"
   }}
 ]
 ```
 
-`property_values` is optional — include it **only** when the user explicitly named the size/crust/base. Never invent picks. Never plan an `add_ons[]` field on a cart row.
+`property_values` is **never** sent on cart rows — your job is to resolve the user's spoken size/crust into the specific child `variant_id`. Never invent picks. `add_ons` must always be present and always be `[]`.
 
-**Menu envelope truncation.** To keep the response prompt small, the executor caps `item_mappings` / `menu_items` arrays in the *returned tool envelope* to the top ~10 rows and adds a `_menu_truncation: {shown: 10, total: <N>}` breadcrumb. The executor's per-session menu index still holds **all** items (the trim happens *after* the index is built), so `create_cart` can resolve any item by `name` even when it didn't appear in the visible top 10. You do **not** need to plan extra menu calls just to "expose more rows" for the cart resolver.
+**Menu envelope truncation + the two-turn rule for unseen items.** The executor caps each menu fetch to the **top ~8 rows per restaurant** in BOTH the returned tool envelope (what the response LLM shows the user) and the next-turn `session_menu` (what you read at plan time). These two slices are **always identical** — so anything the user saw last turn is in your `session_menu`, and anything not in your `session_menu` is also something the user has not actually seen. A `_menu_truncation: {shown: 8, total: <N>}` breadcrumb is added when the underlying menu had more rows. The cross-restaurant LRU holds ~40 items total so you can carry 4–5 restaurants' top-8 windows at once.
+
+**If the user names an item whose `variant_id` you cannot find in the `session_menu` block on this turn:**
+1. Plan **only the menu fetch** for the likely category — `get_restaurant_menu_by_categories(categories=["<best guess>"])`, or `get_menu_items_listing` first if you don't know the category. **Do not** plan `create_cart` on this turn.
+2. In `summary`, tell the user you're pulling up the item — e.g. *"Mutton Haleem dhundh raha hoon menu mein — ek sec."* The response LLM will surface the freshly-fetched 8 rows to the user, who can then confirm.
+3. On the **next turn** the freshly-fetched item is in `session_menu`, so when the user confirms (*"haan add kar de"*) you plan `create_cart` with the literal `variant_id` from session_menu.
+
+This is the only correct path — never plan `menu_fetch + create_cart` in the same turn for a previously-unseen item, because the planner runs **once per turn before any tool executes**, so it cannot read the variant_id from the menu fetch it just queued. Fabricating a variant_id will cause Zomato to reject the call.
 
 ---
 
@@ -268,12 +323,12 @@ So a cart row is just `{name | variant_id, quantity, property_values?}` — neve
 Build a delivery cart.
 
 **Typical arguments:**
-- `res_id`, `address_id` (placeholders as above).
-- `items`: `[{"variant_id": "<from menu>", "quantity": 1}, ...]` **or** `[{"name": "<exact item_name>", "quantity": 1}, ...]`. **Never** use `__VARIANT_ID__` — it is a single scalar and silently binds every row to the first item in the menu listing (a known footgun). For multi-item carts you **must** disambiguate per-row, either with literal variant_ids or with item names that match the menu output. Mixing the two styles across rows is fine.
+- `res_id`, `address_id` (placeholders as above; or a literal `res_id` from the restaurants-already-shown block).
+- `items`: `[{"variant_id": "<literal from menu / session_menu>", "quantity": 1, "add_ons": []}, ...]`. **Every** row needs exactly three keys: a literal `variant_id` you copied verbatim from a menu fetch in this plan or a `session_menu` block in the routing message, a numeric `quantity`, and the empty array `"add_ons": []` (the server requires the field but rejects populated picks — see Mechanism B). **Never** use `__VARIANT_ID__` (single scalar; pins every row to one item). **Never** use a `name` / `item_name` / `title` / `property_values` field on a cart row — the executor does no name matching and Zomato will reject any row missing a valid `variant_id`. For items with `variants[]` nested inside the menu entry, walk that list and pick the child `variant_id` that matches what the user said (size / crust / base); when ambiguous, ask the user and plan no `create_cart` on this turn.
 - `payment_type`: **enum** — only **`"upi"`** (pay now, QR displayed) or **`"cash_on_delivery"`** (pay rider at door) are accepted by the server. Strings like `"COD"`, `"ONLINE"`, `"card"`, `"wallet"` are rejected. **Always ask the user explicitly** — never default. The tool description itself mandates this.
 - Optional `promo_code` when user supplied a code.
 
-**Never plan without explicit user intent to add those items.** Confirm variants exist from menu tools when possible — every `create_cart` in a plan **must** be preceded by `get_menu_items_listing` (and/or `get_restaurant_menu_by_categories`) for the same restaurant in the same plan, so the name resolver can find a match.
+**Never plan without explicit user intent to add those items.** Every `create_cart` row's `variant_id` must come from the `session_menu` block of the routing message — that is the only menu data you can read at planning time, because the planner runs **once per turn before any tool executes**. If the item the user named is not in `session_menu`, you **cannot** plan `create_cart` this turn — see the two-turn rule above: plan the menu fetch only, ask the user to confirm, add on the next turn. Queueing a menu fetch in the same plan as `create_cart` does **not** give you new variant_ids for cart planning — it only refreshes the menu for the next turn's planner.
 
 ### Clearing the cart (no `clear_cart` tool exists)
 
@@ -407,16 +462,19 @@ Example B (the routing message lists `BOX8 - Desi Meals → res_id=20791234` fro
 
 | User intent | Minimal plan |
 |-------------|----------------|
-| Add items / build cart | `get_restaurants_for_keyword` → `get_menu_items_listing` → `create_cart` (items by literal `variant_id` or by `name`) |
+| Add items / build cart | `get_restaurants_for_keyword` → `get_menu_items_listing` → `create_cart` (each row has a literal `variant_id` from the menu / `session_menu`) |
 | **Clear & add** ("clear cart and add X") | Same as add — just `create_cart` with the new items. No separate clear step. No confirmation. |
 | Apply coupon on cart | `create_cart` → `get_cart_offers` |
 | Place order (any payment method) | `create_cart` → user confirms bill → `checkout_cart` |
 | **Follow-up checkout** (cart was created on a previous turn; user now says *"yes pay UPI"* / *"checkout"* / *"place the order"*) | Just `checkout_cart` with `"cart_id": "__CART_ID__"` and `"payment_type": "upi"` or `"cash_on_delivery"`. **Do not** re-plan the restaurant search / menu / create_cart — that wipes the existing cart and asks the user to confirm again. |
 | Cheapest / best deal | `get_restaurants_for_keyword` only (rank in summary); menu only if user picks a place |
 
-### Example — add 2 different items by name
+### Example — add 2 different items by literal variant_id
 
 ```json
+// Menu fetched in step 2 surfaces (among others):
+//   Veg Nikku Singh Burger      → variant_id = "v_555111"
+//   Chicken Nikku Singh Burger  → variant_id = "v_555222"
 "tool_plan": [
   {"tool": "get_restaurants_for_keyword", "arguments": {"address_id": "__ADDRESS_ID__", "keyword": "Burger Singh"}},
   {"tool": "get_menu_items_listing", "arguments": {"res_id": "__RESTAURANT_ID__", "address_id": "__ADDRESS_ID__"}},
@@ -424,15 +482,15 @@ Example B (the routing message lists `BOX8 - Desi Meals → res_id=20791234` fro
     "res_id": "__RESTAURANT_ID__",
     "address_id": "__ADDRESS_ID__",
     "items": [
-      {"name": "Veg Nikku Singh Burger", "quantity": 1},
-      {"name": "Chicken Nikku Singh Burger", "quantity": 1}
+      {"variant_id": "v_555111", "quantity": 1, "add_ons": []},
+      {"variant_id": "v_555222", "quantity": 1, "add_ons": []}
     ],
     "payment_type": "upi"
   }}
 ]
 ```
 
-The executor resolves `name → variant_id` against the menu fetched in the same plan. **Never** use `__VARIANT_ID__` for these rows.
+The executor passes the rows straight through to Zomato — no name matching, no variant_id validation, no property resolution. If a `variant_id` you emit isn't valid for the current restaurant, Zomato rejects the call and the response LLM will surface that to the user. The only transformation the executor performs is enforcing `"add_ons": []` on every row (defensive backstop for the `ModifierGroupMetaMissing` server bug — you should still emit it explicitly). **Never** use `__VARIANT_ID__`; never put a `name`/`item_name`/`property_values` field on a cart row; never populate `add_ons` with picks — they will be silently dropped (or worse, confuse the server).
 
 ### Example — follow-up checkout in a later turn
 

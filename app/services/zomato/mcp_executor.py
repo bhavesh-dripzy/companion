@@ -45,10 +45,11 @@ _PLACEHOLDER_ALIASES: dict[str, tuple[str, ...]] = {
     # NOTE: __VARIANT_ID__ is intentionally *not* in this map. It is a
     # single-valued scalar but `create_cart.items[]` needs distinct variants
     # per row, so global-binding (first-seen wins) silently pinned every row
-    # to whatever item the menu listed first (a recommendation/combo at the
-    # top), causing systematic mis-adds. Variant resolution is now done by
-    # name via `_resolve_cart_items_by_name` against the per-session menu
-    # index built from `get_menu_items_listing` / `get_restaurant_menu_by_categories`.
+    # to whatever item the menu listed first. The planner LLM is now fully
+    # responsible for emitting one literal ``variant_id`` per cart row
+    # (sourced from the menu envelopes in the same plan and/or the
+    # carried-forward ``session_menu`` block) — the executor does no
+    # variant matching, validation, or property resolution.
 }
 
 # Tools that issue a fresh value for a placeholder. When a turn re-runs one of
@@ -73,14 +74,15 @@ _TOOL_ISSUES_PLACEHOLDER: dict[str, tuple[str, ...]] = {
 _TOKEN_SECRET_ID = "companion/mcp-tokens"
 _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
 _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
-# Cap how many menu items we hand to the *response* LLM. The executor's
-# menu_index (used to resolve item names -> variant_ids for create_cart) is
-# built from the FULL response and is unaffected — only the trimmed envelope
-# is what flows into `step.result` and on to the response-builder LLM /
-# downstream chat host. A 115-item Burger Singh menu was ~25 KB / ~6.4K
-# tokens; trimming to 10 cuts that ~10x. Tunable via env so we can dial it
-# per environment without code changes.
-_MAX_MENU_ITEMS_FOR_RESPONSE = max(1, int(os.getenv("ZOMATO_MENU_RESPONSE_ITEM_LIMIT", "10")))
+# Per-restaurant menu slice — the SAME N rows are:
+#   1. surfaced to the response LLM (trimmed envelope),
+#   2. stamped into ``session_menu`` for the next turn's planner.
+# Keeping these two slices identical means the user can only see items the
+# planner can also pick by literal ``variant_id`` next turn — eliminating
+# the "response promised Oova Superstar Egg Biryani but planner couldn't
+# find its variant_id" mismatch. A 115-item Burger Singh menu was ~25 KB
+# / ~6.4K tokens; trimming to 8 cuts that ~14x. Tunable via env.
+_MENU_ITEMS_PER_RESTAURANT = max(1, int(os.getenv("ZOMATO_MENU_ITEMS_PER_RESTAURANT", "8")))
 _MAX_TOKEN_FILE_BYTES = 256 * 1024
 _OAUTH_PENDING_TTL_SECONDS = 15 * 60
 _PAIRING_TTL_SECONDS = 15 * 60
@@ -774,20 +776,16 @@ def _variant_price_map_from_category_menu(category_envelope: dict[str, Any]) -> 
 
 
 # ---------------------------------------------------------------------------
-# Menu index — per-session memory of name -> variant_id for cart resolution.
-# Built from get_menu_items_listing / get_restaurant_menu_by_categories
-# responses so that create_cart can resolve items by user-visible name even
-# when the LLM omits or guesses variant_id. See RCA for "Udta Punjab vs
-# Nikku Singh" hallucination — this index replaces the broken __VARIANT_ID__
-# placeholder.
+# Menu index — per-session memory of variant_id -> menu entry, used solely
+# for surfacing ``session_menu`` to the next turn (the carry-forward block
+# the planner reads to pick a literal variant_id without re-running a menu
+# tool). The executor does NO matching, fuzzy lookup, or property-based
+# variant picking — those responsibilities live entirely in the planner LLM
+# which has full conversational context. See RCA for "second option" cart
+# drop: name-matching here silently dropped any planner-side synthetic name
+# that didn't exactly match the menu envelope; the contract is now strict —
+# every ``create_cart`` row must carry a literal ``variant_id``.
 # ---------------------------------------------------------------------------
-
-
-def _norm_item_key(name: str) -> str:
-    s = (name or "").strip().lower()
-    while s.endswith(".") or s.endswith(",") or s.endswith(";"):
-        s = s[:-1].rstrip()
-    return " ".join(s.split())
 
 
 # ---------------------------------------------------------------------------
@@ -815,35 +813,17 @@ _MAX_REMEMBERED_RESTAURANTS = max(
     1, int(os.getenv("ZOMATO_REMEMBERED_RESTAURANT_CAP", "8"))
 )
 
-# Cap how many menu items we remember per session — the LRU pool the
-# planner sees as "Items already shown to the user this session". 25 covers
-# 2-3 restaurants' worth of recently-shown items so cross-restaurant
-# follow-ups ("actually add the chicken keto salad from O4H") still hit the
-# cache after a pivot. The response builder's own surface stays trimmed
-# (top 6-8) so this cap mostly affects the planner prompt — and each entry
-# is small enough (one row with name + variant_id + a few addon ids) that
-# 25 is well under the prompt-size budget.
+# Cross-restaurant LRU cap on ``session_menu``. Each menu fetch contributes
+# ``_MENU_ITEMS_PER_RESTAURANT`` rows; this cap holds enough rows for the
+# user to pivot across ~5 restaurants in one session before the oldest
+# restaurant's items get evicted. Cross-restaurant follow-ups ("actually
+# add the chicken keto salad from O4H") still hit the cache after a pivot.
+# Each entry is small enough (one row with name + variant_id + a few
+# addon ids) that 40 is well under the prompt-size budget.
 _MAX_REMEMBERED_MENU_ITEMS = max(
-    1, int(os.getenv("ZOMATO_REMEMBERED_MENU_ITEMS_CAP", "25"))
+    _MENU_ITEMS_PER_RESTAURANT,
+    int(os.getenv("ZOMATO_REMEMBERED_MENU_ITEMS_CAP", "40")),
 )
-
-
-def _norm_restaurant_key(name: str) -> str:
-    """Normalize restaurant name for lookup. Matches the user-typed form.
-
-    Strips punctuation, collapses whitespace, lowercases. Symmetric to
-    ``_norm_item_key`` so the same comparison rules apply.
-    """
-    if not isinstance(name, str):
-        return ""
-    s = name.strip().lower()
-    # Strip trailing tagline-style suffixes ("Paradise Biryani - A Legend Since 1953")
-    # — we keep the head for matching, full name in the value.
-    if " - " in s:
-        s = s.split(" - ", 1)[0]
-    while s.endswith(".") or s.endswith(",") or s.endswith(";"):
-        s = s[:-1].rstrip()
-    return " ".join(s.split())
 
 
 def _collect_restaurants_from_envelope(envelope: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1029,10 +1009,10 @@ def _hydrate_menu_index_from_session(
 ) -> dict[str, dict[str, Any]]:
     """Seed a fresh per-turn ``menu_index`` from carried-forward session_menu.
 
-    Called at executor entry so a follow-up turn ("add the herb grilled
-    chicken") can resolve names directly from the cache without re-running
-    a menu tool — exactly the cross-turn fast path ``session_restaurants``
-    already gives at the restaurant level.
+    Keyed by ``variant_id`` so cross-envelope merges (same variant seen by
+    both ``get_menu_items_listing`` and ``get_restaurant_menu_by_categories``)
+    deduplicate cleanly. The index is consumed only by the session_menu
+    echo at end-of-turn — no cart-time matching happens here.
     """
     out: dict[str, dict[str, Any]] = {}
     if not isinstance(session_menu, list):
@@ -1040,17 +1020,14 @@ def _hydrate_menu_index_from_session(
     for entry in session_menu:
         if not isinstance(entry, dict):
             continue
-        name = entry.get("item_name") or entry.get("name")
-        if not isinstance(name, str) or not name.strip():
+        vid = str(entry.get("variant_id") or "").strip()
+        if not vid:
             continue
-        key = _norm_item_key(name)
-        if not key:
-            continue
-        prev = out.get(key)
+        prev = out.get(vid)
         if prev is None:
-            out[key] = entry
+            out[vid] = entry
         else:
-            out[key] = _pick_richer_menu_entry(prev, entry)
+            out[vid] = _pick_richer_menu_entry(prev, entry)
     return out
 
 
@@ -1163,7 +1140,7 @@ def _collect_menu_index_from_envelope(
     *,
     addon_groups_table: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Return ``{normalized_name -> enriched_entry}`` from a menu envelope.
+    """Return ``{variant_id -> enriched_entry}`` from a menu envelope.
 
     Walks both shapes Zomato uses:
       * ``get_menu_items_listing`` → ``data.item_mappings[]`` (sparse — only
@@ -1177,16 +1154,13 @@ def _collect_menu_index_from_envelope(
         categories?, variants: [...], addon_group_ids: [...],
         addon_groups: [{id, name, min, max, items: [...]}, ...]}``.
 
-    - ``variants`` (Mechanism A) lists size/crust property variants — empty
-      when the item has no property choices (e.g. WeFit sandwiches).
-    - ``addon_group_ids`` (Mechanism B) is the union of every ``mg_...``
-      referenced by this item (parent + any of its variants).
-    - ``addon_groups`` is the same list expanded against
-      ``addon_groups_table``, so consumers don't have to do their own lookup.
+    Keyed by ``variant_id`` so the same variant captured by both tools in
+    one turn (or across turns) deduplicates cleanly; the richer entry
+    (with ``addon_groups`` / nested ``variants[]``) wins on conflict.
 
-    Multiple rows with the same normalized name collapse — entries that
-    carry richer metadata (have ``addon_groups`` populated) win over sparse
-    listing-tool rows, regardless of name length.
+    This index is consumed solely by the session_menu echo at end-of-turn —
+    the planner LLM reads ``session_menu`` to pick a literal ``variant_id``
+    for the next ``create_cart``. The executor itself does no matching.
     """
     out: dict[str, dict[str, Any]] = {}
     if not isinstance(envelope, dict) or envelope.get("is_error"):
@@ -1220,9 +1194,6 @@ def _collect_menu_index_from_envelope(
             or row.get("title")
         )
         if not isinstance(name, str):
-            continue
-        key = _norm_item_key(name)
-        if not key:
             continue
 
         parent_addon_raw = row.get("available_add_ons")
@@ -1260,11 +1231,11 @@ def _collect_menu_index_from_envelope(
         if isinstance(item_id, str) and item_id.strip():
             entry["item_id"] = item_id.strip()
 
-        prev = out.get(key)
+        prev = out.get(vid)
         if prev is None:
-            out[key] = entry
+            out[vid] = entry
             continue
-        out[key] = _pick_richer_menu_entry(prev, entry)
+        out[vid] = _pick_richer_menu_entry(prev, entry)
     return out
 
 
@@ -1334,7 +1305,7 @@ def _merge_menu_index(
     output into the running per-session ``menu_index`` — otherwise a sparse
     listing-tool call running AFTER a rich by-categories call in the same
     plan would silently strip ``addon_groups`` / ``variants`` from the entry
-    the resolver depends on.
+    the next-turn planner needs to pick the right child variant_id.
     """
     out = dict(existing)
     for key, entry in new_entries.items():
@@ -1346,488 +1317,45 @@ def _merge_menu_index(
     return out
 
 
-def _lookup_menu_entry_by_name(
-    query: str,
-    menu_index: dict[str, dict[str, Any]],
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Resolve a user-facing item name to a full ``menu_index`` entry.
-
-    Match cascade (most-specific first; stop at the first unambiguous hit):
-      1. Exact (normalized) match.
-      2. Prefix on either side ("Veg Nikku" matches "Veg Nikku Singh Burger" when unique).
-      3. Token-set containment — every token of the shorter side appears in the
-         longer side. This is the common LLM failure mode ("Veg Nikku Burger" vs
-         the canonical "Veg Nikku Singh Burger" — the LLM drops middle words).
-      4. Plain substring containment.
-
-    On ambiguity at any step, picks the **richest** candidate (one with
-    expanded ``addon_groups`` / ``variants``) — silent wrong-match was the
-    legacy failure mode and refusing to guess broke the user's add-to-cart
-    flow when the menu had several variant-suffixed rows sharing a base
-    name (e.g. "Herb Grilled Chicken Boneless [46g]" vs "[70g]"). The
-    richness-ordered tiebreaker now matches the resolver's own behaviour:
-    prefer the row that carries customization metadata, then prefer the
-    one whose token count is closest to the query.
-
-    Returns ``(entry, matched_name)``; ``(None, None)`` if there were
-    zero candidates at every cascade step.
-    """
-    if not menu_index:
-        return None, None
-    key = _norm_item_key(query)
-    if not key:
-        return None, None
-    entry = menu_index.get(key)
-    if entry:
-        return entry, entry.get("item_name")
-
-    def _pick(candidates: list[tuple[str, dict[str, Any]]]) -> tuple[dict[str, Any] | None, str | None]:
-        if not candidates:
-            return None, None
-        if len(candidates) == 1:
-            _, e = candidates[0]
-            return e, e.get("item_name")
-        # Sort by (richness desc, then token-count proximity to query, then name length asc)
-        q_tokens = len(key.split())
-        candidates_sorted = sorted(
-            candidates,
-            key=lambda kv: (
-                -sum(_menu_entry_richness(kv[1])),
-                abs(len(kv[0].split()) - q_tokens),
-                len(kv[1].get("item_name") or ""),
-            ),
-        )
-        top_key = (
-            -sum(_menu_entry_richness(candidates_sorted[0][1])),
-            abs(len(candidates_sorted[0][0].split()) - q_tokens),
-        )
-        leaders = [
-            kv for kv in candidates_sorted
-            if (
-                -sum(_menu_entry_richness(kv[1])),
-                abs(len(kv[0].split()) - q_tokens),
-            ) == top_key
-        ]
-        if len(leaders) == 1:
-            _, e = leaders[0]
-            return e, e.get("item_name")
-        # Truly equivalent: pick the shortest canonical name (legacy rule)
-        leaders.sort(key=lambda kv: len(kv[1].get("item_name") or ""))
-        _, e = leaders[0]
-        return e, e.get("item_name")
-
-    # Prefix on either side
-    prefix_hits = [
-        (k, e) for k, e in menu_index.items()
-        if k.startswith(key) or key.startswith(k)
-    ]
-    e, n = _pick(prefix_hits)
-    if e is not None:
-        return e, n
-    # Token-set containment (shorter ⊆ longer, in either direction)
-    query_tokens = set(key.split())
-    if query_tokens:
-        token_hits = [
-            (k, e) for k, e in menu_index.items()
-            if (q := set(k.split()))
-            and (query_tokens.issubset(q) or q.issubset(query_tokens))
-        ]
-        e, n = _pick(token_hits)
-        if e is not None:
-            return e, n
-    # Substring containment
-    sub_hits = [(k, e) for k, e in menu_index.items() if key in k or k in key]
-    e, n = _pick(sub_hits)
-    if e is not None:
-        return e, n
-    return None, None
-
-
-def _lookup_variant_id_by_name(
-    query: str,
-    menu_index: dict[str, dict[str, Any]],
-) -> tuple[str | None, str | None]:
-    """Thin compat shim — returns ``(variant_id, item_name)`` like the old API.
-
-    Kept for tests / scripts that imported the old name. New code should
-    call ``_lookup_menu_entry_by_name`` to also get ``variants`` and
-    ``addon_groups`` for downstream customization resolution.
-    """
-    entry, matched = _lookup_menu_entry_by_name(query, menu_index)
-    if entry is None:
-        return None, None
-    return entry.get("variant_id"), matched
-
-
 # ---------------------------------------------------------------------------
-# Variant + addon resolution for create_cart
+# create_cart row scrub
 # ---------------------------------------------------------------------------
-# Zomato uses two orthogonal customization mechanisms (verified live across
-# WeFit / California Burrito / Pizza Hut / Domino's / Subway / McDonald's):
+# The executor does NOT match items, validate variant_ids, or resolve property
+# variants. The planner LLM (which has the full conversation + session_menu
+# context) is fully responsible for picking the correct child ``variant_id``
+# from ``entry.variants[]`` and emitting one ``items[]`` row per cart line.
 #
-#   Mechanism A — property variants (item.variants[])
-#     Size / Crust / "Choose your Rice" style. Each variant is a separate
-#     variant_id with its own price and (sometimes) its own addon group list.
-#     Selection = send the chosen variant's variant_id in items[].variant_id.
-#     **ACTIVE.** ``_resolve_variant_from_properties`` does the picking.
-#
-#   Mechanism B — add-on groups (available_add_ons[] → all_addons_data[])
-#     Modifier groups with min/max selection counts. The parent item OR each
-#     variant references a list of mg_ ids; the full group definitions live
-#     in the envelope-root all_addons_data block.
-#     **CURRENTLY DISABLED.** Zomato's create_cart endpoint has a
-#     non-deterministic server bug (``ModifierGroupMetaMissing``) on certain
-#     variants when an explicit add_ons[] is sent — empirically 0/5 success
-#     on Subway's Paneer Tikka Sandwich 15cm when all 4 required groups are
-#     enumerated, vs. 10/10 with ``add_ons: []``. We unconditionally emit
-#     ``add_ons: []`` and let Zomato auto-fill the required defaults
-#     server-side. The cart response carries Zomato's picks back as
-#     ``cart.items[].add_ons[]`` (with full leaf name + group name + group_id)
-#     so the assistant can surface them to the user verbatim. The helper
-#     ``_resolve_addons_for_variant`` below is parked for the future override
-#     path (partial picks + retry).
+# The ONLY transformation here is defensive: Zomato's ``create_cart`` endpoint
+# has a non-deterministic server-side bug (``ModifierGroupMetaMissing``) that
+# fires when the request enumerates explicit modifier picks for certain
+# variants — empirically 0/5 success on Subway's Paneer Tikka Sandwich 15cm
+# vs. 10/10 with ``add_ons: []``. We therefore force ``add_ons: []`` on every
+# row (regardless of what the planner emitted) and let Zomato auto-fill the
+# required leaves server-side. The cart response carries Zomato's picks back
+# as ``cart.items[].add_ons[]`` so the assistant can surface them verbatim.
 # ---------------------------------------------------------------------------
 
 
-def _resolve_variant_from_properties(
-    entry: dict[str, Any],
-    user_properties: dict[str, Any] | None,
-    user_name_hint: str | None,
-) -> tuple[str, list[str], dict[str, Any] | None]:
-    """Pick a specific variant_id from an entry's ``variants[]`` (Mechanism A).
+def _scrub_cart_items_for_zomato(args: dict[str, Any]) -> dict[str, Any]:
+    """Force ``add_ons: []`` on every ``items[]`` row.
 
-    Returns ``(variant_id, eligible_addon_group_ids, matched_variant_entry)``.
-
-    Variant selection priorities, most→least specific:
-      1. Structured ``user_properties`` dict — match each key/value against
-         ``variants[*].property_values``. The variant must satisfy *every*
-         provided property; missing properties are wildcards.
-      2. Token-containment heuristic — if the user said "medium pan
-         margherita", look at each variant's property_values and pick the
-         one whose values all appear (case-insensitive) in the user's name
-         hint.
-      3. Default = entry.variant_id (the parent's default, which always
-         matches one of the variants[*].variant_id).
-    """
-    variants = entry.get("variants") or []
-    default_vid = str(entry.get("variant_id") or "").strip()
-    fallback_addons = list(entry.get("addon_group_ids") or [])
-
-    if not variants:
-        return default_vid, fallback_addons, None
-
-    # Step 1 — structured property match
-    if isinstance(user_properties, dict) and user_properties:
-        def _props_match(v: dict[str, Any]) -> bool:
-            pv = v.get("property_values") or {}
-            if not isinstance(pv, dict):
-                return False
-            for k, want in user_properties.items():
-                got = pv.get(k)
-                if got is None:
-                    return False
-                if str(got).strip().lower() != str(want).strip().lower():
-                    return False
-            return True
-        hits = [v for v in variants if _props_match(v)]
-        if len(hits) == 1:
-            v = hits[0]
-            vid = str(v.get("variant_id") or default_vid).strip()
-            return vid, list(v.get("addon_group_ids") or fallback_addons), v
-
-    # Step 2 — token-containment from user name hint
-    if isinstance(user_name_hint, str) and user_name_hint.strip():
-        hint = _norm_item_key(user_name_hint)
-        if hint:
-            hint_tokens = set(hint.split())
-            scored: list[tuple[int, dict[str, Any]]] = []
-            for v in variants:
-                pv = v.get("property_values") if isinstance(v.get("property_values"), dict) else {}
-                if not pv:
-                    continue
-                v_tokens: set[str] = set()
-                for val in pv.values():
-                    if isinstance(val, str) and val.strip():
-                        v_tokens.update(_norm_item_key(val).split())
-                if not v_tokens:
-                    continue
-                if v_tokens.issubset(hint_tokens):
-                    scored.append((len(v_tokens), v))
-            if scored:
-                # Prefer the most-specific match (highest number of matched property tokens).
-                scored.sort(key=lambda x: -x[0])
-                if len(scored) == 1 or scored[0][0] > scored[1][0]:
-                    v = scored[0][1]
-                    vid = str(v.get("variant_id") or default_vid).strip()
-                    return vid, list(v.get("addon_group_ids") or fallback_addons), v
-
-    # Step 3 — default
-    for v in variants:
-        if str(v.get("variant_id") or "").strip() == default_vid:
-            return default_vid, list(v.get("addon_group_ids") or fallback_addons), v
-    return default_vid, fallback_addons, None
-
-
-def _resolve_addons_for_variant(  # noqa: ARG001 — parked helper, see module note
-    chosen_variant: dict[str, Any] | None,
-    entry: dict[str, Any],
-    user_addons: list[Any] | None,
-    eligible_group_ids: list[str],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Honour user-picked addons + auto-default required groups (Mechanism B).
-
-    *Currently unused.* Cart resolution unconditionally emits
-    ``add_ons: []`` (see ``_resolve_cart_items_by_name``) to dodge Zomato's
-    ``ModifierGroupMetaMissing`` server bug. Kept in tree for the
-    forthcoming Path-2 override flow (partial picks + retry on flakiness).
-
-    Returns ``(add_ons_payload, audit_notes)``. ``add_ons_payload`` is the
-    list of ``{id: "ctl_...", quantity: int}`` rows ready for create_cart;
-    ``audit_notes`` records every group-level decision so the response LLM
-    can describe what was picked / auto-filled / dropped.
-
-    Behaviour per group:
-      * If the user named one or more leaves in this group, keep them
-        (capped at ``max_selection``).
-      * Else if ``min_selection >= 1``, auto-pick the first available
-        (``item_state == "available"``) leaf and emit ``source=auto``.
-      * Else (min=0 and user silent) — emit nothing.
-    """
-    all_groups: list[dict[str, Any]] = entry.get("addon_groups") or []
-    # Filter groups down to those eligible for the chosen variant.
-    groups: list[dict[str, Any]] = [
-        g for g in all_groups
-        if str(g.get("id") or "") in eligible_group_ids
-    ]
-    if not groups:
-        return [], []
-
-    # Normalize user-supplied picks into a flat list of either
-    # {id: "ctl_..."} or {name: "..."} dicts so we can hash-match later.
-    raw_picks: list[dict[str, Any]] = []
-    if isinstance(user_addons, list):
-        for u in user_addons:
-            if isinstance(u, dict):
-                ctl = u.get("id") or u.get("addon_id") or u.get("ctl_id")
-                nm = u.get("name") or u.get("item_name")
-                qty = int(u.get("quantity") or 1) or 1
-                if (isinstance(ctl, str) and ctl.strip()) or (isinstance(nm, str) and nm.strip()):
-                    raw_picks.append(
-                        {
-                            "id": str(ctl).strip() if isinstance(ctl, str) and ctl.strip() else None,
-                            "name": str(nm).strip() if isinstance(nm, str) and nm.strip() else None,
-                            "quantity": qty,
-                        }
-                    )
-            elif isinstance(u, str) and u.strip():
-                # Bare strings are treated as leaf names.
-                raw_picks.append({"id": None, "name": u.strip(), "quantity": 1})
-
-    payload: list[dict[str, Any]] = []
-    notes: list[dict[str, Any]] = []
-
-    for group in groups:
-        gid = str(group.get("id") or "")
-        gname = group.get("name") or gid
-        min_sel = int(group.get("min") or 0)
-        max_sel = int(group.get("max") or 0) or 1
-        leaves = group.get("items") or []
-        leaf_by_id = {str(it.get("id") or ""): it for it in leaves if isinstance(it, dict)}
-        leaf_by_norm_name = {
-            _norm_item_key(it.get("name") or ""): it
-            for it in leaves
-            if isinstance(it, dict) and it.get("name")
-        }
-        leaf_by_norm_name = {k: v for k, v in leaf_by_norm_name.items() if k}
-
-        chosen: list[dict[str, Any]] = []
-        for pick in raw_picks:
-            if pick["id"] and pick["id"] in leaf_by_id:
-                chosen.append({"id": pick["id"], "quantity": pick["quantity"]})
-            elif pick["name"]:
-                # Try exact normalized match first; then substring among this group's leaves.
-                norm = _norm_item_key(pick["name"])
-                leaf = leaf_by_norm_name.get(norm)
-                if leaf is None:
-                    candidates = [it for k, it in leaf_by_norm_name.items() if norm and (norm in k or k in norm)]
-                    if len(candidates) == 1:
-                        leaf = candidates[0]
-                if leaf is not None:
-                    chosen.append({"id": str(leaf.get("id") or ""), "quantity": pick["quantity"]})
-
-        # Cap at max_selection.
-        dropped_for_max: list[dict[str, Any]] = []
-        if chosen and max_sel and len(chosen) > max_sel:
-            dropped_for_max = chosen[max_sel:]
-            chosen = chosen[:max_sel]
-
-        # Auto-default required groups when user didn't pick anything for them.
-        auto_filled: dict[str, Any] | None = None
-        if not chosen and min_sel >= 1:
-            for it in leaves:
-                if not isinstance(it, dict):
-                    continue
-                state = it.get("state")
-                if state in (None, "available"):
-                    ctl = str(it.get("id") or "")
-                    if not ctl:
-                        continue
-                    chosen = [{"id": ctl, "quantity": 1}]
-                    auto_filled = {
-                        "ctl_id": ctl,
-                        "leaf_name": it.get("name"),
-                    }
-                    break
-
-        payload.extend(chosen)
-        notes.append(
-            {
-                "group_id": gid,
-                "group_name": gname,
-                "min": min_sel,
-                "max": max_sel,
-                "chosen": chosen,
-                "auto_filled": auto_filled,
-                "dropped_over_max": dropped_for_max or None,
-            }
-        )
-
-    return payload, notes
-
-
-def _resolve_cart_items_by_name(
-    args: dict[str, Any],
-    menu_index: dict[str, dict[str, Any]],
-    diagnostics: dict[str, Any],
-) -> dict[str, Any]:
-    """Resolve every ``args.items[]`` row into the cart-ready Zomato shape.
-
-    Handles both Zomato customization mechanisms uniformly:
-      * Mechanism A — picks the variant_id matching user-named property
-        values (size / crust / "Choose your Rice") or defaults to the
-        entry's parent variant_id.
-      * Mechanism B — emits the ``add_ons`` array Zomato expects, honouring
-        any user-named leaves and auto-filling required groups
-        (``min_selection >= 1``) so the cart bill applies the right promo
-        instead of silently charging the pre-customization price.
-
-    Each input row may carry any of: ``variant_id``, ``name`` /
-    ``item_name`` / ``itemName`` / ``title``, ``quantity``, ``properties``
-    / ``property_values`` (structured size hint), and ``add_ons`` /
-    ``addons`` / ``customizations`` (a list of either ``"ctl_..."`` leaf
-    ids or ``{name, quantity}`` dicts).
-
-    Unresolved rows are dropped and a clear diagnostic is recorded in
-    ``cart_item_resolution`` (so the response LLM can surface a useful
-    "I couldn't add X" message instead of triggering the Zomato
-    ``EmptyCatalogInRequest`` error path).
+    Everything else (``variant_id``, ``quantity``, any extra fields the
+    planner emitted) is passed through untouched — the LLM owns variant
+    selection end-to-end. If the planner forgets ``variant_id`` or sends a
+    bogus one, Zomato will reject the call and the response LLM will tell
+    the user honestly; there is no silent name-matching fallback.
     """
     items = args.get("items") if isinstance(args.get("items"), list) else None
     if not items:
         return args
-
-    resolved: list[dict[str, Any]] = []
-    notes: list[dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for raw in items:
         if not isinstance(raw, dict):
             continue
-
-        vid_raw = str(raw.get("variant_id") or raw.get("variantId") or "").strip()
-        name = (
-            raw.get("name")
-            or raw.get("item_name")
-            or raw.get("itemName")
-            or raw.get("title")
-        )
-        quantity = int(raw.get("quantity") or 1) or 1
-
-        # Strip placeholder-shaped values; the LLM may still emit them.
-        if vid_raw.startswith("__") and vid_raw.endswith("__"):
-            vid_raw = ""
-
-        entry: dict[str, Any] | None = None
-        matched_name: str | None = None
-        if vid_raw:
-            # The planner gave a literal variant_id. Try to find the matching
-            # menu_index entry so we still get the variants[] block — fall
-            # back to a stub if the index is missing it (e.g. listing-tool only).
-            for cand in menu_index.values():
-                if str(cand.get("variant_id") or "") == vid_raw:
-                    entry = cand
-                    matched_name = cand.get("item_name")
-                    break
-                for v in cand.get("variants") or []:
-                    if str(v.get("variant_id") or "") == vid_raw:
-                        entry = cand
-                        matched_name = cand.get("item_name")
-                        break
-                if entry is not None:
-                    break
-            if entry is None:
-                entry = {"variant_id": vid_raw, "item_name": str(name or vid_raw)}
-                matched_name = str(name or vid_raw)
-        else:
-            entry, matched_name = _lookup_menu_entry_by_name(
-                str(name or ""), menu_index
-            )
-            if entry is None:
-                notes.append(
-                    {
-                        "requested_name": str(name or ""),
-                        "variant_id": None,
-                        "source": "menu_index",
-                        "reason": "no_match_or_ambiguous",
-                    }
-                )
-                continue
-            vid_raw = str(entry.get("variant_id") or "").strip()
-
-        # Mechanism A — pick the correct variant_id from entry.variants[].
-        user_props = raw.get("property_values") or raw.get("properties")
-        if not isinstance(user_props, dict):
-            user_props = None
-        chosen_vid, _eligible_groups, chosen_variant_entry = _resolve_variant_from_properties(
-            entry, user_props, str(name or "")
-        )
-        chosen_vid = chosen_vid or vid_raw
-
-        # Mechanism B is intentionally bypassed — see RCA below. Zomato's
-        # `create_cart` endpoint has a server-side bug (`ModifierGroupMetaMissing`)
-        # that fires non-deterministically when the request enumerates every
-        # required addon group for certain variants (verified across Subway's
-        # Paneer Tikka Sandwich 15cm: 0/5 with full explicit picks, 5/5 with
-        # `add_ons: []`). The empty-payload path triggers Zomato's own
-        # auto-default code, which is reliable across every variant we tested
-        # (Subway / McDonald's / Wraps / Salads — 10/10 each). We always emit
-        # `add_ons: []` and let Zomato pick the default leaf for each required
-        # group; the cart response carries the picks back as
-        # ``cart.items[].add_ons[]`` so the assistant can surface them to the
-        # user verbatim.
-        notes.append(
-            {
-                "requested_name": str(name or ""),
-                "matched_name": matched_name,
-                "variant_id": chosen_vid,
-                "source": "menu_index" if not vid_raw else "literal_or_index",
-                "variant_properties": (
-                    chosen_variant_entry.get("property_values")
-                    if isinstance(chosen_variant_entry, dict)
-                    else None
-                ),
-            }
-        )
-
-        resolved.append(
-            {
-                "variant_id": chosen_vid,
-                "quantity": quantity,
-                "add_ons": [],
-            }
-        )
-
-    if notes:
-        diagnostics.setdefault("cart_item_resolution", []).extend(notes)
-    args["items"] = resolved
+        row = dict(raw)
+        row["add_ons"] = []
+        out.append(row)
+    args["items"] = out
     return args
 
 
@@ -1921,21 +1449,22 @@ def _sanitize_menu_filter(
 def _truncate_menu_envelope_for_response(
     envelope: dict[str, Any],
     *,
-    max_items: int = _MAX_MENU_ITEMS_FOR_RESPONSE,
+    max_items: int = _MENU_ITEMS_PER_RESTAURANT,
 ) -> dict[str, Any] | None:
     """Trim a menu-tool envelope in-place so the response LLM sees at most N rows.
 
     Mutates the envelope (which is the same object already stored in
     ``step_results`` — so the trim propagates to the response builder without
-    a copy). The caller is expected to have populated ``menu_index`` from the
-    *full* envelope first; only the user-facing slice is trimmed here.
+    a copy). The caller MUST run this BEFORE building ``menu_index`` from the
+    envelope so the cache and the user-visible slice stay identical (planner
+    can never resolve an item the user couldn't see, and vice versa).
 
     Two shapes are handled:
       * ``get_menu_items_listing``       → ``data.result.data.item_mappings[]``
       * ``get_restaurant_menu_by_categories`` → ``data.result.data.menu_items[]``
 
     Adds breadcrumb metadata under ``data.result.data._menu_truncation`` so the
-    response LLM (and any debug consumer) can mention "showing top 10 of N" if
+    response LLM (and any debug consumer) can mention "showing top N of M" if
     helpful. Returns the breadcrumb dict if any trimming happened, else None.
     """
     if not isinstance(envelope, dict) or envelope.get("is_error"):
@@ -1987,8 +1516,8 @@ async def _enrich_menu_listing_with_category_prices(
     skipped / failed) so the caller can also extract the rich customization
     schema (``variants[]`` + ``all_addons_data[]``) into the running
     ``menu_index``. Without that, the listing tool alone surfaces only
-    sparse rows and the cart resolver can't drive variant/addon picks for
-    items that have them.
+    sparse rows and the planner LLM can't see the child variant_ids /
+    addon group schema needed to pick the right cart row next turn.
     """
     if listing_envelope.get("is_error"):
         return None
@@ -2154,14 +1683,13 @@ async def _run_session_inner(
     if seed_addresses:
         diagnostics["session_addresses"] = list(seed_addresses)
     prefetch_done = False
-    # Per-session menu memory: populated after each menu tool, consumed by
-    # create_cart to resolve items by user-visible name. See RCA notes above.
-    #
-    # SEEDED from the carried-forward ``session_menu`` list so a follow-up
-    # turn can resolve "add the chicken keto salad" → variant_id (plus the
-    # addon-group schema if the item carries customization) without
-    # re-running a menu tool. Every menu tool in this turn merges its own
-    # fresh entries on top via ``_merge_menu_index``.
+    # Per-session menu memory: populated after each menu tool, surfaced at
+    # end-of-turn as ``diagnostics["session_menu"]`` so the next-turn planner
+    # LLM can pick a literal ``variant_id`` for "add the chicken keto salad"
+    # without re-running a menu tool. The executor does no matching against
+    # this index — it is purely a carry-forward catalogue for the planner.
+    # Every menu tool in this turn merges its own fresh entries on top via
+    # ``_merge_menu_index``.
     menu_index: dict[str, dict[str, Any]] = _hydrate_menu_index_from_session(session_menu)
     # Track which res_id the carried-forward seed was tied to (when known)
     # so we don't accidentally cross-contaminate items across restaurants
@@ -2331,17 +1859,13 @@ async def _run_session_inner(
                 if tool == "get_saved_addresses_for_user":
                     prefetch_done = True
 
-                # For create_cart, resolve any items[] entries that are
-                # name-only (or carry the broken __VARIANT_ID__ placeholder)
-                # using the per-session menu_index built from prior menu tools
-                # in *this* plan. Without this, the LLM either invents
-                # variant_ids or relies on placeholder substitution that pins
-                # every row to the first menu item.
+                # For create_cart, force ``add_ons: []`` on every row to
+                # dodge Zomato's ``ModifierGroupMetaMissing`` server bug. The
+                # planner LLM owns variant_id selection entirely — we do no
+                # matching, validation, or property resolution here.
                 if tool == "create_cart":
-                    exec_args = _resolve_cart_items_by_name(
-                        exec_args if isinstance(exec_args, dict) else {},
-                        menu_index,
-                        diagnostics,
+                    exec_args = _scrub_cart_items_for_zomato(
+                        exec_args if isinstance(exec_args, dict) else {}
                     )
 
                 # For menu tools, scrub `menu_filter` so we never send fields
@@ -2426,22 +1950,35 @@ async def _run_session_inner(
                         logger.info("menu price enrichment failed: %s", e)
 
                 if tool in {"get_menu_items_listing", "get_restaurant_menu_by_categories"}:
-                    # Collect from BOTH envelopes when the listing tool was
-                    # silently followed by a by-categories enrichment:
-                    #   1. The listing envelope (now price-merged) — gives us
-                    #      every item the listing surfaced.
-                    #   2. The enrichment by-categories envelope — gives us
-                    #      ``variants[]`` + ``all_addons_data[]`` for the
-                    #      same items, which the listing tool alone never
-                    #      returns. Merging both is what populates the
-                    #      cart-resolver's customization schema on a plain
-                    #      "show menu" turn.
+                    # IMPORTANT — trim FIRST, then index. The user-visible
+                    # slice and the planner's ``session_menu`` MUST be the
+                    # same N items per restaurant; otherwise the response LLM
+                    # can promise an item ("Oova Superstar Egg Biryani")
+                    # whose variant_id the next-turn planner has no way to
+                    # cite, and create_cart silently goes to the wrong item.
+                    try:
+                        trimmed = _truncate_menu_envelope_for_response(envelope)
+                    except Exception as e:
+                        logger.info("menu envelope truncation failed: %s", e)
+                        trimmed = None
+                    if trimmed:
+                        diagnostics.setdefault("menu_truncation", {})[tool] = trimmed
+
+                    # Collect from the (now-trimmed) main envelope. When the
+                    # listing tool was silently followed by a by-categories
+                    # enrichment, fold in addon_groups / variants for the
+                    # SAME items only — never expand the visible-N set with
+                    # extra rows the user never saw.
                     try:
                         new_entries = _collect_menu_index_from_envelope(envelope)
                     except Exception as e:
                         logger.info("menu index extraction failed: %s", e)
                         new_entries = {}
-                    if enrichment_envelope is not None and not enrichment_envelope.get("is_error"):
+                    if (
+                        new_entries
+                        and enrichment_envelope is not None
+                        and not enrichment_envelope.get("is_error")
+                    ):
                         try:
                             rich_entries = _collect_menu_index_from_envelope(
                                 enrichment_envelope
@@ -2450,15 +1987,21 @@ async def _run_session_inner(
                             logger.info("menu index enrichment extraction failed: %s", e)
                             rich_entries = {}
                         if rich_entries:
-                            # Richness-aware merge inside the new_entries
-                            # itself so the by-categories rows replace the
-                            # sparse listing rows for the same items.
-                            new_entries = _merge_menu_index(new_entries, rich_entries)
+                            visible_vids = set(new_entries.keys())
+                            rich_entries = {
+                                vid: row
+                                for vid, row in rich_entries.items()
+                                if vid in visible_vids
+                            }
+                            if rich_entries:
+                                new_entries = _merge_menu_index(new_entries, rich_entries)
                     if new_entries:
-                        # Richness-aware merge: a sparse listing-tool envelope
-                        # arriving AFTER a by-categories envelope must not strip
-                        # the addon_groups / variants from the existing entry —
-                        # the cart-add resolver depends on that schema.
+                        # Richness-aware merge into the cross-restaurant LRU.
+                        # A sparse listing envelope arriving AFTER a
+                        # by-categories envelope must not strip the
+                        # addon_groups / variants from the existing entry —
+                        # the planner reads that schema off ``session_menu``
+                        # to pick the right child variant_id.
                         menu_index = _merge_menu_index(menu_index, new_entries)
                         fresh_menu_keys.update(new_entries.keys())
                         diagnostics["menu_index_size"] = len(menu_index)
@@ -2473,19 +2016,6 @@ async def _run_session_inner(
                         recent_restaurants = _merge_recent_restaurants(
                             recent_restaurants, new_restos
                         )
-                    # IMPORTANT: trim AFTER the menu_index has captured the
-                    # full list. The index keeps the full name->variant_id
-                    # mapping (so create_cart can still resolve any item the
-                    # user names later in this plan), while the envelope
-                    # itself — which is what flows to the response LLM —
-                    # is reduced to the top-N rows.
-                    try:
-                        trimmed = _truncate_menu_envelope_for_response(envelope)
-                    except Exception as e:
-                        logger.info("menu envelope truncation failed: %s", e)
-                        trimmed = None
-                    if trimmed:
-                        diagnostics.setdefault("menu_truncation", {})[tool] = trimmed
 
                 if tool == "checkout_cart" and not envelope.get("is_error"):
                     try:
