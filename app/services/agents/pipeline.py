@@ -38,19 +38,28 @@ class CustomMcpNeedsDiscoveryError(ValueError):
 # provider can't tank the chat bubble.
 _MAX_ATTACHMENT_DATA_B64_CHARS = 200_000  # ~150 KB raw
 
-# Max cards we ship in a single menu_cards attachment. Matches the
-# ``session_menu`` LRU cap so what we *show* on screen mirrors what the
-# executor *remembers* for cart resolution on follow-up turns. The
-# Zomato executor already trims menu_items[] to top-N (10 by default)
-# inside the envelope so the response LLM stays bounded; we use the same
-# trimmed list here, with this cap as a defensive upper bound.
+# Max cards we ship in a single menu_cards attachment. The Zomato executor
+# already trims the visible menu envelope to ``_MENU_ITEMS_PER_RESTAURANT``
+# (8) so the cards naturally match what the response LLM sees and what the
+# next-turn planner has in ``session_menu``. This is a defensive upper
+# bound in case an envelope ever returns more rows than the trimmer cap.
 _MAX_MENU_CARDS = 25
 
 # Tools whose Zomato envelopes carry rich menu_item rows we can render
-# as cards (image / price / rating). The thin ``get_menu_items_listing``
-# response is intentionally excluded — it only has name + variant_id +
-# categories, which is not enough for a card.
-_MENU_CARD_TOOLS = {"get_restaurant_menu_by_categories"}
+# as cards (image / price / rating).
+#   * get_restaurant_menu_by_categories → rich rows live in ``menu_items[]``
+#   * get_menu_items_listing → rich rows live in ``partial_menu[]`` (the
+#     listing tool returns 10 fully-detailed rows alongside the thin
+#     ``item_mappings[]``; the silent by-categories enrichment merges
+#     prices onto item_mappings, but partial_menu was already card-shaped
+#     out of the box — name, image_url, price, description, rating, etc.).
+# We card-render from whichever rich list the envelope carries, intersected
+# with the visible variant_ids on item_mappings/menu_items so the cards on
+# screen, the response LLM's text, and ``session_menu`` always agree.
+_MENU_CARD_TOOLS = {
+    "get_restaurant_menu_by_categories",
+    "get_menu_items_listing",
+}
 
 
 def _collect_payment_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str, Any]]:
@@ -305,16 +314,66 @@ def _collect_menu_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str
             inner = result.get("data") if isinstance(result.get("data"), dict) else None
             if not inner:
                 continue
-            menu_items = inner.get("menu_items")
-            if not isinstance(menu_items, list) or not menu_items:
+            # Pick the rich row source (image / price / description live here):
+            #   * by-categories tool → menu_items[]
+            #   * listing tool       → partial_menu[]  (item_mappings[] is the
+            #                                           thin "what the LLM saw"
+            #                                           slice; partial_menu[] is
+            #                                           the rich card-shaped one
+            #                                           sitting alongside)
+            rich_rows = inner.get("menu_items")
+            if not isinstance(rich_rows, list) or not rich_rows:
+                rich_rows = inner.get("partial_menu")
+            if not isinstance(rich_rows, list) or not rich_rows:
                 continue
+
+            # Compute the visible-vid set + order so cards align exactly with
+            # what the response LLM was shown and what ``session_menu`` will
+            # carry next turn. Visible source is whichever slice the executor
+            # trimmed:
+            #   * listing tool  → item_mappings[] (already capped to 8)
+            #   * by-categories → menu_items[]    (already capped to 8)
+            visible_source = (
+                inner.get("item_mappings")
+                if isinstance(inner.get("item_mappings"), list)
+                else rich_rows
+            )
+            visible_order: list[str] = []
+            visible_set: set[str] = set()
+            for v in visible_source:
+                if not isinstance(v, dict):
+                    continue
+                vid = v.get("variant_id")
+                if not isinstance(vid, str) or not vid.strip():
+                    continue
+                vid = vid.strip()
+                if vid in visible_set:
+                    continue
+                visible_set.add(vid)
+                visible_order.append(vid)
+
+            # Index the rich rows by variant_id so we can both
+            # (a) drop any row whose vid wasn't shown to the user, and
+            # (b) emit cards in the same order as the visible list.
+            rich_by_vid: dict[str, dict[str, Any]] = {}
+            for it in rich_rows:
+                if not isinstance(it, dict):
+                    continue
+                vid = it.get("variant_id")
+                if not isinstance(vid, str) or not vid.strip():
+                    continue
+                rich_by_vid.setdefault(vid.strip(), it)
+
             cards: list[dict[str, Any]] = []
-            for it in menu_items:
-                card = _build_menu_card(it)
-                if card is not None:
-                    cards.append(card)
+            for vid in visible_order:
                 if len(cards) >= _MAX_MENU_CARDS:
                     break
+                rich = rich_by_vid.get(vid)
+                if rich is None:
+                    continue
+                card = _build_menu_card(rich)
+                if card is not None:
+                    cards.append(card)
             if not cards:
                 continue
             attachment: dict[str, Any] = {
