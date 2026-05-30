@@ -1,44 +1,63 @@
-import { useState, useEffect } from 'react'
-import { Login } from './Login'
-import { ChatLog } from './ChatLog'
-import { MessageInput } from './MessageInput'
-import { SettingsModal } from './SettingsModal'
-import { api, clearToken, getToken } from './api'
-import type { GeoCoordinate, Message, QueryResponse, SessionAddress, SessionRestaurant, ToolProvider } from './types'
-import { useUserLocation } from './useUserLocation'
-import { Settings, LogOut, Sparkles } from 'lucide-react'
-import './index.css'
+import { useEffect, useState } from 'react';
+import { Login } from './Login';
+import { ChatLog } from './ChatLog';
+import { MessageInput } from './MessageInput';
+import { SettingsModal } from './SettingsModal';
+import { SidebarRail } from './SidebarRail';
+import { RightSidebar } from './RightSidebar';
+import { api, clearToken, getToken } from './api';
+import type {
+  GeoCoordinate,
+  McpStatus,
+  Message,
+  QueryResponse,
+  SessionAddress,
+  SessionRestaurant,
+  ToolProvider,
+} from './types';
+import { useUserLocation } from './useUserLocation';
+import { mapsStatus } from './maps';
+import { Search, X } from 'lucide-react';
+import './index.css';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!getToken());
   const [username, setUsername] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
-  
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
 
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Lifted from SettingsModal so the RightSidebar can render live MCP /
+  // integration status without each panel running its own poller. Both
+  // panels read from this same dictionary; SettingsModal still owns the
+  // mutating actions (connect / disconnect / pair).
+  const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
+  const [isLoadingMcp, setIsLoadingMcp] = useState(false);
+  const [gcalStatus, setGcalStatus] = useState<{ connected: boolean; configured: boolean } | null>(null);
+  const [mapsConfigured, setMapsConfigured] = useState<boolean | null>(null);
 
-  // Carry-forward state from the backend across turns. Every successful
-  // /api/agent/query/ returns the placeholder IDs (cart_id, restaurant_id,
-  // order_id, ...) the executor learned this turn and the LRU index of
-  // restaurants the user has been shown. We echo BOTH back on the next
-  // request so the backend can resolve __CART_ID__ for checkout, skip a
-  // re-search when the user picks a known restaurant by name, etc.
-  // Without this echo, every multi-turn flow loses cart context — which
-  // is the prod regression we just hit on houzzat.in.
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'mcp' | 'calendar' | 'models'>('mcp');
+  const [settingsInitialProvider, setSettingsInitialProvider] = useState<string | undefined>(undefined);
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showQuickActions, setShowQuickActions] = useState(true);
+
+  // Carry-forward state from the backend across turns. See the inline
+  // notes in the previous skin: each successful /api/agent/query/ ships
+  // the placeholder IDs (cart_id, restaurant_id, order_id) the executor
+  // learned this turn and the LRU index of restaurants the user has
+  // been shown. We echo both back on the next request so the backend
+  // can resolve __CART_ID__ for checkout, skip a re-search when the
+  // user picks a known restaurant by name, etc.
   const [sessionState, setSessionState] = useState<Record<string, string>>({});
   const [sessionRestaurants, setSessionRestaurants] = useState<SessionRestaurant[]>([]);
-  // The user's saved Zomato delivery addresses, fetched once by the backend
-  // on the first food turn and then round-tripped through every subsequent
-  // request so the executor never has to re-call get_saved_addresses_for_user.
-  // This is what lets the chat "just work" without the user pressing the
-  // address-fetch button: the very first zomato turn auto-resolves an
-  // address, ships it back here, and turns 2+ reuse it. The user can still
-  // change addresses by saying "use my work address" (planner picks from
-  // this list) or by picking from the dropdown above the input.
+  // Saved Zomato delivery addresses, fetched once on the first food
+  // turn and then round-tripped through every subsequent request.
   const [sessionAddresses, setSessionAddresses] = useState<SessionAddress[]>([]);
 
   const { location: userLocation, ensureLocation } = useUserLocation();
@@ -80,6 +99,45 @@ function App() {
     } catch (err) {
       console.error('Failed to load initial data', err);
     }
+    refreshAllMcpStatuses();
+    refreshGcalStatus();
+    refreshMapsStatus();
+  };
+
+  const refreshAllMcpStatuses = async () => {
+    setIsLoadingMcp(true);
+    try {
+      const data = await api.get('/api/mcp/status/all/');
+      const list: McpStatus[] = Array.isArray(data?.statuses) ? data.statuses : [];
+      const next: Record<string, McpStatus> = {};
+      for (const entry of list) {
+        const id = (entry as any).provider;
+        if (typeof id === 'string' && id) next[id] = entry;
+      }
+      setMcpStatuses(next);
+    } catch (err) {
+      console.error('Failed to load MCP statuses', err);
+    } finally {
+      setIsLoadingMcp(false);
+    }
+  };
+
+  const refreshGcalStatus = async () => {
+    try {
+      const data = await api.get('/api/google-calendar/status/');
+      setGcalStatus(data);
+    } catch (err) {
+      console.error('Failed to check Google Calendar status', err);
+    }
+  };
+
+  const refreshMapsStatus = async () => {
+    try {
+      setMapsConfigured(await mapsStatus());
+    } catch (err) {
+      console.error('Failed to check Google Maps status', err);
+      setMapsConfigured(false);
+    }
   };
 
   const handleLoginSuccess = (user: string) => {
@@ -98,19 +156,20 @@ function App() {
     setSessionAddresses([]);
   };
 
+  const handleNewChat = () => {
+    setMessages([]);
+    setSessionState({});
+    setSessionRestaurants([]);
+    setSessionAddresses([]);
+    setSearchQuery('');
+    setSearchOpen(false);
+  };
+
   const buildAgentBody = (content: string, geo?: GeoCoordinate | null) => {
     const body: Record<string, any> = {
       message: content,
-      // Address is auto-resolved server-side from session_addresses on the
-      // very first turn and persisted in session_state across the rest of
-      // the conversation. The frontend no longer pre-selects one.
       address_id: '',
       execute_tools: true,
-      // Echo `provider` on assistant turns so the backend's orchestrator can
-      // use its Priority-1 stickiness signal (see _extract_previous_provider
-      // in app/services/agents/pipeline.py). Without this, an ambiguous
-      // follow-up like "coke ad fries regular" silently drifts from
-      // swiggy_food back to the zomato default and breaks the cart session.
       history: messages.map((m) => ({
         role: m.role,
         content: m.content,
@@ -125,25 +184,15 @@ function App() {
         captured_at: new Date().toISOString(),
       };
     }
-    // Echo prior-turn state so the backend can resolve carried placeholders
-    // (cart_id, restaurant_id, order_id) and reuse the restaurant index
-    // instead of re-running an unreliable keyword search. Omit empty
-    // values to keep the wire payload small for the very first turn.
-    if (Object.keys(sessionState).length > 0) {
-      body.session_state = sessionState;
-    }
-    if (sessionRestaurants.length > 0) {
-      body.session_restaurants = sessionRestaurants;
-    }
-    if (sessionAddresses.length > 0) {
-      body.session_addresses = sessionAddresses;
-    }
+    if (Object.keys(sessionState).length > 0) body.session_state = sessionState;
+    if (sessionRestaurants.length > 0) body.session_restaurants = sessionRestaurants;
+    if (sessionAddresses.length > 0) body.session_addresses = sessionAddresses;
     return body;
   };
 
   const handleSendMessage = async (content: string) => {
     const userMsg: Message = { role: 'user', content };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setIsThinking(true);
 
     try {
@@ -166,7 +215,7 @@ function App() {
             unsupported: 'This browser does not expose location services.',
             unknown: 'I could not read your location.',
           };
-          setMessages(prev => [...prev, { role: 'assistant', content: friendly[reason] || friendly.unknown }]);
+          setMessages((prev) => [...prev, { role: 'assistant', content: friendly[reason] || friendly.unknown }]);
           return;
         }
       }
@@ -177,39 +226,36 @@ function App() {
         meta: [...data.selected_tool_providers, data.tool_execution.ok ? 'tools ok' : data.tool_execution.error].filter(Boolean) as string[],
         trace: data.observable_trace,
         attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
-        provider: typeof data.routed_provider === 'string' && data.routed_provider ? data.routed_provider : undefined,
+        provider:
+          typeof data.routed_provider === 'string' && data.routed_provider ? data.routed_provider : undefined,
       };
 
-      // Persist the carry-forward state the backend just learned. Doing
-      // this after the message is rendered guarantees we never echo back
-      // a half-updated state if the user fires off another message
-      // before the assistant message lands.
-      if (data.session_state && typeof data.session_state === 'object') {
-        setSessionState(data.session_state);
-      }
-      if (Array.isArray(data.session_restaurants)) {
-        setSessionRestaurants(data.session_restaurants);
-      }
-      if (Array.isArray(data.session_addresses)) {
-        setSessionAddresses(data.session_addresses);
-      }
+      if (data.session_state && typeof data.session_state === 'object') setSessionState(data.session_state);
+      if (Array.isArray(data.session_restaurants)) setSessionRestaurants(data.session_restaurants);
+      if (Array.isArray(data.session_addresses)) setSessionAddresses(data.session_addresses);
 
-      setMessages(prev => [...prev, assistantMsg]);
+      setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {
       const errorMsg: Message = {
         role: 'assistant',
         content: `Error: ${err.message || 'Something went wrong'}`,
       };
-      setMessages(prev => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsThinking(false);
     }
   };
 
+  const openSettings = (tab: 'mcp' | 'calendar' | 'models' = 'mcp', providerId?: string) => {
+    setSettingsInitialTab(tab);
+    setSettingsInitialProvider(providerId);
+    setIsSettingsOpen(true);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-8 h-8 border-4 border-slate-900 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -218,69 +264,92 @@ function App() {
     return <Login onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // Outer wrapper intentionally has no bg-* class so the magenta /
-  // violet radial bloom painted on <body> in index.css is visible
-  // through the layout. The sticky header + composer use surface
-  // alpha tints + backdrop-blur so the bloom shows through them too.
   return (
-    <div className="min-h-screen text-gray-100 flex flex-col">
-      <header className="h-16 border-b border-border bg-surface/40 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 brand-gradient rounded-xl flex items-center justify-center text-gray-900 shadow-md shadow-amber-500/30">
-            <Sparkles size={18} strokeWidth={2.5} />
-          </div>
-          <h1 className="text-lg font-bold tracking-tight text-white">Companion</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex flex-col items-end mr-2">
-            <span className="text-xs font-bold text-gray-100">{username}</span>
-            <span className="text-[10px] text-amber-400 font-medium">Online</span>
-          </div>
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            title="Settings"
-            className="p-2 rounded-xl hover:bg-surface text-gray-400 hover:text-amber-300 transition-all"
-          >
-            <Settings size={20} />
-          </button>
-          <button
-            onClick={handleLogout}
-            title="Logout"
-            className="p-2 rounded-xl hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-all"
-          >
-            <LogOut size={20} />
-          </button>
-        </div>
-      </header>
-
-      <ChatLog
-        messages={messages}
-        isThinking={isThinking}
-        sessionAddresses={sessionAddresses}
-        onSelectAddress={(addr) => {
-          // Single-click address switch — fires off a natural-language
-          // "switch" turn the planner already knows how to handle (it
-          // emits a literal address_id pulled from session_addresses,
-          // and the executor records the switch in placeholder_values).
-          const label = (addr.location_name || addr.address_id || '').trim();
-          if (!label || isThinking) return;
-          handleSendMessage(`Switch my delivery address to: ${label}.`);
-        }}
+    <div className="h-screen w-screen flex overflow-hidden text-slate-900">
+      <SidebarRail
+        onNewChat={handleNewChat}
+        onToggleSearch={() => setSearchOpen((v) => !v)}
+        onToggleExplore={() => setShowQuickActions((v) => !v)}
+        onOpenSettings={() => openSettings('mcp')}
+        onLogout={handleLogout}
+        searchActive={searchOpen}
+        exploreActive={showQuickActions}
       />
 
-      <MessageInput
-        onSendMessage={handleSendMessage}
-        disabled={isThinking}
+      <div className="flex-1 flex flex-col relative overflow-hidden">
+        {searchOpen && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-full shadow-lg shadow-slate-900/10 pl-3 pr-1 py-1">
+            <Search size={14} className="text-slate-500" />
+            <input
+              autoFocus
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search this conversation…"
+              className="bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-64"
+            />
+            <button
+              onClick={() => {
+                setSearchOpen(false);
+                setSearchQuery('');
+              }}
+              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors"
+              title="Close search"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        <ChatLog
+          messages={messages}
+          isThinking={isThinking}
+          sessionAddresses={sessionAddresses}
+          onSelectAddress={(addr) => {
+            const label = (addr.location_name || addr.address_id || '').trim();
+            if (!label || isThinking) return;
+            handleSendMessage(`Switch my delivery address to: ${label}.`);
+          }}
+          searchQuery={searchQuery}
+        />
+
+        <MessageInput
+          onSendMessage={handleSendMessage}
+          disabled={isThinking}
+          showQuickActions={showQuickActions && messages.length === 0}
+        />
+      </div>
+
+      <RightSidebar
+        username={username}
+        toolProviders={toolProviders}
+        mcpStatuses={mcpStatuses}
+        isLoadingMcp={isLoadingMcp}
+        onSelectProvider={(id) => openSettings('mcp', id)}
+        gcalStatus={gcalStatus}
+        onConnectGcal={() => openSettings('calendar')}
+        mapsConfigured={mapsConfigured}
+        onOpenMaps={() => openSettings('calendar')}
+        onOpenSettings={() => openSettings('mcp')}
       />
 
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         toolProviders={toolProviders}
+        mcpStatuses={mcpStatuses}
+        onMcpStatusesChange={setMcpStatuses}
+        isLoadingMcp={isLoadingMcp}
+        onLoadingMcpChange={setIsLoadingMcp}
+        gcalStatus={gcalStatus}
+        onGcalStatusChange={setGcalStatus}
+        mapsConfigured={mapsConfigured}
+        onMapsConfiguredChange={setMapsConfigured}
+        initialTab={settingsInitialTab}
+        initialProviderId={settingsInitialProvider}
       />
     </div>
-  )
+  );
 }
 
-export default App
-
+export default App;

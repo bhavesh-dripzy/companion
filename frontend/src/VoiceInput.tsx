@@ -119,22 +119,22 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
   const getButtonContent = () => {
     switch (state) {
       case 'recording':
-        return <MicOff size={18} strokeWidth={2.5} className="text-red-500" />;
+        return <MicOff size={16} strokeWidth={2.5} className="text-white" />;
       case 'processing':
-        return <Loader2 size={18} strokeWidth={2.5} className="animate-spin" />;
+        return <Loader2 size={16} strokeWidth={2.5} className="animate-spin" />;
       default:
-        return <Mic size={18} strokeWidth={2.5} />;
+        return <Mic size={16} strokeWidth={2.5} />;
     }
   };
 
   const getButtonClass = () => {
     const base =
-      'w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-md flex-shrink-0 disabled:opacity-30';
+      'w-9 h-9 rounded-full flex items-center justify-center transition-all flex-shrink-0 disabled:opacity-30 cursor-pointer';
 
     if (state === 'recording') {
-      return `${base} bg-red-500 hover:bg-red-600 text-white animate-pulse`;
+      return `${base} bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-md shadow-red-500/30`;
     }
-    return `${base} bg-gray-900 hover:bg-gray-800 text-white`;
+    return `${base} text-slate-500 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100`;
   };
 
   return (

@@ -31,42 +31,48 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-md bg-surface/90 backdrop-blur-md border border-border rounded-3xl shadow-2xl shadow-black/60 p-8">
+      <div className="w-full max-w-md bg-white/80 backdrop-blur-xl border border-slate-200/80 rounded-3xl shadow-xl shadow-slate-900/10 p-8">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 brand-gradient rounded-2xl flex items-center justify-center text-gray-900 mb-4 shadow-lg shadow-amber-500/30">
-            <Sparkles size={26} strokeWidth={2.5} />
+          <div className="w-14 h-14 bg-slate-950 rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg shadow-slate-900/20 relative">
+            <div className="w-7 h-7 flex items-center justify-center border-2 border-dashed border-white rounded-full animate-spin-slow">
+              <Sparkles size={14} className="text-amber-300" />
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-white">Companion</h1>
-          <p className="text-gray-400 text-sm mt-1">Sign in to your assistant</p>
+          <h1 className="text-2xl font-bold text-slate-900">Companion</h1>
+          <p className="text-slate-500 text-sm mt-1">Sign in to your workspace</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Username</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wider">
+              Username
+            </label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-background border border-border rounded-xl px-4 py-3 text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-4 focus:ring-amber-500/15 focus:border-amber-500/50 transition-all"
+              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 transition-all"
               placeholder="admin"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wider">
+              Password
+            </label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-background border border-border rounded-xl px-4 py-3 text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-4 focus:ring-amber-500/15 focus:border-amber-500/50 transition-all"
+              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 transition-all"
               placeholder="••••••••"
               required
             />
           </div>
 
           {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm text-center">
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm text-center">
               {error}
             </div>
           )}
@@ -74,9 +80,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-accent hover:bg-accent-hover text-gray-900 font-bold py-3 rounded-xl shadow-lg shadow-amber-500/30 transition-all disabled:opacity-50"
+            className="w-full bg-slate-950 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow-lg shadow-slate-900/20 transition-all disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
       </div>
