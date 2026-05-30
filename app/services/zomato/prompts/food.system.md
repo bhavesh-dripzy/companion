@@ -218,6 +218,15 @@ Each cart line needs a **literal `variant_id`** that you copied verbatim from a 
 
 Cart plans **must either** include the menu fetch tools in the same plan **or** rely on the carried-forward `session_menu` block from a prior turn. The executor rehydrates `session_menu` at turn entry, so a follow-up like *"add the chicken keto salad"* can plan `create_cart` directly when the item appears in **Menu items already shown to the user this session** (see the routing-message block) — copy that row's `variant_id` straight onto the cart row. Cross-turn ids/menu schema persist via `session_menu`; the in-process index does **not** persist across HTTP requests.
 
+**SCAN session_menu FIRST — do not skip this step.** Before you plan ANY menu fetch (`get_menu_items_listing` or `get_restaurant_menu_by_categories`), search the carried-forward `session_menu` block in the routing message for the item the user named. Match by item_name, restaurant, and (when the user is specific) size/variant. **If the item is already in `session_menu`, plan ONLY `create_cart`** — copy that row's literal `variant_id` onto the cart row, do not refetch the menu. Refetching for an item you already have wastes a turn, costs an extra MCP call, and almost always causes the planner to drift onto the wrong item.
+
+**Forbidden values for `variant_id` (executor will drop the row):**
+- `__MENU_ITEM_ID__`, `__ITEM_ID__`, `__VARIANT_ID__`, or any other `__…__` placeholder. None of these resolve to a real Zomato variant.
+- `ctl_<digits>` — that's an `item_id` (parent row), NOT a `variant_id`. The variant lives in the same menu row as `variant_id: "v_…"`.
+- Any string that is not either literal `v_<digits>` or a bare `<digits>` number copied verbatim from a menu fetch / `session_menu` row.
+
+If you cannot find a valid `v_…` for the item the user named, you DO NOT have a cart row to emit — plan the menu fetch only (see two-turn rule below) instead of guessing.
+
 ### Variants + customization (current rules)
 
 Zomato carts have two customisation surfaces; you only emit one:
@@ -310,8 +319,8 @@ So a cart row is **exactly** `{"variant_id": "v_...", "quantity": N, "add_ons": 
 **Menu envelope truncation + the two-turn rule for unseen items.** The executor caps each menu fetch to the **top ~8 rows per restaurant** in BOTH the returned tool envelope (what the response LLM shows the user) and the next-turn `session_menu` (what you read at plan time). These two slices are **always identical** — so anything the user saw last turn is in your `session_menu`, and anything not in your `session_menu` is also something the user has not actually seen. A `_menu_truncation: {shown: 8, total: <N>}` breadcrumb is added when the underlying menu had more rows. The cross-restaurant LRU holds ~40 items total so you can carry 4–5 restaurants' top-8 windows at once.
 
 **If the user names an item whose `variant_id` you cannot find in the `session_menu` block on this turn:**
-1. Plan **only the menu fetch** for the likely category — `get_restaurant_menu_by_categories(categories=["<best guess>"])`, or `get_menu_items_listing` first if you don't know the category. **Do not** plan `create_cart` on this turn.
-2. In `summary`, tell the user you're pulling up the item — e.g. *"Mutton Haleem dhundh raha hoon menu mein — ek sec."* The response LLM will surface the freshly-fetched 8 rows to the user, who can then confirm.
+1. **Default to `get_menu_items_listing`** for the restaurant — it returns the broad top-of-menu slice (no category filter required) and is the safest way to surface an unseen item. Only use `get_restaurant_menu_by_categories(categories=[...])` when you can copy a category name *verbatim* from a `session_menu` row's `categories: […]` list (Zomato's real category strings look like *"Biryani & Kebab Combos"* / *"Items at 50% off"* — short generic guesses like `"Biryani"` will return `MENU_NOT_FOUND` and waste the turn). **Do not** plan `create_cart` on this turn.
+2. In `summary`, tell the user you're pulling up the item — e.g. *"Subz Biryani dhundh raha hoon menu mein — ek sec."* The response LLM will surface the freshly-fetched 8 rows to the user, who can then confirm.
 3. On the **next turn** the freshly-fetched item is in `session_menu`, so when the user confirms (*"haan add kar de"*) you plan `create_cart` with the literal `variant_id` from session_menu.
 
 This is the only correct path — never plan `menu_fetch + create_cart` in the same turn for a previously-unseen item, because the planner runs **once per turn before any tool executes**, so it cannot read the variant_id from the menu fetch it just queued. Fabricating a variant_id will cause Zomato to reject the call.

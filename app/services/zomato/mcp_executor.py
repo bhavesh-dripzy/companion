@@ -38,18 +38,28 @@ _PLACEHOLDER_ALIASES: dict[str, tuple[str, ...]] = {
         "resId",
         "restaurantIdString",
     ),
-    "__MENU_ITEM_ID__": ("menu_item_id", "menuItemId", "item_id", "itemId"),
-    "__ITEM_ID__": ("item_id", "itemId", "menu_item_id", "menuItemId"),
     "__CART_ID__": ("cart_id", "cartId"),
     "__ORDER_ID__": ("order_id", "orderId"),
-    # NOTE: __VARIANT_ID__ is intentionally *not* in this map. It is a
-    # single-valued scalar but `create_cart.items[]` needs distinct variants
-    # per row, so global-binding (first-seen wins) silently pinned every row
-    # to whatever item the menu listed first. The planner LLM is now fully
-    # responsible for emitting one literal ``variant_id`` per cart row
-    # (sourced from the menu envelopes in the same plan and/or the
-    # carried-forward ``session_menu`` block) — the executor does no
-    # variant matching, validation, or property resolution.
+    # NOTE: __VARIANT_ID__, __MENU_ITEM_ID__, and __ITEM_ID__ are intentionally
+    # NOT in this map.
+    #
+    # * __VARIANT_ID__ used to exist but is a single scalar, and
+    #   `create_cart.items[]` needs a distinct variant per row, so the
+    #   "first-seen wins" global binding silently pinned every row to one
+    #   item.
+    # * __MENU_ITEM_ID__ / __ITEM_ID__ used to be harvested from menu
+    #   envelopes for *some* old code-side matching path that no longer
+    #   exists. No Zomato MCP tool actually accepts ``item_id`` /
+    #   ``menu_item_id`` as INPUT — those fields are only OUTPUTS on menu
+    #   listings. Keeping them harvested + carried forward let the planner
+    #   sneak ``"variant_id": "__MENU_ITEM_ID__"`` into create_cart rows;
+    #   the executor would substitute (e.g. to ``ctl_767452667``) and
+    #   Zomato would reject with "variant id required".
+    #
+    # The planner LLM is now fully responsible for emitting one literal
+    # ``variant_id`` per cart row (sourced from the menu envelopes in the
+    # same plan and/or the carried-forward ``session_menu`` block). The
+    # executor does no variant matching, validation, or property resolution.
 }
 
 # Tools that issue a fresh value for a placeholder. When a turn re-runs one of
@@ -1336,27 +1346,64 @@ def _merge_menu_index(
 # ---------------------------------------------------------------------------
 
 
-def _scrub_cart_items_for_zomato(args: dict[str, Any]) -> dict[str, Any]:
-    """Force ``add_ons: []`` on every ``items[]`` row.
+_VARIANT_ID_RE = re.compile(r"^(?:v_\d+|\d+)$")
 
-    Everything else (``variant_id``, ``quantity``, any extra fields the
-    planner emitted) is passed through untouched — the LLM owns variant
-    selection end-to-end. If the planner forgets ``variant_id`` or sends a
-    bogus one, Zomato will reject the call and the response LLM will tell
-    the user honestly; there is no silent name-matching fallback.
+
+def _is_valid_zomato_variant_id(value: Any) -> bool:
+    """A Zomato variant_id is either ``v_<digits>`` or a bare ``<digits>``.
+
+    Rejects empty strings, ``__SOMETHING__`` placeholders that slipped past
+    substitution, and ``ctl_<digits>`` item_ids (a common planner mix-up
+    since item_id and variant_id sit side-by-side on every menu row).
+    """
+    if not isinstance(value, str):
+        return False
+    s = value.strip()
+    if not s:
+        return False
+    return bool(_VARIANT_ID_RE.match(s))
+
+
+def _scrub_cart_items_for_zomato(
+    args: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Force ``add_ons: []`` on every ``items[]`` row, drop rows with bogus variant_id.
+
+    Returns ``(scrubbed_args, dropped_rows)`` — ``dropped_rows`` captures
+    the rows we refused to send so the caller can stamp a diagnostic and
+    the response LLM can tell the user honestly *which* item failed.
+
+    Why drop on the client side at all? The planner LLM occasionally
+    confuses ``item_id`` (``ctl_…``) for ``variant_id`` (``v_…``) or sneaks
+    a leftover ``__MENU_ITEM_ID__`` placeholder string into the row. Either
+    of those reaches Zomato as a string the server can't resolve and the
+    whole cart create fails with "variant id required". Catching the mix-up
+    here lets the rest of the (correct) rows go through; if every row was
+    bad we let an empty ``items`` go through and Zomato's own error
+    surfaces to the response LLM as the failure reason.
     """
     items = args.get("items") if isinstance(args.get("items"), list) else None
     if not items:
-        return args
+        return args, []
     out: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
     for raw in items:
         if not isinstance(raw, dict):
             continue
         row = dict(raw)
         row["add_ons"] = []
+        if not _is_valid_zomato_variant_id(row.get("variant_id")):
+            dropped.append(
+                {
+                    "variant_id": row.get("variant_id"),
+                    "quantity": row.get("quantity"),
+                    "reason": "invalid_variant_id",
+                }
+            )
+            continue
         out.append(row)
     args["items"] = out
-    return args
+    return args, dropped
 
 
 # ---------------------------------------------------------------------------
@@ -1860,13 +1907,24 @@ async def _run_session_inner(
                     prefetch_done = True
 
                 # For create_cart, force ``add_ons: []`` on every row to
-                # dodge Zomato's ``ModifierGroupMetaMissing`` server bug. The
-                # planner LLM owns variant_id selection entirely — we do no
-                # matching, validation, or property resolution here.
+                # dodge Zomato's ``ModifierGroupMetaMissing`` server bug AND
+                # drop rows whose variant_id is clearly bogus (placeholder
+                # leftovers, ``ctl_…`` item_ids the planner confused for
+                # variants). Everything else — variant selection, quantity,
+                # multi-row carts — is the planner LLM's responsibility.
                 if tool == "create_cart":
-                    exec_args = _scrub_cart_items_for_zomato(
+                    exec_args, _dropped_rows = _scrub_cart_items_for_zomato(
                         exec_args if isinstance(exec_args, dict) else {}
                     )
+                    if _dropped_rows:
+                        logger.warning(
+                            "create_cart: dropped %d row(s) with invalid variant_id: %s",
+                            len(_dropped_rows),
+                            _dropped_rows,
+                        )
+                        diagnostics.setdefault("create_cart_dropped_rows", []).extend(
+                            _dropped_rows
+                        )
 
                 # For menu tools, scrub `menu_filter` so we never send fields
                 # the server silently ignores (flash_sale / min_rating) or
