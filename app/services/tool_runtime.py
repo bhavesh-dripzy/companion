@@ -776,37 +776,16 @@ def execute_tool_plan_sync(
             "provider_results": provider_results,
         }
 
-    requested_location: str | None = None
-    if "zomato" in routed:
-        requested_location = (
-            _requested_location_from_constraints(constraints)
-            or _explicit_location_from_message(user_message)
-        )
-        # We used to refuse to substitute the first address if a different location was requested.
-        # Now we let it proceed to run_tool_plan_sync, which will try to prefetch and resolve.
-        # The response LLM will handle the result (success or skipped tools).
-        provider_results["zomato"] = run_tool_plan_sync(
-            routed["zomato"],
-            address_id=address_id,
-            user_id=user_id,
-            location_text=requested_location,
-            session_placeholders=session_placeholders,
-            session_restaurants=session_restaurants,
-            session_addresses=session_addresses,
-            session_menu=session_menu,
-        )
+    requested_location: str | None = (
+        _requested_location_from_constraints(constraints)
+        or _explicit_location_from_message(user_message)
+    )
 
-    # Compute requested_location for non-zomato providers
-    if not requested_location:
-        requested_location = (
-            _requested_location_from_constraints(constraints)
-            or _explicit_location_from_message(user_message)
-        )
-
-    routed_names = tuple(name for name in sorted(routed.keys()) if name != "zomato")
-    for name in routed_names:
-        if name not in routed:
-            continue
+    # Single dispatch loop: every provider — including Zomato — goes through
+    # the same OAuth / executor path. Any per-provider invariants (e.g. token
+    # hydration from Secrets Manager on cold Lambdas) live inside the
+    # executor itself, not in this routing layer.
+    for name in sorted(routed.keys()):
         provider = get_tool_provider(name, user_id=user_id)
         if not provider or not provider.default_mcp_url:
             continue
@@ -828,37 +807,43 @@ def execute_tool_plan_sync(
             )
             continue
 
-        # Pre-execution token check for OAuth-backed providers. Zapier MCP URLs
-        # carry their own secret; Kite exposes a provider-side login tool instead
-        # of relying on mcp-remote token files.
-        from app.services.zomato_mcp_executor import (
-            get_mcp_token_status,
-            repo_root_from_settings,
-            restore_mcp_auth_tokens,
-        )
+        # Fast-fail UX for OAuth-backed providers when the user hasn't paired
+        # at all. Spares us a 20s mcp-remote OAuth handshake that we know
+        # cannot succeed. Zapier MCP URLs carry their own secret; Kite
+        # exposes a provider-side login tool instead of mcp-remote tokens.
         if provider.auth_mode == "oauth":
+            from app.services.zomato_mcp_executor import (
+                get_mcp_token_status,
+                repo_root_from_settings,
+            )
             token_status = get_mcp_token_status(
                 repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
             )
-            if not token_status["has_local_tokens"]:
-                if token_status["has_secret_tokens"]:
-                    restore_mcp_auth_tokens(repo_root_from_settings(), user_id=user_id)
-                    token_status = get_mcp_token_status(
-                        repo_root_from_settings(), mcp_url=resolved_url, user_id=user_id
-                    )
-                if not token_status["has_local_tokens"]:
-                    provider_results[name] = {
-                        "ok": False,
-                        "error_detail": (
-                            f"OAuth not connected for {provider.label}. "
-                            f"Visit /api/mcp/oauth/start?provider={name} to authorize."
-                        ),
-                        "steps": [],
-                        "diagnostics": token_status,
-                    }
-                    continue
+            if not token_status["has_local_tokens"] and not token_status["has_secret_tokens"]:
+                provider_results[name] = {
+                    "ok": False,
+                    "error_detail": (
+                        f"OAuth not connected for {provider.label}. "
+                        f"Visit /api/mcp/oauth/start?provider={name} to authorize."
+                    ),
+                    "steps": [],
+                    "diagnostics": token_status,
+                }
+                continue
 
-        if name == "swiggy_food":
+        if name == "zomato":
+            provider_results[name] = run_tool_plan_sync(
+                routed[name],
+                address_id=address_id,
+                mcp_url=resolved_url,
+                user_id=user_id,
+                location_text=requested_location,
+                session_placeholders=session_placeholders,
+                session_restaurants=session_restaurants,
+                session_addresses=session_addresses,
+                session_menu=session_menu,
+            )
+        elif name == "swiggy_food":
             provider_results[name] = run_swiggy_tool_plan_sync(
                 routed[name],
                 address_id=address_id,

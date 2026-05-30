@@ -2087,6 +2087,11 @@ async def _run_session_inner(
             "mcp-remote is not installed — run npm install at the repo root."
         )
 
+    # Cold Lambda containers ship with an empty /tmp/.mcp-auth — without this
+    # call mcp-remote starts its own OAuth handshake and session.initialize()
+    # times out. Idempotent on warm containers.
+    ensure_mcp_tokens_on_disk(repo_root, mcp_url=mcp_url, user_id=user_id)
+
     params = StdioServerParameters(
         command=node_binary,
         args=[str(proxy_script), mcp_url],
@@ -3158,6 +3163,41 @@ def get_mcp_token_status(
     }
 
 
+def ensure_mcp_tokens_on_disk(
+    repo_root: Path,
+    *,
+    mcp_url: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Guarantee mcp-remote tokens are hydrated in the active config dir.
+
+    Idempotent: a no-op when the current-version tokens file already exists
+    on disk. On a cold Lambda container (or after ``/tmp`` was wiped) it
+    pulls the user's tokens from Secrets Manager and writes them — including
+    a current-version alias when the secret was stored under an older
+    ``mcp-remote-X.Y.Z/`` prefix. Returns the post-hydration token status so
+    callers can fail fast when no tokens exist anywhere.
+
+    This is the single precondition every MCP runtime entry point must
+    enforce before spawning ``mcp-remote``; without it, the bridge falls
+    into its own OAuth handshake and ``session.initialize()`` times out.
+    """
+    status = get_mcp_token_status(repo_root, mcp_url=mcp_url, user_id=user_id)
+    if status["has_local_tokens"]:
+        return status
+    if status["has_secret_tokens"]:
+        try:
+            restore_mcp_auth_tokens(repo_root, user_id=user_id)
+        except Exception:
+            logger.exception(
+                "ensure_mcp_tokens_on_disk: restore from Secrets Manager failed for %s",
+                mcp_url,
+            )
+            return status
+        status = get_mcp_token_status(repo_root, mcp_url=mcp_url, user_id=user_id)
+    return status
+
+
 def capture_mcp_oauth_url(
     repo_root: Path | None = None,
     mcp_url: str | None = None,
@@ -3383,6 +3423,10 @@ async def _list_tools_inner(
     proxy_script = repo_root / "node_modules/mcp-remote/dist/proxy.js"
     if not proxy_script.is_file():
         raise RuntimeError("mcp-remote is not installed — run npm install at the repo root.")
+
+    # Cold-container guard: hydrate /tmp/.mcp-auth from Secrets Manager when
+    # the current-version tokens file isn't already present locally.
+    ensure_mcp_tokens_on_disk(repo_root, mcp_url=mcp_url, user_id=user_id)
 
     params = StdioServerParameters(
         command=node_binary,

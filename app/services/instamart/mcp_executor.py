@@ -35,6 +35,7 @@ from app.services.zomato.mcp_executor import (
     _stdio_env,
     _tool_result_payload,
     _walk_json,
+    ensure_mcp_tokens_on_disk,
     repo_root_from_settings,
     substitute_placeholders,
 )
@@ -315,6 +316,10 @@ async def _run_instamart_session(
         raise RuntimeError(
             "mcp-remote is not installed — run npm install at the repo root."
         )
+
+    # Cold-container guard: hydrate /tmp/.mcp-auth from Secrets Manager when
+    # the current-version tokens file isn't already present locally.
+    ensure_mcp_tokens_on_disk(repo_root, mcp_url=mcp_url, user_id=user_id)
 
     params = StdioServerParameters(
         command=node_binary,
