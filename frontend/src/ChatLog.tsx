@@ -272,7 +272,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-6 space-y-7 scroll-smooth pb-40">
+    <div className="flex-1 overflow-y-auto px-3 md:px-6 py-5 md:py-6 space-y-6 md:space-y-7 scroll-smooth pb-36 md:pb-40">
       {q && visibleMessages.length === 0 && (
         <div className="text-center text-xs text-slate-500 italic">
           No messages match “{searchQuery}”.
@@ -289,7 +289,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
             key={i}
             className={cn('flex flex-col space-y-1.5', isUser ? 'items-end' : 'items-start')}
           >
-            <div className={cn('flex gap-3 max-w-[85%]', isUser ? 'flex-row-reverse' : 'flex-row')}>
+            <div className={cn('flex gap-2.5 md:gap-3 max-w-[92%] md:max-w-[85%]', isUser ? 'flex-row-reverse' : 'flex-row')}>
               {!isUser && (
                 <div
                   className="w-8 h-8 rounded-full bg-slate-950 text-white flex items-center justify-center font-bold relative shrink-0 text-[10px] shadow"

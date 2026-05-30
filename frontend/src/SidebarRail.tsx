@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Compass, Settings as SettingsIcon, Clock, Sparkles, LogOut } from 'lucide-react';
+import {
+  Plus,
+  Search,
+  Compass,
+  Settings as SettingsIcon,
+  Clock,
+  Sparkles,
+  LogOut,
+  X,
+} from 'lucide-react';
 
 interface SidebarRailProps {
   onNewChat: () => void;
@@ -9,6 +18,11 @@ interface SidebarRailProps {
   onLogout: () => void;
   searchActive: boolean;
   exploreActive: boolean;
+  // Mobile drawer controls. When `isMobileOpen` is true the rail slides
+  // in over the chat with a tap-to-close backdrop; on `md` and up the
+  // rail is always visible and these props are ignored.
+  isMobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
 // The SidebarRail is the slim icon column on the left of the workspace.
@@ -26,6 +40,8 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
   onLogout,
   searchActive,
   exploreActive,
+  isMobileOpen,
+  onMobileClose,
 }) => {
   const [timeStr, setTimeStr] = useState('');
 
@@ -46,77 +62,109 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
         : 'text-slate-600 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100'
     }`;
 
+  // Each rail action auto-closes the mobile drawer so the chat is
+  // visible again immediately after the tap. On `md` and up the close
+  // is a no-op (the drawer isn't open in the first place).
+  const tap = (fn: () => void) => () => {
+    fn();
+    onMobileClose();
+  };
+
   return (
-    <div
-      id="sidebar-rail"
-      className="w-18 bg-white/40 backdrop-blur-xl border-r border-slate-200/60 flex flex-col items-center py-6 justify-between shrink-0 select-none z-10"
-    >
-      <div className="flex flex-col items-center gap-5 w-full">
+    <>
+      <div
+        onClick={onMobileClose}
+        className={`md:hidden fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-30 transition-opacity ${
+          isMobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      />
+
+      <div
+        id="sidebar-rail"
+        className={`bg-white/85 md:bg-white/40 backdrop-blur-xl border-r border-slate-200/60 flex flex-col items-center py-6 justify-between shrink-0 select-none transition-transform duration-300 ease-out ${
+          // Mobile: fixed slide-in drawer, slightly wider for finger
+          // targets. Desktop: in-flow column.
+          'fixed md:static inset-y-0 left-0 z-40 w-20 md:w-18'
+        } ${
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
         <button
-          onClick={onNewChat}
-          title="New conversation"
-          className="w-11 h-11 bg-slate-950 hover:bg-slate-800 text-white rounded-full flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 shadow-lg shadow-black/10 cursor-pointer"
+          onClick={onMobileClose}
+          className="md:hidden absolute -right-3 top-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-sm text-slate-600 hover:text-slate-900"
+          title="Close menu"
+          aria-label="Close menu"
         >
-          <Plus size={20} strokeWidth={2.5} />
+          <X size={14} />
         </button>
 
-        <div className="w-8 h-[1px] bg-slate-200/70" />
+        <div className="flex flex-col items-center gap-5 w-full">
+          <button
+            onClick={tap(onNewChat)}
+            title="New conversation"
+            className="w-11 h-11 bg-slate-950 hover:bg-slate-800 text-white rounded-full flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 shadow-lg shadow-black/10 cursor-pointer"
+          >
+            <Plus size={20} strokeWidth={2.5} />
+          </button>
 
-        <button
-          onClick={onToggleSearch}
-          title="Search this conversation"
-          className={railButton(searchActive)}
-        >
-          <Search size={18} />
-        </button>
+          <div className="w-8 h-[1px] bg-slate-200/70" />
 
-        <button
-          onClick={onToggleExplore}
-          title="Explore prompt ideas"
-          className={railButton(exploreActive)}
-        >
-          <Compass size={18} />
-        </button>
+          <button
+            onClick={tap(onToggleSearch)}
+            title="Search this conversation"
+            className={railButton(searchActive)}
+          >
+            <Search size={18} />
+          </button>
 
-        <button
-          onClick={onOpenSettings}
-          title="Open Settings · MCP & integrations"
-          className={railButton(false)}
-        >
-          <SettingsIcon size={18} />
-        </button>
-      </div>
+          <button
+            onClick={tap(onToggleExplore)}
+            title="Explore prompt ideas"
+            className={railButton(exploreActive)}
+          >
+            <Compass size={18} />
+          </button>
 
-      <div className="flex flex-col items-center gap-5">
-        <button
-          onClick={onLogout}
-          title="Sign out"
-          className="w-10 h-10 text-slate-500 hover:text-red-600 bg-slate-100/60 hover:bg-red-50 rounded-full flex items-center justify-center transition-all duration-200 active:scale-95 cursor-pointer"
-        >
-          <LogOut size={17} />
-        </button>
-
-        <div
-          className="flex flex-col items-center text-center group cursor-help"
-          title={`Local time: ${timeStr}`}
-        >
-          <div className="w-10 h-10 text-slate-600 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100 rounded-full flex items-center justify-center transition-all duration-200">
-            <Clock size={18} className="group-hover:animate-spin-slow" />
-          </div>
-          <span className="text-[10px] font-mono font-bold text-slate-500 mt-1 scale-90">
-            {timeStr.slice(0, 5)}
-          </span>
+          <button
+            onClick={tap(onOpenSettings)}
+            title="Open Settings · MCP & integrations"
+            className={railButton(false)}
+          >
+            <SettingsIcon size={18} />
+          </button>
         </div>
 
-        <div
-          className="w-11 h-11 bg-slate-950 text-white rounded-full flex items-center justify-center font-bold tracking-tight shadow hover:scale-105 transition-all duration-200"
-          title="Companion"
-        >
-          <div className="w-5 h-5 flex items-center justify-center border-2 border-dashed border-white rounded-full animate-spin-slow">
-            <Sparkles size={11} className="text-amber-300" />
+        <div className="flex flex-col items-center gap-5">
+          <button
+            onClick={tap(onLogout)}
+            title="Sign out"
+            className="w-10 h-10 text-slate-500 hover:text-red-600 bg-slate-100/60 hover:bg-red-50 rounded-full flex items-center justify-center transition-all duration-200 active:scale-95 cursor-pointer"
+          >
+            <LogOut size={17} />
+          </button>
+
+          <div
+            className="flex flex-col items-center text-center group cursor-help"
+            title={`Local time: ${timeStr}`}
+          >
+            <div className="w-10 h-10 text-slate-600 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100 rounded-full flex items-center justify-center transition-all duration-200">
+              <Clock size={18} className="group-hover:animate-spin-slow" />
+            </div>
+            <span className="text-[10px] font-mono font-bold text-slate-500 mt-1 scale-90">
+              {timeStr.slice(0, 5)}
+            </span>
+          </div>
+
+          <div
+            className="w-11 h-11 bg-slate-950 text-white rounded-full flex items-center justify-center font-bold tracking-tight shadow hover:scale-105 transition-all duration-200"
+            title="Companion"
+          >
+            <div className="w-5 h-5 flex items-center justify-center border-2 border-dashed border-white rounded-full animate-spin-slow">
+              <Sparkles size={11} className="text-amber-300" />
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };

@@ -17,7 +17,7 @@ import type {
 } from './types';
 import { useUserLocation } from './useUserLocation';
 import { mapsStatus } from './maps';
-import { Search, X } from 'lucide-react';
+import { Menu, PanelRightOpen, Search, Sparkles, X } from 'lucide-react';
 import './index.css';
 
 function App() {
@@ -46,6 +46,14 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showQuickActions, setShowQuickActions] = useState(true);
+
+  // Mobile drawer state. Both sidebars are slide-in panels under
+  // `md` (768px) — the rail opens with the hamburger and the right
+  // panel opens with the panel-icon on the mobile top bar. We never
+  // open both at once; tapping one closes the other to keep the
+  // chat readable behind the backdrop.
+  const [mobileRailOpen, setMobileRailOpen] = useState(false);
+  const [mobileRightOpen, setMobileRightOpen] = useState(false);
 
   // Carry-forward state from the backend across turns. See the inline
   // notes in the previous skin: each successful /api/agent/query/ ships
@@ -264,8 +272,17 @@ function App() {
     return <Login onLoginSuccess={handleLoginSuccess} />;
   }
 
+  const openMobileRail = () => {
+    setMobileRightOpen(false);
+    setMobileRailOpen(true);
+  };
+  const openMobileRight = () => {
+    setMobileRailOpen(false);
+    setMobileRightOpen(true);
+  };
+
   return (
-    <div className="h-screen w-screen flex overflow-hidden text-slate-900">
+    <div className="h-[100dvh] w-screen flex overflow-hidden text-slate-900">
       <SidebarRail
         onNewChat={handleNewChat}
         onToggleSearch={() => setSearchOpen((v) => !v)}
@@ -274,26 +291,58 @@ function App() {
         onLogout={handleLogout}
         searchActive={searchOpen}
         exploreActive={showQuickActions}
+        isMobileOpen={mobileRailOpen}
+        onMobileClose={() => setMobileRailOpen(false)}
       />
 
-      <div className="flex-1 flex flex-col relative overflow-hidden">
+      <div className="flex-1 flex flex-col relative overflow-hidden min-w-0">
+        {/* Mobile top bar — only visible below `md`. Hamburger opens the
+            rail, the right-panel icon opens the integrations panel, and
+            the brand text gives the user a focal anchor. */}
+        <div className="md:hidden flex items-center justify-between px-3 py-2.5 bg-white/70 backdrop-blur-md border-b border-slate-200/70 z-20 shrink-0">
+          <button
+            onClick={openMobileRail}
+            className="w-10 h-10 rounded-full text-slate-700 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100 flex items-center justify-center transition-all active:scale-95"
+            title="Open menu"
+            aria-label="Open menu"
+          >
+            <Menu size={20} />
+          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full bg-slate-950 text-white flex items-center justify-center shadow">
+              <Sparkles size={12} className="text-amber-300" />
+            </div>
+            <span className="text-sm font-bold text-slate-900 tracking-tight">Companion</span>
+          </div>
+
+          <button
+            onClick={openMobileRight}
+            className="w-10 h-10 rounded-full text-slate-700 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100 flex items-center justify-center transition-all active:scale-95"
+            title="Open integrations panel"
+            aria-label="Open integrations panel"
+          >
+            <PanelRightOpen size={18} />
+          </button>
+        </div>
+
         {searchOpen && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-full shadow-lg shadow-slate-900/10 pl-3 pr-1 py-1">
-            <Search size={14} className="text-slate-500" />
+          <div className="absolute top-16 md:top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-full shadow-lg shadow-slate-900/10 pl-3 pr-1 py-1 max-w-[92vw]">
+            <Search size={14} className="text-slate-500 shrink-0" />
             <input
               autoFocus
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search this conversation…"
-              className="bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-64"
+              className="bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-48 md:w-64"
             />
             <button
               onClick={() => {
                 setSearchOpen(false);
                 setSearchQuery('');
               }}
-              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors"
+              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
               title="Close search"
             >
               <X size={14} />
@@ -331,6 +380,8 @@ function App() {
         mapsConfigured={mapsConfigured}
         onOpenMaps={() => openSettings('calendar')}
         onOpenSettings={() => openSettings('mcp')}
+        isMobileOpen={mobileRightOpen}
+        onMobileClose={() => setMobileRightOpen(false)}
       />
 
       <SettingsModal

@@ -9,6 +9,7 @@ import {
   BrainCircuit,
   Share2,
   LogIn,
+  X,
 } from 'lucide-react';
 import type { McpStatus, ToolProvider } from './types';
 
@@ -23,6 +24,8 @@ interface RightSidebarProps {
   mapsConfigured: boolean | null;
   onOpenMaps: () => void;
   onOpenSettings: () => void;
+  isMobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
 // Provider-id → branded badge. Falls back to slate for anything we
@@ -79,6 +82,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   mapsConfigured,
   onOpenMaps,
   onOpenSettings,
+  isMobileOpen,
+  onMobileClose,
 }) => {
   const availableProviders = useMemo(
     () => toolProviders.filter((p) => !!p && p.available !== false),
@@ -87,31 +92,58 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const numMcpConnected = availableProviders.filter((p) => isProviderConnected(mcpStatuses[p.id])).length;
 
-  return (
-    <div
-      id="right-sidebar"
-      className="w-72 bg-white/40 backdrop-blur-xl border-l border-slate-200/60 flex flex-col p-5 shrink-0 select-none overflow-y-auto justify-between"
-    >
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <button
-            onClick={onOpenSettings}
-            className="flex items-center gap-2 bg-slate-900/5 hover:bg-slate-900/10 active:scale-98 transition-all px-3.5 py-1.5 rounded-full border border-slate-200/70 text-slate-800 text-xs font-semibold cursor-pointer"
-            title="Open Settings"
-          >
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <BrainCircuit size={13} className="text-slate-600" />
-            <span className="truncate max-w-[140px]">Companion · {username || 'Guest'}</span>
-          </button>
+  // Wrap every action so opening Settings / connecting Google etc. also
+  // dismisses the mobile drawer — otherwise the modal that pops up
+  // would be hidden behind the still-open right panel.
+  const tap = (fn: () => void) => () => {
+    fn();
+    onMobileClose();
+  };
 
-          <button
-            onClick={onOpenSettings}
-            className="p-1.5 text-slate-500 hover:text-slate-800 bg-slate-100/40 hover:bg-slate-100/80 rounded-lg transition-colors cursor-pointer"
-            title="Share / configure workspace"
-          >
-            <Share2 size={13} />
-          </button>
-        </div>
+  return (
+    <>
+      <div
+        onClick={onMobileClose}
+        className={`md:hidden fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-30 transition-opacity ${
+          isMobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      />
+
+      <div
+        id="right-sidebar"
+        className={`bg-white/95 md:bg-white/40 backdrop-blur-xl border-l border-slate-200/60 flex flex-col p-5 shrink-0 select-none overflow-y-auto justify-between transition-transform duration-300 ease-out fixed md:static inset-y-0 right-0 z-40 w-80 md:w-72 ${
+          isMobileOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'
+        }`}
+      >
+        <button
+          onClick={onMobileClose}
+          className="md:hidden absolute -left-3 top-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-sm text-slate-600 hover:text-slate-900"
+          title="Close panel"
+          aria-label="Close panel"
+        >
+          <X size={14} />
+        </button>
+
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={tap(onOpenSettings)}
+              className="flex items-center gap-2 bg-slate-900/5 hover:bg-slate-900/10 active:scale-98 transition-all px-3.5 py-1.5 rounded-full border border-slate-200/70 text-slate-800 text-xs font-semibold cursor-pointer"
+              title="Open Settings"
+            >
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <BrainCircuit size={13} className="text-slate-600" />
+              <span className="truncate max-w-[140px]">Companion · {username || 'Guest'}</span>
+            </button>
+
+            <button
+              onClick={tap(onOpenSettings)}
+              className="p-1.5 text-slate-500 hover:text-slate-800 bg-slate-100/40 hover:bg-slate-100/80 rounded-lg transition-colors cursor-pointer"
+              title="Share / configure workspace"
+            >
+              <Share2 size={13} />
+            </button>
+          </div>
 
         {/* ---------------- MCP SERVERS ---------------- */}
         <div className="space-y-3">
@@ -137,7 +169,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               return (
                 <button
                   key={p.id}
-                  onClick={() => onSelectProvider(p.id)}
+                  onClick={tap(() => onSelectProvider(p.id))}
                   className={`w-full flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer select-none text-left ${
                     connected
                       ? 'bg-white/90 border-slate-200 shadow-sm hover:translate-x-0.5'
@@ -215,7 +247,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               </button>
             ) : gcalStatus.connected ? (
               <button
-                onClick={onConnectGcal}
+                onClick={tap(onConnectGcal)}
                 className="w-full bg-white text-slate-800 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-[11px] py-1.5 px-3 rounded-xl flex items-center justify-center gap-2 font-semibold cursor-pointer shadow-sm"
               >
                 <GoogleIconSVG />
@@ -223,7 +255,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               </button>
             ) : (
               <button
-                onClick={onConnectGcal}
+                onClick={tap(onConnectGcal)}
                 className="w-full bg-slate-900 hover:bg-slate-800 text-white hover:scale-[1.01] active:scale-99 transition-all text-[11px] py-1.5 px-3 rounded-xl flex items-center justify-center gap-2 font-semibold cursor-pointer shadow-sm"
               >
                 <div className="bg-white p-0.5 rounded-sm flex items-center justify-center">
@@ -260,7 +292,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               </button>
             ) : (
               <button
-                onClick={onOpenMaps}
+                onClick={tap(onOpenMaps)}
                 className={`w-full text-[11px] py-1.5 px-3 rounded-xl flex items-center justify-center gap-2 font-semibold cursor-pointer transition-all shadow-sm ${
                   mapsConfigured
                     ? 'bg-slate-900 hover:bg-slate-800 text-white'
@@ -274,24 +306,25 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           </div>
         </div>
 
-        <div className="pt-2 border-t border-slate-200/70">
-          <button
-            onClick={onOpenSettings}
-            className="w-full bg-slate-50/70 hover:bg-white p-2.5 rounded-xl border border-slate-200/70 hover:border-slate-300 text-[11px] text-slate-600 hover:text-slate-900 font-medium transition-all flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <LogIn size={11} />
-            Manage connections in Settings
-          </button>
-        </div>
+          <div className="pt-2 border-t border-slate-200/70">
+            <button
+              onClick={tap(onOpenSettings)}
+              className="w-full bg-slate-50/70 hover:bg-white p-2.5 rounded-xl border border-slate-200/70 hover:border-slate-300 text-[11px] text-slate-600 hover:text-slate-900 font-medium transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <LogIn size={11} />
+              Manage connections in Settings
+            </button>
+          </div>
       </div>
 
-      <div className="mt-8 pt-4 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-400">
-        <div className="flex items-center gap-1">
-          <SettingsIcon size={11} />
-          <span>Companion · Live Sync</span>
+        <div className="mt-8 pt-4 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-400">
+          <div className="flex items-center gap-1">
+            <SettingsIcon size={11} />
+            <span>Companion · Live Sync</span>
+          </div>
+          <span className="font-mono">Secure</span>
         </div>
-        <span className="font-mono">Secure</span>
       </div>
-    </div>
+    </>
   );
 };
