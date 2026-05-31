@@ -83,23 +83,79 @@ def _process_incoming_message(msg: dict[str, Any]) -> None:
         return
 
     try:
-        # Note: address_id is required by run_agent_turn for food queries.
-        # For WhatsApp, we might need a default address_id per member or ask for it.
-        # For now, let's try to pass None and see if the agent handles it.
+        from companion_api.messages_repo import MessageRepository
+        from companion_api.leadgen_queue import send_turn_event
+        import uuid
+
+        # Load recent history from MESSAGES_TABLE
+        recent_history = []
+        try:
+            msg_repo = MessageRepository()
+            history_items = msg_repo.list_recent(member_id, limit=8)
+            recent_history = [
+                {"role": item["role"], "content": item["text"]}
+                for item in history_items
+            ]
+        except Exception as history_exc:
+            logger.warning("Failed to load message history for WhatsApp user: %s", history_exc)
+
+        # Run agent turn
         result = run_agent_turn(
             user_message=user_message,
-            address_id=None, # Should ideally be fetched from Member preferences
+            address_id=None,  # Handled by profile-resolver if home/office keywords exist
             execute_tools=True,
             user_id=member_id,
             llm=llm_cfg,
-            conversation_history=[], # We could fetch recent messages from MESSAGES_TABLE
+            conversation_history=recent_history,
         )
-        
+
         assistant_message = result.get("assistant_message") or "I processed your request but have no reply."
-        
+
+        # Async Extraction & Message Logging Hook
+        try:
+            turn_id = str(uuid.uuid4())
+            task_type = result.get("intent_routing", {}).get("task_type") or result.get("task_type")
+            routed_provider = result.get("routed_provider")
+
+            repo = MessageRepository()
+            # 1. Persist user message
+            repo.create(
+                member_id=member_id,
+                message_id=f"{turn_id}-user",
+                role="user",
+                text=user_message.strip(),
+                task_type=task_type,
+                provider=routed_provider,
+            )
+            # 2. Persist assistant message
+            repo.create(
+                member_id=member_id,
+                message_id=f"{turn_id}-assistant",
+                role="assistant",
+                text=assistant_message,
+                task_type=task_type,
+                provider=routed_provider,
+            )
+            # 3. Enqueue turn event to SQS (include sender_phone)
+            send_turn_event(
+                user_id=member_id,
+                message_id=turn_id,
+                user_message=user_message.strip(),
+                assistant_message=assistant_message,
+                task_type=task_type,
+                routed_provider=routed_provider,
+                session_addresses=result.get("session_addresses"),
+                phone=sender_phone,
+                member_id=member_id,
+            )
+        except Exception as hooks_exc:
+            logger.exception("Failed to log message or enqueue turn event for WhatsApp: %s", hooks_exc)
+
         # 3. Send Response Back
         WhatsAppClient().send_text_message(sender_phone, assistant_message)
-        
+
     except Exception:
         logger.exception("Error in WhatsApp agent turn")
-        WhatsAppClient().send_text_message(sender_phone, "Something went wrong while processing your request.")
+        WhatsAppClient().send_text_message(
+            sender_phone, "Something went wrong while processing your request."
+        )

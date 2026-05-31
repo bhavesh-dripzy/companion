@@ -5,6 +5,7 @@ import { MessageInput } from './MessageInput';
 import { SettingsModal } from './SettingsModal';
 import { SidebarRail } from './SidebarRail';
 import { RightSidebar } from './RightSidebar';
+import { AdminDashboard } from './AdminDashboard';
 import { api, clearToken, getToken } from './api';
 import type {
   GeoCoordinate,
@@ -41,6 +42,7 @@ function App() {
   const [mapsConfigured, setMapsConfigured] = useState<boolean | null>(null);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'mcp' | 'calendar' | 'models'>('mcp');
   const [settingsInitialProvider, setSettingsInitialProvider] = useState<string | undefined>(undefined);
 
@@ -306,6 +308,8 @@ function App() {
         exploreActive={showQuickActions}
         isMobileOpen={mobileRailOpen}
         onMobileClose={() => setMobileRailOpen(false)}
+        isAdmin={username === 'local_admin'}
+        onOpenAdmin={() => setIsAdminOpen(true)}
       />
 
       <div className="flex-1 flex flex-col relative overflow-hidden min-w-0">
@@ -412,6 +416,10 @@ function App() {
         initialTab={settingsInitialTab}
         initialProviderId={settingsInitialProvider}
       />
+
+      {isAdminOpen && (
+        <AdminDashboard onClose={() => setIsAdminOpen(false)} />
+      )}
     </div>
   );
 }

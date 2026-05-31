@@ -2,5 +2,37 @@
   "hosted-zone:account=616551057455:domainName=houzzat.in:region=ap-south-1": {
     "Id": "/hostedzone/Z0920071233P86HKLP96I",
     "Name": "houzzat.in."
+  },
+  "vpc-provider:account=616551057455:filter.isDefault=true:region=ap-south-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-0c4b8733d234b69aa",
+    "vpcCidrBlock": "172.31.0.0/16",
+    "ownerAccountId": "616551057455",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "Public",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-03db1dea373575dc6",
+            "cidr": "172.31.32.0/20",
+            "availabilityZone": "ap-south-1a",
+            "routeTableId": "rtb-0d0059f5262705f26"
+          },
+          {
+            "subnetId": "subnet-07a24b1eb3dc99b3f",
+            "cidr": "172.31.0.0/20",
+            "availabilityZone": "ap-south-1b",
+            "routeTableId": "rtb-0d0059f5262705f26"
+          },
+          {
+            "subnetId": "subnet-09e0ed5e849c1de39",
+            "cidr": "172.31.16.0/20",
+            "availabilityZone": "ap-south-1c",
+            "routeTableId": "rtb-0d0059f5262705f26"
+          }
+        ]
+      }
+    ]
   }
 }

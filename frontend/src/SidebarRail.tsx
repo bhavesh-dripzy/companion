@@ -8,6 +8,7 @@ import {
   Sparkles,
   LogOut,
   X,
+  Database,
 } from 'lucide-react';
 
 interface SidebarRailProps {
@@ -23,6 +24,8 @@ interface SidebarRailProps {
   // rail is always visible and these props are ignored.
   isMobileOpen: boolean;
   onMobileClose: () => void;
+  isAdmin?: boolean;
+  onOpenAdmin?: () => void;
 }
 
 // The SidebarRail is the slim icon column on the left of the workspace.
@@ -42,6 +45,8 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
   exploreActive,
   isMobileOpen,
   onMobileClose,
+  isAdmin,
+  onOpenAdmin,
 }) => {
   const [timeStr, setTimeStr] = useState('');
 
@@ -132,6 +137,16 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
           >
             <SettingsIcon size={18} />
           </button>
+
+          {isAdmin && onOpenAdmin && (
+            <button
+              onClick={tap(onOpenAdmin)}
+              title="Open Admin Dashboard"
+              className={railButton(false)}
+            >
+              <Database size={18} className="text-amber-500 hover:text-amber-600" />
+            </button>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-5">

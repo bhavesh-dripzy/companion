@@ -411,6 +411,7 @@ def _format_routing_message(
     session_menu: list[dict[str, Any]] | None = None,
     selected_address_id: str | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
+    user_profile: dict[str, Any] | None = None,
 ) -> str:
     """Build planner/orchestrator input: recent transcript + current user turn.
 
@@ -644,6 +645,60 @@ def _format_routing_message(
                 "Never emit `__VARIANT_ID__` / `__GROUP_ID__` placeholders — "
                 "they don't exist.\n" + "\n".join(pvc_blocks)
             )
+
+    if user_profile:
+        profile_parts = []
+        name = user_profile.get("name")
+        age = user_profile.get("age")
+        city = user_profile.get("city")
+        lang = user_profile.get("language")
+
+        basic = []
+        if name: basic.append(f"Name: {name}")
+        if age: basic.append(f"Age: {age}")
+        if city: basic.append(f"City: {city}")
+        if lang: basic.append(f"Language: {lang}")
+        if basic:
+            profile_parts.append("Basic Info: " + ", ".join(basic))
+
+        addresses = user_profile.get("addresses", {})
+        if addresses:
+            addr_lines = []
+            for label, details in addresses.items():
+                if isinstance(details, dict) and details.get("address_line"):
+                    line = f"  - {label.capitalize()}: {details.get('address_line')}"
+                    if details.get("provider_address_id"):
+                        line += f" (provider_address_id={details.get('provider_address_id')})"
+                    addr_lines.append(line)
+            if addr_lines:
+                profile_parts.append("Saved addresses in user profile:\n" + "\n".join(addr_lines))
+
+        interests = user_profile.get("interests", [])
+        if interests:
+            interest_lines = []
+            for item in interests[:5]:
+                cat = item.get("category")
+                details = item.get("details", [])
+                if cat:
+                    detail_str = f" ({', '.join(details)})" if details else ""
+                    interest_lines.append(f"  - {cat}{detail_str} (weight: {item.get('weight', 0.5)})")
+            if interest_lines:
+                profile_parts.append("User Interests:\n" + "\n".join(interest_lines))
+
+        open_leads = user_profile.get("open_leads", [])
+        if open_leads:
+            lead_lines = []
+            for lead in open_leads[:5]:
+                prod = lead.get("product")
+                cat = lead.get("category")
+                if prod:
+                    lead_lines.append(f"  - {prod} [{cat}] (intent_score: {lead.get('intent_score', 0.5)})")
+            if lead_lines:
+                profile_parts.append("Active Leads / Research Topics:\n" + "\n".join(lead_lines))
+
+        if profile_parts:
+            parts.append("User Digital Profile (durable facts & interests from history):\n" + "\n\n".join(profile_parts))
+
     parts.append(f"Current user message:\n{current}")
     return "\n\n".join(parts) if len(parts) > 1 else current
 
@@ -1067,6 +1122,57 @@ def run_agent_turn(
                 continue
             seed_addresses.append({**entry, "address_id": sid})
 
+    # ── Phase 2 Profile Personalization Hook ───────────────────────
+    from companion_api.profile_cache import ProfileCacheRepository
+    profile: dict[str, Any] | None = None
+    profile_resolved = False
+    try:
+        profile = ProfileCacheRepository().get(user_id)
+    except Exception as e:
+        trace("profile_cache.error", error=str(e))
+
+    # Seed session addresses from profile cache if not already present
+    if profile and isinstance(profile.get("addresses"), dict):
+        profile_addrs = profile.get("addresses", {})
+        for label, details in profile_addrs.items():
+            if not isinstance(details, dict):
+                continue
+            aid = details.get("provider_address_id") or details.get("address_line")
+            if not aid:
+                continue
+            exists = any(str(entry.get("address_id")).strip() == str(aid).strip() for entry in seed_addresses)
+            if not exists:
+                seed_addresses.append({
+                    "address_id": aid,
+                    "label": label,
+                    "address_line": details.get("address_line"),
+                    "lat": details.get("lat"),
+                    "lng": details.get("lng"),
+                    "provider_address_id": details.get("provider_address_id")
+                })
+
+    # Resolve address from message using profile facts
+    resolved_addr_id = None
+    resolved_label = None
+    if profile and not address_id:
+        text_lower = user_message.lower()
+        addresses = profile.get("addresses", {})
+        if "office" in text_lower or "work" in text_lower:
+            office = addresses.get("office")
+            if isinstance(office, dict):
+                resolved_addr_id = office.get("provider_address_id") or office.get("address_line")
+                resolved_label = "office"
+        elif "home" in text_lower:
+            home = addresses.get("home")
+            if isinstance(home, dict):
+                resolved_addr_id = home.get("provider_address_id") or home.get("address_line")
+                resolved_label = "home"
+                
+        if resolved_addr_id:
+            address_id = resolved_addr_id
+            profile_resolved = True
+            trace("profile_cache.address_resolved", label=resolved_label, address_id=address_id)
+
     trace(
         "pipeline.in",
         user_id=user_id,
@@ -1079,7 +1185,7 @@ def run_agent_turn(
     )
     # Orchestrator sees ONLY the transcript — it classifies task_type and
     # provider, neither of which should depend on stored placeholders.
-    routing_message = _format_routing_message(user_message, conversation_history)
+    routing_message = _format_routing_message(user_message, conversation_history, user_profile=profile)
     # Planner needs the placeholder hint AND the recent-restaurants index so
     # it can (a) skip a redundant restaurant search when the user picks a
     # known restaurant and (b) avoid re-running upstream tools when downstream
@@ -1113,6 +1219,7 @@ def run_agent_turn(
         session_menu=seed_menu or None,
         selected_address_id=selected_addr,
         pending_variant_choice=seed_variant_choices or None,
+        user_profile=profile,
     )
     previous_provider = _extract_previous_provider(conversation_history)
     trace(
@@ -1321,6 +1428,8 @@ def run_agent_turn(
         for k, v in session_state.items():
             if isinstance(k, str) and isinstance(v, (str, int)) and str(v).strip():
                 next_session_state[k] = str(v).strip()
+    if address_id and "__ADDRESS_ID__" not in next_session_state:
+        next_session_state["__ADDRESS_ID__"] = str(address_id).strip()
     # Start the next-turn restaurant index from the seed; the executor's
     # diagnostics will override it if the current turn ran a search.
     next_session_restaurants: list[dict[str, Any]] = list(seed_restaurants)
@@ -1340,7 +1449,7 @@ def run_agent_turn(
     # defer (turn succeeded or never tried), we DO NOT echo it back —
     # the choice was either satisfied or no longer relevant.
     next_pending_variant_choice: list[dict[str, Any]] = []
-    address_source: str | None = None
+    address_source: str | None = "profile" if profile_resolved else None
     address_context: dict[str, Any] | None = None
     for _provider_name, _raw in (raw_tool_results or {}).items():
         if not isinstance(_raw, dict):

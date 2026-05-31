@@ -38,6 +38,9 @@ from app.services.tool_runtime import (
     update_tool_provider_tools,
 )
 from companion_api import settings
+import uuid
+from companion_api.messages_repo import MessageRepository
+from companion_api.leadgen_queue import send_turn_event
 from companion_api.dynamodb import ReminderRepository
 from companion_api.models import (
     AgentQueryRequest,
@@ -1586,7 +1589,7 @@ def _companion_agent_turn(
         session_menu = clean_menu or None
 
     try:
-        return run_agent_turn(
+        result = run_agent_turn(
             user_message=payload.message.strip(),
             address_id=payload.address_id,
             execute_tools=execute_tools,
@@ -1602,6 +1605,50 @@ def _companion_agent_turn(
             session_menu=session_menu,
             pending_variant_choice=pending_variant_choice,
         )
+        
+        # Async Extraction & Message Logging Hook
+        try:
+            turn_id = str(uuid.uuid4())
+            task_type = result.get("intent_routing", {}).get("task_type") or result.get("task_type")
+            routed_provider = result.get("routed_provider")
+            
+            repo = MessageRepository()
+            # 1. Persist user message
+            repo.create(
+                member_id=user,
+                message_id=f"{turn_id}-user",
+                role="user",
+                text=payload.message.strip(),
+                task_type=task_type,
+                provider=routed_provider,
+            )
+            # 2. Persist assistant message
+            repo.create(
+                member_id=user,
+                message_id=f"{turn_id}-assistant",
+                role="assistant",
+                text=result.get("assistant_message", ""),
+                task_type=task_type,
+                provider=routed_provider,
+            )
+            # 3. Enqueue turn event to SQS
+            send_turn_event(
+                user_id=user,
+                message_id=turn_id,
+                user_message=payload.message.strip(),
+                assistant_message=result.get("assistant_message", ""),
+                task_type=task_type,
+                routed_provider=routed_provider,
+                session_addresses=result.get("session_addresses"),
+                user_geo=user_geo,
+                member_id=user,
+            )
+        except Exception as hooks_exc:
+            logging.getLogger(__name__).exception(
+                f"Failed to log message or enqueue turn event: {hooks_exc}"
+            )
+            
+        return result
     except CustomMcpNeedsDiscoveryError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -1763,6 +1810,217 @@ def scheduled_reminder_handler(event: dict[str, Any], _context: Any) -> dict[str
         "triggered": bool(reminder),
         "triggered_at": datetime.utcnow().isoformat() + "Z",
     }
+
+
+@app.get("/api/profile/me/")
+def get_my_profile(
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Retrieves the digital profile (facts, interests, active addresses) for the logged in user."""
+    from companion_api.profile_cache import ProfileCacheRepository
+    repo = ProfileCacheRepository()
+    profile = repo.get(user)
+    if profile:
+        return profile
+    return {
+        "user_id": user,
+        "name": None,
+        "age": None,
+        "city": None,
+        "language": None,
+        "addresses": {},
+        "interests": [],
+        "open_leads": [],
+        "consent_status": "implicit",
+    }
+
+
+@app.get("/api/leads/")
+def get_leads_api(
+    category: str | None = None,
+    status: str = "open",
+    user: str = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """Admin/merchant endpoint to query generated leads from the Graph Service on EC2."""
+    import requests
+    # Retrieve bearer token from Secrets Manager
+    token = None
+    try:
+        project_name = "companion"
+        region = settings.AWS_REGION
+        sm_client = boto3.client("secretsmanager", region_name=region)
+        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service")
+        secrets = json.loads(res["SecretString"])
+        token = secrets.get("token")
+    except Exception:
+        token = os.getenv("GRAPH_SERVICE_TOKEN")
+
+    if not token:
+        raise HTTPException(status_code=500, detail="Graph service token is not configured.")
+
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"status": status}
+    if category:
+        params["category"] = category
+
+    try:
+        resp = requests.get(
+            f"{settings.GRAPH_SERVICE_URL}/leads",
+            headers=headers,
+            params=params,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to query leads from graph service: {e}"
+        )
+
+
+@app.get("/api/admin/users/")
+def list_admin_users(
+    user: str = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """Lists all user profiles in the knowledge graph (admin only)."""
+    if user != "local_admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access only.")
+
+    import requests
+    token = None
+    try:
+        project_name = "companion"
+        region = settings.AWS_REGION
+        sm_client = boto3.client("secretsmanager", region_name=region)
+        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service")
+        secrets = json.loads(res["SecretString"])
+        token = secrets.get("token")
+    except Exception:
+        token = os.getenv("GRAPH_SERVICE_TOKEN")
+
+    if not token:
+        raise HTTPException(status_code=500, detail="Graph service token is not configured.")
+
+    headers = {"Authorization": f"Bearer {token}"}
+    cypher = "MATCH (u:User) RETURN u.id as id, u.name as name, u.city as city"
+    try:
+        resp = requests.post(
+            f"{settings.GRAPH_SERVICE_URL}/query",
+            headers=headers,
+            json={"cypher": cypher},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        results = resp.json().get("results", [])
+        return results
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to query users from graph service: {e}"
+        )
+
+
+@app.get("/api/admin/profile-graph/{user_id}/")
+def get_admin_profile_graph(
+    user_id: str,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Retrieves the full knowledge graph nodes and edges for a specific user profile (admin only)."""
+    if user != "local_admin":
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access only.")
+
+    import requests
+    token = None
+    try:
+        project_name = "companion"
+        region = settings.AWS_REGION
+        sm_client = boto3.client("secretsmanager", region_name=region)
+        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service")
+        secrets = json.loads(res["SecretString"])
+        token = secrets.get("token")
+    except Exception:
+        token = os.getenv("GRAPH_SERVICE_TOKEN")
+
+    if not token:
+        raise HTTPException(status_code=500, detail="Graph service token is not configured.")
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    cypher = """
+    MATCH (u:User {id: $user_id})
+    OPTIONAL MATCH (u)-[r]->(target)
+    RETURN u, type(r) as rel_type, r as rel, target, labels(target) as target_labels
+    """
+
+    try:
+        resp = requests.post(
+            f"{settings.GRAPH_SERVICE_URL}/query",
+            headers=headers,
+            json={"cypher": cypher, "parameters": {"user_id": user_id}},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+        results = resp.json().get("results", [])
+
+        nodes = {}
+        links = []
+
+        if results:
+            u_node = results[0].get("u")
+            if u_node:
+                nodes[user_id] = {
+                    "id": user_id,
+                    "label": u_node.get("name") or user_id,
+                    "type": "User",
+                    "properties": {k: v for k, v in u_node.items() if k != "id"}
+                }
+
+            for row in results:
+                rel_type = row.get("rel_type")
+                target = row.get("target")
+                labels = row.get("target_labels", [])
+
+                if target and rel_type:
+                    t_id = target.get("id") or target.get("name") or str(hash(json.dumps(target)))
+                    t_type = labels[0] if labels else "Unknown"
+
+                    label_key = "name"
+                    if t_type == "Place":
+                        label_key = "address_line"
+                    elif t_type == "Lead":
+                        label_key = "product"
+                    elif t_type == "Interest":
+                        label_key = "detail"
+
+                    t_label = target.get(label_key) or target.get("name") or t_id
+
+                    if t_id not in nodes:
+                        nodes[t_id] = {
+                            "id": t_id,
+                            "label": t_label,
+                            "type": t_type,
+                            "properties": {k: v for k, v in target.items() if k not in ["id", label_key]}
+                        }
+
+                    links.append({
+                        "source": user_id,
+                        "target": t_id,
+                        "type": rel_type,
+                        "properties": row.get("rel", {})
+                    })
+
+        return {
+            "user_id": user_id,
+            "nodes": list(nodes.values()),
+            "links": links
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to query graph data from graph service: {e}"
+        )
 
 
 handler = Mangum(app, lifespan="off")

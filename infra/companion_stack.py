@@ -16,6 +16,7 @@ from aws_cdk import (
     aws_scheduler as scheduler,
     aws_cognito as cognito,
     aws_secretsmanager as secretsmanager,
+    aws_sqs as sqs,
 )
 from constructs import Construct
 
@@ -27,6 +28,9 @@ class CompanionStack(Stack):
         construct_id: str,
         *,
         project_name: str,
+        profile_cache: dynamodb.ITable = None,
+        turns_queue: sqs.IQueue = None,
+        lead_cache: dynamodb.ITable = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -244,6 +248,17 @@ class CompanionStack(Stack):
         )
         for table in (families, members, messages, reminders):
             table.grant_read_write_data(api_function)
+        if profile_cache:
+            profile_cache.grant_read_write_data(api_function)
+            api_function.add_environment("PROFILE_CACHE_TABLE", profile_cache.table_name)
+        if lead_cache:
+            lead_cache.grant_read_write_data(api_function)
+            api_function.add_environment("LEAD_CACHE_TABLE", lead_cache.table_name)
+        if turns_queue:
+            turns_queue.grant_send_messages(api_function)
+            api_function.add_environment("LEADGEN_QUEUE_URL", turns_queue.queue_url)
+        api_function.add_environment("GRAPH_SERVICE_URL", "https://graph.houzzat.in")
+        api_function.add_environment("GRAPH_SERVICE_TOKEN_SECRET", f"{project_name}/graph-service")
         app_secret.grant_read(api_function)
         api_function.add_to_role_policy(
             iam.PolicyStatement(
