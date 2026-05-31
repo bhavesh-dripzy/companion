@@ -258,7 +258,7 @@ class CompanionStack(Stack):
             turns_queue.grant_send_messages(api_function)
             api_function.add_environment("LEADGEN_QUEUE_URL", turns_queue.queue_url)
         api_function.add_environment("GRAPH_SERVICE_URL", "https://graph.houzzat.in")
-        api_function.add_environment("GRAPH_SERVICE_TOKEN_SECRET", f"{project_name}/graph-service")
+        api_function.add_environment("GRAPH_SERVICE_TOKEN_SECRET", f"{project_name}/graph-service-token")
         app_secret.grant_read(api_function)
         api_function.add_to_role_policy(
             iam.PolicyStatement(

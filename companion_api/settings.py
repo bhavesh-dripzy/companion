@@ -26,7 +26,7 @@ PROFILE_CACHE_TABLE = os.getenv("PROFILE_CACHE_TABLE", "companion-profile-cache"
 LEAD_CACHE_TABLE = os.getenv("LEAD_CACHE_TABLE", "companion-lead-cache")
 LEADGEN_QUEUE_URL = os.getenv("LEADGEN_QUEUE_URL", "")
 GRAPH_SERVICE_URL = os.getenv("GRAPH_SERVICE_URL", "https://graph.houzzat.in")
-GRAPH_SERVICE_TOKEN_SECRET = os.getenv("GRAPH_SERVICE_TOKEN_SECRET", "companion/graph-service")
+GRAPH_SERVICE_TOKEN_SECRET = os.getenv("GRAPH_SERVICE_TOKEN_SECRET", "companion/graph-service-token")
 
 REMINDER_TARGET_ARN = os.getenv("REMINDER_TARGET_ARN", "")
 SCHEDULER_ROLE_ARN = os.getenv("SCHEDULER_ROLE_ARN", "")

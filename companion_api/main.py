@@ -1849,7 +1849,7 @@ def get_leads_api(
         project_name = "companion"
         region = settings.AWS_REGION
         sm_client = boto3.client("secretsmanager", region_name=region)
-        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service")
+        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service-token")
         secrets = json.loads(res["SecretString"])
         token = secrets.get("token")
     except Exception:
@@ -1893,7 +1893,7 @@ def list_admin_users(
         project_name = "companion"
         region = settings.AWS_REGION
         sm_client = boto3.client("secretsmanager", region_name=region)
-        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service")
+        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service-token")
         secrets = json.loads(res["SecretString"])
         token = secrets.get("token")
     except Exception:
@@ -1936,7 +1936,7 @@ def get_admin_profile_graph(
         project_name = "companion"
         region = settings.AWS_REGION
         sm_client = boto3.client("secretsmanager", region_name=region)
-        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service")
+        res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service-token")
         secrets = json.loads(res["SecretString"])
         token = secrets.get("token")
     except Exception:

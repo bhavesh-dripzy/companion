@@ -93,7 +93,7 @@ class GraphStack(Stack):
         neo4j_secret = secretsmanager.Secret(
             self,
             "Neo4jSecret",
-            secret_name=f"{project_name}/neo4j",
+            secret_name=f"{project_name}/neo4j-key",
             description="Neo4j credentials for the graph database",
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 secret_string_template='{"username": "neo4j"}',
@@ -107,7 +107,7 @@ class GraphStack(Stack):
         graph_service_secret = secretsmanager.Secret(
             self,
             "GraphServiceSecret",
-            secret_name=f"{project_name}/graph-service",
+            secret_name=f"{project_name}/graph-service-token",
             description="FastAPI graph service bearer token",
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 secret_string_template='{}',
@@ -235,7 +235,7 @@ class GraphStack(Stack):
             "systemctl enable --now docker",
             
             # Fetch Neo4j Password from Secrets Manager
-            f"NEO4J_SECRET=$(aws secretsmanager get-secret-value --secret-id {project_name}/neo4j --region {self.region} --query SecretString --output text)",
+            f"NEO4J_SECRET=$(aws secretsmanager get-secret-value --secret-id {project_name}/neo4j-key --region {self.region} --query SecretString --output text)",
             "NEO4J_PASSWORD=$(python3 -c \"import json; print(json.loads('''$NEO4J_SECRET''')['password'])\")",
             
             # Run Neo4j Docker container on localhost (Bolt 7687, Browser 7474)

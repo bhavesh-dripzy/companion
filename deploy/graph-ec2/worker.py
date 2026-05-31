@@ -33,7 +33,7 @@ def load_secrets():
             os.environ[k] = str(v)
 
         # Load neo4j secrets
-        res_neo4j = client.get_secret_value(SecretId=f"{project_name}/neo4j")
+        res_neo4j = client.get_secret_value(SecretId=f"{project_name}/neo4j-key")
         neo4j_secrets = json.loads(res_neo4j["SecretString"])
         os.environ["NEO4J_PASSWORD"] = neo4j_secrets["password"]
         os.environ["NEO4J_USERNAME"] = neo4j_secrets.get("username", "neo4j")
