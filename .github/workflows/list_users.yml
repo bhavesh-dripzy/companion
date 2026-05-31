@@ -16,18 +16,22 @@ jobs:
         with:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: Check Graph Data
+      - name: Fetch SSM Logs
         run: |
-          pip install boto3 requests
+          pip install boto3
           python3 -c '
-          import boto3, json, os, requests
-          sm = boto3.client("secretsmanager", region_name=os.environ["AWS_REGION"])
-          res = sm.get_secret_value(SecretId="companion/graph-service-token")
-          token = json.loads(res["SecretString"]).get("token")
-          headers = {"Authorization": f"Bearer {token}"}
-          resp = requests.post("https://graph.houzzat.in/query", headers=headers, json={"cypher": "MATCH (n) RETURN labels(n), count(n)"})
-          print("Graph Node Counts:", resp.json())
+          import boto3, time, os
+          ssm = boto3.client("ssm", region_name=os.environ["AWS_REGION"])
+          ec2 = boto3.client("ec2", region_name=os.environ["AWS_REGION"])
           
-          resp2 = requests.post("https://graph.houzzat.in/query", headers=headers, json={"cypher": "MATCH (u:User)-[r]->(x) RETURN u.id, type(r), labels(x), x LIMIT 10"})
-          print("Graph Relationships:", resp.json())
+          instances = ec2.describe_instances(Filters=[{"Name": "instance-state-name", "Values": ["running"]}, {"Name": "tag:aws:cloudformation:stack-name", "Values": ["companion-graph"]}])
+          instance_id = instances["Reservations"][0]["Instances"][0]["InstanceId"]
+          print("Instance ID:", instance_id)
+          
+          cmd = ssm.send_command(InstanceIds=[instance_id], DocumentName="AWS-RunShellScript", Parameters={"commands": ["cat /var/log/cloud-init-output.log"]})
+          command_id = cmd["Command"]["CommandId"]
+          
+          time.sleep(5)
+          res = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)
+          print(res.get("StandardOutputContent", res.get("StandardErrorContent", "No output")))
           '
