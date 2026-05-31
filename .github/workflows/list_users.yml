@@ -28,47 +28,14 @@ jobs:
           instance_id = instances["Reservations"][0]["Instances"][0]["InstanceId"]
           print("Instance ID:", instance_id)
           
-          cmd = ssm.send_command(
-              InstanceIds=[instance_id],
-              DocumentName="AWS-RunShellScript",
-              Parameters={
-                  "commands": [
-                      "curl -L -o /usr/bin/caddy \"https://caddyserver.com/api/download?os=linux&arch=arm64\"",
-                      "chmod +x /usr/bin/caddy",
-                      "groupadd --system caddy || true",
-                      "useradd --system --gid caddy --create-home --home-dir /var/lib/caddy --shell /usr/sbin/nologin --comment \"Caddy web server\" caddy || true",
-                      "cat <<EOF > /etc/systemd/system/caddy.service",
-                      "[Unit]",
-                      "Description=Caddy",
-                      "Documentation=https://caddyserver.com/docs/",
-                      "After=network.target network-online.target",
-                      "Requires=network-online.target",
-                      "",
-                      "[Service]",
-                      "Type=notify",
-                      "User=root",
-                      "Group=root",
-                      "ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile",
-                      "ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile --force",
-                      "TimeoutStopSec=5s",
-                      "LimitNOFILE=1048576",
-                      "LimitNPROC=512",
-                      "PrivateTmp=true",
-                      "ProtectSystem=full",
-                      "AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE",
-                      "",
-                      "[Install]",
-                      "WantedBy=multi-user.target",
-                      "EOF",
-                      "systemctl daemon-reload",
-                      "systemctl enable --now caddy",
-                      "systemctl status caddy --no-pager"
-                  ]
-              }
-          )
+          cmd = ssm.send_command(InstanceIds=[instance_id], DocumentName="AWS-RunShellScript", Parameters={"commands": ["systemctl status caddy --no-pager", "journalctl -u caddy -n 50 --no-pager", "/usr/bin/caddy version"]})
           command_id = cmd["Command"]["CommandId"]
           
-          time.sleep(5)
-          res = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)
-          print(res.get("StandardOutputContent", res.get("StandardErrorContent", "No output")))
+          while True:
+              res = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)
+              if res.get("Status") not in ["Pending", "InProgress", "Delayed"]:
+                  break
+              time.sleep(2)
+          print(res.get("StandardOutputContent", ""))
+          print(res.get("StandardErrorContent", ""))
           '
