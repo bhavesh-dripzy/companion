@@ -390,7 +390,7 @@ def _openai_compatible_call(
     system_prompt: str | None = None,
 ) -> tuple[str, str | None]:
     resolved_system_prompt = system_prompt or router_prompt_fallback()
-    kwargs: dict[str, Any] = {"api_key": api_key}
+    kwargs: dict[str, Any] = {"api_key": api_key, "timeout": 40.0}
     if base_url:
         kwargs["base_url"] = base_url
     client = OpenAI(**kwargs)
