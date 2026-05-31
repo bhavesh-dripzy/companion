@@ -1,45 +1,79 @@
 # Companion — Serverless Food & Reminder Assistant
 
-Companion is a multi-provider food-ordering and reminder-management API running
-on AWS as a fully serverless application.
+Companion is a multi-provider food-ordering and reminder-management API running on AWS as a fully serverless application, now integrated with a state-of-the-art **User Knowledge Graph** and **Automated Lead Generation Engine**.
 
-## Architecture
+---
+
+## 1. Architecture
 
 ```
-                    ┌──────────────────────┐
-                    │   API Gateway (HTTP)  │
-                    └──────────┬───────────┘
+                                  ┌──────────────────────┐
+                                  │   API Gateway (HTTP)  │
+                                  └──────────┬───────────┘
+                                             │
+                                  ┌──────────▼───────────┐
+                                  │   Lambda (FastAPI)    │
+                                  │   Python 3.12 / Node  │
+                                  └──┬───────┬───────┬───┘
+                                     │       │       │
+                        ┌────────────▼┐  ┌──▼──┐  ┌─▼──────────┐
+                        │  DynamoDB    │  │Cognito│ │Secrets Mgr │
+                        │  (6 tables)  │  │(auth) │ │(LLM keys)  │
+                        └──────┬──────┘  └──────┘  └────────────┘
                                │
-                    ┌──────────▼───────────┐
-                    │   Lambda (FastAPI)    │
-                    │   Python 3.12 / Node  │
-                    └──┬───────┬───────┬───┘
-                       │       │       │
-          ┌────────────▼┐  ┌──▼──┐  ┌─▼──────────┐
-          │  DynamoDB    │  │Cognito│ │Secrets Mgr │
-          │  (4 tables)  │  │(auth) │ │(LLM keys)  │
-          └─────────────┘  └──────┘  └────────────┘
+                        ┌──────▼───────────────┐
+                        │   SQS Event Queue    │
+                        └──────┬───────────────┘
                                │
-                    ┌──────────▼───────────┐
-                    │  EventBridge Scheduler│
-                    │  (reminder triggers)  │
-                    └──────────────────────┘
+                        ┌──────▼───────────────┐
+                        │   EC2 Graph Worker   │
+                        └──────┬───────────────┘
+                               │
+                        ┌──────▼───────────────┐
+                        │   Neo4j (EC2 Graph)  │
+                        └──────────────────────┘
 ```
 
-- **API Gateway HTTP API** — public HTTP endpoint with CORS, routes all
-  traffic to the Lambda function.
-- **Lambda** (Docker, Python 3.12 + Node 20) — runs a FastAPI app wrapped
-  with Mangum. Node is bundled for the `mcp-remote` bridge.
-- **DynamoDB** — four tables: `families`, `members`, `messages`, `reminders`.
-  All PAY_PER_REQUEST with point-in-time recovery.
-- **Cognito User Pool** — JWT-based auth (RS256, verified via JWKS).
-  Supports self-sign-up, email verification, and hosted UI.
-- **EventBridge Scheduler** — one-time reminder triggers. The scheduler
-  invokes a dedicated Lambda target function.
-- **Secrets Manager** — stores LLM provider API keys at `companion/app`.
-- **AWS CDK** (`infra/`) — all infrastructure as code.
+- **API Gateway HTTP API** — Public HTTP endpoint with CORS, routing all traffic to the Lambda function.
+- **Lambda (Serverless API)** — Runs the FastAPI app wrapped with Mangum. Handles chat sessions, prompt personalization, reminder generation, and MCP pairings.
+- **DynamoDB tables** —
+  - `families`, `members`, `messages`, `reminders` — Primary serverless transactional data.
+  - `companion-profile-cache` — Stores user knowledge graph projections (facts, interests, active locations) for low-latency context injection.
+  - `companion-lead-cache` — Holds commercial leads generated from user conversations, indexed via GSIs for high-throughput queries by merchant systems.
+- **EventBridge Scheduler** — Invokes `scheduled_reminder_handler` to trigger reminders.
+- **SQS Lead Generation Queue** — Asynchronously ingests conversational turn events containing messages, geo coordinates, and session metadata from WhatsApp and Web client turns.
+- **EC2 Graph Stack (`t4g.small`)** — Hosts the **Neo4j graph database** and two key daemon processes:
+  - **FastAPI Graph Service** — Serves DNS `graph.houzzat.in` over SSL (via Caddy proxy), exposing secure profile and query endpoints.
+  - **SQS Background Worker** — Long-polls SQS, executes LLM extraction on new turns to identify facts/interests/leads, updates Neo4j, and writes projection updates to the DynamoDB caches.
 
-## Quickstart
+---
+
+## 2. Knowledge Graph & Leadgen Engine
+
+The Knowledge Graph acts as the centralized user memory vault, enabling hyper-personalized assistant behavior.
+
+### A. Graph Schema (Neo4j)
+- **Nodes**:
+  - `(u:User {id: user_id, name, age, city, language, phone})` — Central identity.
+  - `(p:Place {id: place_id, address_line, lat, lng, kind})` — Locations (home/office).
+  - `(c:Category {name: category_name})` — Intent classifications (food, electronics, salon, etc.).
+  - `(i:Interest {id: interest_id, detail, category})` — Specific user preferences.
+  - `(l:Lead {id: lead_id, product, budget_signal, intent_score, confidence, status, consent_status})` — Commercial leads.
+- **Relationships**:
+  - `(u)-[:LIVES_AT | WORKS_AT]->(p)` (with validity timestamps)
+  - `(u)-[:INTERESTED_IN {weight}]->(c)`
+  - `(u)-[:LIKES {weight}]->(i)`
+  - `(u)-[:GENERATED]->(l)`
+
+### B. Personalization Pipeline
+At the start of every chat turn, the Lambda API fetches the user profile cache from `companion-profile-cache`.
+- **Prompt Injection**: Injects user facts, preferred items, and active leads into the routing and planning LLM context.
+- **Address Seeding**: Merges graph locations stickily into the session state so Zomato/Swiggy execution works out-of-the-box.
+- **Home/Office Auto-Resolution**: Intercepts requests matching home/office keywords (e.g. "Order burger to office") and automatically overrides coordinates without manual pin selection.
+
+---
+
+## 3. Quickstart
 
 ```bash
 # 1. Clone and install dependencies
@@ -59,278 +93,93 @@ uvicorn companion_api.main:app --reload --port 8000
 pytest
 ```
 
-## Authentication
+---
 
-### Cognito (production)
-
-When `COGNITO_USER_POOL_ID` and `COGNITO_CLIENT_ID` are set, all API requests
-must include a Cognito-issued JWT (Access or ID token) in the `Authorization:
-Bearer <token>` header. The API verifies tokens against the User Pool's JWKS
-endpoint — validating issuer, audience, expiry, and RS256 signature.
-
-Clients use the Cognito Hosted UI or an SDK (Amplify,
-`amazon-cognito-identity-js`) to obtain tokens:
-
-```bash
-# Get SDK config from the API
-curl http://localhost:8000/api/auth/cognito/config/
-# → {"enabled":true,"region":"ap-south-1","user_pool_id":"...","client_id":"...",...}
-```
-
-When Cognito is enabled, `POST /api/login/` returns HTTP 400 — the legacy
-admin-login path is disabled.
-
-### Legacy (local dev / fallback)
-
-When Cognito env vars are **not** set, the API falls back to hardcoded admin
-credentials and a self-signed HS256 JWT. Use this only for local development:
-
-```bash
-curl -X POST http://localhost:8000/api/login/ \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"local_admin","password":"test_password_123"}'
-# → {"access_token":"...","token_type":"bearer","username":"local_admin"}
-```
-
-## API Reference
+## 4. API Reference
 
 All authenticated endpoints require `Authorization: Bearer <token>`.
 
-### Health & UI
+### Auth & Health
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/api/` | No | Health check |
 | GET | `/` or `/food/` | No | Food-agent SPA (HTML) |
+| POST | `/api/login/` | No | Legacy admin login |
+| GET | `/api/auth/status/` | Yes | Returns authenticated user details |
 
-### Auth
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/login/` | No | Legacy admin login (disabled when Cognito on) |
-| GET | `/api/auth/status/` | Yes | Returns `{"authenticated":true,"username":"..."}` |
-| GET | `/api/auth/cognito/config/` | No | Cognito SDK config (User Pool ID, Client ID, domain) |
-
-### Food Agent
+### User Profile & Leads
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/api/send-message/` | Yes | LLM-routed message (food query with optional WhatsApp link) |
-| GET | `/api/food/saved-addresses/` | Yes | List saved delivery addresses for the selected MCP provider (Zomato / Swiggy-shaped) |
-| POST | `/api/food/query/` | Yes | Full food query: LLM plan → MCP tool execution |
+| GET | `/api/profile/me/` | Yes | Retrieves profile facts/interests projection |
+| GET | `/api/leads/` | Yes | Query leads by status or category |
 
-**`POST /api/food/query/`** accepts:
-
-```json
-{
-  "message": "best pizza near me",
-  "address_id": "<required: saved delivery address id from GET /api/food/saved-addresses/>",
-  "provider": "gemini|openai|deepseek",
-  "execute_tools": true,
-  "history": []
-}
-```
-
-Call **`GET /api/food/saved-addresses/?provider=zomato`** (or another food-capable provider) after MCP OAuth is set up; use an `address_id` from the response on every food query so restaurant search always targets the chosen pin.
-
-Returns the LLM routing plan, tool execution results per provider, and a
-generated assistant message.
-
-### Tool Providers
+### Admin Dashboard (Database & Graph)
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/tools/providers/` | Yes | List all available tool providers |
-| POST | `/api/tools/providers/custom/` | Yes | Register a custom MCP provider |
-| DELETE | `/api/tools/providers/custom/{id}` | Yes | Remove a custom MCP provider |
+| GET | `/api/admin/users/` | Yes (Admin) | List all registered users in the graph directory |
+| GET | `/api/admin/profile-graph/{user_id}/` | Yes (Admin) | Fetch nodes and edges representing a user subgraph |
 
-**Built-in providers:**
+*To access the Admin Dashboard from the Web Client, log in with username `local_admin` (in local mode) and click the **Database (Database)** icon on the left sidebar rail.*
 
-| Provider | ID | MCP URL |
-|----------|-----|---------|
-| Zomato | `zomato` | `https://mcp-server.zomato.com/mcp` |
-| Swiggy Food | `swiggy_food` | `https://mcp.swiggy.com/food` |
-| Swiggy Instamart | `swiggy_instamart` | `https://mcp.swiggy.com/im` |
-| Zepto | `zepto` | `https://mcp.zepto.co.in/mcp` |
-| Blinkit | `blinkit` | Not configured (placeholder) |
+---
 
-### MCP Management
+## 5. Deployment
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/mcp/status/` | Yes | MCP OAuth connection status |
-| GET | `/api/mcp/oauth/start` | Yes | Start pairing flow (returns curl command) |
-| POST | `/api/mcp/oauth/` | Yes | Legacy hosted OAuth flow |
-| POST | `/api/mcp/pairing/` | Yes | Start pairing flow (returns code + script) |
-| GET | `/api/mcp/pairing/script` | Yes | Download pairing script |
-| POST | `/api/mcp/pairing/complete` | Yes | Complete pairing with uploaded tokens |
-| GET | `/api/mcp/oauth/callback` | Yes | OAuth callback handler (HTML) |
-| POST | `/api/mcp/test/` | Yes | Test MCP connection |
-| GET | `/api/mcp/tokens/status/` | Yes | Check token validity |
-| GET | `/api/mcp/tools/` | Yes | List available MCP tools |
-
-### Reminders
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/reminders/` | Yes | Create a reminder |
-| GET | `/api/google-calendar/status/` | Yes | Check Google Calendar connection |
-| GET | `/api/google-calendar/oauth/start` | Yes | Start Google Calendar OAuth |
-| GET | `/api/google-calendar/oauth/callback` | No | Google Calendar OAuth callback |
-| POST | `/api/reminders/google-calendar/` | Yes | Create a Google Calendar event from natural reminder text |
-| GET | `/api/reminders/pending/` | Yes | List pending reminders for a member |
-| POST | `/api/reminders/respond/` | Yes | Respond to a reminder (yes/no) |
-
-**`POST /api/reminders/`** request shape:
-
-```json
-{
-  "member_id": "user-123",
-  "title": "Take medicine",
-  "description": "Vitamin D",
-  "type": "custom",
-  "schedule_type": "interval",
-  "next_trigger": "2026-05-11T10:00:00Z",
-  "interval_minutes": 480,
-  "retry_interval_minutes": 5,
-  "requires_confirmation": true
-}
-```
-
-**`POST /api/reminders/google-calendar/`** creates a Google Calendar event with
-an email reminder override:
-
-```json
-{
-  "message": "Remind me to call mom tomorrow at 9am",
-  "calendar_id": "primary",
-  "timezone": "Asia/Kolkata",
-  "email_reminder_minutes": 0,
-  "popup_reminder_minutes": 10,
-  "store_reminder": true
-}
-```
-
-## LLM Routing
-
-The food agent uses an LLM (Gemini, DeepSeek, or OpenAI) to translate
-free-text food requests into structured MCP tool plans. Auto-selection
-order: Gemini → DeepSeek → OpenAI.
-
-Set these in `.env`:
-
-```bash
-GEMINI_API_KEY=...        # preferred
-GEMINI_FOOD_ROUTER_MODEL=gemini-2.5-flash-lite
-
-DEEPSEEK_API_KEY=...      # fallback
-DEEPSEEK_FOOD_ROUTER_MODEL=deepseek-chat
-
-OPENAI_API_KEY=...        # last resort
-OPENAI_FOOD_ROUTER_MODEL=gpt-4o-mini
-
-# Optional: force a specific provider
-# FOOD_ROUTER_PROVIDER=deepseek
-```
-
-## MCP Setup
-
-The API connects to MCP providers (Zomato, Swiggy, Zepto, etc.) through
-`mcp-remote`, a local bridge that speaks stdio to the MCP server over HTTPS.
-
-OAuth tokens are stored in `.mcp-auth/` (gitignored). Use the **pairing flow**
-to provision tokens: `POST /api/mcp/pairing/` → download script → upload
-tokens → `POST /api/mcp/pairing/complete`.
-
-## Reminders
-
-Reminders use EventBridge Scheduler for one-time triggers. When a reminder
-fires, the scheduler invokes `scheduled_reminder_handler` which marks the
-reminder as triggered and creates a follow-up schedule if `interval_minutes`
-is set.
-
-Key env vars for the scheduler:
-
-- `REMINDER_TARGET_ARN` — the Lambda function ARN to invoke
-- `SCHEDULER_ROLE_ARN` — IAM role allowing EventBridge to invoke Lambda
-- `SCHEDULER_GROUP_NAME` — scheduler group (default: `companion-reminders`)
-- `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` — OAuth client
-  used by the Connect Google flow
-- `GOOGLE_CALENDAR_TOKEN_SECRET_ID` — optional token secret override (default:
-  `companion/google-calendar-tokens`)
-- `REMINDER_DEFAULT_TIMEZONE` — natural-language reminder timezone (default:
-  `Asia/Kolkata`)
-
-## Deployment
+Deployment is managed fully through the AWS Cloud Development Kit (CDK).
 
 ```bash
 cd infra
 pip install -r requirements.txt
 cdk synth
-cdk deploy
+cdk deploy --all
 ```
 
-Stack outputs:
+### Stacks
+- **`GraphStack`** (`infra/graph_stack.py`) — Provisions SQS queue + DLQ, Neo4j secrets, Route 53 DNS records, the EC2 instance, Caddy proxy configuration, and the DynamoDB cache tables.
+- **`CompanionStack`** (`infra/companion_stack.py`) — Provisions the serverless REST API Lambda, Cognito User Pool, DynamoDB transactional tables, and EventBridge Scheduler.
 
-- `HttpApiEndpoint` — the public API URL
-- `CognitoUserPoolId` — User Pool ID
-- `CognitoClientId` — App Client ID
-- `CognitoDomain` — Hosted UI domain
-- `AppSecretName` — Secrets Manager secret name
-- `RemindersTableName` — DynamoDB reminders table
+---
 
-**Important**: Never deploy with root credentials. Use an IAM role or
-GitHub OIDC deploy role.
-
-## Project Structure
+## 6. Project Structure
 
 ```
-├── app/                  # Django app (models, services, views)
-│   ├── models/           # Family, Member, Message, Reminder models
-│   ├── services/         # LLM router, food response builder, tool runtime
-│   └── views/            # Food agent, reminders, send_message
-├── companion_api/        # FastAPI application
-│   ├── auth.py           # Auth dependency (Cognito + legacy JWT)
-│   ├── cognito_auth.py   # Cognito JWKS verification
-│   ├── dynamodb.py       # DynamoDB repository layer
-│   ├── main.py           # API routes
-│   ├── models.py         # Pydantic request/response models
-│   ├── reminders.py      # Reminder scheduler (EventBridge)
-│   ├── secrets.py        # Secrets Manager helper
-│   └── settings.py       # Environment config
-├── config/               # Django settings (legacy, being phased out)
-├── infra/                # AWS CDK stack
-│   ├── companion_stack.py  # All infrastructure
-│   └── app.py            # CDK app entry point
-├── scripts/              # Verification scripts for Gemini, OpenAI
-├── tests/                # API tests
-├── .env.example          # Environment variable template
-├── Dockerfile            # Lambda container image
-├── requirements.txt      # Python dependencies
-└── package.json          # Node dependencies (mcp-remote)
+├── app/                      # Django business logic
+│   ├── models/               # Family, Member, Message, Reminder models
+│   ├── services/             # LLM router, response builders, tool runtimes
+│   │   └── leadgen/          # Extraction schema, Neo4j client, parser
+│   │       ├── extractor.py
+│   │       ├── graph_client.py
+│   │       └── schema.py
+├── companion_api/            # FastAPI REST Endpoint
+│   ├── lead_cache_repo.py    # Repository for DynamoDB commercial lead cache
+│   ├── messages_repo.py      # Repository for message history logs
+│   ├── profile_cache.py      # Repository for DynamoDB profile cache projection
+│   ├── main.py               # REST API paths (including admin profile-graph endpoints)
+│   ├── settings.py           # Environment config (adds LEAD_CACHE_TABLE)
+├── deploy/graph-ec2/         # EC2 deployment scripts
+│   ├── graph_service.py      # Secure FastAPI service for Neo4j querying
+│   └── worker.py             # SQS turn events consumer (write-through cache loader)
+├── frontend/                 # React SPA Workspace
+│   ├── src/
+│   │   ├── AdminDashboard.tsx # 2D Canvas force graph visualizer & leads table
+│   │   ├── App.tsx           # Main shell (integrates SidebarRail toggles)
+│   │   ├── SidebarRail.tsx   # Admin dashboard trigger button
+├── infra/                    # AWS CDK Code
+│   ├── graph_stack.py        # Graph stack definitions (EC2, SQS, caches)
+│   └── companion_stack.py    # Primary serverless APIs and permissions
+├── tests/                    # Test suites
+│   ├── test_leadgen.py       # Fact extraction, caching, and personalization tests
 ```
 
-## Local Testing
+---
+
+## 7. Testing
+
+To run the full test suite (covering MCP executors, EventBridge triggers, profile caches, and lead generation GSI repositories):
 
 ```bash
-# Verify LLM providers
-python scripts/verify_gemini.py
-python scripts/verify_openai.py
-
-# Run test suite
-pytest tests/test_api.py -v
-
-# Run with hot reload
-uvicorn companion_api.main:app --reload
+pytest
 ```
-
-## Troubleshooting
-
-- **`node_modules` missing** — Run `npm install` at the repo root.
-- **401 / auth failed** — If Cognito is enabled, use Cognito tokens,
-  legacy login. Check `GET /api/auth/cognito/config/`.
-- **MCP OAuth expired** — Run the pairing flow to re-authenticate.
-- **LLM quota exhausted** — Gemini free tier has tight limits. Switch to
-  DeepSeek or OpenAI, or use `gemini-2.5-flash-lite`.
-- **OAuth redirect errors** — Zomato only allows certain OAuth redirect URIs;
-  you may need their support for approved client configuration.
