@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
 import type { Attachment, MenuCardItem, Message, SessionAddress } from './types';
 import { cn } from './utils';
 import {
@@ -313,7 +314,9 @@ export const ChatLog: React.FC<ChatLogProps> = ({
                         : 'prose-slate prose-strong:text-slate-900 prose-a:text-blue-600 prose-code:text-rose-600 prose-pre:bg-slate-900 prose-pre:text-slate-100',
                     )}
                   >
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkBreaks]}>
+                      {msg.content}
+                    </ReactMarkdown>
                   </div>
                 </div>
 
