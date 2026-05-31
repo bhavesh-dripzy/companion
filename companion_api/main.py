@@ -1896,7 +1896,8 @@ def list_admin_users(
         res = sm_client.get_secret_value(SecretId=f"{project_name}/graph-service-token")
         secrets = json.loads(res["SecretString"])
         token = secrets.get("token")
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching graph token: {e}")
         token = os.getenv("GRAPH_SERVICE_TOKEN")
 
     if not token:
