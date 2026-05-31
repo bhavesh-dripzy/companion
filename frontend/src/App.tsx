@@ -12,6 +12,7 @@ import type {
   Message,
   QueryResponse,
   SessionAddress,
+  SessionMenuEntry,
   SessionRestaurant,
   ToolProvider,
 } from './types';
@@ -67,6 +68,14 @@ function App() {
   // Saved Zomato delivery addresses, fetched once on the first food
   // turn and then round-tripped through every subsequent request.
   const [sessionAddresses, setSessionAddresses] = useState<SessionAddress[]>([]);
+  // Cross-turn LRU of menu items the user has been shown this session.
+  // The backend echoes 8 items per restaurant the planner has seen;
+  // we MUST round-trip this so a follow-up like "yes plz add" can be
+  // resolved against the literal variant_id from the prior turn rather
+  // than the planner hallucinating a stale id. (Skipping this echo is
+  // exactly the bug that made "K - Whopper Twin Meal Deal" fail with
+  // "Variant ID … not found in restaurant menu" across several turns.)
+  const [sessionMenu, setSessionMenu] = useState<SessionMenuEntry[]>([]);
 
   const { location: userLocation, ensureLocation } = useUserLocation();
 
@@ -162,6 +171,7 @@ function App() {
     setSessionState({});
     setSessionRestaurants([]);
     setSessionAddresses([]);
+    setSessionMenu([]);
   };
 
   const handleNewChat = () => {
@@ -169,6 +179,7 @@ function App() {
     setSessionState({});
     setSessionRestaurants([]);
     setSessionAddresses([]);
+    setSessionMenu([]);
     setSearchQuery('');
     setSearchOpen(false);
   };
@@ -195,6 +206,7 @@ function App() {
     if (Object.keys(sessionState).length > 0) body.session_state = sessionState;
     if (sessionRestaurants.length > 0) body.session_restaurants = sessionRestaurants;
     if (sessionAddresses.length > 0) body.session_addresses = sessionAddresses;
+    if (sessionMenu.length > 0) body.session_menu = sessionMenu;
     return body;
   };
 
@@ -241,6 +253,7 @@ function App() {
       if (data.session_state && typeof data.session_state === 'object') setSessionState(data.session_state);
       if (Array.isArray(data.session_restaurants)) setSessionRestaurants(data.session_restaurants);
       if (Array.isArray(data.session_addresses)) setSessionAddresses(data.session_addresses);
+      if (Array.isArray(data.session_menu)) setSessionMenu(data.session_menu);
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {

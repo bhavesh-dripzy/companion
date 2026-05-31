@@ -107,6 +107,28 @@ export interface SessionAddress {
   [key: string]: unknown;
 }
 
+// One row in the per-session menu LRU. The executor caches up to
+// `_MENU_ITEMS_PER_RESTAURANT` rows per restaurant fetched this session
+// (currently 8) so the planner can resolve "add the second one" on a
+// later turn without re-fetching the menu. The frontend MUST echo this
+// array back on the next request — same contract as `session_restaurants`
+// and `session_addresses`. Without the round-trip, the planner loses its
+// variant_id memory the moment the user takes a turn without a menu
+// fetch (e.g. "yes plz add") and ends up hallucinating a stale id, which
+// Zomato rejects with "Variant ID … not found in restaurant menu".
+export interface SessionMenuEntry {
+  variant_id: string;
+  item_name: string;
+  res_id?: string;
+  price?: number | null;
+  discounted_price?: number | null;
+  categories?: string[] | null;
+  variants?: unknown[];
+  addon_group_ids?: string[];
+  addon_groups?: unknown[];
+  [key: string]: unknown;
+}
+
 // Backend's compact view of which address is being used this turn and
 // where it came from. The chat UI doesn't render this directly — the
 // response LLM uses `source` to decide whether to nudge the user about
@@ -141,6 +163,11 @@ export interface QueryResponse {
   session_state?: Record<string, string>;
   session_restaurants?: SessionRestaurant[];
   session_addresses?: SessionAddress[];
+  // Cross-turn LRU of menu items the user has been shown this session.
+  // Frontend echoes back as `session_menu` on the next request so the
+  // planner can cite a literal `variant_id` for "yes plz add" without
+  // a redundant menu fetch (or worse, hallucinating a stale vid).
+  session_menu?: SessionMenuEntry[];
   address_context?: AddressContext | null;
   attachments?: Attachment[];
 }
