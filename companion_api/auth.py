@@ -123,8 +123,8 @@ def get_current_user(
     if cognito_enabled():
         try:
             claims = verify_cognito_token(token)
-            # Prefer 'username' from ID token, fall back to 'sub'
-            username = claims.get("username") or claims.get("sub")
+            # Prefer 'cognito:username' from ID token, fall back to 'username' or 'sub'
+            username = claims.get("cognito:username") or claims.get("username") or claims.get("sub")
             if username:
                 return username
         except CognitoTokenError:
