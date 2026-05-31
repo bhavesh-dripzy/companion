@@ -63,6 +63,7 @@ jobs:
           CDK_DEFAULT_ACCOUNT: ${{ env.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          DEPLOY_EC2: "true"
         run: cdk deploy --all --require-approval never
 
       - name: Populate app secrets
