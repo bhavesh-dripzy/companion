@@ -823,16 +823,20 @@ _MAX_REMEMBERED_RESTAURANTS = max(
     1, int(os.getenv("ZOMATO_REMEMBERED_RESTAURANT_CAP", "8"))
 )
 
-# Cross-restaurant LRU cap on ``session_menu``. Each menu fetch contributes
-# ``_MENU_ITEMS_PER_RESTAURANT`` rows; this cap holds enough rows for the
-# user to pivot across ~5 restaurants in one session before the oldest
-# restaurant's items get evicted. Cross-restaurant follow-ups ("actually
-# add the chicken keto salad from O4H") still hit the cache after a pivot.
-# Each entry is small enough (one row with name + variant_id + a few
-# addon ids) that 40 is well under the prompt-size budget.
+# Cross-restaurant LRU cap on ``session_menu``. Two sources contribute:
+#   * a menu-fetch tool → ``_MENU_ITEMS_PER_RESTAURANT`` (8) rows per call.
+#   * a keyword-search tool → ``_KEYWORD_ITEMS_PER_RESTAURANT`` (3) rows
+#     for each of up to ``_MAX_REMEMBERED_RESTAURANTS`` (8) restaurants in
+#     one envelope, so up to 24 rows from one search.
+# 48 is sized for the common path "find burger options" (24 rows) followed
+# by 3 menu opens (+ 24 rows = 48 total) — the user can pivot across
+# 3 restaurants' full top-8 menus AFTER a keyword search without the
+# oldest restaurant's items getting evicted prematurely. Each entry is
+# small (name + variant_id + a few addon ids) so 48 stays well under the
+# prompt-size budget.
 _MAX_REMEMBERED_MENU_ITEMS = max(
     _MENU_ITEMS_PER_RESTAURANT,
-    int(os.getenv("ZOMATO_REMEMBERED_MENU_ITEMS_CAP", "40")),
+    int(os.getenv("ZOMATO_REMEMBERED_MENU_ITEMS_CAP", "48")),
 )
 
 
@@ -1246,6 +1250,115 @@ def _collect_menu_index_from_envelope(
             out[vid] = entry
             continue
         out[vid] = _pick_richer_menu_entry(prev, entry)
+    return out
+
+
+# Max featured items we cache per restaurant from a keyword-search envelope.
+# Zomato returns up to ~10 ``items[]`` per restaurant on a keyword hit;
+# capping at 3 keeps the per-turn session_menu growth bounded (8
+# restaurants × 3 = 24 rows from one search, which leaves ~11 slots in the
+# 35-row LRU for a follow-up menu fetch) so a single "find burger options"
+# turn doesn't evict the genuinely useful per-restaurant menu fetches from
+# earlier turns. The chat-side restaurant_cards UI mirrors the same cap so
+# what the planner has cached === what the user can see.
+_KEYWORD_ITEMS_PER_RESTAURANT = max(
+    1, int(os.getenv("ZOMATO_KEYWORD_ITEMS_PER_RESTAURANT", "3"))
+)
+
+
+def _collect_menu_index_from_keyword_envelope(
+    envelope: dict[str, Any],
+    *,
+    per_restaurant_cap: int = _KEYWORD_ITEMS_PER_RESTAURANT,
+    restaurants_cap: int = _MAX_REMEMBERED_RESTAURANTS,
+) -> dict[str, dict[str, Any]]:
+    """Extract featured per-restaurant items from a ``get_restaurants_for_keyword`` envelope.
+
+    Zomato's keyword search response shape (verified against the real MCP,
+    samples saved in ``outputs/get_restaurants_for_keyword_*.json``):
+
+        data.results[].{res_id, name, rating, ..., items: [{
+            variant_id, catalogue_id, name, price, min_price, image_link,
+            is_veg, item_customizations, dish_selected_attr,
+        }, ...]}
+
+    Each ``results[].items[]`` row is a real addable dish with a real
+    ``variant_id`` scoped to that ``res_id``. By stamping the parent
+    restaurant's ``res_id`` directly onto each entry HERE (before the
+    entries land in ``menu_index``) we sidestep the global ``current_rid``
+    stamping at end-of-turn — which only knows about ``__RESTAURANT_ID__``
+    (= the first hit) and would otherwise mis-tag every featured item as
+    belonging to restaurant #1.
+
+    Returns ``{variant_id -> entry}`` ready to feed into
+    ``_merge_menu_index``. Entries are intentionally low-richness
+    (no ``addon_groups`` / property ``variants[]``) — the keyword envelope
+    doesn't ship that schema. ``_pick_richer_menu_entry`` preserves any
+    later by-categories enrichment for the same variant_id.
+
+    Only the first ``restaurants_cap`` restaurants in the response are
+    walked — this matches the chat UI's restaurant_cards cap so the
+    "what user sees === what session_menu has" contract holds. Without
+    this cap, session_menu would carry items from restaurants the user
+    never saw, breaking the planner's session_menu-driven add flow.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
+        return out
+    data = envelope.get("data")
+    candidates: list[Any] = []
+    if isinstance(data, dict):
+        if isinstance(data.get("results"), list):
+            candidates = data["results"]
+        elif isinstance(data.get("data"), dict) and isinstance(
+            data["data"].get("results"), list
+        ):
+            candidates = data["data"]["results"]
+    seen_restaurants = 0
+    for resto in candidates:
+        if not isinstance(resto, dict):
+            continue
+        rid_raw = resto.get("res_id") or resto.get("restaurant_id")
+        if rid_raw is None:
+            continue
+        rid = str(rid_raw).strip()
+        if not rid:
+            continue
+        seen_restaurants += 1
+        if seen_restaurants > restaurants_cap:
+            break
+        items = resto.get("items")
+        if not isinstance(items, list):
+            continue
+        kept = 0
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            vid = str(it.get("variant_id") or "").strip()
+            if not vid:
+                continue
+            name = it.get("name") or it.get("item_name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            if vid in out:
+                continue
+            entry: dict[str, Any] = {
+                "variant_id": vid,
+                "item_name": name.strip(),
+                "res_id": rid,
+                "price": it.get("price"),
+                "categories": None,
+                "variants": [],
+                "addon_group_ids": [],
+                "addon_groups": [],
+            }
+            item_id = it.get("catalogue_id") or it.get("item_id")
+            if isinstance(item_id, str) and item_id.strip():
+                entry["item_id"] = item_id.strip()
+            out[vid] = entry
+            kept += 1
+            if kept >= per_restaurant_cap:
+                break
     return out
 
 
@@ -2074,6 +2187,25 @@ async def _run_session_inner(
                         recent_restaurants = _merge_recent_restaurants(
                             recent_restaurants, new_restos
                         )
+                    # Lift the per-restaurant ``items[]`` Zomato pre-curates
+                    # into every keyword search result. Each item is a real
+                    # addable dish with a real variant_id scoped to its
+                    # parent restaurant — stamping them into session_menu
+                    # lets the user say "add the Crispy Veg Burger" without
+                    # us needing a separate ``get_menu_items_listing`` round
+                    # trip first. ``_collect_menu_index_from_keyword_envelope``
+                    # already stamps the correct per-restaurant res_id on
+                    # each entry so the global ``current_rid`` stamping at
+                    # end-of-turn (= first hit only) won't mis-tag them.
+                    try:
+                        kw_entries = _collect_menu_index_from_keyword_envelope(envelope)
+                    except Exception as e:
+                        logger.info("keyword menu items extraction failed: %s", e)
+                        kw_entries = {}
+                    if kw_entries:
+                        menu_index = _merge_menu_index(menu_index, kw_entries)
+                        fresh_menu_keys.update(kw_entries.keys())
+                        diagnostics["menu_index_size"] = len(menu_index)
 
                 if tool == "checkout_cart" and not envelope.get("is_error"):
                     try:

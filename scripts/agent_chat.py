@@ -248,11 +248,41 @@ def main() -> int:
             print(f"  ⏸ pending variant  : {iname} → {groups_desc}")
     print(f"  attachments       : {len(attachments)} item(s)")
     for j, att in enumerate(attachments):
-        print(
-            f"    [{j}] kind={att.get('kind')!r} mime={att.get('mime_type')!r} "
-            f"has_b64={bool(att.get('data_b64'))} amount=₹{att.get('amount_inr')} "
-            f"upi={att.get('upi_link')!r}"
-        )
+        kind = att.get('kind')
+        if kind == 'menu_cards':
+            items = att.get('items') or []
+            print(
+                f"    [{j}] kind='menu_cards' restaurant={att.get('restaurant_name')!r} "
+                f"res_id={att.get('res_id')} cards={len(items)}"
+            )
+            for k, it in enumerate(items):
+                price = it.get('discounted_price') or it.get('price')
+                veg = it.get('veg_kind')
+                print(f"        - {it.get('name')} (vid={it.get('variant_id')}, ₹{price}, {veg})")
+        elif kind == 'restaurant_cards':
+            restos = att.get('restaurants') or []
+            print(
+                f"    [{j}] kind='restaurant_cards' keyword={att.get('keyword')!r} "
+                f"restaurants={len(restos)}"
+            )
+            for k, r in enumerate(restos):
+                items = r.get('items') or []
+                print(
+                    f"        ▸ {r.get('name')} (res_id={r.get('res_id')}, "
+                    f"⭐{r.get('rating')}, {r.get('eta')}, {r.get('distance_km')}km, "
+                    f"items={len(items)})"
+                )
+                for it in items[:3]:
+                    print(
+                        f"            • {it.get('name')} (vid={it.get('variant_id')}, "
+                        f"₹{it.get('price')}, {it.get('veg_kind')})"
+                    )
+        else:
+            print(
+                f"    [{j}] kind={kind!r} mime={att.get('mime_type')!r} "
+                f"has_b64={bool(att.get('data_b64'))} amount=₹{att.get('amount_inr')} "
+                f"upi={att.get('upi_link')!r}"
+            )
     print()
     print("ASSISTANT:")
     print(_short(assistant))

@@ -1,14 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
-import type { Attachment, MenuCardItem, Message, SessionAddress } from './types';
+import type {
+  Attachment,
+  MenuCardItem,
+  Message,
+  RestaurantCardEntry,
+  RestaurantCardItem,
+  SessionAddress,
+} from './types';
 import { cn } from './utils';
 import {
   ExternalLink,
   MapPin,
   ChevronDown,
+  ChevronUp,
   Star,
   UtensilsCrossed,
+  Clock,
+  TrendingUp,
   RefreshCw,
   ThumbsUp,
   ThumbsDown,
@@ -171,6 +181,188 @@ const MenuCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
   );
 };
 
+// One featured dish row inside a restaurant card. Compact: veg dot + name
+// + price on the left, square thumbnail on the right when available.
+const RestaurantFeaturedItem: React.FC<{ item: RestaurantCardItem }> = ({ item }) => {
+  const [imageBroken, setImageBroken] = useState(false);
+  const price = formatPriceINR(item.price);
+  const showImage = !!item.image_url && !imageBroken;
+  return (
+    <div className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50/70 transition-colors">
+      <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+        <div className="flex items-start gap-1.5">
+          {item.veg_kind && (
+            <span
+              className={cn(
+                'mt-[3px] w-3 h-3 border p-[1.5px] flex items-center justify-center rounded-sm shrink-0',
+                item.veg_kind === 'veg' ? 'border-emerald-600' : 'border-red-600'
+              )}
+            >
+              <span
+                className={cn(
+                  'block w-1 h-1 rounded-full',
+                  item.veg_kind === 'veg' ? 'bg-emerald-600' : 'bg-red-600'
+                )}
+              />
+            </span>
+          )}
+          <span className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2">
+            {item.name}
+          </span>
+        </div>
+        {price && (
+          <span className="ml-[18px] text-[11px] font-bold text-slate-900">{price}</span>
+        )}
+      </div>
+      {showImage && (
+        <div className="w-10 h-10 rounded-md overflow-hidden bg-slate-100 shrink-0 border border-slate-200/70">
+          <img
+            src={item.image_url}
+            alt={item.name}
+            loading="lazy"
+            onError={() => setImageBroken(true)}
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const formatDistanceKm = (value: number | undefined): string | null => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  return `${value} km`;
+};
+
+// One restaurant tile. Image header with rating + offer ribbon, meta row
+// (distance + ETA), then a collapsible list of featured dishes pulled
+// straight from Zomato's keyword-search preview.
+const RestaurantCard: React.FC<{ restaurant: RestaurantCardEntry }> = ({ restaurant }) => {
+  const items = Array.isArray(restaurant.items) ? restaurant.items : [];
+  const hasItems = items.length > 0;
+  const [imageBroken, setImageBroken] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const showImage = !!restaurant.res_image && !imageBroken;
+  const showRating =
+    typeof restaurant.rating === 'number' && restaurant.rating > 0;
+  const eta = restaurant.eta ? String(restaurant.eta) : null;
+  const distance = formatDistanceKm(restaurant.distance_km);
+  const offer = restaurant.res_offer ? String(restaurant.res_offer).trim() : '';
+
+  return (
+    <div className="snap-start shrink-0 w-[280px] flex flex-col bg-white/95 border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
+      <div className="relative h-28 w-full bg-slate-900 overflow-hidden">
+        {showImage ? (
+          <img
+            src={restaurant.res_image}
+            alt={restaurant.name}
+            loading="lazy"
+            onError={() => setImageBroken(true)}
+            className="w-full h-full object-cover opacity-95"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-slate-500 bg-gradient-to-br from-slate-800 to-slate-700">
+            <UtensilsCrossed size={28} strokeWidth={1.5} />
+          </div>
+        )}
+        <div className="absolute top-1.5 left-1.5 z-10 bg-[#E23744] text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase">
+          Zomato
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-2">
+          {offer && (
+            <span className="self-start mb-1 inline-block bg-amber-400 text-slate-950 font-extrabold text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-md max-w-full truncate">
+              {offer}
+            </span>
+          )}
+          <div className="flex justify-between items-end gap-2">
+            <h3 className="text-white font-bold text-[13px] leading-tight truncate drop-shadow-sm flex-1">
+              {restaurant.name}
+            </h3>
+            {showRating && (
+              <div className="flex items-center gap-0.5 bg-emerald-600 text-white font-bold text-[11px] px-1.5 py-0.5 rounded shrink-0">
+                <Star size={9} className="fill-white" />
+                <span>{restaurant.rating!.toFixed(1)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {(distance || eta) && (
+        <div className="grid grid-cols-2 text-center border-b border-slate-100 bg-slate-50/60 text-[11px] py-1.5">
+          {distance && (
+            <div className="flex items-center justify-center gap-1 font-semibold text-slate-600">
+              <MapPin size={12} className="text-slate-400" />
+              <span>{distance}</span>
+            </div>
+          )}
+          {eta && (
+            <div
+              className={cn(
+                'flex items-center justify-center gap-1 font-semibold text-slate-600',
+                distance && 'border-l border-slate-200'
+              )}
+            >
+              <Clock size={12} className="text-slate-400" />
+              <span>{eta}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {hasItems && (
+        <>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="w-full text-left px-2.5 py-1.5 bg-white flex items-center justify-between text-slate-600 hover:bg-slate-50 border-b border-slate-100 transition-colors cursor-pointer"
+          >
+            <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+              Top picks ({items.length})
+            </span>
+            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
+          {expanded && (
+            <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto bg-white">
+              {items.map((item, idx) => (
+                <RestaurantFeaturedItem
+                  key={item.variant_id || item.item_id || `${item.name}-${idx}`}
+                  item={item}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+const RestaurantCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
+  const restaurants = Array.isArray(attachment.restaurants) ? attachment.restaurants : [];
+  if (restaurants.length === 0) return null;
+  const keyword = attachment.keyword ? String(attachment.keyword).trim() : '';
+  const heading = keyword ? `Restaurants — ${keyword}` : 'Restaurants';
+
+  return (
+    <div className="mt-1 w-full max-w-full">
+      <div className="flex items-center gap-1.5 mb-2 px-1">
+        <TrendingUp size={12} className="text-[#E23744]" />
+        <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+          {heading} ({restaurants.length})
+        </div>
+      </div>
+      <div className="flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+        {restaurants.map((r, idx) => (
+          <RestaurantCard key={r.res_id || `${r.name}-${idx}`} restaurant={r} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }) => {
   const cards = attachments
     .filter((att): att is Attachment => !!att && typeof att === 'object')
@@ -178,6 +370,9 @@ const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }
       const kind = String(att.kind || '').toLowerCase();
       if (kind === 'menu_cards') {
         return <MenuCardGrid key={`menu-${idx}`} attachment={att} />;
+      }
+      if (kind === 'restaurant_cards') {
+        return <RestaurantCardGrid key={`resto-${idx}`} attachment={att} />;
       }
       const mime = String(att.mime_type || 'image/png');
       const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';

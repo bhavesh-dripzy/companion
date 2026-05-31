@@ -61,6 +61,30 @@ _MENU_CARD_TOOLS = {
     "get_menu_items_listing",
 }
 
+# Tools whose envelopes carry restaurant-search results we can render as
+# restaurant cards (image + rating + ETA + a few featured dishes inline).
+#   * get_restaurants_for_keyword → results[] with embedded items[]
+# Same lift-from-raw-envelope pattern as menu_cards; the chat-side
+# <RestaurantCardGrid /> component renders these next to the assistant
+# bubble. The featured items inside each card are real addable variants —
+# the executor also stamps them into ``session_menu`` (see
+# ``_collect_menu_index_from_keyword_envelope``) so the next-turn planner
+# can ``create_cart`` directly from any visible item without a separate
+# ``get_menu_items_listing`` round trip.
+_RESTAURANT_CARD_TOOLS = {
+    "get_restaurants_for_keyword",
+}
+
+# Max featured items we render per restaurant card. Matches the executor's
+# ``_KEYWORD_ITEMS_PER_RESTAURANT`` (3) so the cards on screen, the
+# response LLM's narration, and ``session_menu`` always agree.
+_MAX_FEATURED_ITEMS_PER_RESTAURANT = 3
+
+# Max restaurant cards shipped in one attachment. Matches the executor's
+# ``_MAX_REMEMBERED_RESTAURANTS`` so the visible card row mirrors the
+# planner's ``session_restaurants`` LRU exactly.
+_MAX_RESTAURANT_CARDS = 8
+
 
 def _collect_payment_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str, Any]]:
     """Lift any ``payment.qr_b64`` blocks out of raw tool steps.
@@ -251,6 +275,187 @@ def _build_menu_card(item: dict[str, Any]) -> dict[str, Any] | None:
             card["category"] = clean[0]
 
     return card
+
+
+def _build_restaurant_card_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalise one Zomato keyword-search ``results[].items[]`` row into a card item.
+
+    Source shape (from ``outputs/get_restaurants_for_keyword_*.json``)::
+
+        {variant_id, catalogue_id, name, price, min_price, image_link,
+         is_veg, item_customizations, dish_selected_attr}
+
+    Returns ``None`` for rows missing ``name`` + ``variant_id`` (those are
+    the minimum bits the frontend needs to render a tile + the next-turn
+    planner needs to add it to a cart).
+    """
+    if not isinstance(item, dict):
+        return None
+    name = item.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    vid = item.get("variant_id")
+    if not isinstance(vid, str) or not vid.strip():
+        return None
+    out: dict[str, Any] = {"name": name.strip(), "variant_id": vid.strip()}
+    item_id = item.get("catalogue_id") or item.get("item_id")
+    if isinstance(item_id, str) and item_id.strip():
+        out["item_id"] = item_id.strip()
+    price = item.get("price")
+    if isinstance(price, (int, float)) and price > 0:
+        out["price"] = price
+    min_price = item.get("min_price")
+    if isinstance(min_price, (int, float)) and min_price > 0 and min_price != price:
+        out["min_price"] = min_price
+    image = item.get("image_link") or item.get("image_url")
+    if isinstance(image, str) and image.strip().startswith(("http://", "https://")):
+        out["image_url"] = image.strip()
+    is_veg = item.get("is_veg")
+    if isinstance(is_veg, bool):
+        out["veg_kind"] = "veg" if is_veg else "non_veg"
+    return out
+
+
+def _build_restaurant_card_entry(resto: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalise one ``results[]`` restaurant row into a renderable card entry.
+
+    Carries enough metadata for the chat-side <RestaurantCardGrid /> to
+    render the inspired Zomato-style tile (image header, rating chip,
+    distance + ETA meta row, offer ribbon) PLUS up to
+    ``_MAX_FEATURED_ITEMS_PER_RESTAURANT`` featured dishes the user can
+    add directly.
+
+    Returns ``None`` if the row is missing the basics (res_id + name) —
+    those would render as a blank tile and confuse the user.
+    """
+    if not isinstance(resto, dict):
+        return None
+    rid_raw = resto.get("res_id") or resto.get("restaurant_id")
+    name = resto.get("name") or resto.get("restaurant_name")
+    if rid_raw is None or not isinstance(name, str) or not name.strip():
+        return None
+    rid = str(rid_raw).strip()
+    if not rid:
+        return None
+    out: dict[str, Any] = {"res_id": rid, "name": name.strip()}
+    for k_src, k_dst in (
+        ("rating", "rating"),
+        ("votes", "votes"),
+        ("eta", "eta"),
+        ("distance", "distance_km"),
+        ("res_image", "res_image"),
+        ("res_offer", "res_offer"),
+        ("serviceability_status", "serviceability_status"),
+        ("chain_id", "chain_id"),
+    ):
+        v = resto.get(k_src)
+        if v is None:
+            continue
+        if isinstance(v, str):
+            vs = v.strip()
+            if vs:
+                out[k_dst] = vs
+            continue
+        out[k_dst] = v
+    raw_items = resto.get("items")
+    items: list[dict[str, Any]] = []
+    if isinstance(raw_items, list):
+        for it in raw_items:
+            card = _build_restaurant_card_item(it)
+            if card is None:
+                continue
+            items.append(card)
+            if len(items) >= _MAX_FEATURED_ITEMS_PER_RESTAURANT:
+                break
+    if items:
+        out["items"] = items
+    return out
+
+
+def _collect_restaurant_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Lift Zomato keyword-search ``results[]`` into renderable restaurant cards.
+
+    Walks ``raw_tool_results[<provider>].steps[]`` looking for
+    ``get_restaurants_for_keyword`` envelopes. For each matching step we
+    emit one attachment::
+
+        {
+          "kind": "restaurant_cards",
+          "source": "zomato.get_restaurants_for_keyword",
+          "keyword": "burger",
+          "restaurants": [
+            {res_id, name, rating?, votes?, eta?, distance_km?, res_image?,
+             res_offer?, serviceability_status?,
+             items: [{variant_id, name, price?, image_url?, veg_kind?}, ...]},
+            ...
+          ]
+        }
+
+    Capped to ``_MAX_RESTAURANT_CARDS`` outer entries (matches the
+    executor's session_restaurants LRU cap) and
+    ``_MAX_FEATURED_ITEMS_PER_RESTAURANT`` inner items per card.
+
+    The original ``step.result`` envelope is left untouched so the
+    response-LLM, observable trace, and debug payloads still see the raw
+    structure.
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        steps = raw.get("steps") or []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tool = str(step.get("tool") or "").strip()
+            if tool not in _RESTAURANT_CARD_TOOLS:
+                continue
+            envelope = step.get("result")
+            if not isinstance(envelope, dict) or envelope.get("is_error"):
+                continue
+            data = envelope.get("data") if isinstance(envelope.get("data"), dict) else None
+            results: list[Any] = []
+            if isinstance(data, dict):
+                if isinstance(data.get("results"), list):
+                    results = data["results"]
+                elif isinstance(data.get("data"), dict) and isinstance(
+                    data["data"].get("results"), list
+                ):
+                    results = data["data"]["results"]
+            if not results:
+                continue
+            cards: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for resto in results:
+                if len(cards) >= _MAX_RESTAURANT_CARDS:
+                    break
+                entry = _build_restaurant_card_entry(resto)
+                if entry is None:
+                    continue
+                if entry["res_id"] in seen:
+                    continue
+                seen.add(entry["res_id"])
+                cards.append(entry)
+            if not cards:
+                continue
+            attachment: dict[str, Any] = {
+                "kind": "restaurant_cards",
+                "source": f"{provider_name}.{tool}",
+                "restaurants": cards,
+            }
+            args = step.get("arguments") or {}
+            if isinstance(args, dict):
+                keyword = args.get("keyword") or args.get("query")
+                if isinstance(keyword, str) and keyword.strip():
+                    attachment["keyword"] = keyword.strip()
+            out.append(attachment)
+    return out
 
 
 def _collect_menu_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1410,11 +1615,17 @@ def run_agent_turn(
     menu_attachments = _collect_menu_attachments(raw_tool_results)
     if menu_attachments:
         attachments = attachments + menu_attachments
+    restaurant_attachments = _collect_restaurant_attachments(raw_tool_results)
+    if restaurant_attachments:
+        attachments = attachments + restaurant_attachments
     trace(
         "hoister.out",
         attachment_count=len(attachments),
-        payment_attachments=len(attachments) - len(menu_attachments),
+        payment_attachments=(
+            len(attachments) - len(menu_attachments) - len(restaurant_attachments)
+        ),
         menu_attachments=len(menu_attachments),
+        restaurant_attachments=len(restaurant_attachments),
         attachments=snip(attachments),
     )
 

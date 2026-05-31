@@ -335,55 +335,67 @@ _SYSTEM_PROMPT = (
     "    — not a search engine, not a markdown summary, and definitely not "
     "    a UI narrator.\n"
     "- **Restaurant search results (Zomato/Swiggy)**: When the tool result "
-    "contains a list of restaurants (e.g. `get_restaurants_for_keyword` "
-    "ran successfully and `diagnostics.session_restaurants[]` is "
-    "populated), you are showing OPTIONS the user is choosing between — "
-    "not the food inside each option. Use **`diagnostics.session_restaurants[]` "
-    "as the source of truth** for this list (it's the LRU-trimmed, "
-    "deduped shortlist with the metadata already normalized). Ignore the "
-    "noisier raw `results[].featured_items` / per-restaurant menu hints "
-    "in the tool envelope — those are distractions; the user just wants "
-    "to know which places are nearby. Hard rules:\n"
+    "contains a `restaurant_cards` attachment in `ui_attachments[]` (the "
+    "executor emits one for every successful `get_restaurants_for_keyword` "
+    "call), you are showing OPTIONS the user is choosing between. Use "
+    "**`ui_attachments[].restaurants_preview[]` as the source of truth** "
+    "for both the restaurant list AND the small set of featured dishes "
+    "Zomato pre-curated per restaurant. The chat UI is *also* rendering "
+    "a horizontal row of restaurant cards with those same dishes inline — "
+    "your narration should match, not duplicate every detail. Hard rules:\n"
     "  • Open with a single-line frame (e.g. *\"Aapke paas yeh burger "
     "    places deliver kar rahe hain:\"* or *\"Here's what's open near "
     "    you right now —\"*).\n"
-    "  • Then **a markdown numbered list, one restaurant per line** — "
-    "    each line MUST start with `N. ` (the digits + dot + space). "
+    "  • Then **a markdown numbered list, one restaurant per entry** — "
+    "    each entry MUST start with `N. ` (the digits + dot + space). "
     "    Renderer is markdown, so a plain newline without `N. ` collapses "
     "    into a paragraph; the numbered prefix is what guarantees a real "
     "    line break in the chat bubble. NEVER one run-on paragraph, "
-    "    NEVER comma-joined names, NEVER a markdown table. Each line "
-    "    carries:\n"
+    "    NEVER comma-joined names, NEVER a markdown table. Each entry "
+    "    carries the restaurant header line:\n"
     "       `N. name — ⭐ rating · eta · distance_km km`\n"
+    "    and may follow up with an indented bullet line listing the top "
+    "    1–3 featured dishes for that restaurant (from "
+    "    `restaurants_preview[].items_preview[]`) — name + price each. "
+    "    Only list dishes that actually appear in `items_preview` for "
+    "    that restaurant; do NOT invent items, do NOT pull from any "
+    "    other field.\n"
     "    Example (English) — copy this exact shape:\n"
     "    ```\n"
     "    1. Burger King — ⭐ 4.1 · 30–35 min · 2.7 km\n"
+    "       Try: Veg Whopper ₹179 · Chicken Whopper ₹229\n"
     "    2. McDonald's — ⭐ 4.2 · 30–35 min · 3.0 km\n"
+    "       Try: McAloo Tikki Meal ₹179\n"
     "    3. Burger Singh — ⭐ 4.1 · 15–20 min · 2.9 km\n"
     "    ```\n"
     "    Example (Hinglish) — same shape, frame/close in Hinglish:\n"
     "    ```\n"
     "    Aapke paas yeh burger places deliver kar rahe hain:\n"
     "    1. Burger King — ⭐ 4.1 · 30–35 min · 2.7 km\n"
+    "       Top: Veg Whopper ₹179, Chicken Whopper ₹229\n"
     "    2. McDonald's — ⭐ 4.2 · 30–35 min · 3.0 km\n"
-    "    Kis ka menu dikhaun?\n"
+    "       Top: McAloo Tikki Meal ₹179\n"
+    "    Kisi se add karwana hai, ya kisi restaurant ka pura menu dikhaun?\n"
     "    ```\n"
     "    Skip any field that is missing in the data — don't fabricate. "
     "    If `serviceability_status` flags the place as not serviceable / "
     "    closed, tag it on its own line (e.g. *\"(abhi deliver nahi kar "
-    "    rahe)\"*) and move on.\n"
-    "  • **Do NOT pull menu items from inside each restaurant**. No "
-    "    \"Burger King has Whopper Veg ₹189\" lines here. Menu items "
-    "    belong in the *menu_cards* flow, after the user picks a "
-    "    restaurant. This step is purely \"which place?\".\n"
-    "  • Cover every restaurant in `session_restaurants[]` (the executor "
+    "    rahe)\"*) and move on. If a restaurant has no `items_preview` "
+    "    rows, just skip the dish line — header alone is fine.\n"
+    "  • Cover every restaurant in `restaurants_preview[]` (the executor "
     "    already trimmed it to the right shortlist — typically 6–8). "
     "    Don't pad past what's actually in the data and don't truncate "
     "    further unless the user explicitly asked for fewer.\n"
-    "  • Close with a one-line follow-up that asks which one to open "
-    "    (*\"Kis ka menu dikhaun?\"*, *\"Want me to pull up any of these?\"*).\n"
-    "  • `featured_variant_ids` stays `[]` — restaurants don't have "
-    "    variant ids; that list is reserved for menu cards only.\n"
+    "  • Close with a one-line follow-up that nudges the next step "
+    "    (e.g. *\"Kis ka menu dikhaun, ya seedha kuch add kar dun?\"*, "
+    "    *\"Want me to add any of these, or open a full menu?\"*) — "
+    "    because the user can now both (a) ask for a full menu OR "
+    "    (b) directly add any featured dish straight from this list, "
+    "    since those `variant_id`s are already in the planner's cache.\n"
+    "  • `featured_variant_ids` stays `[]` for the restaurant search "
+    "    reply — that list is reserved for `menu_cards` attachments. "
+    "    The restaurant cards (and their inline dishes) are shown to "
+    "    the user regardless, so no extra filtering is needed here.\n"
     "- **Customization defaults (Zomato)**: After a successful `create_cart`, "
     "look at `cart.items[].add_ons[]` in the tool result — that's the set of "
     "required modifiers Zomato auto-picked (e.g. bread, prep, veg, sauce on a "
@@ -573,6 +585,76 @@ def _summarize_attachments_for_prompt(
                     "categories": att.get("categories"),
                     "items_count": len(items) if isinstance(items, list) else 0,
                     "items_preview": preview,
+                }
+            )
+            continue
+        if kind == "restaurant_cards":
+            # Restaurant search results. The chat UI renders a horizontal row
+            # of restaurant tiles (each with rating + ETA + a few featured
+            # dishes inline). The LLM gets a slimmed mirror so it can narrate
+            # the list line-by-line and optionally mention 1–3 top dishes per
+            # restaurant. The variant_ids on items_preview are real, addable
+            # ids — also cached in ``session_menu`` — so a follow-up "add the
+            # Veg Whopper" can resolve without a separate menu fetch.
+            restos_raw = att.get("restaurants") or []
+            restos_preview: list[dict[str, Any]] = []
+            if isinstance(restos_raw, list):
+                for r in restos_raw:
+                    if not isinstance(r, dict):
+                        continue
+                    rid = r.get("res_id")
+                    rname = r.get("name")
+                    if not (isinstance(rid, str) and rid.strip()):
+                        continue
+                    if not (isinstance(rname, str) and rname.strip()):
+                        continue
+                    row: dict[str, Any] = {
+                        "res_id": rid.strip(),
+                        "name": rname.strip(),
+                    }
+                    for k in (
+                        "rating",
+                        "votes",
+                        "eta",
+                        "distance_km",
+                        "res_offer",
+                        "serviceability_status",
+                    ):
+                        v = r.get(k)
+                        if v not in (None, "", 0):
+                            row[k] = v
+                    items_raw = r.get("items") or []
+                    items_preview: list[dict[str, Any]] = []
+                    if isinstance(items_raw, list):
+                        for it in items_raw:
+                            if not isinstance(it, dict):
+                                continue
+                            vid = it.get("variant_id")
+                            iname = it.get("name")
+                            if not (isinstance(vid, str) and vid.strip()):
+                                continue
+                            if not (isinstance(iname, str) and iname.strip()):
+                                continue
+                            ip: dict[str, Any] = {
+                                "variant_id": vid.strip(),
+                                "name": iname.strip(),
+                            }
+                            for k in ("price", "min_price", "veg_kind"):
+                                if it.get(k) not in (None, "", 0):
+                                    ip[k] = it[k]
+                            items_preview.append(ip)
+                    if items_preview:
+                        row["items_preview"] = items_preview
+                    restos_preview.append(row)
+            summarized.append(
+                {
+                    "kind": "restaurant_cards",
+                    "source": att.get("source"),
+                    "keyword": att.get("keyword"),
+                    "restaurants_count": (
+                        len(restos_raw) if isinstance(restos_raw, list) else 0
+                    ),
+                    "restaurants_preview": restos_preview,
                 }
             )
             continue

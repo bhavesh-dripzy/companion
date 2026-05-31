@@ -45,6 +45,43 @@ export interface MenuCardItem {
   category?: string;
 }
 
+// One featured dish inside a restaurant card. These are the addable
+// previews Zomato surfaces inside every `get_restaurants_for_keyword`
+// result, capped per restaurant by `_MAX_FEATURED_ITEMS_PER_RESTAURANT`
+// in pipeline.py. The frontend renders these inline beneath the
+// restaurant header so the user can spot a dish and ask "add the Veg
+// Whopper" without opening the full menu first — the variant_id is
+// already cached in `session_menu` next turn.
+export interface RestaurantCardItem {
+  name: string;
+  variant_id?: string;
+  item_id?: string;
+  price?: number;
+  min_price?: number;
+  image_url?: string;
+  // Derived from Zomato's `is_veg`: "veg" / "non_veg".
+  veg_kind?: "veg" | "non_veg" | "egg";
+}
+
+// One restaurant tile inside a `restaurant_cards` attachment. Mirrors
+// `_build_restaurant_card_entry` in pipeline.py — every field except
+// `res_id` and `name` is optional because Zomato populates them
+// inconsistently (small chains rarely have ratings, freshly listed
+// places lack images, etc.).
+export interface RestaurantCardEntry {
+  res_id: string;
+  name: string;
+  rating?: number;
+  votes?: number;
+  eta?: string;
+  distance_km?: number;
+  res_image?: string;
+  res_offer?: string;
+  serviceability_status?: string;
+  chain_id?: number | string;
+  items?: RestaurantCardItem[];
+}
+
 export interface Attachment {
   kind: string;
   source?: string;
@@ -62,6 +99,11 @@ export interface Attachment {
   res_id?: number | string;
   categories?: string[];
   items?: MenuCardItem[];
+  // restaurant_cards-specific fields. Populated only when
+  // `kind === "restaurant_cards"`; the frontend's <RestaurantCardGrid />
+  // reads these to render the Zomato keyword-search tile row.
+  keyword?: string;
+  restaurants?: RestaurantCardEntry[];
 }
 
 export interface Message {
