@@ -1,0 +1,23 @@
+name: List Cognito Users
+on: [workflow_dispatch]
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  list_users:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCOUNT_ID: "616551057455"
+      AWS_REGION: ap-south-1
+      AWS_DEPLOY_ROLE_ARN: "arn:aws:iam::616551057455:role/GitHubActionsDeployRole"
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: List Users
+        run: |
+          user_pool_id=$(aws cloudformation describe-stacks --stack-name companion-serverless --query "Stacks[0].Outputs[?OutputKey=='CognitoUserPoolId'].OutputValue" --output text)
+          aws cognito-idp list-users --user-pool-id $user_pool_id > users.json
+          cat users.json
