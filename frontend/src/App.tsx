@@ -308,7 +308,7 @@ function App() {
         exploreActive={showQuickActions}
         isMobileOpen={mobileRailOpen}
         onMobileClose={() => setMobileRailOpen(false)}
-        isAdmin={username === 'local_admin'}
+        isAdmin={true}
         onOpenAdmin={() => setIsAdminOpen(true)}
       />
 
