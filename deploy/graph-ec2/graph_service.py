@@ -4,6 +4,7 @@ import sys
 import json
 import logging
 from contextlib import asynccontextmanager
+from typing import Any
 import boto3
 from fastapi import FastAPI, Depends, HTTPException, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials

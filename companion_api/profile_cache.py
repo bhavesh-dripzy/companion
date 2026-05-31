@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import Any
 from companion_api import settings
 from companion_api.dynamodb import _resource, _json_safe, utc_now_iso
+import json
+from decimal import Decimal
 
 
 class ProfileCacheRepository:
@@ -14,11 +16,10 @@ class ProfileCacheRepository:
         return _json_safe(item) if item else None
 
     def put(self, user_id: str, profile: dict[str, Any]) -> None:
-        self.table.put_item(
-            Item={
-                "PK": f"USER#{user_id}",
-                "SK": "PROFILE",
-                **profile,
-                "updated_at": utc_now_iso(),
-            }
-        )
+        item = json.loads(json.dumps({
+            "PK": f"USER#{user_id}",
+            "SK": "PROFILE",
+            **profile,
+            "updated_at": utc_now_iso(),
+        }), parse_float=Decimal)
+        self.table.put_item(Item=item)

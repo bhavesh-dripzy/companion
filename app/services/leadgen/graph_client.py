@@ -57,8 +57,8 @@ class GraphClient:
         """Creates or updates a user node with basic profile details."""
         cypher = """
         MERGE (u:User {id: $user_id})
-        SET u += $properties, u.updated_at = timestamp()
         ON CREATE SET u.created_at = timestamp()
+        SET u += $properties, u.updated_at = timestamp()
         RETURN u
         """
         # Ensure ID isn't duplicated inside properties dictionary

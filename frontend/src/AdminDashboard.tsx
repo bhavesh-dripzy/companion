@@ -63,12 +63,12 @@ interface AdminDashboardProps {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  User: '#ffb800',       // Amber/Gold
-  Place: '#10b981',      // Emerald/Green
-  Category: '#a855f7',   // Purple/Violet
-  Interest: '#3b82f6',   // Blue/Indigo
-  Lead: '#ef4444',       // Red/Rose
-  Default: '#94a3b8'     // Slate/Gray
+  User: '#F59E0B',       // Amber
+  Place: '#10B981',      // Emerald
+  Category: '#8B5CF6',   // Violet
+  Interest: '#0EA5E9',   // Sky Blue
+  Lead: '#F43F5E',       // Rose
+  Default: '#64748B'     // Slate
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -98,6 +98,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
   const nodesRef = useRef<GraphNode[]>([]);
   const linksRef = useRef<GraphLink[]>([]);
   const draggingNodeRef = useRef<GraphNode | null>(null);
+  const hoveredNodeRef = useRef<GraphNode | null>(null);
 
   // Load user directory
   useEffect(() => {
@@ -266,77 +267,149 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
       }
 
       // 4. Drawing operations
-      ctx.clearRect(0, 0, width, height);
+      // Draw dark background with subtle grid
+      ctx.fillStyle = '#05030A';
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw subtle grid
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x < width; x += 40) {
+        ctx.moveTo(x, 0); ctx.lineTo(x, height);
+      }
+      for (let y = 0; y < height; y += 40) {
+        ctx.moveTo(0, y); ctx.lineTo(width, y);
+      }
+      ctx.stroke();
+
+      const hoveredNode = hoveredNodeRef.current;
+      const activeNode = selectedNode || hoveredNode;
+      
+      // Determine connected nodes if there's an active node
+      const connectedNodeIds = new Set<string>();
+      const connectedLinkIndices = new Set<number>();
+      if (activeNode) {
+        connectedNodeIds.add(activeNode.id);
+        links.forEach((link, i) => {
+          if (link.source === activeNode.id || link.target === activeNode.id) {
+            connectedNodeIds.add(link.source);
+            connectedNodeIds.add(link.target);
+            connectedLinkIndices.add(i);
+          }
+        });
+      }
 
       // Draw Edges
-      for (const link of links) {
+      links.forEach((link, i) => {
         const s = nodes.find(n => n.id === link.source);
         const t = nodes.find(n => n.id === link.target);
-        if (!s || !t || !s.x || !s.y || !t.x || !t.y) continue;
+        if (!s || !t || !s.x || !s.y || !t.x || !t.y) return;
+
+        const isConnected = activeNode ? connectedLinkIndices.has(i) : true;
+        const alpha = isConnected ? 0.6 : 0.05;
 
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(t.x, t.y);
         
         // Edge styling
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = isConnected ? 2 : 1;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.stroke();
 
         // Draw relationship type text in middle
-        const midX = (s.x + t.x) / 2;
-        const midY = (s.y + t.y) / 2;
-        ctx.save();
-        ctx.translate(midX, midY);
-        ctx.font = '9px monospace';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(link.type, 0, -8);
-        ctx.restore();
-      }
+        if (isConnected || !activeNode) {
+          const midX = (s.x + t.x) / 2;
+          const midY = (s.y + t.y) / 2;
+          ctx.save();
+          ctx.translate(midX, midY);
+          
+          // Background pill for text
+          const text = link.type;
+          ctx.font = 'bold 10px Inter, sans-serif';
+          const textWidth = ctx.measureText(text).width;
+          ctx.fillStyle = `rgba(15, 11, 20, ${isConnected ? 0.9 : 0.6})`;
+          ctx.beginPath();
+          ctx.roundRect(-textWidth/2 - 4, -8, textWidth + 8, 16, 8);
+          ctx.fill();
+          
+          ctx.fillStyle = `rgba(255, 255, 255, ${isConnected ? 0.9 : 0.4})`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(text, 0, 0);
+          ctx.restore();
+        }
+      });
 
       // Draw Nodes
       for (const node of nodes) {
         if (!node.x || !node.y) continue;
 
-        const color = TYPE_COLORS[node.type] || TYPE_COLORS.Default;
-        const radius = node.type === 'User' ? 18 : 12;
+        const isHovered = hoveredNode?.id === node.id;
+        const isSelected = selectedNode?.id === node.id;
+        const isActive = isHovered || isSelected;
+        const isConnected = activeNode ? connectedNodeIds.has(node.id) : true;
+        
+        const baseColor = TYPE_COLORS[node.type] || TYPE_COLORS.Default;
+        const radius = node.type === 'User' ? 24 : 16;
+        const drawRadius = isActive ? radius * 1.1 : radius;
+        
+        const alpha = isConnected ? 1 : 0.2;
 
         ctx.save();
+        ctx.globalAlpha = alpha;
 
-        // Glowing circle effect for active node
-        const isSelected = selectedNode?.id === node.id;
-        if (isSelected) {
-          ctx.shadowBlur = 20;
-          ctx.shadowColor = color;
-        } else {
-          ctx.shadowBlur = 6;
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        // Glowing circle effect for connected nodes
+        if (isConnected) {
+          ctx.shadowBlur = isActive ? 30 : 15;
+          ctx.shadowColor = baseColor;
         }
 
+        // Create gradient for 3D orb effect
+        const grad = ctx.createRadialGradient(
+          node.x - drawRadius*0.3, node.y - drawRadius*0.3, 0,
+          node.x, node.y, drawRadius
+        );
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.2, baseColor);
+        grad.addColorStop(1, '#000000');
+
         ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
-        ctx.fillStyle = color;
+        ctx.arc(node.x, node.y, drawRadius, 0, 2 * Math.PI);
+        ctx.fillStyle = grad;
         ctx.fill();
 
-        // White inner circle
+        // Inner highlight ring
         ctx.beginPath();
-        ctx.arc(node.x, node.y, radius - 2, 0, 2 * Math.PI);
-        ctx.fillStyle = '#18161b';
-        ctx.fill();
+        ctx.arc(node.x, node.y, drawRadius - 1.5, 0, 2 * Math.PI);
+        ctx.strokeStyle = `rgba(255,255,255,${isActive ? 0.5 : 0.2})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
+        ctx.restore();
+        
+        ctx.save();
+        ctx.globalAlpha = alpha;
         // Draw node label above it
         ctx.shadowBlur = 0;
-        ctx.font = node.type === 'User' ? 'bold 11px Inter' : '10px Inter';
-        ctx.fillStyle = isSelected ? '#ffffff' : '#d1d5db';
+        ctx.font = node.type === 'User' ? 'bold 13px Inter, sans-serif' : '500 12px Inter, sans-serif';
+        
+        // Background for text to improve legibility
+        const labelWidth = ctx.measureText(node.label).width;
+        ctx.fillStyle = 'rgba(5, 3, 10, 0.7)';
+        ctx.fillRect(node.x - labelWidth/2 - 4, node.y - drawRadius - 22, labelWidth + 8, 18);
+        
+        ctx.fillStyle = isActive ? '#ffffff' : '#e2e8f0';
         ctx.textAlign = 'center';
-        ctx.fillText(node.label, node.x, node.y - radius - 6);
+        ctx.fillText(node.label, node.x, node.y - drawRadius - 8);
 
-        // Icon indicator
-        ctx.font = 'bold 9px monospace';
-        ctx.fillStyle = color;
-        ctx.fillText(node.type[0], node.x, node.y + 3);
+        // Icon indicator inside node
+        ctx.font = 'bold 12px monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(node.type[0], node.x, node.y);
 
         ctx.restore();
       }
@@ -364,24 +437,43 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
       if (!n.x || !n.y) return false;
       const dx = n.x - mouseX;
       const dy = n.y - mouseY;
-      const radius = n.type === 'User' ? 18 : 12;
-      return dx * dx + dy * dy < radius * radius * 2;
+      const radius = n.type === 'User' ? 24 : 16;
+      return dx * dx + dy * dy < radius * radius * 1.5;
     });
 
     if (clicked) {
       draggingNodeRef.current = clicked;
       setSelectedNode(clicked);
+    } else {
+      setSelectedNode(null);
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!draggingNodeRef.current || !canvasRef.current) return;
+    if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    draggingNodeRef.current.x = mouseX;
-    draggingNodeRef.current.y = mouseY;
+    if (draggingNodeRef.current) {
+      draggingNodeRef.current.x = mouseX;
+      draggingNodeRef.current.y = mouseY;
+      return;
+    }
+
+    // Hover logic
+    const hovered = nodesRef.current.find(n => {
+      if (!n.x || !n.y) return false;
+      const dx = n.x - mouseX;
+      const dy = n.y - mouseY;
+      const radius = n.type === 'User' ? 24 : 16;
+      return dx * dx + dy * dy < radius * radius * 1.5;
+    });
+
+    if (hovered !== hoveredNodeRef.current) {
+      hoveredNodeRef.current = hovered || null;
+      canvasRef.current.style.cursor = hovered ? 'pointer' : 'grab';
+    }
   };
 
   const handleMouseUp = () => {

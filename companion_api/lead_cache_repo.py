@@ -4,6 +4,8 @@ from typing import Any
 from companion_api import settings
 from companion_api.dynamodb import _resource, _json_safe, utc_now_iso
 from boto3.dynamodb.conditions import Key
+import json
+from decimal import Decimal
 
 
 class LeadCacheRepository:
@@ -22,7 +24,7 @@ class LeadCacheRepository:
         last_seen_at = lead.get("last_seen_at") or utc_now_iso()
         status_last_seen = f"{status}#{last_seen_at}"
 
-        item = {
+        item = json.loads(json.dumps({
             **lead,
             "lead_id": lead_id,
             "category": category,
@@ -30,7 +32,7 @@ class LeadCacheRepository:
             "last_seen_at": last_seen_at,
             "status_last_seen": status_last_seen,
             "updated_at": utc_now_iso(),
-        }
+        }), parse_float=Decimal)
         self.table.put_item(Item=item)
 
     def list_by_category(
