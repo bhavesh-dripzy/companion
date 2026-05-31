@@ -33,10 +33,10 @@ jobs:
               DocumentName="AWS-RunShellScript",
               Parameters={
                   "commands": [
-                      "curl -L -o /usr/bin/caddy 'https://caddyserver.com/api/download?os=linux&arch=arm64'",
+                      "curl -L -o /usr/bin/caddy \"https://caddyserver.com/api/download?os=linux&arch=arm64\"",
                       "chmod +x /usr/bin/caddy",
                       "groupadd --system caddy || true",
-                      "useradd --system --gid caddy --create-home --home-dir /var/lib/caddy --shell /usr/sbin/nologin --comment 'Caddy web server' caddy || true",
+                      "useradd --system --gid caddy --create-home --home-dir /var/lib/caddy --shell /usr/sbin/nologin --comment \"Caddy web server\" caddy || true",
                       "cat <<EOF > /etc/systemd/system/caddy.service",
                       "[Unit]",
                       "Description=Caddy",
