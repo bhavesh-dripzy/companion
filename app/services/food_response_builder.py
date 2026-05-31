@@ -151,6 +151,52 @@ def _fallback_assistant_message(
     )
 
 
+def _parse_response_llm_output(raw: str) -> tuple[str, list[str] | None]:
+    """Split the response LLM's JSON output into ``(text, featured_variant_ids)``.
+
+    Contract is ``{"text": "...", "featured_variant_ids": ["v_…", ...]}``.
+
+    Tolerance:
+      * If the model wraps the JSON in a markdown fence, strip it.
+      * If the model returns plain text (no JSON), treat the whole thing as
+        ``text`` and return ``None`` for the featured list so the pipeline
+        knows not to apply LLM-driven filtering (falls back to showing all
+        cards rather than hiding them all).
+      * If JSON is present but ``featured_variant_ids`` is missing or not a
+        list, treat as empty list (== explicit "no cards").
+      * Always coerce featured_variant_ids to a list[str] and drop blanks
+        — that's what the pipeline filter expects.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return "", None
+    s = raw.strip()
+    # Strip ```json … ``` / ``` … ``` fences if the LLM hedged.
+    if s.startswith("```"):
+        # Drop leading fence (and optional language tag), then trailing fence.
+        first_newline = s.find("\n")
+        if first_newline != -1:
+            s = s[first_newline + 1 :]
+        if s.endswith("```"):
+            s = s[: -3]
+        s = s.strip()
+    try:
+        obj = json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        return raw.strip(), None
+    if not isinstance(obj, dict):
+        return raw.strip(), None
+    text = obj.get("text")
+    if not isinstance(text, str):
+        return raw.strip(), None
+    feat_raw = obj.get("featured_variant_ids")
+    feat: list[str] = []
+    if isinstance(feat_raw, list):
+        for v in feat_raw:
+            if isinstance(v, str) and v.strip():
+                feat.append(v.strip())
+    return text.strip(), feat
+
+
 def _openai_compatible_chat(
     *,
     api_key: str,
@@ -182,7 +228,34 @@ _SYSTEM_PROMPT = (
     "run for the user, and the structured tool output is given to you as JSON. "
     "Write the spoken reply.\n"
     "\n"
-    "How to write the reply:\n"
+    "## Output format (STRICT — read first)\n"
+    "Return **exactly one JSON object**, no markdown fences, no preamble, no "
+    "trailing commentary. The schema is:\n"
+    "```\n"
+    "{\n"
+    "  \"text\": \"<the spoken reply for the user>\",\n"
+    "  \"featured_variant_ids\": [\"v_111\", \"v_222\", ...]\n"
+    "}\n"
+    "```\n"
+    "- `text` — the natural-language reply (Hinglish/English to match the user). All "
+    "  styling guidance below applies to this field.\n"
+    "- `featured_variant_ids` — the variant_ids you want the UI to surface as visual "
+    "  cards under your bubble. The user only sees a card for an item if its "
+    "  variant_id is in this list. Rules:\n"
+    "  • If the tool output contains a `menu_cards` attachment (visible in "
+    "    `ui_attachments[].items_preview`, each row has its `variant_id`), pick only "
+    "    the variant_ids of the items you actually mention or highlight in `text`. "
+    "    Do NOT echo every available variant_id — the point is to show the user "
+    "    only what your reply is about (e.g. user asked for veg → list only the veg "
+    "    variant_ids you mentioned).\n"
+    "  • If you discuss items generically without naming any specific ones, or no "
+    "    menu_cards attachment is present, return `[]`.\n"
+    "  • Only emit variant_ids that appear verbatim in `ui_attachments[].items_preview`. "
+    "    Never invent ids.\n"
+    "  • For non-menu replies (checkout confirmation, address nudge, error message, "
+    "    general chat), return `[]`.\n"
+    "\n"
+    "How to write `text`:\n"
     "- Speak in first person, as the assistant who just did the work for them. "
     "Phrases in the spirit of \"Here's what I found for you on <provider>\", "
     "\"I checked <provider> and got these\", or \"Maine yeh dhundha aapke liye\" "
@@ -210,20 +283,24 @@ _SYSTEM_PROMPT = (
     "first batch you surfaced. Don't truncate to 5 unless the user "
     "explicitly asked for fewer; *and* don't pad to 8 when there are "
     "only 3 genuinely relevant items. "
-    "**Exception — menu_cards attachment**: when the response payload "
-    "carries an `attachments[]` entry with `kind: \"menu_cards\"`, the "
-    "user is already seeing a Zomato-style visual grid of every item "
-    "(image, price, rating, veg/non-veg dot) right under your bubble. "
-    "**Do not repeat the list in markdown.** Instead, write 2–4 sentences "
-    "of companion-style guidance: call out 1–2 standout picks by name "
-    "and explain *why* (the cheapest, the highest-rated, the best deal, "
-    "the healthiest, the popular bestseller — use whatever signal is "
-    "actually there in the data), surface one real trade-off if one "
-    "exists (combo saves ₹X but adds Y cal, large is ₹Z more than "
-    "medium, etc.), and end with an open question that invites the user "
-    "to pick (*\"anything jump out?\"*, *\"want me to pull up the salads "
-    "next?\"*). Tone: a friend recommending dinner, not a waiter reading "
-    "a menu.\n"
+    "**Exception — menu_cards attachment**: when the input contains "
+    "`ui_attachments[]` entries with `kind: \"menu_cards\"`, a Zomato-style "
+    "visual card row (image, price, rating, veg/non-veg dot) is rendered "
+    "right under your bubble — but **only for the variant_ids you list in "
+    "`featured_variant_ids`**. So your `text` and your card list must match: "
+    "every card the user sees is an item you're talking about, every item "
+    "you name should have a card. **Do not repeat the list in markdown.** "
+    "Write 2–4 sentences of companion-style guidance: call out 1–2 "
+    "standout picks by name (and put their variant_ids in "
+    "`featured_variant_ids`), explain *why* in one line (the cheapest, "
+    "the highest-rated, the best deal, the healthiest, the bestseller — "
+    "whatever signal is genuinely in the data), surface one real "
+    "trade-off if one exists, and end with an open question (*\"anything "
+    "jump out?\"*, *\"want me to pull up the salads next?\"*). Tone: a "
+    "friend recommending dinner, not a waiter reading a menu. If the "
+    "user filtered ('only veg', 'under ₹250'), apply the filter on the "
+    "items_preview rows yourself — only mention and feature the items "
+    "that match the filter.\n"
     "- **Customization defaults (Zomato)**: After a successful `create_cart`, "
     "look at `cart.items[].add_ons[]` in the tool result — that's the set of "
     "required modifiers Zomato auto-picked (e.g. bread, prep, veg, sauce on a "
@@ -381,20 +458,26 @@ def _summarize_attachments_for_prompt(
             continue
         kind = str(att.get("kind") or "")
         if kind == "menu_cards":
-            # Card attachments don't carry base64; what the LLM needs is the
-            # *signal* that a visual grid is on screen plus a thin per-item
-            # summary so it can name the standout picks without parroting the
-            # full list. We ship name + price + rating + veg_kind only —
-            # everything else (image, description, ids) is the frontend's job
-            # and would burn prompt tokens. Cap at the top 12 cards for
-            # token budget; the user can still see all 25 in the UI.
+            # Card attachments don't carry base64; the LLM gets a thin per-item
+            # summary so it can name standout picks without parroting the full
+            # list. Crucially, we now ship ``variant_id`` per row so the LLM
+            # can echo it back in ``featured_variant_ids`` — the pipeline uses
+            # that list to filter which cards actually reach the UI. Without
+            # variant_id, the LLM can't do the filtering contract. Everything
+            # else (image, description) stays on the frontend side.
             items = att.get("items") or []
             preview: list[dict[str, Any]] = []
             if isinstance(items, list):
-                for it in items[:12]:
+                for it in items[:25]:
                     if not isinstance(it, dict):
                         continue
-                    row: dict[str, Any] = {"name": it.get("name")}
+                    vid = it.get("variant_id")
+                    if not (isinstance(vid, str) and vid.strip()):
+                        continue
+                    row: dict[str, Any] = {
+                        "variant_id": vid.strip(),
+                        "name": it.get("name"),
+                    }
                     for k in ("price", "discounted_price", "rating", "votes", "veg_kind", "category"):
                         if it.get(k) not in (None, "", 0):
                             row[k] = it[k]
@@ -439,8 +522,17 @@ def build_assistant_message_with_llm(
     conversation_history: list[dict[str, str]] | None = None,
     attachments: list[dict[str, Any]] | None = None,
     address_context: dict[str, Any] | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Generate the final assistant reply from raw tool output.
+
+    Returns
+    -------
+    dict
+        ``{"text": <spoken reply>, "featured_variant_ids": [<v_id>, ...] | None}``.
+        ``featured_variant_ids`` is a (possibly empty) list when the LLM
+        complied with the JSON contract, or ``None`` when it fell back to
+        plain text (so the caller can decide whether to filter cards or
+        leave the legacy "show everything" behaviour intact).
 
     Parameters
     ----------
@@ -494,7 +586,8 @@ def build_assistant_message_with_llm(
 
     user_prompt = (
         "Here is the structured tool output along with conversation context. "
-        "Write the assistant's spoken reply to the user:\n"
+        "Reply with the JSON object described in the system prompt — "
+        "`{\"text\": \"...\", \"featured_variant_ids\": [...]}` — and nothing else:\n"
         + json.dumps(payload, ensure_ascii=True, default=str)
     )
     trace(
@@ -508,34 +601,47 @@ def build_assistant_message_with_llm(
         user_message=user_message,
     )
 
+    def _fallback() -> dict[str, Any]:
+        return {
+            "text": _fallback_assistant_message(tool_results=tool_results),
+            "featured_variant_ids": None,
+        }
+
     try:
         if provider in ("openai", "deepseek"):
-            text = _openai_compatible_chat(
+            raw = _openai_compatible_chat(
                 api_key=api_key,
                 model=model,
                 system_prompt=_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 base_url=base_url if provider == "deepseek" else None,
             )
-            if text:
-                trace("response_llm.out", provider=provider, text=text)
-                return text
+        else:
+            from google import genai as google_genai
+
+            client = google_genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=f"SYSTEM:\n{_SYSTEM_PROMPT}\n\nUSER:\n{user_prompt}",
+            )
+            raw = (response.text or "").strip()
+
+        if not raw:
             trace("response_llm.fallback", reason="empty_text", provider=provider)
-            return _fallback_assistant_message(tool_results=tool_results)
+            return _fallback()
 
-        from google import genai as google_genai
-
-        client = google_genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model,
-            contents=f"SYSTEM:\n{_SYSTEM_PROMPT}\n\nUSER:\n{user_prompt}",
+        text, featured = _parse_response_llm_output(raw)
+        if not text:
+            trace("response_llm.fallback", reason="empty_text_after_parse", provider=provider)
+            return _fallback()
+        trace(
+            "response_llm.out",
+            provider=provider,
+            text=text,
+            featured_variant_ids=featured,
+            parsed=featured is not None,
         )
-        text = (response.text or "").strip()
-        if text:
-            trace("response_llm.out", provider=provider, text=text)
-            return text
-        trace("response_llm.fallback", reason="empty_text", provider=provider)
-        return _fallback_assistant_message(tool_results=tool_results)
+        return {"text": text, "featured_variant_ids": featured}
     except Exception as e:
         trace("response_llm.error", provider=provider, error=f"{type(e).__name__}: {e}")
-        return _fallback_assistant_message(tool_results=tool_results)
+        return _fallback()

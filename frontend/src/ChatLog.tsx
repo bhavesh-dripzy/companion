@@ -94,8 +94,8 @@ const MenuCard: React.FC<{ item: MenuCardItem }> = ({ item }) => {
   const showImage = !!item.image_url && !imageBroken;
 
   return (
-    <div className="flex flex-col gap-2 p-3 bg-white/90 border border-slate-200/80 rounded-2xl shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
-      <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200/70">
+    <div className="snap-start shrink-0 w-40 flex flex-col gap-1.5 p-2 bg-white/90 border border-slate-200/80 rounded-xl shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
+      <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-slate-100 border border-slate-200/70">
         {showImage ? (
           <img
             src={item.image_url}
@@ -106,41 +106,35 @@ const MenuCard: React.FC<{ item: MenuCardItem }> = ({ item }) => {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-slate-400">
-            <UtensilsCrossed size={28} strokeWidth={1.5} />
+            <UtensilsCrossed size={22} strokeWidth={1.5} />
           </div>
         )}
         {item.veg_kind && (
-          <div className="absolute top-2 left-2 w-4 h-4 rounded-sm bg-white/85 backdrop-blur-sm flex items-center justify-center ring-1 ring-slate-200">
+          <div className="absolute top-1.5 left-1.5 w-3.5 h-3.5 rounded-sm bg-white/90 backdrop-blur-sm flex items-center justify-center ring-1 ring-slate-200">
             <span
-              className={cn('block w-2 h-2 rounded-full ring-1', VEG_DOT_COLOR[item.veg_kind])}
+              className={cn('block w-1.5 h-1.5 rounded-full ring-1', VEG_DOT_COLOR[item.veg_kind])}
               aria-label={item.veg_kind === 'non_veg' ? 'Non-vegetarian' : item.veg_kind === 'egg' ? 'Contains egg' : 'Vegetarian'}
             />
           </div>
         )}
         {showRating && (
-          <div className="absolute bottom-2 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/85 backdrop-blur-sm text-[11px] font-semibold text-slate-800 border border-slate-200/70">
-            <Star size={10} className="fill-amber-400 text-amber-500" />
+          <div className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-white/90 backdrop-blur-sm text-[10px] font-semibold text-slate-800 border border-slate-200/70">
+            <Star size={9} className="fill-amber-400 text-amber-500" />
             {item.rating!.toFixed(1)}
-            {typeof item.votes === 'number' && item.votes > 0 && (
-              <span className="text-[10px] text-slate-500 font-medium">({item.votes})</span>
-            )}
           </div>
         )}
       </div>
 
-      <div className="flex flex-col gap-1 min-w-0">
-        <div className="text-sm font-semibold text-slate-900 leading-snug line-clamp-2">{item.name}</div>
-        {item.description && (
-          <div className="text-[11px] text-slate-500 leading-snug line-clamp-2">{item.description}</div>
-        )}
-        <div className="flex items-baseline gap-2 mt-1">
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <div className="text-[12px] font-semibold text-slate-900 leading-snug line-clamp-2">{item.name}</div>
+        <div className="flex items-baseline gap-1.5 mt-0.5">
           {hasDiscount ? (
             <>
-              <span className="text-sm font-bold text-slate-900">{disc}</span>
-              <span className="text-[11px] text-slate-400 line-through">{price}</span>
+              <span className="text-[13px] font-bold text-slate-900">{disc}</span>
+              <span className="text-[10px] text-slate-400 line-through">{price}</span>
             </>
           ) : (
-            price && <span className="text-sm font-bold text-slate-900">{price}</span>
+            price && <span className="text-[13px] font-bold text-slate-900">{price}</span>
           )}
         </div>
       </div>
@@ -158,14 +152,16 @@ const MenuCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
       : null;
 
   return (
-    <div className="mt-1 w-full max-w-2xl">
+    <div className="mt-1 w-full max-w-full">
       <div className="flex items-baseline justify-between mb-2 px-1">
         <div className="text-xs font-bold uppercase tracking-wider text-slate-500">{heading}</div>
         {subhead && (
           <div className="text-[10px] text-slate-400 truncate ml-3 max-w-[55%]">{subhead}</div>
         )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div
+        className="flex flex-row gap-2.5 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full"
+      >
         {items.map((item, idx) => (
           <MenuCard key={item.variant_id || item.item_id || `${item.name}-${idx}`} item={item} />
         ))}

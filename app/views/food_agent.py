@@ -103,7 +103,12 @@ def food_agent_full(request):
     else:
         out["zomato_summary"] = build_zomato_summary(None)
 
-    out["assistant_message"] = build_assistant_message_with_llm(
+    # `build_assistant_message_with_llm` returns
+    # ``{"text": <reply>, "featured_variant_ids": [...] | None}``. This legacy
+    # view only ships a plain ``assistant_message`` string, so we surface just
+    # the ``text`` field — the LLM-driven card filter lives in the pipeline
+    # path (`pipeline.run_agent_turn`), which this view does not exercise.
+    _response_payload = build_assistant_message_with_llm(
         user_message=message,
         plan=plan,
         tool_results=raw_tool_results,
@@ -111,5 +116,6 @@ def food_agent_full(request):
         api_key=llm_cfg.api_key,
         model=llm_cfg.model,
     )
+    out["assistant_message"] = str(_response_payload.get("text") or "").strip()
 
     return JsonResponse(out)

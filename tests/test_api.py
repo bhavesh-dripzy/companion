@@ -442,7 +442,7 @@ def test_food_query_is_plan_only_by_default(monkeypatch):
     monkeypatch.setattr(
         agent_pipeline,
         "build_assistant_message_with_llm",
-        lambda **_kwargs: "done",
+        lambda **_kwargs: {"text": "done", "featured_variant_ids": None},
     )
 
     monkeypatch.setattr(
@@ -497,7 +497,7 @@ def test_food_query_is_routed_through_tool_plan(monkeypatch):
     monkeypatch.setattr(
         agent_pipeline,
         "build_assistant_message_with_llm",
-        lambda **_kwargs: "done",
+        lambda **_kwargs: {"text": "done", "featured_variant_ids": None},
     )
 
     monkeypatch.setattr(
@@ -718,7 +718,7 @@ def test_compare_query_executes_multiple_tool_providers(monkeypatch):
     monkeypatch.setattr(
         agent_pipeline,
         "build_assistant_message_with_llm",
-        lambda **_kwargs: "done",
+        lambda **_kwargs: {"text": "done", "featured_variant_ids": None},
     )
 
     def fake_plan(provider_id, **kwargs):
@@ -809,7 +809,7 @@ def test_food_query_routes_by_orchestrator(monkeypatch):
     monkeypatch.setattr(
         agent_pipeline,
         "build_assistant_message_with_llm",
-        lambda **_kwargs: "done",
+        lambda **_kwargs: {"text": "done", "featured_variant_ids": None},
     )
     monkeypatch.setattr(
         agent_pipeline,

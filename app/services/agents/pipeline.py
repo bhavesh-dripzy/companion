@@ -1598,7 +1598,7 @@ def run_agent_turn(
             execute_tools=execute_tools,
         )
     else:
-        assistant_message = build_assistant_message_with_llm(
+        response_payload = build_assistant_message_with_llm(
             user_message=user_message,
             plan=plan,
             tool_results=raw_tool_results,
@@ -1610,6 +1610,49 @@ def run_agent_turn(
             attachments=attachments,
             address_context=address_context,
         )
+        assistant_message = str(response_payload.get("text") or "").strip()
+        featured_ids = response_payload.get("featured_variant_ids")
+        # LLM-driven menu_cards filter: the response LLM tells us exactly
+        # which items it mentioned/recommended. Show cards ONLY for those
+        # variant_ids — never the full cached top-8. This keeps the visual
+        # grid in lockstep with what the user just heard ("here are 3 veg
+        # picks" → exactly 3 cards, not 8).
+        #
+        # featured_ids semantics:
+        #   * list[str] (possibly empty) → LLM complied with the contract.
+        #     Filter cards to the listed ids (empty list ⇒ hide all cards).
+        #   * None → LLM fell back to plain text (JSON parse failed).
+        #     Leave attachments untouched so the chat doesn't lose its
+        #     visual grid because the model hedged on format.
+        if isinstance(featured_ids, list) and attachments:
+            allowed = {v for v in featured_ids if isinstance(v, str) and v.strip()}
+            filtered: list[dict[str, Any]] = []
+            for att in attachments:
+                if not isinstance(att, dict) or str(att.get("kind") or "") != "menu_cards":
+                    filtered.append(att)
+                    continue
+                items = att.get("items") or []
+                if not isinstance(items, list):
+                    continue
+                kept = [
+                    it for it in items
+                    if isinstance(it, dict)
+                    and isinstance(it.get("variant_id"), str)
+                    and it["variant_id"].strip() in allowed
+                ]
+                if not kept:
+                    # No cards survived the filter → drop the whole
+                    # attachment so the UI doesn't render an empty "Menu"
+                    # header. The LLM's text stands on its own.
+                    continue
+                filtered.append({**att, "items": kept})
+            attachments = filtered
+            out["attachments"] = attachments
+            trace(
+                "response_builder.cards_filtered",
+                featured_count=len(allowed),
+                attachment_count=len(attachments),
+            )
     trace("response_builder.out", assistant_message=assistant_message)
     out["assistant_message"] = assistant_message
     trace(
