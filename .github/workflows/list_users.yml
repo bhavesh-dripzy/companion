@@ -28,7 +28,7 @@ jobs:
           instance_id = instances["Reservations"][0]["Instances"][0]["InstanceId"]
           print("Instance ID:", instance_id)
           
-          cmd = ssm.send_command(InstanceIds=[instance_id], DocumentName="AWS-RunShellScript", Parameters={"commands": ["tail -n 100 /var/log/cloud-init-output.log", "systemctl status caddy", "systemctl status graph-service"]})
+          cmd = ssm.send_command(InstanceIds=[instance_id], DocumentName="AWS-RunShellScript", Parameters={"commands": ["systemctl status caddy --no-pager", "systemctl status graph-service --no-pager", "journalctl -u caddy --no-pager | tail -n 20", "journalctl -u graph-service --no-pager | tail -n 20"]})
           command_id = cmd["Command"]["CommandId"]
           
           time.sleep(5)
