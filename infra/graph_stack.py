@@ -53,7 +53,6 @@ class GraphStack(Stack):
         self.profile_cache = dynamodb.Table(
             self,
             "ProfileCacheTable",
-            table_name=f"{project_name}-profile-cache",
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             partition_key=dynamodb.Attribute(
                 name="PK", type=dynamodb.AttributeType.STRING
@@ -71,7 +70,6 @@ class GraphStack(Stack):
         self.lead_cache = dynamodb.Table(
             self,
             "LeadCacheTable",
-            table_name=f"{project_name}-lead-cache",
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             partition_key=dynamodb.Attribute(
                 name="lead_id", type=dynamodb.AttributeType.STRING
