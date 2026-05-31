@@ -26,3 +26,12 @@ infra/.venv/
 # Local-only credentials bundles (never commit)
 CREDENTIALS.local.txt
 *.credentials.local.*
+
+# Local debugging artifacts — raw MCP responses, ad-hoc probe scripts.
+# Kept out of git so contributors don't see noisy diffs.
+outputs/
+scripts/inspect_swiggy_tool.py
+scripts/replay_conversation.py
+scripts/swiggy_e2e_probe.py
+scripts/zomato_call.py
+scripts/zomato_e2e_probe.py
