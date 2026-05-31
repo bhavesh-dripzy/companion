@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import aws_cdk as cdk
 from aws_cdk import (
     Duration,
@@ -138,15 +139,18 @@ class GraphStack(Stack):
         )
 
         # 5. Networking (Lookup Default VPC and Route53 zone)
+        deploy_ec2 = os.getenv("DEPLOY_EC2", "false").strip().lower() == "true"
+        if not deploy_ec2:
+            return
+
         vpc = ec2.Vpc.from_lookup(self, "DefaultVpc", is_default=True)
-        
+
         zone = route53.PublicHostedZone.from_lookup(
             self,
             "HostedZone",
             domain_name="houzzat.in",
         )
 
-        # 6. Security Group for EC2
         sg = ec2.SecurityGroup(
             self,
             "GraphSecurityGroup",
