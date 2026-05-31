@@ -16,8 +16,18 @@ jobs:
         with:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: List Users
+      - name: Check Graph Data
         run: |
-          user_pool_id=$(aws cloudformation describe-stacks --stack-name companion-serverless --query "Stacks[0].Outputs[?OutputKey=='CognitoUserPoolId'].OutputValue" --output text)
-          aws cognito-idp list-users --user-pool-id $user_pool_id > users.json
-          cat users.json
+          pip install boto3 requests
+          python3 -c '
+          import boto3, json, os, requests
+          sm = boto3.client("secretsmanager", region_name=os.environ["AWS_REGION"])
+          res = sm.get_secret_value(SecretId="companion/graph-service-token")
+          token = json.loads(res["SecretString"]).get("token")
+          headers = {"Authorization": f"Bearer {token}"}
+          resp = requests.post("https://graph.houzzat.in/query", headers=headers, json={"cypher": "MATCH (n) RETURN labels(n), count(n)"})
+          print("Graph Node Counts:", resp.json())
+          
+          resp2 = requests.post("https://graph.houzzat.in/query", headers=headers, json={"cypher": "MATCH (u:User)-[r]->(x) RETURN u.id, type(r), labels(x), x LIMIT 10"})
+          print("Graph Relationships:", resp.json())
+          '
