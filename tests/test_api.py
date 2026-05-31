@@ -250,7 +250,15 @@ def test_mcp_restore_preserves_nested_secret_paths(tmp_path, monkeypatch):
     assert restored.read_text(encoding="utf-8") == '{"access_token":"x"}'
 
 
-def test_mcp_restore_aliases_prior_mcp_remote_version(tmp_path, monkeypatch):
+def test_mcp_restore_normalizes_prior_mcp_remote_version(tmp_path, monkeypatch):
+    """A token saved under ``mcp-remote-<oldver>/`` in Secrets Manager is
+    rewritten on disk under the CURRENT version prefix only.
+
+    The legacy path is intentionally dropped so we converge on a single
+    version prefix everywhere — Secrets Manager, on-disk cache, and the
+    ``mcp-remote`` binary all agree. The next persist also normalizes the
+    secret payload, so historical drift heals itself.
+    """
     monkeypatch.setenv("MCP_REMOTE_CONFIG_DIR", str(tmp_path / ".mcp-auth"))
     root = tmp_path / "repo"
     pkg = root / "node_modules" / "mcp-remote"
@@ -275,7 +283,7 @@ def test_mcp_restore_aliases_prior_mcp_remote_version(tmp_path, monkeypatch):
         / "mcp-remote-0.1.38"
         / f"{token_hash}_tokens.json"
     )
-    assert restored_old.read_text(encoding="utf-8") == '{"access_token":"swiggy"}'
+    assert not restored_old.exists()
     assert restored_current.read_text(encoding="utf-8") == '{"access_token":"swiggy"}'
 
 

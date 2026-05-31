@@ -82,6 +82,13 @@ _TOOL_ISSUES_PLACEHOLDER: dict[str, tuple[str, ...]] = {
     "place_order": ("__ORDER_ID__",),
 }
 _TOKEN_SECRET_ID = "companion/mcp-tokens"
+# Single source of truth for the bundled mcp-remote version. This MUST match
+# the ``mcp-remote`` pin in ``package.json``/``package-lock.json``. The
+# runtime helper ``_mcp_remote_version`` reads it live from
+# ``node_modules/mcp-remote/package.json`` whenever the install is present;
+# this constant is only the fallback for code paths that run before
+# ``npm install`` (registration metadata, pairing-session records).
+_DEFAULT_MCP_REMOTE_VERSION = "0.1.38"
 _MCP_INIT_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_INIT_TIMEOUT_SECONDS", "20"))
 _MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("ZOMATO_MCP_TOOL_TIMEOUT_SECONDS", "30"))
 # Per-restaurant menu slice — the SAME N rows are:
@@ -196,6 +203,41 @@ def _current_version_token_alias(repo_root: Path, rel: Path) -> Path | None:
     if not first.startswith("mcp-remote-") or first == current_first:
         return None
     return Path(current_first, *rel.parts[1:])
+
+
+def _normalize_files_to_current_version(
+    repo_root: Path, files: dict[str, str] | None
+) -> dict[str, str]:
+    """Return ``files`` with every ``mcp-remote-<oldver>/...`` key rewritten
+    to the current ``mcp-remote-<currentver>/...`` prefix.
+
+    Why: ``mcp-remote`` reads tokens from a version-namespaced subdirectory
+    (``mcp-remote-<X.Y.Z>/<hash>_tokens.json``). When the npm dependency is
+    bumped, files saved under the old prefix become invisible to the new
+    binary. The only way to keep Secrets Manager and disk in lock-step
+    across upgrades is to rename keys at persist/restore time so we never
+    accumulate two prefixes for the same logical file.
+
+    - Keys without a ``mcp-remote-`` prefix are passed through unchanged.
+    - When two keys collapse to the same current-version path the LAST
+      seen value wins (rare; older prefixed entries are stale).
+    """
+    if not files:
+        return {}
+    version = _mcp_remote_version(repo_root)
+    if not version:
+        return dict(files)
+    current_prefix = f"mcp-remote-{version}/"
+    out: dict[str, str] = {}
+    for rel, content in files.items():
+        key = str(rel or "").replace("\\", "/")
+        if not key:
+            continue
+        if key.startswith("mcp-remote-") and "/" in key:
+            tail = key.split("/", 1)[1]
+            key = current_prefix + tail
+        out[key] = str(content)
+    return out
 
 
 def _safe_relative_token_path(name: str) -> Path | None:
@@ -2510,7 +2552,7 @@ def start_web_oauth(
         "client_name": "Companion Food Agent",
         "client_uri": callback_url.rsplit("/api/", 1)[0],
         "software_id": "2e6dc280-f3c3-4e01-99a7-8181dbd1d23d",
-        "software_version": _mcp_remote_version(root) or "0.1.38",
+        "software_version": _mcp_remote_version(root) or _DEFAULT_MCP_REMOTE_VERSION,
         "scope": scope,
     }
     reg_resp = requests.post(registration_endpoint, json=client_metadata, timeout=12)
@@ -2654,9 +2696,14 @@ def complete_web_oauth(
     existing_files = secret_payload.get("files") if isinstance(secret_payload, dict) else None
     if not isinstance(existing_files, dict):
         existing_files = {}
-    existing_files.update(files)
+    # Prune stale ``mcp-remote-<oldver>/...`` keys from the existing payload
+    # and add the freshly-issued files under the current version prefix.
+    # ``files`` is already at the current prefix because
+    # ``_mcp_remote_token_relative_paths`` derives it from the live version.
+    merged_files = _normalize_files_to_current_version(root, existing_files)
+    merged_files.update(files)
     pending_map.pop(state, None)
-    _merge_mcp_token_secret(user_id, files=existing_files, oauth_pending=pending_map)
+    _merge_mcp_token_secret(user_id, files=merged_files, oauth_pending=pending_map)
     return {
         "status": "connected_pending_test",
         "detail": "Zomato authorization completed. Run Test Connection to verify live MCP access.",
@@ -2689,7 +2736,7 @@ def create_pairing_session(
     sessions[code] = {
         "created_at": now,
         "mcp_url": url,
-        "mcp_remote_version": _mcp_remote_version(root) or "0.1.38",
+        "mcp_remote_version": _mcp_remote_version(root) or _DEFAULT_MCP_REMOTE_VERSION,
         "user_id": user_id,
     }
     _merge_mcp_token_secret(user_id, pairing_sessions=sessions)
@@ -2774,9 +2821,13 @@ def complete_pairing_session(
     existing_files = secret_payload.get("files") if isinstance(secret_payload, dict) else None
     if not isinstance(existing_files, dict):
         existing_files = {}
-    existing_files.update(written)
+    # Same drift-prevention as ``complete_web_oauth``: normalize prior
+    # entries to the current version prefix before merging the newly
+    # written files. ``written`` already uses current-version paths.
+    merged_files = _normalize_files_to_current_version(root, existing_files)
+    merged_files.update(written)
     sessions.pop(code, None)
-    _merge_mcp_token_secret(user_id, files=existing_files, pairing_sessions=sessions)
+    _merge_mcp_token_secret(user_id, files=merged_files, pairing_sessions=sessions)
     return {
         "status": "ok",
         "detail": "MCP session synced. Return to Companion and test the connection.",
@@ -2790,25 +2841,24 @@ def restore_mcp_auth_tokens(repo_root: Path | None = None, user_id: str | None =
     root = repo_root or repo_root_from_settings()
     cfg_dir = _mcp_remote_config_dir(root, user_id=user_id)
     secret = _mcp_token_secret(user_id)
-    files_data = secret.get("files") if isinstance(secret, dict) else None
-    if not isinstance(files_data, dict) or not files_data:
+    raw_files = secret.get("files") if isinstance(secret, dict) else None
+    if not isinstance(raw_files, dict) or not raw_files:
         return False
+    files_data = _normalize_files_to_current_version(root, raw_files)
     cfg_dir.mkdir(parents=True, exist_ok=True)
     for name, content in files_data.items():
         rel = _safe_relative_token_path(name)
         if rel is None:
             logger.warning("Skipping unsafe MCP token path from secret: %s", name)
             continue
-        text = str(content)
-        targets = [rel]
-        alias = _current_version_token_alias(root, rel)
-        if alias is not None:
-            targets.append(alias)
-        for target in targets:
-            dest = cfg_dir / target
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(text, encoding="utf-8")
-    logger.info("Restored %d MCP auth token file(s) from Secrets Manager.", len(files_data))
+        dest = cfg_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(str(content), encoding="utf-8")
+    logger.info(
+        "Restored %d MCP auth token file(s) from Secrets Manager (mcp-remote=%s).",
+        len(files_data),
+        _mcp_remote_version(root) or "?",
+    )
     return True
 
 
@@ -2832,9 +2882,18 @@ def persist_mcp_auth_tokens(repo_root: Path | None = None, user_id: str | None =
             existing = secret_payload.get("files")
             if not isinstance(existing, dict):
                 existing = {}
-            existing.update(files_data)
-            _merge_mcp_token_secret(user_id, files=existing)
-            logger.info("Persisted %d MCP auth token file(s) to Secrets Manager.", len(files_data))
+            # Normalize both sides to the current mcp-remote version prefix
+            # so stale ``mcp-remote-<oldver>/...`` keys are pruned the next
+            # time we save tokens. Without this, every persist forever
+            # carries forward dead prefixes from earlier upgrades.
+            merged = _normalize_files_to_current_version(root, existing)
+            merged.update(_normalize_files_to_current_version(root, files_data))
+            _merge_mcp_token_secret(user_id, files=merged)
+            logger.info(
+                "Persisted %d MCP auth token file(s) to Secrets Manager (mcp-remote=%s).",
+                len(merged),
+                _mcp_remote_version(root) or "?",
+            )
         except Exception:
             logger.exception("Persist MCP auth tokens failed")
             raise
