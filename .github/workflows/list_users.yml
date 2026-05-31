@@ -28,7 +28,22 @@ jobs:
           instance_id = instances["Reservations"][0]["Instances"][0]["InstanceId"]
           print("Instance ID:", instance_id)
           
-          cmd = ssm.send_command(InstanceIds=[instance_id], DocumentName="AWS-RunShellScript", Parameters={"commands": ["systemctl status caddy --no-pager", "journalctl -u caddy -n 50 --no-pager", "/usr/bin/caddy version"]})
+          cmd = ssm.send_command(
+              InstanceIds=[instance_id],
+              DocumentName="AWS-RunShellScript",
+              Parameters={
+                  "commands": [
+                      "mkdir -p /etc/caddy",
+                      "cat <<EOF > /etc/caddy/Caddyfile",
+                      "graph.houzzat.in {",
+                      "    reverse_proxy 127.0.0.1:8000",
+                      "}",
+                      "EOF",
+                      "systemctl restart caddy",
+                      "systemctl status caddy --no-pager"
+                  ]
+              }
+          )
           command_id = cmd["Command"]["CommandId"]
           
           while True:
