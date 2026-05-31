@@ -308,7 +308,7 @@ function App() {
         exploreActive={showQuickActions}
         isMobileOpen={mobileRailOpen}
         onMobileClose={() => setMobileRailOpen(false)}
-        isAdmin={true}
+        isAdmin={['admin', 'admin_bhavesh', 'admin_kshitij', 'local_admin'].includes(username)}
         onOpenAdmin={() => setIsAdminOpen(true)}
       />
 

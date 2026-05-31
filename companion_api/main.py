@@ -1884,8 +1884,8 @@ def list_admin_users(
     user: str = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """Lists all user profiles in the knowledge graph (admin only)."""
-    # Admin check removed; all users have access
-
+    if user not in ["admin", "admin_bhavesh", "admin_kshitij", "local_admin"]:
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access only.")
 
     import requests
     token = None
@@ -1927,8 +1927,8 @@ def get_admin_profile_graph(
     user: str = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Retrieves the full knowledge graph nodes and edges for a specific user profile (admin only)."""
-    # Admin check removed; all users have access
-
+    if user not in ["admin", "admin_bhavesh", "admin_kshitij", "local_admin"]:
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access only.")
 
     import requests
     token = None
