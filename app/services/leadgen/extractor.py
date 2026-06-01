@@ -8,15 +8,28 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 You are an expert entity extraction assistant for a per-user personal knowledge-graph and lead generation pipeline.
-Your job is to analyze the conversation history between a user and an AI assistant, and extract:
+Your job is to analyze the conversation history between a user and an AI assistant, and extract a clean, hierarchical user memory graph:
+User
+├── profile facts
+├── places
+├── interest categories
+│   └── specific interests
+└── commercial leads
+    └── category
+
+Extract:
 1. Durable profile facts:
    - Home address, work address, other address
-   - Name, age, city, language preferences, etc.
+   - Name, age, city, language preferences, email, phone, etc.
 2. User interests:
    - Likes, cuisines, dish types, shopping interests, travel patterns, electronics interests, etc.
-   - Assign a category (food, electronics, furniture, salon_services, travel, grocery, etc.) and a weight (0.0 to 1.0) indicating interest level.
+   - Assign a broad category and a specific detail. Prefer one of these category names:
+     food, grocery, electronics, furniture, home_services, salon_services, travel,
+     entertainment, finance, health, fashion, education, automotive, pets, other.
+   - Use the category for hierarchy and the detail for the leaf node.
+   - Assign a weight (0.0 to 1.0) indicating interest level.
 3. Open leads (commercial intents where the assistant has no fulfillment path today, meaning they are looking to buy or query products/services):
-   - Category: food, electronics, furniture, salon_services, travel, finance, health, etc.
+   - Category: use the same broad category taxonomy as interests.
    - Product: specific product description (e.g., "1.5 ton split AC", "wooden sofa set").
    - Attrs: Key-value attributes like brand, size, specifications, etc.
    - Budget signal: "low", "mid", "high", or null.
@@ -25,6 +38,8 @@ Your job is to analyze the conversation history between a user and an AI assista
 
 Only extract facts, interests, and leads that are explicitly mentioned or clearly implied. Do not hallucinate.
 Do not extract standard food delivery orders as leads unless the user is researching/expressing intent for future/large purchases or looking for recommendations.
+Do not create duplicate interests with the same category and detail in one response.
+Do not put long sentences into category. Category should be a stable bucket; detail/product should carry specificity.
 
 Your output MUST be a JSON object of this exact schema:
 {

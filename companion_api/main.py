@@ -1950,8 +1950,28 @@ def get_admin_profile_graph(
 
     cypher = """
     MATCH (u:User {id: $user_id})
-    OPTIONAL MATCH (u)-[r]->(target)
-    RETURN u, type(r) as rel_type, r as rel, target, labels(target) as target_labels
+    OPTIONAL MATCH (u)-[r1]->(first)
+    OPTIONAL MATCH (first)-[r2]->(second)
+    WHERE r2 IS NULL OR type(r2) IN ['HAS_INTEREST', 'IN_CATEGORY']
+    RETURN
+      u,
+      labels(u) AS user_labels,
+      collect(DISTINCT {
+        source: u,
+        source_labels: labels(u),
+        rel_type: type(r1),
+        rel: properties(r1),
+        target: first,
+        target_labels: labels(first)
+      }) AS first_hop,
+      collect(DISTINCT {
+        source: first,
+        source_labels: labels(first),
+        rel_type: type(r2),
+        rel: properties(r2),
+        target: second,
+        target_labels: labels(second)
+      }) AS second_hop
     """
 
     try:
@@ -1969,6 +1989,44 @@ def get_admin_profile_graph(
         nodes = {}
         links = []
 
+        def add_node(node: dict[str, Any] | None, labels: list[str] | None) -> str | None:
+            if not node:
+                return None
+            node_type = labels[0] if labels else "Unknown"
+            node_id = node.get("id") or node.get("name") or str(hash(json.dumps(node, sort_keys=True)))
+
+            label_key = "name"
+            if node_type == "Place":
+                label_key = "address_line"
+            elif node_type == "Lead":
+                label_key = "product"
+            elif node_type == "Interest":
+                label_key = "detail"
+
+            node_label = node.get(label_key) or node.get("name") or node_id
+
+            if node_id not in nodes:
+                nodes[node_id] = {
+                    "id": node_id,
+                    "label": node_label,
+                    "type": node_type,
+                    "properties": {k: v for k, v in node.items() if k not in ["id", label_key]}
+                }
+            return node_id
+
+        def add_link(source_id: str | None, target_id: str | None, rel_type: str | None, rel: dict[str, Any] | None):
+            if not source_id or not target_id or not rel_type:
+                return
+            key = (source_id, target_id, rel_type)
+            if any(l["source"] == key[0] and l["target"] == key[1] and l["type"] == key[2] for l in links):
+                return
+            links.append({
+                "source": source_id,
+                "target": target_id,
+                "type": rel_type,
+                "properties": rel or {}
+            })
+
         if results:
             u_node = results[0].get("u")
             if u_node:
@@ -1980,38 +2038,11 @@ def get_admin_profile_graph(
                 }
 
             for row in results:
-                rel_type = row.get("rel_type")
-                target = row.get("target")
-                labels = row.get("target_labels", [])
-
-                if target and rel_type:
-                    t_id = target.get("id") or target.get("name") or str(hash(json.dumps(target)))
-                    t_type = labels[0] if labels else "Unknown"
-
-                    label_key = "name"
-                    if t_type == "Place":
-                        label_key = "address_line"
-                    elif t_type == "Lead":
-                        label_key = "product"
-                    elif t_type == "Interest":
-                        label_key = "detail"
-
-                    t_label = target.get(label_key) or target.get("name") or t_id
-
-                    if t_id not in nodes:
-                        nodes[t_id] = {
-                            "id": t_id,
-                            "label": t_label,
-                            "type": t_type,
-                            "properties": {k: v for k, v in target.items() if k not in ["id", label_key]}
-                        }
-
-                    links.append({
-                        "source": user_id,
-                        "target": t_id,
-                        "type": rel_type,
-                        "properties": row.get("rel", {})
-                    })
+                for hop in [*(row.get("first_hop") or []), *(row.get("second_hop") or [])]:
+                    rel_type = hop.get("rel_type")
+                    source_id = add_node(hop.get("source"), hop.get("source_labels") or [])
+                    target_id = add_node(hop.get("target"), hop.get("target_labels") or [])
+                    add_link(source_id, target_id, rel_type, hop.get("rel"))
 
         return {
             "user_id": user_id,
