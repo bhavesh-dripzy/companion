@@ -8,6 +8,7 @@ import { RightSidebar } from './RightSidebar';
 import { AdminDashboard } from './AdminDashboard';
 import { api, clearToken, getToken } from './api';
 import type {
+  ChatSummary,
   GeoCoordinate,
   McpStatus,
   Message,
@@ -22,6 +23,12 @@ import { useUserLocation } from './useUserLocation';
 import { mapsStatus } from './maps';
 import { Menu, PanelRightOpen, Search, Sparkles, X } from 'lucide-react';
 import './index.css';
+
+// localStorage key holding the chat_id the user was last viewing. We
+// restore it on reload so the workspace lands back in the same
+// conversation; it gets cleared by "new chat" / logout, and overwritten
+// every time the backend confirms (or lazy-creates) a chat_id.
+const ACTIVE_CHAT_STORAGE_KEY = 'companion.active_chat_id';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!getToken());
@@ -86,6 +93,19 @@ function App() {
   // moment the user adds an item from a different restaurant).
   const [sessionCart, setSessionCart] = useState<SessionCart | null>(null);
 
+  // Multi-chat support. `chats` is the full sidebar list (most-recent
+  // first), `chatId` is the conversation the workspace is currently
+  // showing. `chatId === null` means "fresh new chat about to be
+  // started" — no Dynamo row exists yet; the first /api/agent/query/
+  // call will lazy-create one and return its id, which we'll then pin.
+  // We persist `chatId` in localStorage so a page reload lands the
+  // user back in the same conversation instead of dumping them into a
+  // blank new chat (or worse, the previous chat's stale history).
+  const [chats, setChats] = useState<ChatSummary[]>([]);
+  const [chatId, setChatId] = useState<string | null>(
+    () => localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || null,
+  );
+
   const { location: userLocation, ensureLocation } = useUserLocation();
 
   useEffect(() => {
@@ -119,7 +139,14 @@ function App() {
   }, []);
 
   const loadInitialData = async () => {
-    refreshConversationHistory();
+    // Boot order matters slightly: the chat list has to land before we
+    // try to restore the persisted chat_id, so the sidebar can highlight
+    // the active row from the very first render. Messages load second
+    // and can lag behind without UX cost.
+    await refreshChatList();
+    if (chatId) {
+      await loadChatMessages(chatId, { silent: true });
+    }
     try {
       const providersData = await api.get('/api/tools/providers/');
       setToolProviders(providersData.providers || []);
@@ -131,9 +158,32 @@ function App() {
     refreshMapsStatus();
   };
 
-  const refreshConversationHistory = async () => {
+  const refreshChatList = async () => {
     try {
-      const data = await api.get('/api/messages/recent/?limit=80');
+      const data = await api.get('/api/chats/?limit=80');
+      const list: ChatSummary[] = Array.isArray(data?.chats) ? data.chats : [];
+      setChats(list);
+      // If the localStorage-pinned chat no longer exists on the server
+      // (deleted on another device, scrubbed by the backend, etc.) drop
+      // the stale id so the workspace doesn't load a ghost.
+      if (chatId && !list.some((c) => c.chat_id === chatId)) {
+        setChatId(null);
+        localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error('Failed to load chat list', err);
+    }
+  };
+
+  const loadChatMessages = async (
+    targetChatId: string,
+    opts: { silent?: boolean } = {},
+  ) => {
+    try {
+      const data = await api.get(
+        `/api/chats/${encodeURIComponent(targetChatId)}/messages/?limit=80`,
+      );
       const list = Array.isArray(data?.messages) ? data.messages : [];
       setMessages(
         list
@@ -149,7 +199,52 @@ function App() {
           .filter((item: Message) => item.content.trim()),
       );
     } catch (err) {
-      console.error('Failed to load conversation history', err);
+      if (!opts.silent) {
+        console.error('Failed to load chat messages', err);
+      }
+    }
+  };
+
+  // Switch the workspace to a different saved chat: pin the id, fetch
+  // its messages, and drop all in-memory carry-forward session state
+  // (cart, restaurants, addresses, menu LRU, placeholders). Those
+  // belong to the chat we're leaving — Zomato cart for chat A has no
+  // business polluting chat B's add-to-cart flow.
+  const handleSelectChat = async (newChatId: string) => {
+    if (newChatId === chatId) return;
+    setChatId(newChatId);
+    localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, newChatId);
+    setIsAdminOpen(false);
+    setSessionState({});
+    setSessionRestaurants([]);
+    setSessionAddresses([]);
+    setSessionMenu([]);
+    setSessionCart(null);
+    setSearchQuery('');
+    setSearchOpen(false);
+    setMessages([]);
+    await loadChatMessages(newChatId);
+  };
+
+  const handleDeleteChat = async (targetChatId: string) => {
+    try {
+      await api.delete(`/api/chats/${encodeURIComponent(targetChatId)}/`);
+    } catch (err) {
+      console.error('Failed to delete chat', err);
+      return;
+    }
+    setChats((prev) => prev.filter((c) => c.chat_id !== targetChatId));
+    // If the deleted chat was the active one, fall back to "new chat"
+    // mode — clear the workspace and the localStorage pin.
+    if (targetChatId === chatId) {
+      setChatId(null);
+      localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
+      setMessages([]);
+      setSessionState({});
+      setSessionRestaurants([]);
+      setSessionAddresses([]);
+      setSessionMenu([]);
+      setSessionCart(null);
     }
   };
 
@@ -205,9 +300,17 @@ function App() {
     setSessionAddresses([]);
     setSessionMenu([]);
     setSessionCart(null);
+    setChats([]);
+    setChatId(null);
+    localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
 
   const handleNewChat = () => {
+    // Lazy chat creation: we don't POST /api/chats/ here. The chat row
+    // only gets written to Dynamo once the user actually sends a turn,
+    // so users can spam "new chat" without polluting the sidebar with
+    // empty rows. The backend lazy-creates on the first /api/agent/query/
+    // request that lacks a chat_id and echoes the new id back.
     setIsAdminOpen(false);
     setMessages([]);
     setSessionState({});
@@ -217,6 +320,8 @@ function App() {
     setSessionCart(null);
     setSearchQuery('');
     setSearchOpen(false);
+    setChatId(null);
+    localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
 
   const buildAgentBody = (content: string, geo?: GeoCoordinate | null) => {
@@ -243,6 +348,7 @@ function App() {
     if (sessionAddresses.length > 0) body.session_addresses = sessionAddresses;
     if (sessionMenu.length > 0) body.session_menu = sessionMenu;
     if (sessionCart && sessionCart.cart_id) body.session_cart = sessionCart;
+    if (chatId) body.chat_id = chatId;
     return body;
   };
 
@@ -296,6 +402,20 @@ function App() {
       if ('session_cart' in data) {
         const c = (data as any).session_cart;
         setSessionCart(c && typeof c === 'object' && c.cart_id ? c : null);
+      }
+
+      // Pin the chat_id the backend confirmed (or lazy-created) so all
+      // subsequent turns land in the same conversation. Refresh the
+      // sidebar list so this chat sorts to the top with a fresh preview
+      // — and so a newly-created chat actually shows up.
+      if (typeof data.chat_id === 'string' && data.chat_id) {
+        if (data.chat_id !== chatId) {
+          setChatId(data.chat_id);
+          localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
+        }
+        // Don't await — let the UI render the assistant message first;
+        // a stale sidebar list for a couple hundred ms is fine.
+        refreshChatList();
       }
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -354,6 +474,10 @@ function App() {
           setSearchOpen(false);
           setIsAdminOpen(true);
         }}
+        chats={chats}
+        activeChatId={chatId}
+        onSelectChat={handleSelectChat}
+        onDeleteChat={handleDeleteChat}
       />
 
       <div className="flex-1 flex flex-col relative overflow-hidden min-w-0">

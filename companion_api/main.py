@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -39,7 +39,11 @@ from app.services.tool_runtime import (
 )
 from companion_api import settings
 import uuid
-from companion_api.messages_repo import MessageRepository
+from companion_api.messages_repo import (
+    ChatRepository,
+    MessageRepository,
+    derive_chat_title,
+)
 from companion_api.leadgen_queue import send_turn_event
 from companion_api.dynamodb import ReminderRepository
 from companion_api.models import (
@@ -1599,6 +1603,46 @@ def _companion_agent_turn(
         if isinstance(cid, str) and cid.strip() and isinstance(items, list) and items:
             session_cart = {**raw_cart, "cart_id": cid.strip()}
 
+    # Resolve the chat this turn belongs to. Three cases:
+    #   * client sent a non-empty ``chat_id`` AND that chat exists → use it.
+    #   * client sent a ``chat_id`` we don't recognise (deleted, wrong user,
+    #     stale localStorage) → treat as missing and lazy-create a new
+    #     chat so the user isn't silently writing into a ghost.
+    #   * client sent nothing → lazy-create a new chat, auto-titled from
+    #     the opening message.
+    # Errors talking to Dynamo (e.g. local dev with no AWS creds) are
+    # tolerated — we fall back to a synthetic chat_id so the turn still
+    # works, and just skip persistence below.
+    incoming_chat_id = (
+        str(getattr(payload, "chat_id", "") or "").strip() or None
+    )
+    chat_repo: ChatRepository | None = None
+    chat_id: str | None = incoming_chat_id
+    chat_was_created = False
+    try:
+        chat_repo = ChatRepository()
+        existing_chat = None
+        if incoming_chat_id:
+            existing_chat = chat_repo.get(user, incoming_chat_id)
+        if existing_chat is None:
+            chat_id = incoming_chat_id or str(uuid.uuid4())
+            chat_repo.create(
+                member_id=user,
+                chat_id=chat_id,
+                title=derive_chat_title(payload.message.strip()),
+            )
+            chat_was_created = True
+    except Exception:
+        # Dynamo unavailable — keep going with a best-effort id so the
+        # turn itself succeeds; persistence will be skipped further down.
+        logging.getLogger(__name__).warning(
+            "Chat lookup/create failed for user=%s — turn will not be persisted.",
+            user,
+            exc_info=True,
+        )
+        chat_repo = None
+        chat_id = incoming_chat_id or str(uuid.uuid4())
+
     try:
         result = run_agent_turn(
             user_message=payload.message.strip(),
@@ -1617,33 +1661,57 @@ def _companion_agent_turn(
             session_cart=session_cart,
             pending_variant_choice=pending_variant_choice,
         )
-        
+
+        # Echo the chat_id back so the client can pin it for subsequent
+        # turns (and persist it in localStorage for reload-restore).
+        result["chat_id"] = chat_id
+
         # Async Extraction & Message Logging Hook
         try:
             turn_id = str(uuid.uuid4())
             task_type = result.get("intent_routing", {}).get("task_type") or result.get("task_type")
             routed_provider = result.get("routed_provider")
-            
-            repo = MessageRepository()
-            # 1. Persist user message
-            repo.create(
-                member_id=user,
-                message_id=f"{turn_id}-user",
-                role="user",
-                text=payload.message.strip(),
-                task_type=task_type,
-                provider=routed_provider,
-            )
-            # 2. Persist assistant message
-            repo.create(
-                member_id=user,
-                message_id=f"{turn_id}-assistant",
-                role="assistant",
-                text=result.get("assistant_message", ""),
-                task_type=task_type,
-                provider=routed_provider,
-            )
-            # 3. Enqueue turn event to SQS
+
+            if chat_repo is not None:
+                msg_repo = MessageRepository()
+                # 1. Persist user message
+                msg_repo.create(
+                    member_id=user,
+                    chat_id=chat_id,
+                    message_id=f"{turn_id}-user",
+                    role="user",
+                    text=payload.message.strip(),
+                    task_type=task_type,
+                    provider=routed_provider,
+                )
+                # 2. Persist assistant message
+                msg_repo.create(
+                    member_id=user,
+                    chat_id=chat_id,
+                    message_id=f"{turn_id}-assistant",
+                    role="assistant",
+                    text=result.get("assistant_message", ""),
+                    task_type=task_type,
+                    provider=routed_provider,
+                )
+                # 3. Bump chat metadata so the sidebar sorts this chat to
+                # the top and shows the latest assistant reply as preview.
+                preview = (result.get("assistant_message") or "").strip()
+                title_override = (
+                    derive_chat_title(payload.message.strip())
+                    if chat_was_created
+                    else None
+                )
+                chat_repo.touch(
+                    member_id=user,
+                    chat_id=chat_id,
+                    last_message_preview=preview,
+                    title=title_override,
+                    increment_count=2,
+                )
+            # 4. Enqueue turn event to SQS (always — independent of
+            # persistence, so downstream extraction still fires even if
+            # the Dynamo write was skipped for the dev path).
             send_turn_event(
                 user_id=user,
                 message_id=turn_id,
@@ -1659,7 +1727,7 @@ def _companion_agent_turn(
             logging.getLogger(__name__).exception(
                 f"Failed to log message or enqueue turn event: {hooks_exc}"
             )
-            
+
         return result
     except CustomMcpNeedsDiscoveryError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1696,25 +1764,160 @@ def _message_history_item(item: dict[str, Any]) -> dict[str, Any] | None:
     return response
 
 
-@app.get("/api/messages/recent/")
-def list_recent_messages(
+def _chat_summary(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Project a Dynamo ``chat#…`` row into the slim shape the sidebar wants."""
+    chat_id = item.get("chat_id")
+    if not isinstance(chat_id, str) or not chat_id.strip():
+        return None
+    return {
+        "chat_id": chat_id,
+        "title": (item.get("title") or "New chat") or "New chat",
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+        "last_message_at": item.get("last_message_at"),
+        "last_message_preview": item.get("last_message_preview") or "",
+        "message_count": int(item.get("message_count") or 0),
+    }
+
+
+@app.get("/api/chats/")
+def list_chats(
+    limit: int = Query(default=50, ge=1, le=200),
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """List the signed-in user's chats, most recently active first.
+
+    The sidebar uses this to render its chat picker. Returns an empty list
+    (never 404) for users who have never sent a message — that's the
+    correct cold-start state.
+    """
+    try:
+        repo = ChatRepository()
+        items = repo.list_chats(user, limit=limit)
+        chats = [c for it in items if (c := _chat_summary(it)) is not None]
+        return {"chats": chats, "count": len(chats)}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to load chats: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.post("/api/chats/")
+def create_chat(
+    user: str = Depends(get_current_user),
+    body: dict[str, Any] | None = Body(default=None),
+) -> dict[str, Any]:
+    """Explicitly create a new chat. Lazy-create via ``/api/agent/query/``
+    is the normal path; this endpoint is here for completeness so the UI
+    can pre-seed a chat row (e.g. for a future "rename empty chat" flow).
+    """
+    try:
+        title = None
+        if isinstance(body, dict):
+            raw_title = body.get("title")
+            if isinstance(raw_title, str) and raw_title.strip():
+                title = raw_title.strip()
+        repo = ChatRepository()
+        chat = repo.create(
+            member_id=user, chat_id=str(uuid.uuid4()), title=title
+        )
+        summary = _chat_summary(chat)
+        if summary is None:
+            raise HTTPException(status_code=500, detail="Chat row malformed after create")
+        return summary
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to create chat: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.get("/api/chats/{chat_id}/messages/")
+def list_chat_messages(
+    chat_id: str,
     limit: int = Query(default=80, ge=1, le=200),
     user: str = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Return recent persisted conversation messages for the signed-in user."""
+    """Return the chronological message log for one chat.
+
+    Used by the frontend both on chat-switch (user clicked another chat
+    in the sidebar) and on initial page load when the localStorage-pinned
+    chat_id is restored.
+    """
     try:
         repo = MessageRepository()
-        items = repo.list_recent(user, limit=limit)
+        items = repo.list_for_chat(user, chat_id, limit=limit)
         messages = [
             msg
             for item in items
             if (msg := _message_history_item(item)) is not None
         ]
-        return {"messages": messages, "count": len(messages)}
+        return {"messages": messages, "count": len(messages), "chat_id": chat_id}
     except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to load message history: {type(exc).__name__}: {exc}",
+            detail=f"Failed to load chat messages: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.patch("/api/chats/{chat_id}/")
+def rename_chat(
+    chat_id: str,
+    body: dict[str, Any] = Body(...),
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Rename a chat's sidebar title. Body: ``{"title": "..."}``."""
+    raw_title = body.get("title") if isinstance(body, dict) else None
+    if not isinstance(raw_title, str) or not raw_title.strip():
+        raise HTTPException(status_code=400, detail="`title` is required")
+    try:
+        repo = ChatRepository()
+        updated = repo.rename(
+            member_id=user, chat_id=chat_id, title=raw_title.strip()
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        summary = _chat_summary(updated)
+        if summary is None:
+            raise HTTPException(status_code=500, detail="Chat row malformed after rename")
+        return summary
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to rename chat: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.delete("/api/chats/{chat_id}/")
+def delete_chat(
+    chat_id: str,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Delete a chat and every message it contains.
+
+    Two-step delete (messages first, metadata last) so a partial failure
+    leaves the chat empty-but-listable rather than orphaning messages
+    with no visible parent in the sidebar.
+    """
+    try:
+        msg_repo = MessageRepository()
+        deleted_msgs = msg_repo.delete_chat_messages(user, chat_id)
+        chat_repo = ChatRepository()
+        existed = chat_repo.delete(user, chat_id)
+        return {
+            "chat_id": chat_id,
+            "deleted_messages": deleted_msgs,
+            "chat_existed": existed,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to delete chat: {type(exc).__name__}: {exc}",
         ) from exc
 
 

@@ -262,9 +262,30 @@ export interface AddressContext {
   options_count?: number;
 }
 
+// Slim chat row returned by `/api/chats/` for the sidebar list. Backed by
+// the same `companion-messages` Dynamo table (single-table design: rows
+// keyed under `chat#<chat_id>`) — see `companion_api/messages_repo.py`.
+// The frontend keeps an array of these in state and renders them in the
+// SidebarRail, pinning the active one and persisting the active chat_id
+// in localStorage so a reload lands the user back where they were.
+export interface ChatSummary {
+  chat_id: string;
+  title: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_message_at?: string | null;
+  last_message_preview?: string | null;
+  message_count?: number;
+}
+
 export interface QueryResponse {
   assistant_message: string;
   selected_tool_providers: string[];
+  // Chat this turn was persisted under. Echoed on every request body
+  // for the *next* turn so all messages in a conversation land under
+  // the same `msg#<chat_id>#…` Dynamo prefix. Server may auto-create
+  // and return a fresh id when the client omits it (lazy creation).
+  chat_id?: string | null;
   // Single primary provider the orchestrator picked this turn (the
   // alphabetically-first entry in `selected_tool_providers` when multiple
   // ran). The frontend stores this on the assistant `Message` and echoes

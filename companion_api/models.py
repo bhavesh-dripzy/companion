@@ -94,6 +94,13 @@ class AgentQueryRequest(BaseModel):
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
     geo: UserGeoLocation | None = None
+    # Multi-chat support: client echoes the chat_id it received on the
+    # previous turn so all messages for this conversation land under the
+    # same ``msg#<chat_id>#…`` Dynamo prefix. When omitted (or blank), the
+    # backend lazy-creates a fresh chat — first-turn auto-titled from
+    # ``message`` — and returns the new id in ``response.chat_id`` so the
+    # client can pin it for subsequent turns.
+    chat_id: str | None = None
     # See FoodQueryRequest.session_state above.
     session_state: dict[str, str] | None = None
     # See FoodQueryRequest.session_restaurants above.

@@ -1050,21 +1050,24 @@ def test_agent_query_does_not_require_food_address():
     assert response.status_code != 422
 
 
-def test_recent_messages_endpoint_returns_persisted_history(monkeypatch):
+def test_chat_messages_endpoint_returns_persisted_history(monkeypatch):
     class FakeMessageRepository:
-        def list_recent(self, member_id, limit=20):
+        def list_for_chat(self, member_id, chat_id, limit=80):
             assert member_id == "local_admin"
+            assert chat_id == "chat-xyz"
             assert limit == 2
             return [
                 {
-                    "created_at_message_id": "2026-06-01T10:00:00Z#turn-user",
+                    "created_at_message_id": "msg#chat-xyz#2026-06-01T10:00:00Z#turn-user",
+                    "chat_id": "chat-xyz",
                     "role": "user",
                     "text": "hello",
                     "created_at": "2026-06-01T10:00:00Z",
                     "task_type": "normal_query",
                 },
                 {
-                    "created_at_message_id": "2026-06-01T10:00:01Z#turn-assistant",
+                    "created_at_message_id": "msg#chat-xyz#2026-06-01T10:00:01Z#turn-assistant",
+                    "chat_id": "chat-xyz",
                     "role": "assistant",
                     "text": "hi",
                     "created_at": "2026-06-01T10:00:01Z",
@@ -1075,15 +1078,85 @@ def test_recent_messages_endpoint_returns_persisted_history(monkeypatch):
 
     monkeypatch.setattr(api_main, "MessageRepository", FakeMessageRepository)
 
-    response = client.get("/api/messages/recent/?limit=2", headers=auth_headers())
+    response = client.get(
+        "/api/chats/chat-xyz/messages/?limit=2", headers=auth_headers()
+    )
 
     assert response.status_code == 200
     body = response.json()
+    assert body["chat_id"] == "chat-xyz"
     assert body["count"] == 2
     assert body["messages"][0]["role"] == "user"
     assert body["messages"][0]["content"] == "hello"
     assert body["messages"][1]["provider"] == "general"
     assert body["messages"][1]["meta"] == ["normal_query", "general"]
+
+
+def test_list_chats_endpoint_returns_sidebar_summary(monkeypatch):
+    class FakeChatRepository:
+        def list_chats(self, member_id, limit=50):
+            assert member_id == "local_admin"
+            return [
+                {
+                    "chat_id": "chat-2",
+                    "title": "Order biryani",
+                    "created_at": "2026-06-01T11:00:00Z",
+                    "updated_at": "2026-06-01T11:05:00Z",
+                    "last_message_at": "2026-06-01T11:05:00Z",
+                    "last_message_preview": "Done! Added to cart.",
+                    "message_count": 6,
+                },
+                {
+                    "chat_id": "chat-1",
+                    "title": "Pizza near me",
+                    "created_at": "2026-06-01T10:00:00Z",
+                    "updated_at": "2026-06-01T10:30:00Z",
+                    "last_message_at": "2026-06-01T10:30:00Z",
+                    "last_message_preview": "Here are 8 options.",
+                    "message_count": 4,
+                },
+            ]
+
+    monkeypatch.setattr(api_main, "ChatRepository", FakeChatRepository)
+
+    response = client.get("/api/chats/", headers=auth_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 2
+    assert [c["chat_id"] for c in body["chats"]] == ["chat-2", "chat-1"]
+    assert body["chats"][0]["title"] == "Order biryani"
+    assert body["chats"][0]["last_message_preview"] == "Done! Added to cart."
+    assert body["chats"][0]["message_count"] == 6
+
+
+def test_delete_chat_endpoint_drops_messages_and_metadata(monkeypatch):
+    calls: dict[str, object] = {}
+
+    class FakeMessageRepository:
+        def delete_chat_messages(self, member_id, chat_id):
+            calls["msgs"] = (member_id, chat_id)
+            return 4
+
+    class FakeChatRepository:
+        def delete(self, member_id, chat_id):
+            calls["chat"] = (member_id, chat_id)
+            return True
+
+    monkeypatch.setattr(api_main, "MessageRepository", FakeMessageRepository)
+    monkeypatch.setattr(api_main, "ChatRepository", FakeChatRepository)
+
+    response = client.delete(
+        "/api/chats/chat-xyz/", headers=auth_headers()
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["chat_id"] == "chat-xyz"
+    assert body["deleted_messages"] == 4
+    assert body["chat_existed"] is True
+    assert calls["msgs"] == ("local_admin", "chat-xyz")
+    assert calls["chat"] == ("local_admin", "chat-xyz")
 
 
 def test_custom_mcp_can_be_added_listed_and_removed(monkeypatch):

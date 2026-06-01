@@ -75,6 +75,7 @@ def _load_state(path: Path) -> dict[str, Any]:
         "session_cart": None,
         "pending_variant_choice": [],
         "token": None,
+        "chat_id": None,
     }
     if not path.is_file():
         return empty
@@ -89,6 +90,7 @@ def _load_state(path: Path) -> dict[str, Any]:
     loaded.setdefault("session_menu", [])
     loaded.setdefault("session_cart", None)
     loaded.setdefault("pending_variant_choice", [])
+    loaded.setdefault("chat_id", None)
     return loaded
 
 
@@ -150,6 +152,7 @@ def main() -> int:
     session_menu: list[dict[str, Any]] = state.get("session_menu") or []
     session_cart: dict[str, Any] | None = state.get("session_cart") if isinstance(state.get("session_cart"), dict) else None
     pending_variant_choice: list[dict[str, Any]] = state.get("pending_variant_choice") or []
+    chat_id: str | None = state.get("chat_id") if isinstance(state.get("chat_id"), str) and state.get("chat_id") else None
     turn_idx = int(state.get("turn") or 0) + 1
 
     body: dict[str, Any] = {
@@ -176,6 +179,8 @@ def main() -> int:
         body["session_cart"] = session_cart
     if pending_variant_choice:
         body["pending_variant_choice"] = pending_variant_choice
+    if chat_id:
+        body["chat_id"] = chat_id
 
     print(f"\n{'═' * 78}")
     print(f"TURN {turn_idx}  →  {args.message!r}")
@@ -184,6 +189,7 @@ def main() -> int:
     print(f"  address_id IN     : {addr_in}")
     if args.lat is not None and args.lng is not None:
         print(f"  user_geo IN       : lat={args.lat} lng={args.lng}")
+    print(f"  chat_id IN        : {chat_id or '(none — backend will lazy-create)'}")
     print(f"  session_state IN  : {session_state}")
     if session_cart:
         ci = ", ".join(
@@ -219,11 +225,17 @@ def main() -> int:
     if not (isinstance(next_cart, dict) and next_cart.get("cart_id")):
         next_cart = None
     next_pending_variant_choice = result.get("pending_variant_choice") or []
+    next_chat_id_raw = result.get("chat_id")
+    next_chat_id: str | None = next_chat_id_raw if isinstance(next_chat_id_raw, str) and next_chat_id_raw else chat_id
     address_context = result.get("address_context") or None
     plan = result.get("food_routing_plan") or {}
     tool_plan = plan.get("tool_plan") or []
     planned_tools = [s.get("tool") for s in tool_plan if isinstance(s, dict)]
 
+    if next_chat_id and next_chat_id != chat_id:
+        print(f"  ↑ new chat_id      : {next_chat_id}")
+    elif next_chat_id:
+        print(f"  chat_id OUT       : {next_chat_id}")
     print(f"  routed_provider   : {routed!r}")
     print(f"  planned tools     : {planned_tools}")
     print(f"  tool_execution.ok : {tool_exec.get('ok')!r}  error={tool_exec.get('error')!r}")
@@ -348,6 +360,7 @@ def main() -> int:
     if isinstance(next_menu, list):
         state["session_menu"] = next_menu
     state["session_cart"] = next_cart
+    state["chat_id"] = next_chat_id
     if isinstance(next_pending_variant_choice, list):
         state["pending_variant_choice"] = next_pending_variant_choice
     _save_state(state_path, state)
