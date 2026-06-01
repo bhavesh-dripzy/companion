@@ -254,7 +254,7 @@ const RestaurantCard: React.FC<{ restaurant: RestaurantCardEntry }> = ({ restaur
   const offer = restaurant.res_offer ? String(restaurant.res_offer).trim() : '';
 
   return (
-    <div className="snap-start shrink-0 w-[280px] flex flex-col bg-white/95 border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
+    <div className="w-full flex flex-col bg-white/95 border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
       <div className="relative h-28 w-full bg-slate-900 overflow-hidden">
         {showImage ? (
           <img
@@ -357,7 +357,12 @@ const RestaurantCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }
           {heading} ({restaurants.length})
         </div>
       </div>
-      <div className="flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+      {/* 4-column grid on desktop so 8 results land cleanly as 2 rows of
+          4. Narrower viewports step down to 3 / 2 cols to avoid cramping;
+          single-column fallback is intentionally skipped — restaurant
+          cards work fine at half-width even on phones, and a single
+          tall column buries the second row behind a long scroll. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 px-1">
         {restaurants.map((r, idx) => (
           <RestaurantCard key={r.res_id || `${r.name}-${idx}`} restaurant={r} />
         ))}
