@@ -109,6 +109,8 @@ export interface Attachment {
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
+  created_at?: string;
+  message_id?: string;
   meta?: string[];
   trace?: any[];
   attachments?: Attachment[];

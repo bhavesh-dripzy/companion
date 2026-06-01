@@ -1050,6 +1050,42 @@ def test_agent_query_does_not_require_food_address():
     assert response.status_code != 422
 
 
+def test_recent_messages_endpoint_returns_persisted_history(monkeypatch):
+    class FakeMessageRepository:
+        def list_recent(self, member_id, limit=20):
+            assert member_id == "local_admin"
+            assert limit == 2
+            return [
+                {
+                    "created_at_message_id": "2026-06-01T10:00:00Z#turn-user",
+                    "role": "user",
+                    "text": "hello",
+                    "created_at": "2026-06-01T10:00:00Z",
+                    "task_type": "normal_query",
+                },
+                {
+                    "created_at_message_id": "2026-06-01T10:00:01Z#turn-assistant",
+                    "role": "assistant",
+                    "text": "hi",
+                    "created_at": "2026-06-01T10:00:01Z",
+                    "task_type": "normal_query",
+                    "provider": "general",
+                },
+            ]
+
+    monkeypatch.setattr(api_main, "MessageRepository", FakeMessageRepository)
+
+    response = client.get("/api/messages/recent/?limit=2", headers=auth_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 2
+    assert body["messages"][0]["role"] == "user"
+    assert body["messages"][0]["content"] == "hello"
+    assert body["messages"][1]["provider"] == "general"
+    assert body["messages"][1]["meta"] == ["normal_query", "general"]
+
+
 def test_custom_mcp_can_be_added_listed_and_removed(monkeypatch):
     store = {}
 

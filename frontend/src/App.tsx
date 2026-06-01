@@ -112,6 +112,7 @@ function App() {
   }, []);
 
   const loadInitialData = async () => {
+    refreshConversationHistory();
     try {
       const providersData = await api.get('/api/tools/providers/');
       setToolProviders(providersData.providers || []);
@@ -121,6 +122,28 @@ function App() {
     refreshAllMcpStatuses();
     refreshGcalStatus();
     refreshMapsStatus();
+  };
+
+  const refreshConversationHistory = async () => {
+    try {
+      const data = await api.get('/api/messages/recent/?limit=80');
+      const list = Array.isArray(data?.messages) ? data.messages : [];
+      setMessages(
+        list
+          .filter((item: any) => item?.role === 'user' || item?.role === 'assistant')
+          .map((item: any) => ({
+            role: item.role,
+            content: String(item.content || ''),
+            ...(Array.isArray(item.meta) ? { meta: item.meta } : {}),
+            ...(typeof item.provider === 'string' && item.provider ? { provider: item.provider } : {}),
+            ...(typeof item.created_at === 'string' ? { created_at: item.created_at } : {}),
+            ...(typeof item.message_id === 'string' ? { message_id: item.message_id } : {}),
+          }))
+          .filter((item: Message) => item.content.trim()),
+      );
+    } catch (err) {
+      console.error('Failed to load conversation history', err);
+    }
   };
 
   const refreshAllMcpStatuses = async () => {

@@ -31,6 +31,34 @@ def test_messages_repo_create():
         assert "created_at_message_id" in item
 
 
+def test_messages_repo_list_recent_returns_chronological_items():
+    with patch("companion_api.messages_repo._resource") as mock_resource:
+        mock_table = MagicMock()
+        mock_resource.return_value.Table.return_value = mock_table
+        mock_table.query.return_value = {
+            "Items": [
+                {
+                    "member_id": "user-123",
+                    "created_at_message_id": "2026-06-01T10:01:00Z#assistant",
+                    "role": "assistant",
+                    "text": "hi",
+                },
+                {
+                    "member_id": "user-123",
+                    "created_at_message_id": "2026-06-01T10:00:00Z#user",
+                    "role": "user",
+                    "text": "hello",
+                },
+            ]
+        }
+
+        repo = MessageRepository(table_name="test-messages")
+        items = repo.list_recent("user-123", limit=2)
+
+        assert [item["role"] for item in items] == ["user", "assistant"]
+        mock_table.query.assert_called_once()
+
+
 def test_profile_cache_repo_get_and_put():
     with patch("companion_api.profile_cache._resource") as mock_resource:
         mock_table = MagicMock()
@@ -201,5 +229,4 @@ def test_lead_cache_repo_get_put_query():
         mock_table.query.assert_called_once()
         _, query_kwargs = mock_table.query.call_args
         assert query_kwargs["IndexName"] == "category-status-index"
-
 

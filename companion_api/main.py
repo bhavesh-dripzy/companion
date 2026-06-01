@@ -1657,6 +1657,55 @@ def _companion_agent_turn(
         raise HTTPException(status_code=502, detail=f"{type(exc).__name__}: {exc}") from exc
 
 
+def _message_history_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    role = item.get("role")
+    text = item.get("text")
+    if role not in {"user", "assistant"} or not isinstance(text, str):
+        return None
+
+    response: dict[str, Any] = {
+        "role": role,
+        "content": text,
+        "created_at": item.get("created_at"),
+        "message_id": item.get("created_at_message_id"),
+    }
+    provider = item.get("provider")
+    if isinstance(provider, str) and provider:
+        response["provider"] = provider
+
+    meta = [
+        value
+        for value in [item.get("task_type"), provider]
+        if isinstance(value, str) and value
+    ]
+    if meta:
+        response["meta"] = meta
+
+    return response
+
+
+@app.get("/api/messages/recent/")
+def list_recent_messages(
+    limit: int = Query(default=80, ge=1, le=200),
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return recent persisted conversation messages for the signed-in user."""
+    try:
+        repo = MessageRepository()
+        items = repo.list_recent(user, limit=limit)
+        messages = [
+            msg
+            for item in items
+            if (msg := _message_history_item(item)) is not None
+        ]
+        return {"messages": messages, "count": len(messages)}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to load message history: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
 def _message_requires_delivery_address(message: str) -> bool:
     text = f" {(message or '').strip().lower()} "
     delivery_words = {
