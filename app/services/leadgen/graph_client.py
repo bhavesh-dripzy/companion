@@ -42,6 +42,7 @@ class GraphClient:
             "CREATE CONSTRAINT user_id     IF NOT EXISTS FOR (u:User)     REQUIRE u.id IS UNIQUE",
             "CREATE CONSTRAINT place_key   IF NOT EXISTS FOR (p:Place)    REQUIRE p.id IS UNIQUE",
             "CREATE CONSTRAINT category_nm IF NOT EXISTS FOR (c:Category) REQUIRE c.name IS UNIQUE",
+            "CREATE CONSTRAINT interest_id IF NOT EXISTS FOR (i:Interest) REQUIRE i.id IS UNIQUE",
             "CREATE CONSTRAINT lead_id     IF NOT EXISTS FOR (l:Lead)     REQUIRE l.id IS UNIQUE",
             "CREATE INDEX place_norm       IF NOT EXISTS FOR (p:Place)    ON (p.normalized_key)",
             "CREATE INDEX lead_cat_status  IF NOT EXISTS FOR (l:Lead)     ON (l.category, l.status)",
@@ -181,6 +182,18 @@ class GraphClient:
             "weight": interest.weight
         })
 
+        # Step D: Link the category to its leaf interests so consumers can render
+        # User -> Category -> Interest instead of a flat cluster around the user.
+        cypher_hierarchy_rel = """
+        MATCH (c:Category {name: $cat_name}), (i:Interest {id: $interest_id})
+        MERGE (c)-[r:HAS_INTEREST]->(i)
+        SET r.updated_at = timestamp()
+        """
+        self.execute_query(cypher_hierarchy_rel, {
+            "cat_name": cat_name,
+            "interest_id": interest_id,
+        })
+
     def upsert_lead(self, user_id: str, lead: Lead, source: str = "llm") -> dict[str, Any] | None:
         """Upserts a commercial lead and connects it to the generating user."""
         cat_name = lead.category.strip().lower()
@@ -192,6 +205,7 @@ class GraphClient:
         attrs_json = json.dumps(lead.attrs)
 
         cypher = """
+        MERGE (c:Category {name: $category_key})
         MERGE (l:Lead {id: $lead_id})
         ON CREATE SET l.created_at = timestamp(), l.status = 'open'
         SET l.category = $category,
@@ -207,6 +221,10 @@ class GraphClient:
         MATCH (u:User {id: $user_id})
         MERGE (u)-[r:GENERATED]->(l)
         SET r.updated_at = timestamp()
+        WITH l
+        MATCH (c:Category {name: $category_key})
+        MERGE (l)-[cr:IN_CATEGORY]->(c)
+        SET cr.updated_at = timestamp()
         RETURN l.id AS lead_id,
                l.status AS status,
                l.consent_status AS consent_status,
@@ -222,6 +240,7 @@ class GraphClient:
         results = self.execute_query(cypher, {
             "lead_id": lead_id,
             "user_id": user_id,
+            "category_key": cat_name,
             "category": lead.category,
             "product": lead.product,
             "attrs": attrs_json,

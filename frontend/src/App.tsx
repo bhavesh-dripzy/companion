@@ -177,6 +177,7 @@ function App() {
   };
 
   const handleNewChat = () => {
+    setIsAdminOpen(false);
     setMessages([]);
     setSessionState({});
     setSessionRestaurants([]);
@@ -309,7 +310,10 @@ function App() {
         isMobileOpen={mobileRailOpen}
         onMobileClose={() => setMobileRailOpen(false)}
         isAdmin={['admin', 'admin_bhavesh', 'admin_kshitij', 'local_admin'].includes(username)}
-        onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenAdmin={() => {
+          setSearchOpen(false);
+          setIsAdminOpen(true);
+        }}
       />
 
       <div className="flex-1 flex flex-col relative overflow-hidden min-w-0">
@@ -343,47 +347,53 @@ function App() {
           </button>
         </div>
 
-        {searchOpen && (
-          <div className="absolute top-16 md:top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-full shadow-lg shadow-slate-900/10 pl-3 pr-1 py-1 max-w-[92vw]">
-            <Search size={14} className="text-slate-500 shrink-0" />
-            <input
-              autoFocus
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search this conversation…"
-              className="bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-48 md:w-64"
-            />
-            <button
-              onClick={() => {
-                setSearchOpen(false);
-                setSearchQuery('');
+        {isAdminOpen ? (
+          <AdminDashboard onClose={() => setIsAdminOpen(false)} />
+        ) : (
+          <>
+            {searchOpen && (
+              <div className="absolute top-16 md:top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-full shadow-lg shadow-slate-900/10 pl-3 pr-1 py-1 max-w-[92vw]">
+                <Search size={14} className="text-slate-500 shrink-0" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search this conversation…"
+                  className="bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-48 md:w-64"
+                />
+                <button
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearchQuery('');
+                  }}
+                  className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
+                  title="Close search"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            <ChatLog
+              messages={messages}
+              isThinking={isThinking}
+              sessionAddresses={sessionAddresses}
+              onSelectAddress={(addr) => {
+                const label = (addr.location_name || addr.address_id || '').trim();
+                if (!label || isThinking) return;
+                handleSendMessage(`Switch my delivery address to: ${label}.`);
               }}
-              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
-              title="Close search"
-            >
-              <X size={14} />
-            </button>
-          </div>
+              searchQuery={searchQuery}
+            />
+
+            <MessageInput
+              onSendMessage={handleSendMessage}
+              disabled={isThinking}
+              showQuickActions={showQuickActions && messages.length === 0}
+            />
+          </>
         )}
-
-        <ChatLog
-          messages={messages}
-          isThinking={isThinking}
-          sessionAddresses={sessionAddresses}
-          onSelectAddress={(addr) => {
-            const label = (addr.location_name || addr.address_id || '').trim();
-            if (!label || isThinking) return;
-            handleSendMessage(`Switch my delivery address to: ${label}.`);
-          }}
-          searchQuery={searchQuery}
-        />
-
-        <MessageInput
-          onSendMessage={handleSendMessage}
-          disabled={isThinking}
-          showQuickActions={showQuickActions && messages.length === 0}
-        />
       </div>
 
       <RightSidebar
@@ -417,9 +427,6 @@ function App() {
         initialProviderId={settingsInitialProvider}
       />
 
-      {isAdminOpen && (
-        <AdminDashboard onClose={() => setIsAdminOpen(false)} />
-      )}
     </div>
   );
 }
