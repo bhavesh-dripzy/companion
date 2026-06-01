@@ -103,6 +103,15 @@ _MENU_ITEMS_PER_RESTAURANT = max(1, int(os.getenv("ZOMATO_MENU_ITEMS_PER_RESTAUR
 _MAX_TOKEN_FILE_BYTES = 256 * 1024
 _OAUTH_PENDING_TTL_SECONDS = 15 * 60
 _PAIRING_TTL_SECONDS = 15 * 60
+# Warm-container freshness window for ``ensure_mcp_tokens_on_disk``: when the
+# on-disk tokens.json was rotated within this many seconds, skip the proactive
+# refresh and trust mcp-remote to use the existing access_token. Beyond this,
+# refresh in Python (with the PKCE verifier) before mcp-remote spawns — the
+# Lambda case where Zomato silently expires older access_tokens but mcp-remote's
+# own refresh path can't recover (omits ``code_verifier``).
+_PROACTIVE_REFRESH_MIN_AGE_S = int(
+    os.getenv("MCP_PROACTIVE_REFRESH_MIN_AGE_SECONDS", "300")
+)
 _LEGACY_MCP_OWNER: str | None = os.getenv("LEGACY_ADMIN_USERNAME", "").strip() or None
 
 
@@ -2962,31 +2971,44 @@ def ensure_mcp_tokens_on_disk(
     into its own OAuth handshake and ``session.initialize()`` times out.
     """
     status = get_mcp_token_status(repo_root, mcp_url=mcp_url, user_id=user_id)
-    if status["has_local_tokens"]:
-        return status
-    if not status["has_secret_tokens"]:
-        return status
-    try:
-        restore_mcp_auth_tokens(repo_root, user_id=user_id)
-    except Exception:
-        logger.exception(
-            "ensure_mcp_tokens_on_disk: restore from Secrets Manager failed for %s",
-            mcp_url,
-        )
-        return status
-    # Cold-start refresh: rotate the just-restored tokens before mcp-remote
-    # spawns. Some MCP authorization servers (Zomato as of 2026-06) require
-    # the PKCE code_verifier on grant_type=refresh_token, which violates
-    # RFC 6749/7636. mcp-remote correctly omits it and so its internal
-    # refresh path always fails against those servers, dropping the bridge
-    # into a full OAuth handshake that can never complete on Lambda. We do
-    # the refresh here, in Python, where we have the verifier on disk, and
-    # write the rotated tokens back to /tmp + Secrets Manager so warm
-    # containers and later cold starts see the latest refresh_token.
+    needs_restore = not status["has_local_tokens"]
+    if needs_restore:
+        if not status["has_secret_tokens"]:
+            return status
+        try:
+            restore_mcp_auth_tokens(repo_root, user_id=user_id)
+        except Exception:
+            logger.exception(
+                "ensure_mcp_tokens_on_disk: restore from Secrets Manager failed for %s",
+                mcp_url,
+            )
+            return status
+    # Proactive refresh: rotate tokens before mcp-remote spawns. Some MCP
+    # authorization servers (Zomato as of 2026-06) require the PKCE
+    # code_verifier on grant_type=refresh_token, which violates RFC
+    # 6749/7636. mcp-remote correctly omits it, so its internal refresh
+    # path always fails against those servers; on failure mcp-remote
+    # deletes tokens.json and falls into a full OAuth handshake that
+    # can't complete on Lambda. We refresh here — with the verifier
+    # on disk — and write the rotated tokens back to /tmp + Secrets
+    # Manager. Skipped when the on-disk tokens were rotated very
+    # recently (within ``_PROACTIVE_REFRESH_MIN_AGE_S``); a fresh
+    # restore from Secrets Manager counts as "rotated now" and is also
+    # skipped on warm hot paths.
     try:
         cfg = _mcp_remote_effective_config_dir(repo_root, user_id=user_id)
         h = _server_url_hash(mcp_url)
-        tokens = json.loads((cfg / f"{h}_tokens.json").read_text(encoding="utf-8"))
+        tokens_path = cfg / f"{h}_tokens.json"
+        if not tokens_path.is_file():
+            return get_mcp_token_status(repo_root, mcp_url=mcp_url, user_id=user_id)
+        if not needs_restore:
+            try:
+                age = time.time() - tokens_path.stat().st_mtime
+            except OSError:
+                age = float("inf")
+            if age < _PROACTIVE_REFRESH_MIN_AGE_S:
+                return status
+        tokens = json.loads(tokens_path.read_text(encoding="utf-8"))
         client_info = json.loads((cfg / f"{h}_client_info.json").read_text(encoding="utf-8"))
         code_verifier = (cfg / f"{h}_code_verifier.txt").read_text(encoding="utf-8").strip()
         if tokens.get("refresh_token") and client_info.get("client_id") and code_verifier:
@@ -3028,7 +3050,9 @@ def ensure_mcp_tokens_on_disk(
                         )
                         existing[rel] = serialized
                         _merge_mcp_token_secret(user_id, files=existing)
-                        logger.info("Refreshed MCP tokens on cold start for %s", mcp_url)
+                        # WARNING-level so it surfaces under Lambda's default
+                        # log level (root logger is WARN in AWS Lambda Python).
+                        logger.warning("Refreshed MCP tokens proactively for %s", mcp_url)
                 elif resp.status_code in (400, 401):
                     # Likely a concurrent container already rotated the
                     # refresh_token; pull the winner's tokens back to disk.
@@ -3040,7 +3064,7 @@ def ensure_mcp_tokens_on_disk(
                     restore_mcp_auth_tokens(repo_root, user_id=user_id)
     except Exception:
         logger.warning(
-            "Cold-start token refresh failed for %s; mcp-remote will use restored tokens",
+            "Proactive token refresh failed for %s; mcp-remote will use existing tokens",
             mcp_url,
             exc_info=True,
         )
