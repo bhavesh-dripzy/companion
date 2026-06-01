@@ -549,6 +549,11 @@ function App() {
                 handleSendMessage(`Switch my delivery address to: ${label}.`);
               }}
               searchQuery={searchQuery}
+              onQuickPrompt={(prompt) => {
+                if (isThinking) return;
+                handleSendMessage(prompt);
+              }}
+              quickPromptDisabled={isThinking}
             />
 
             <MessageInput

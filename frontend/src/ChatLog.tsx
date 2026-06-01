@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import type {
@@ -25,6 +26,9 @@ import {
   ThumbsDown,
   ShoppingBag,
   Info,
+  Plus,
+  Eye,
+  Menu as MenuIcon,
 } from 'lucide-react';
 
 interface ChatLogProps {
@@ -33,7 +37,142 @@ interface ChatLogProps {
   sessionAddresses: SessionAddress[];
   onSelectAddress: (addr: SessionAddress) => void;
   searchQuery: string;
+  // Send a synthesized chat message on behalf of the user (e.g. when
+  // they tap a quick-action button on a restaurant card). The receiving
+  // component must be disabled while a turn is in flight; we surface
+  // that via `disabled` so the popover renders click-but-no-op buttons
+  // greyed instead of accidentally double-firing.
+  onQuickPrompt?: (prompt: string) => void;
+  quickPromptDisabled?: boolean;
 }
+
+// One option in a `QuickActionPopover`. `label` is the button text,
+// `prompt` is the literal user message that gets routed through
+// `handleSendMessage` as if the user typed it themselves — this keeps
+// the agent's intent-routing logic the single source of truth.
+interface QuickAction {
+  label: string;
+  prompt: string;
+  hint?: string;
+  icon?: React.ReactNode;
+  tone?: 'default' | 'primary';
+}
+
+// Small floating action menu anchored to a clicked element. Rendered via
+// portal so card-level `overflow-hidden` and grid clipping never cut it
+// off, and the click-outside backdrop traps stray clicks so the menu
+// dismisses cleanly without leaking pointer events through to anything
+// else in the chat (avatars, message bubbles, the input).
+const QuickActionPopover: React.FC<{
+  anchor: DOMRect;
+  actions: QuickAction[];
+  title?: string;
+  subtitle?: string;
+  disabled?: boolean;
+  onSelect: (action: QuickAction) => void;
+  onClose: () => void;
+}> = ({ anchor, actions, title, subtitle, disabled, onSelect, onClose }) => {
+  // Dismiss on Escape — standard popover affordance.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const POPOVER_WIDTH = 240;
+  const margin = 8;
+  // Default placement: directly under the trigger, left-aligned. Clamp
+  // horizontally so the popover never spills off the viewport, and flip
+  // above when there isn't room below (long restaurant cards near the
+  // bottom of the chat scroll).
+  const spaceBelow = window.innerHeight - anchor.bottom;
+  const placeAbove = spaceBelow < 180 && anchor.top > 180;
+  const top = placeAbove ? anchor.top - margin : anchor.bottom + margin;
+  const rawLeft = anchor.left;
+  const left = Math.max(
+    margin,
+    Math.min(rawLeft, window.innerWidth - POPOVER_WIDTH - margin),
+  );
+
+  return createPortal(
+    <>
+      <div
+        className="fixed inset-0 z-[60]"
+        onClick={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
+      />
+      <div
+        role="menu"
+        className="fixed z-[61] bg-white rounded-2xl shadow-2xl border border-slate-200 p-2 animate-fade-in"
+        style={{
+          top,
+          left,
+          width: POPOVER_WIDTH,
+          transform: placeAbove ? 'translateY(-100%)' : undefined,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {(title || subtitle) && (
+          <div className="px-2 pt-1 pb-2 border-b border-slate-100 mb-1">
+            {title && (
+              <div className="text-[11px] font-extrabold text-slate-900 truncate leading-tight">
+                {title}
+              </div>
+            )}
+            {subtitle && (
+              <div className="text-[10px] text-slate-500 truncate leading-tight mt-0.5">
+                {subtitle}
+              </div>
+            )}
+          </div>
+        )}
+        <div className="flex flex-col">
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              type="button"
+              role="menuitem"
+              disabled={disabled}
+              onClick={() => onSelect(a)}
+              className={cn(
+                'w-full text-left px-2.5 py-2 rounded-lg flex items-center gap-2 transition-colors cursor-pointer',
+                a.tone === 'primary'
+                  ? 'text-white bg-[#E23744] hover:bg-[#c92e3a]'
+                  : 'text-slate-800 hover:bg-slate-100',
+                disabled && 'opacity-50 cursor-not-allowed pointer-events-none',
+              )}
+            >
+              {a.icon && (
+                <span className="shrink-0 w-4 h-4 flex items-center justify-center">
+                  {a.icon}
+                </span>
+              )}
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px] font-bold leading-tight">{a.label}</span>
+                {a.hint && (
+                  <span
+                    className={cn(
+                      'block text-[10px] mt-0.5 leading-tight truncate',
+                      a.tone === 'primary' ? 'text-white/80' : 'text-slate-500',
+                    )}
+                  >
+                    {a.hint}
+                  </span>
+                )}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+};
 
 // Detect when the assistant is prompting the user to choose / switch their
 // delivery address. Same keyword heuristic the previous skin used — the
@@ -186,12 +325,25 @@ const MenuCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
 
 // One featured dish row inside a restaurant card. Compact: veg dot + name
 // + price on the left, square thumbnail on the right when available.
-const RestaurantFeaturedItem: React.FC<{ item: RestaurantCardItem }> = ({ item }) => {
+// The whole row is a button when an `onClick` is provided so tapping
+// anywhere on it opens the item-level quick-action popover (Add to cart
+// / See details).
+const RestaurantFeaturedItem: React.FC<{
+  item: RestaurantCardItem;
+  onClick?: (anchor: DOMRect) => void;
+  active?: boolean;
+}> = ({ item, onClick, active }) => {
   const [imageBroken, setImageBroken] = useState(false);
   const price = formatPriceINR(item.price);
   const showImage = !!item.image_url && !imageBroken;
-  return (
-    <div className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50/70 transition-colors">
+
+  const handleClick = (e: React.MouseEvent<HTMLElement>) => {
+    if (!onClick) return;
+    onClick(e.currentTarget.getBoundingClientRect());
+  };
+
+  const inner = (
+    <>
       <div className="min-w-0 flex-1 flex flex-col gap-0.5">
         <div className="flex items-start gap-1.5">
           {item.veg_kind && (
@@ -209,7 +361,7 @@ const RestaurantFeaturedItem: React.FC<{ item: RestaurantCardItem }> = ({ item }
               />
             </span>
           )}
-          <span className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2">
+          <span className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 text-left">
             {item.name}
           </span>
         </div>
@@ -229,7 +381,30 @@ const RestaurantFeaturedItem: React.FC<{ item: RestaurantCardItem }> = ({ item }
           />
         </div>
       )}
-    </div>
+    </>
+  );
+
+  if (!onClick) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        {inner}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={cn(
+        'w-full flex items-center gap-2 px-2 py-1.5 text-left transition-colors cursor-pointer',
+        active
+          ? 'bg-[#E23744]/10 ring-1 ring-[#E23744]/30'
+          : 'hover:bg-slate-50/80',
+      )}
+      title="Tap for options"
+    >
+      {inner}
+    </button>
   );
 };
 
@@ -241,11 +416,52 @@ const formatDistanceKm = (value: number | undefined): string | null => {
 // One restaurant tile. Image header with rating + offer ribbon, meta row
 // (distance + ETA), then a collapsible list of featured dishes pulled
 // straight from Zomato's keyword-search preview.
-const RestaurantCard: React.FC<{ restaurant: RestaurantCardEntry }> = ({ restaurant }) => {
+// Build the prompt strings the agent will receive when the user taps a
+// quick action. Centralised so the wording stays consistent — these
+// strings are intercepted by the existing intent router exactly as if
+// the user typed them, no special path on the backend.
+const buildItemActionPrompt = (
+  kind: 'add' | 'details',
+  item: RestaurantCardItem,
+  restaurantName: string,
+): string => {
+  const name = (item.name || '').trim() || 'this item';
+  const resto = (restaurantName || '').trim();
+  const restoSuffix = resto ? ` from ${resto}` : '';
+  if (kind === 'add') {
+    return `Add 1 × ${name}${restoSuffix} to my cart.`;
+  }
+  return `Tell me more about ${name}${restoSuffix} — what's in it, price, and any add-ons.`;
+};
+
+const buildRestoActionPrompt = (
+  kind: 'full' | 'veg' | 'nonveg',
+  restaurantName: string,
+): string => {
+  const resto = (restaurantName || '').trim() || 'this restaurant';
+  if (kind === 'veg') return `Show me only the veg items from ${resto}.`;
+  if (kind === 'nonveg') return `Show me only the non-veg items from ${resto}.`;
+  return `Show me the menu of ${resto}.`;
+};
+
+const RestaurantCard: React.FC<{
+  restaurant: RestaurantCardEntry;
+  onQuickPrompt?: (prompt: string) => void;
+  disabled?: boolean;
+}> = ({ restaurant, onQuickPrompt, disabled }) => {
   const items = Array.isArray(restaurant.items) ? restaurant.items : [];
   const hasItems = items.length > 0;
   const [imageBroken, setImageBroken] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  // Two independent popovers — one for the restaurant header (menu
+  // actions) and one for whichever featured item the user tapped. We
+  // never want both open at once, so opening one closes the other.
+  const [restoAnchor, setRestoAnchor] = useState<DOMRect | null>(null);
+  const [itemPopover, setItemPopover] = useState<
+    { anchor: DOMRect; item: RestaurantCardItem; key: string } | null
+  >(null);
+
+  const interactive = !!onQuickPrompt;
   const showImage = !!restaurant.res_image && !imageBroken;
   const showRating =
     typeof restaurant.rating === 'number' && restaurant.rating > 0;
@@ -253,45 +469,121 @@ const RestaurantCard: React.FC<{ restaurant: RestaurantCardEntry }> = ({ restaur
   const distance = formatDistanceKm(restaurant.distance_km);
   const offer = restaurant.res_offer ? String(restaurant.res_offer).trim() : '';
 
+  const handleHeaderClick = (e: React.MouseEvent<HTMLElement>) => {
+    if (!interactive) return;
+    setItemPopover(null);
+    setRestoAnchor(e.currentTarget.getBoundingClientRect());
+  };
+
+  const handleItemClick = (item: RestaurantCardItem, key: string) =>
+    (anchor: DOMRect) => {
+      setRestoAnchor(null);
+      setItemPopover({ anchor, item, key });
+    };
+
+  const fire = (prompt: string) => {
+    if (!onQuickPrompt) return;
+    onQuickPrompt(prompt);
+    setRestoAnchor(null);
+    setItemPopover(null);
+  };
+
   return (
     <div className="w-full flex flex-col bg-white/95 border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
-      <div className="relative h-28 w-full bg-slate-900 overflow-hidden">
-        {showImage ? (
-          <img
-            src={restaurant.res_image}
-            alt={restaurant.name}
-            loading="lazy"
-            onError={() => setImageBroken(true)}
-            className="w-full h-full object-cover opacity-95"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-500 bg-gradient-to-br from-slate-800 to-slate-700">
-            <UtensilsCrossed size={28} strokeWidth={1.5} />
-          </div>
-        )}
-        <div className="absolute top-1.5 left-1.5 z-10 bg-[#E23744] text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase">
-          Zomato
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-2">
-          {offer && (
-            <span className="self-start mb-1 inline-block bg-amber-400 text-slate-950 font-extrabold text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-md max-w-full truncate">
-              {offer}
-            </span>
+      {/* Image header — clickable when interactive, opens the restaurant
+          action popover (show full / veg / non-veg menu). We render it
+          as a button so it gets keyboard focus + announces as a control,
+          but only when `onQuickPrompt` is wired; otherwise it stays a
+          plain div so a non-interactive consumer (e.g. read-only history
+          replay) doesn't get phantom hover states. */}
+      {interactive ? (
+        <button
+          type="button"
+          onClick={handleHeaderClick}
+          disabled={disabled}
+          className={cn(
+            'relative h-28 w-full bg-slate-900 overflow-hidden block text-left',
+            disabled
+              ? 'cursor-not-allowed opacity-80'
+              : 'cursor-pointer hover:brightness-105 transition-[filter]',
           )}
-          <div className="flex justify-between items-end gap-2">
-            <h3 className="text-white font-bold text-[13px] leading-tight truncate drop-shadow-sm flex-1">
-              {restaurant.name}
-            </h3>
-            {showRating && (
-              <div className="flex items-center gap-0.5 bg-emerald-600 text-white font-bold text-[11px] px-1.5 py-0.5 rounded shrink-0">
-                <Star size={9} className="fill-white" />
-                <span>{restaurant.rating!.toFixed(1)}</span>
-              </div>
+          title="Tap for menu options"
+        >
+          {showImage ? (
+            <img
+              src={restaurant.res_image}
+              alt={restaurant.name}
+              loading="lazy"
+              onError={() => setImageBroken(true)}
+              className="w-full h-full object-cover opacity-95"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-500 bg-gradient-to-br from-slate-800 to-slate-700">
+              <UtensilsCrossed size={28} strokeWidth={1.5} />
+            </div>
+          )}
+          <div className="absolute top-1.5 left-1.5 z-10 bg-[#E23744] text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase">
+            Zomato
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-2">
+            {offer && (
+              <span className="self-start mb-1 inline-block bg-amber-400 text-slate-950 font-extrabold text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-md max-w-full truncate">
+                {offer}
+              </span>
             )}
+            <div className="flex justify-between items-end gap-2">
+              <h3 className="text-white font-bold text-[13px] leading-tight truncate drop-shadow-sm flex-1">
+                {restaurant.name}
+              </h3>
+              {showRating && (
+                <div className="flex items-center gap-0.5 bg-emerald-600 text-white font-bold text-[11px] px-1.5 py-0.5 rounded shrink-0">
+                  <Star size={9} className="fill-white" />
+                  <span>{restaurant.rating!.toFixed(1)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </button>
+      ) : (
+        <div className="relative h-28 w-full bg-slate-900 overflow-hidden">
+          {showImage ? (
+            <img
+              src={restaurant.res_image}
+              alt={restaurant.name}
+              loading="lazy"
+              onError={() => setImageBroken(true)}
+              className="w-full h-full object-cover opacity-95"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-500 bg-gradient-to-br from-slate-800 to-slate-700">
+              <UtensilsCrossed size={28} strokeWidth={1.5} />
+            </div>
+          )}
+          <div className="absolute top-1.5 left-1.5 z-10 bg-[#E23744] text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase">
+            Zomato
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-2">
+            {offer && (
+              <span className="self-start mb-1 inline-block bg-amber-400 text-slate-950 font-extrabold text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-md max-w-full truncate">
+                {offer}
+              </span>
+            )}
+            <div className="flex justify-between items-end gap-2">
+              <h3 className="text-white font-bold text-[13px] leading-tight truncate drop-shadow-sm flex-1">
+                {restaurant.name}
+              </h3>
+              {showRating && (
+                <div className="flex items-center gap-0.5 bg-emerald-600 text-white font-bold text-[11px] px-1.5 py-0.5 rounded shrink-0">
+                  <Star size={9} className="fill-white" />
+                  <span>{restaurant.rating!.toFixed(1)}</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {(distance || eta) && (
         <div className="grid grid-cols-2 text-center border-b border-slate-100 bg-slate-50/60 text-[11px] py-1.5">
@@ -329,21 +621,100 @@ const RestaurantCard: React.FC<{ restaurant: RestaurantCardEntry }> = ({ restaur
           </button>
           {expanded && (
             <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto bg-white">
-              {items.map((item, idx) => (
-                <RestaurantFeaturedItem
-                  key={item.variant_id || item.item_id || `${item.name}-${idx}`}
-                  item={item}
-                />
-              ))}
+              {items.map((item, idx) => {
+                const key = item.variant_id || item.item_id || `${item.name}-${idx}`;
+                return (
+                  <RestaurantFeaturedItem
+                    key={key}
+                    item={item}
+                    onClick={interactive ? handleItemClick(item, key) : undefined}
+                    active={itemPopover?.key === key}
+                  />
+                );
+              })}
             </div>
           )}
         </>
+      )}
+
+      {restoAnchor && (
+        <QuickActionPopover
+          anchor={restoAnchor}
+          onClose={() => setRestoAnchor(null)}
+          title={restaurant.name}
+          subtitle="Browse this restaurant"
+          disabled={disabled}
+          onSelect={(a) => fire(a.prompt)}
+          actions={[
+            {
+              label: 'Show full menu',
+              prompt: buildRestoActionPrompt('full', restaurant.name),
+              hint: 'Open the complete menu',
+              icon: <MenuIcon size={14} />,
+              tone: 'primary',
+            },
+            {
+              label: 'Veg menu only',
+              prompt: buildRestoActionPrompt('veg', restaurant.name),
+              hint: 'Filter to vegetarian dishes',
+              icon: (
+                <span className="w-3 h-3 border border-emerald-600 rounded-sm flex items-center justify-center">
+                  <span className="w-1 h-1 rounded-full bg-emerald-600" />
+                </span>
+              ),
+            },
+            {
+              label: 'Non-veg menu only',
+              prompt: buildRestoActionPrompt('nonveg', restaurant.name),
+              hint: 'Filter to non-vegetarian dishes',
+              icon: (
+                <span className="w-3 h-3 border border-red-600 rounded-sm flex items-center justify-center">
+                  <span className="w-1 h-1 rounded-full bg-red-600" />
+                </span>
+              ),
+            },
+          ]}
+        />
+      )}
+
+      {itemPopover && (
+        <QuickActionPopover
+          anchor={itemPopover.anchor}
+          onClose={() => setItemPopover(null)}
+          title={itemPopover.item.name}
+          subtitle={
+            formatPriceINR(itemPopover.item.price)
+              ? `${formatPriceINR(itemPopover.item.price)} · ${restaurant.name}`
+              : restaurant.name
+          }
+          disabled={disabled}
+          onSelect={(a) => fire(a.prompt)}
+          actions={[
+            {
+              label: 'Add to cart',
+              prompt: buildItemActionPrompt('add', itemPopover.item, restaurant.name),
+              hint: 'I\'ll add one to your Zomato cart',
+              icon: <Plus size={14} strokeWidth={2.5} />,
+              tone: 'primary',
+            },
+            {
+              label: 'See details',
+              prompt: buildItemActionPrompt('details', itemPopover.item, restaurant.name),
+              hint: 'Price, description and add-ons',
+              icon: <Eye size={14} />,
+            },
+          ]}
+        />
       )}
     </div>
   );
 };
 
-const RestaurantCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
+const RestaurantCardGrid: React.FC<{
+  attachment: Attachment;
+  onQuickPrompt?: (prompt: string) => void;
+  disabled?: boolean;
+}> = ({ attachment, onQuickPrompt, disabled }) => {
   const restaurants = Array.isArray(attachment.restaurants) ? attachment.restaurants : [];
   if (restaurants.length === 0) return null;
   const keyword = attachment.keyword ? String(attachment.keyword).trim() : '';
@@ -356,6 +727,11 @@ const RestaurantCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }
         <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
           {heading} ({restaurants.length})
         </div>
+        {onQuickPrompt && (
+          <div className="ml-auto text-[10px] text-slate-400 italic hidden sm:block">
+            Tap a card or an item for quick actions
+          </div>
+        )}
       </div>
       {/* 4-column grid on desktop so 8 results land cleanly as 2 rows of
           4. Narrower viewports step down to 3 / 2 cols to avoid cramping;
@@ -364,7 +740,12 @@ const RestaurantCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }
           tall column buries the second row behind a long scroll. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 px-1">
         {restaurants.map((r, idx) => (
-          <RestaurantCard key={r.res_id || `${r.name}-${idx}`} restaurant={r} />
+          <RestaurantCard
+            key={r.res_id || `${r.name}-${idx}`}
+            restaurant={r}
+            onQuickPrompt={onQuickPrompt}
+            disabled={disabled}
+          />
         ))}
       </div>
     </div>
@@ -589,7 +970,11 @@ const ZomatoCart: React.FC<{ cart: SessionCart }> = ({ cart }) => {
   );
 };
 
-const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }) => {
+const AttachmentList: React.FC<{
+  attachments: Attachment[];
+  onQuickPrompt?: (prompt: string) => void;
+  quickPromptDisabled?: boolean;
+}> = ({ attachments, onQuickPrompt, quickPromptDisabled }) => {
   const cards = attachments
     .filter((att): att is Attachment => !!att && typeof att === 'object')
     .map((att, idx) => {
@@ -598,7 +983,14 @@ const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }
         return <MenuCardGrid key={`menu-${idx}`} attachment={att} />;
       }
       if (kind === 'restaurant_cards') {
-        return <RestaurantCardGrid key={`resto-${idx}`} attachment={att} />;
+        return (
+          <RestaurantCardGrid
+            key={`resto-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
       }
       if (kind === 'cart_card' && att.cart) {
         return <ZomatoCart key={`cart-${att.cart.cart_id || idx}`} cart={att.cart} />;
@@ -665,6 +1057,8 @@ export const ChatLog: React.FC<ChatLogProps> = ({
   sessionAddresses,
   onSelectAddress,
   searchQuery,
+  onQuickPrompt,
+  quickPromptDisabled,
 }) => {
   const endRef = useRef<HTMLDivElement | null>(null);
   const [likedMessages, setLikedMessages] = useState<Record<number, 'up' | 'down' | null>>({});
@@ -745,7 +1139,11 @@ export const ChatLog: React.FC<ChatLogProps> = ({
                 </div>
 
                 {msg.attachments && msg.attachments.length > 0 && (
-                  <AttachmentList attachments={msg.attachments} />
+                  <AttachmentList
+                    attachments={msg.attachments}
+                    onQuickPrompt={onQuickPrompt}
+                    quickPromptDisabled={quickPromptDisabled}
+                  />
                 )}
 
                 {msg.role === 'assistant'
