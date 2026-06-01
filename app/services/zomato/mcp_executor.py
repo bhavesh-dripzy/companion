@@ -140,8 +140,41 @@ def _mcp_remote_config_dir(repo_root: Path, user_id: str | None = None) -> Path:
     return (base / "users" / safe_user).resolve() if safe_user else base
 
 
+_MCP_REMOTE_BUNDLED_VERSION_RE = re.compile(
+    r'var\s+version2\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+)["\']'
+)
+
+
 def _mcp_remote_version(repo_root: Path) -> str | None:
-    pkg = repo_root / "node_modules" / "mcp-remote" / "package.json"
+    """
+    Return the version mcp-remote actually uses to namespace its config dir
+    (``mcp-remote-<version>/...``).
+
+    mcp-remote's bundle hardcodes a literal ``var version2 = "X.Y.Z"`` that
+    drives its filesystem layout. Every published release we've checked
+    (0.1.36 → 0.1.38) ships with this constant exactly one minor behind
+    ``package.json`` — an upstream build/release bug. Reading ``package.json``
+    therefore makes us write tokens into a directory mcp-remote never reads
+    from. Parse the bundle first; fall back to ``package.json`` only when
+    the bundle is unavailable (e.g. pre-``npm install`` code paths).
+    """
+    pkg_root = repo_root / "node_modules" / "mcp-remote"
+    dist = pkg_root / "dist"
+    candidates: list[Path] = []
+    try:
+        candidates.extend(sorted(dist.glob("chunk-*.js")))
+    except OSError:
+        pass
+    candidates.append(dist / "proxy.js")
+    for js_path in candidates:
+        try:
+            text = js_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = _MCP_REMOTE_BUNDLED_VERSION_RE.search(text)
+        if match:
+            return match.group(1)
+    pkg = pkg_root / "package.json"
     try:
         data = json.loads(pkg.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
