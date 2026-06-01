@@ -2964,17 +2964,87 @@ def ensure_mcp_tokens_on_disk(
     status = get_mcp_token_status(repo_root, mcp_url=mcp_url, user_id=user_id)
     if status["has_local_tokens"]:
         return status
-    if status["has_secret_tokens"]:
-        try:
-            restore_mcp_auth_tokens(repo_root, user_id=user_id)
-        except Exception:
-            logger.exception(
-                "ensure_mcp_tokens_on_disk: restore from Secrets Manager failed for %s",
-                mcp_url,
-            )
-            return status
-        status = get_mcp_token_status(repo_root, mcp_url=mcp_url, user_id=user_id)
-    return status
+    if not status["has_secret_tokens"]:
+        return status
+    try:
+        restore_mcp_auth_tokens(repo_root, user_id=user_id)
+    except Exception:
+        logger.exception(
+            "ensure_mcp_tokens_on_disk: restore from Secrets Manager failed for %s",
+            mcp_url,
+        )
+        return status
+    # Cold-start refresh: rotate the just-restored tokens before mcp-remote
+    # spawns. Some MCP authorization servers (Zomato as of 2026-06) require
+    # the PKCE code_verifier on grant_type=refresh_token, which violates
+    # RFC 6749/7636. mcp-remote correctly omits it and so its internal
+    # refresh path always fails against those servers, dropping the bridge
+    # into a full OAuth handshake that can never complete on Lambda. We do
+    # the refresh here, in Python, where we have the verifier on disk, and
+    # write the rotated tokens back to /tmp + Secrets Manager so warm
+    # containers and later cold starts see the latest refresh_token.
+    try:
+        cfg = _mcp_remote_effective_config_dir(repo_root, user_id=user_id)
+        h = _server_url_hash(mcp_url)
+        tokens = json.loads((cfg / f"{h}_tokens.json").read_text(encoding="utf-8"))
+        client_info = json.loads((cfg / f"{h}_client_info.json").read_text(encoding="utf-8"))
+        code_verifier = (cfg / f"{h}_code_verifier.txt").read_text(encoding="utf-8").strip()
+        if tokens.get("refresh_token") and client_info.get("client_id") and code_verifier:
+            metadata = _discover_oauth_metadata(mcp_url)
+            token_endpoint = (metadata.get("authorization_server") or {}).get("token_endpoint")
+            if token_endpoint:
+                payload = {
+                    "grant_type": "refresh_token",
+                    "refresh_token": tokens["refresh_token"],
+                    "client_id": client_info["client_id"],
+                    "code_verifier": code_verifier,
+                }
+                if client_info.get("client_secret"):
+                    payload["client_secret"] = client_info["client_secret"]
+                resp = requests.post(
+                    token_endpoint,
+                    data=payload,
+                    headers={"Accept": "application/json"},
+                    timeout=10,
+                )
+                if resp.ok:
+                    new_tokens = resp.json()
+                    if isinstance(new_tokens, dict) and new_tokens.get("access_token"):
+                        if not new_tokens.get("refresh_token"):
+                            new_tokens["refresh_token"] = tokens["refresh_token"]
+                        rel = _mcp_remote_token_relative_paths(repo_root, mcp_url)["tokens"]
+                        serialized = json.dumps(new_tokens, indent=2)
+                        base_cfg = _mcp_remote_config_dir(repo_root, user_id=user_id)
+                        for target in (Path(rel), _current_version_token_alias(repo_root, Path(rel))):
+                            if target is None:
+                                continue
+                            dest = base_cfg / target
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            dest.write_text(serialized, encoding="utf-8")
+                        secret = _mcp_token_secret(user_id)
+                        existing = secret.get("files") if isinstance(secret, dict) else None
+                        existing = _normalize_files_to_current_version(
+                            repo_root, existing if isinstance(existing, dict) else {}
+                        )
+                        existing[rel] = serialized
+                        _merge_mcp_token_secret(user_id, files=existing)
+                        logger.info("Refreshed MCP tokens on cold start for %s", mcp_url)
+                elif resp.status_code in (400, 401):
+                    # Likely a concurrent container already rotated the
+                    # refresh_token; pull the winner's tokens back to disk.
+                    logger.warning(
+                        "Refresh rejected (HTTP %s) for %s; re-restoring",
+                        resp.status_code,
+                        mcp_url,
+                    )
+                    restore_mcp_auth_tokens(repo_root, user_id=user_id)
+    except Exception:
+        logger.warning(
+            "Cold-start token refresh failed for %s; mcp-remote will use restored tokens",
+            mcp_url,
+            exc_info=True,
+        )
+    return get_mcp_token_status(repo_root, mcp_url=mcp_url, user_id=user_id)
 
 
 def capture_mcp_oauth_url(
