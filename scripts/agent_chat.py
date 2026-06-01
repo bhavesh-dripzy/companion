@@ -72,6 +72,7 @@ def _load_state(path: Path) -> dict[str, Any]:
         "session_theatres": [],
         "session_addresses": [],
         "session_menu": [],
+        "session_cart": None,
         "pending_variant_choice": [],
         "token": None,
     }
@@ -86,6 +87,7 @@ def _load_state(path: Path) -> dict[str, Any]:
     loaded.setdefault("session_theatres", [])
     loaded.setdefault("session_addresses", [])
     loaded.setdefault("session_menu", [])
+    loaded.setdefault("session_cart", None)
     loaded.setdefault("pending_variant_choice", [])
     return loaded
 
@@ -146,6 +148,7 @@ def main() -> int:
     session_theatres: list[dict[str, Any]] = state.get("session_theatres") or []
     session_addresses: list[dict[str, Any]] = state.get("session_addresses") or []
     session_menu: list[dict[str, Any]] = state.get("session_menu") or []
+    session_cart: dict[str, Any] | None = state.get("session_cart") if isinstance(state.get("session_cart"), dict) else None
     pending_variant_choice: list[dict[str, Any]] = state.get("pending_variant_choice") or []
     turn_idx = int(state.get("turn") or 0) + 1
 
@@ -169,6 +172,8 @@ def main() -> int:
         body["session_addresses"] = session_addresses
     if session_menu:
         body["session_menu"] = session_menu
+    if session_cart and session_cart.get("cart_id"):
+        body["session_cart"] = session_cart
     if pending_variant_choice:
         body["pending_variant_choice"] = pending_variant_choice
 
@@ -180,6 +185,15 @@ def main() -> int:
     if args.lat is not None and args.lng is not None:
         print(f"  user_geo IN       : lat={args.lat} lng={args.lng}")
     print(f"  session_state IN  : {session_state}")
+    if session_cart:
+        ci = ", ".join(
+            f"{i.get('item_name')}x{i.get('quantity') or 1}" for i in (session_cart.get("items") or [])[:4]
+        )
+        print(
+            f"  session_cart IN   : cart_id={session_cart.get('cart_id')} "
+            f"res={session_cart.get('restaurant_name')!r}({session_cart.get('res_id')}) "
+            f"items=[{ci}] total=₹{session_cart.get('final_amount')}"
+        )
     if session_restaurants:
         rests = ", ".join(f"{r.get('name')}({r.get('res_id')})" for r in session_restaurants[:5])
         more = "" if len(session_restaurants) <= 5 else f" (+{len(session_restaurants) - 5} more)"
@@ -201,6 +215,9 @@ def main() -> int:
     next_theatres = result.get("session_theatres") or []
     next_addresses = result.get("session_addresses") or []
     next_menu = result.get("session_menu") or []
+    next_cart = result.get("session_cart")
+    if not (isinstance(next_cart, dict) and next_cart.get("cart_id")):
+        next_cart = None
     next_pending_variant_choice = result.get("pending_variant_choice") or []
     address_context = result.get("address_context") or None
     plan = result.get("food_routing_plan") or {}
@@ -234,6 +251,20 @@ def main() -> int:
         )
         more = "" if len(next_menu) <= 5 else f" (+{len(next_menu) - 5} more)"
         print(f"  menu items OUT    : {items}{more}")
+    if next_cart:
+        ci = ", ".join(
+            f"{i.get('item_name')}x{i.get('quantity') or 1}" for i in (next_cart.get("items") or [])[:4]
+        )
+        replaced = ""
+        if session_cart and session_cart.get("res_id") and session_cart.get("res_id") != next_cart.get("res_id"):
+            replaced = f"  (REPLACED prior cart at {session_cart.get('restaurant_name')!r})"
+        print(
+            f"  session_cart OUT  : cart_id={next_cart.get('cart_id')} "
+            f"res={next_cart.get('restaurant_name')!r}({next_cart.get('res_id')}) "
+            f"items=[{ci}] total=₹{next_cart.get('final_amount')}{replaced}"
+        )
+    elif session_cart:
+        print(f"  session_cart OUT  : (cleared — no cart in this response)")
     if address_context:
         active_id = address_context.get("address_id")
         label = address_context.get("label")
@@ -259,6 +290,17 @@ def main() -> int:
                 price = it.get('discounted_price') or it.get('price')
                 veg = it.get('veg_kind')
                 print(f"        - {it.get('name')} (vid={it.get('variant_id')}, ₹{price}, {veg})")
+        elif kind == 'cart_card':
+            c = att.get('cart') or {}
+            ci = ", ".join(
+                f"{i.get('item_name')}x{i.get('quantity') or 1}"
+                for i in (c.get('items') or [])[:4]
+            )
+            print(
+                f"    [{j}] kind='cart_card' source={att.get('source')!r} "
+                f"cart_id={c.get('cart_id')} res={c.get('restaurant_name')!r} "
+                f"items=[{ci}] total=₹{c.get('final_amount')}"
+            )
         elif kind == 'restaurant_cards':
             restos = att.get('restaurants') or []
             print(
@@ -305,6 +347,7 @@ def main() -> int:
         state["session_addresses"] = next_addresses
     if isinstance(next_menu, list):
         state["session_menu"] = next_menu
+    state["session_cart"] = next_cart
     if isinstance(next_pending_variant_choice, list):
         state["pending_variant_choice"] = next_pending_variant_choice
     _save_state(state_path, state)

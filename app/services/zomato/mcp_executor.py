@@ -968,6 +968,111 @@ def _collect_restaurants_from_envelope(envelope: dict[str, Any]) -> list[dict[st
     return out
 
 
+def _extract_cart_snapshot(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    """Pull a normalized cart snapshot from a successful ``create_cart`` envelope.
+
+    Zomato carts are strictly single-restaurant: every ``create_cart`` call
+    returns a fresh ``cart_id`` and the previous cart is discarded server-side.
+    The snapshot is therefore intentionally *replacement* state (not LRU) —
+    the next successful ``create_cart`` overwrites it whole.
+
+    The snapshot carries enough rich data (restaurant_rating, distance_in_km,
+    charge_breakdown, per-item image_url / description / item_tags) to render
+    the chat-side <ZomatoCart /> card directly from it — even on follow-up
+    turns where no ``create_cart`` ran and we're echoing the seed forward.
+
+    Returns ``None`` when the envelope is an error or carries no cart shape.
+    """
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
+        return None
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        return None
+    cart: dict[str, Any] | None = None
+    for node in _walk_json(data):
+        if (
+            isinstance(node, dict)
+            and node.get("cart_id")
+            and isinstance(node.get("items"), list)
+        ):
+            cart = node
+            break
+    if not cart:
+        return None
+    items: list[dict[str, Any]] = []
+    for row in cart.get("items") or []:
+        if not isinstance(row, dict):
+            continue
+        item = row.get("item") if isinstance(row.get("item"), dict) else {}
+        vid = str(item.get("variant_id") or row.get("variant_id") or "").strip()
+        name = str(item.get("name") or row.get("item_name") or "").strip()
+        if not vid or not name:
+            continue
+        addons_out: list[dict[str, Any]] = []
+        for ao in row.get("add_ons") or []:
+            if not isinstance(ao, dict):
+                continue
+            ao_name = str(ao.get("name") or "").strip()
+            if not ao_name:
+                continue
+            addons_out.append({
+                "name": ao_name,
+                "add_on_group_name": str(ao.get("add_on_group_name") or "").strip() or None,
+                "quantity": ao.get("quantity"),
+            })
+        item_tags = item.get("item_tags")
+        if not isinstance(item_tags, list):
+            item_tags = []
+        else:
+            item_tags = [str(t).strip() for t in item_tags if isinstance(t, str) and t.strip()]
+        items.append({
+            "variant_id": vid,
+            "item_id": str(item.get("item_id") or "").strip() or None,
+            "item_name": name,
+            "quantity": row.get("quantity"),
+            "price": item.get("price"),
+            "discounted_price": item.get("discounted_price"),
+            "description": str(item.get("description") or "").strip() or None,
+            "image_url": str(item.get("image_url") or "").strip() or None,
+            "item_tags": item_tags,
+            "add_ons": addons_out,
+        })
+    if not items:
+        return None
+    res_id = cart.get("res_id")
+    # Pass charge_breakdown through as-is — the card splits it into platform /
+    # delivery / taxes for the user-facing receipt breakdown. Defensive: only
+    # forward the two arrays the card actually reads.
+    cb = cart.get("charge_breakdown") if isinstance(cart.get("charge_breakdown"), dict) else None
+    charge_breakdown: dict[str, Any] | None = None
+    if cb:
+        bc = cb.get("base_charges") if isinstance(cb.get("base_charges"), list) else []
+        tx = cb.get("taxes") if isinstance(cb.get("taxes"), list) else []
+        charge_breakdown = {"base_charges": bc, "taxes": tx}
+    user_message = cart.get("user_message")
+    if isinstance(user_message, str):
+        user_message = user_message.strip() or None
+    else:
+        user_message = None
+    return {
+        "cart_id": str(cart.get("cart_id") or "").strip() or None,
+        "res_id": str(res_id).strip() if res_id is not None else None,
+        "restaurant_name": str(cart.get("restaurant_name") or "").strip() or None,
+        "restaurant_rating": cart.get("restaurant_rating"),
+        "distance_in_km": cart.get("distance_in_km"),
+        "items": items,
+        "item_total": cart.get("item_total"),
+        "final_amount": cart.get("final_amount"),
+        "payment_method_type": str(cart.get("payment_method_type") or "").strip() or None,
+        "eta": str(cart.get("eta") or "").strip() or None,
+        "charge_breakdown": charge_breakdown,
+        "user_message": user_message,
+        "shareable_link": str(cart.get("shareable_link") or "").strip() or None,
+        "promo_code": cart.get("promo_code"),
+        "promo_discount_amount": cart.get("promo_discount_amount"),
+    }
+
+
 def _merge_recent_restaurants(
     existing: list[dict[str, Any]],
     new_entries: list[dict[str, Any]],
@@ -1838,6 +1943,7 @@ async def _run_session_inner(
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
+    session_cart: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -1950,6 +2056,16 @@ async def _run_session_inner(
     # order, i.e. oldest first) — pushing the previous turn's items to the
     # front of session_menu and burying genuinely new items past the cap.
     fresh_menu_keys: set[str] = set()
+    # Current Zomato cart (single-restaurant by Zomato design). Seeded from
+    # the previous turn so the response LLM has ground truth for "what's
+    # currently in the cart" even on turns that don't call ``create_cart``
+    # (e.g. ``checkout_cart``, plain chat). Replaced wholesale when this
+    # turn's ``create_cart`` succeeds, echoed back unchanged otherwise.
+    seed_session_cart: dict[str, Any] | None = (
+        session_cart if isinstance(session_cart, dict) and session_cart.get("cart_id") else None
+    )
+    fresh_cart_captured = False
+
     # Per-session restaurant memory: every (res_id, name) pair we've ever
     # shown the user, with the most-recent search at the front. Seeded
     # from the previous turn's session_state, refreshed by each
@@ -2291,6 +2407,26 @@ async def _run_session_inner(
                         fresh_menu_keys.update(kw_entries.keys())
                         diagnostics["menu_index_size"] = len(menu_index)
 
+                if tool == "create_cart" and not envelope.get("is_error"):
+                    # Capture the cart Zomato actually built (items, prices,
+                    # restaurant, totals). This is the only ground-truth
+                    # source for "what's in the user's cart right now" — the
+                    # response LLM otherwise has to infer it from chat
+                    # history, which fails the moment a multi-restaurant
+                    # session collapses the previous cart server-side.
+                    try:
+                        cart_snapshot = _extract_cart_snapshot(envelope)
+                    except Exception as e:
+                        logger.info("cart snapshot extraction failed: %s", e)
+                        cart_snapshot = None
+                    if cart_snapshot:
+                        diagnostics["session_cart"] = cart_snapshot
+                        # Flag so the pipeline knows to auto-emit a cart_card
+                        # attachment this turn (rather than only when the
+                        # response LLM explicitly signals show_cart).
+                        diagnostics["fresh_cart_captured"] = True
+                        fresh_cart_captured = True
+
                 if tool == "checkout_cart" and not envelope.get("is_error"):
                     try:
                         payment = _extract_payment_from_checkout(
@@ -2366,6 +2502,12 @@ async def _run_session_inner(
     # known res_id is strictly better than re-querying.
     if recent_restaurants:
         diagnostics["session_restaurants"] = list(recent_restaurants)
+
+    # Cart echo: when this turn didn't run a ``create_cart``, carry the prior
+    # snapshot forward unchanged so the response LLM still knows what's in
+    # the cart on follow-up turns (checkout, plain chat, address change).
+    if not fresh_cart_captured and seed_session_cart is not None:
+        diagnostics["session_cart"] = seed_session_cart
 
     # Echo the per-item LRU cache. Only items added/refreshed by an actual
     # menu envelope this turn count as "fresh" (they go to the front of the
@@ -3258,6 +3400,7 @@ def run_tool_plan_sync(
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
+    session_cart: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = repo_root or repo_root_from_settings()
     url = mcp_url or os.getenv(
@@ -3291,6 +3434,7 @@ def run_tool_plan_sync(
                 session_restaurants=session_restaurants,
                 session_addresses=session_addresses,
                 session_menu=session_menu,
+                session_cart=session_cart,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))

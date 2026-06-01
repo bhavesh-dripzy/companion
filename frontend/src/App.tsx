@@ -13,6 +13,7 @@ import type {
   Message,
   QueryResponse,
   SessionAddress,
+  SessionCart,
   SessionMenuEntry,
   SessionRestaurant,
   ToolProvider,
@@ -78,6 +79,12 @@ function App() {
   // exactly the bug that made "K - Whopper Twin Meal Deal" fail with
   // "Variant ID … not found in restaurant menu" across several turns.)
   const [sessionMenu, setSessionMenu] = useState<SessionMenuEntry[]>([]);
+  // Current Zomato cart snapshot — replaced on each successful create_cart,
+  // carried unchanged on every other turn. Round-tripping gives the response
+  // LLM ground truth for "what's in my cart" without inferring from chat
+  // history (Zomato carts are single-restaurant; the prior cart is gone the
+  // moment the user adds an item from a different restaurant).
+  const [sessionCart, setSessionCart] = useState<SessionCart | null>(null);
 
   const { location: userLocation, ensureLocation } = useUserLocation();
 
@@ -197,6 +204,7 @@ function App() {
     setSessionRestaurants([]);
     setSessionAddresses([]);
     setSessionMenu([]);
+    setSessionCart(null);
   };
 
   const handleNewChat = () => {
@@ -206,6 +214,7 @@ function App() {
     setSessionRestaurants([]);
     setSessionAddresses([]);
     setSessionMenu([]);
+    setSessionCart(null);
     setSearchQuery('');
     setSearchOpen(false);
   };
@@ -233,6 +242,7 @@ function App() {
     if (sessionRestaurants.length > 0) body.session_restaurants = sessionRestaurants;
     if (sessionAddresses.length > 0) body.session_addresses = sessionAddresses;
     if (sessionMenu.length > 0) body.session_menu = sessionMenu;
+    if (sessionCart && sessionCart.cart_id) body.session_cart = sessionCart;
     return body;
   };
 
@@ -280,6 +290,13 @@ function App() {
       if (Array.isArray(data.session_restaurants)) setSessionRestaurants(data.session_restaurants);
       if (Array.isArray(data.session_addresses)) setSessionAddresses(data.session_addresses);
       if (Array.isArray(data.session_menu)) setSessionMenu(data.session_menu);
+      // session_cart is replaced wholesale (null on a fresh session, full
+      // dict after each successful create_cart). null means "no current
+      // cart" — clear it so the prior cart doesn't leak across restaurants.
+      if ('session_cart' in data) {
+        const c = (data as any).session_cart;
+        setSessionCart(c && typeof c === 'object' && c.cart_id ? c : null);
+      }
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {

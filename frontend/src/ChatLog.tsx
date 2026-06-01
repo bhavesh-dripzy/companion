@@ -8,6 +8,7 @@ import type {
   RestaurantCardEntry,
   RestaurantCardItem,
   SessionAddress,
+  SessionCart,
 } from './types';
 import { cn } from './utils';
 import {
@@ -22,6 +23,8 @@ import {
   RefreshCw,
   ThumbsUp,
   ThumbsDown,
+  ShoppingBag,
+  Info,
 } from 'lucide-react';
 
 interface ChatLogProps {
@@ -363,6 +366,224 @@ const RestaurantCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }
   );
 };
 
+// Live cart-receipt card. Rendered for `cart_card` attachments — either
+// auto-emitted right after a successful `create_cart` (so the user sees
+// what just landed in their cart, the restaurant, the total, and the
+// ETA without re-asking) or on-demand when the response LLM signals
+// `show_cart: true` for cart-status follow-up turns ("what's in my
+// cart?", "kitna ho gaya?", "ready to checkout?"). Reads its data
+// straight from `attachment.cart` — same shape echoed back as
+// `session_cart` on the next request, so the snapshot is single source
+// of truth and the card stays in lockstep across turns.
+const ZomatoCart: React.FC<{ cart: SessionCart }> = ({ cart }) => {
+  if (!cart || !cart.cart_id || !Array.isArray(cart.items) || cart.items.length === 0) {
+    return null;
+  }
+
+  const baseCharges = cart.charge_breakdown?.base_charges ?? [];
+  const cartTaxes = cart.charge_breakdown?.taxes ?? [];
+  const platformFee = baseCharges
+    .filter((c) => c.charge_type === 'CHARGE_ID_PLATFORM')
+    .reduce((sum, c) => sum + (c.amount || 0), 0);
+  const deliveryFee = baseCharges
+    .filter((c) => c.charge_type === 'CHARGE_ID_DELIVERY_CHARGE')
+    .reduce((sum, c) => sum + (c.amount || 0), 0);
+  const taxesTotal = cartTaxes.reduce((sum, t) => sum + (t.tax_amount || 0), 0);
+  const feesTotal = platformFee + deliveryFee + taxesTotal;
+
+  const itemTotal = typeof cart.item_total === 'number' ? cart.item_total : undefined;
+  const finalAmount = typeof cart.final_amount === 'number' ? cart.final_amount : undefined;
+  const promoAmount =
+    typeof cart.promo_discount_amount === 'number' ? cart.promo_discount_amount : undefined;
+  const promoCode = typeof cart.promo_code === 'string' ? cart.promo_code : '';
+  const restaurantRating =
+    typeof cart.restaurant_rating === 'number' && cart.restaurant_rating > 0
+      ? cart.restaurant_rating
+      : undefined;
+  const distance =
+    typeof cart.distance_in_km === 'number' && cart.distance_in_km > 0
+      ? `${cart.distance_in_km.toFixed(2)} km`
+      : 'Nearby';
+  const eta = cart.eta ? String(cart.eta).trim() : '';
+  const paymentMethod = cart.payment_method_type
+    ? String(cart.payment_method_type).trim().toUpperCase()
+    : '';
+  const cleanedUserMessage = (cart.user_message || '')
+    .replace('[AI Agent Instruction]', '')
+    .trim();
+
+  return (
+    <div className="mt-2 w-full max-w-full md:max-w-3xl">
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-[#E23744]/10 to-transparent border-b border-red-100/60 px-3 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-5 rounded bg-[#E23744] text-white flex items-center justify-center">
+              <ShoppingBag size={11} />
+            </div>
+            <span className="text-[9px] uppercase font-mono font-extrabold tracking-widest text-[#E23744]">
+              Zomato Cart
+            </span>
+          </div>
+          {paymentMethod && (
+            <span className="text-[9px] font-mono bg-[#E23744] text-white font-extrabold px-1.5 py-0.5 rounded uppercase leading-none">
+              {paymentMethod} Ready
+            </span>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="flex flex-col md:flex-row md:divide-x divide-slate-150">
+          {/* LEFT — restaurant + items */}
+          <div className="w-full md:w-7/12 p-3.5 space-y-3">
+            <div className="flex justify-between items-start gap-3 pb-2 border-b border-slate-100">
+              <div className="min-w-0">
+                <h3 className="font-extrabold text-slate-900 text-sm truncate leading-snug">
+                  {cart.restaurant_name || 'Restaurant'}
+                </h3>
+                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500 font-bold font-mono">
+                  <span className="flex items-center gap-0.5">
+                    <MapPin size={11} className="text-slate-400 shrink-0" />
+                    {distance}
+                  </span>
+                  {eta && (
+                    <>
+                      <span>•</span>
+                      <span className="flex items-center gap-0.5">
+                        <Clock size={11} className="text-slate-400 shrink-0" />
+                        {eta}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {restaurantRating !== undefined && (
+                <div className="flex items-center gap-0.5 bg-emerald-600 text-white font-black text-[10px] px-1.5 py-0.5 rounded shrink-0 leading-none">
+                  <Star size={10} className="fill-white shrink-0" />
+                  <span>{restaurantRating.toFixed(1)}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              {cart.items.map((line, idx) => {
+                const tags = Array.isArray(line.item_tags) ? line.item_tags : [];
+                const isVeg = tags.includes('veg');
+                const isEgg = tags.includes('egg');
+                const itemPrice =
+                  typeof line.discounted_price === 'number'
+                    ? line.discounted_price
+                    : typeof line.price === 'number'
+                      ? line.price
+                      : undefined;
+                const quantity =
+                  typeof line.quantity === 'number' && line.quantity > 0 ? line.quantity : 1;
+                const dotColor = isVeg
+                  ? 'border-emerald-600 bg-emerald-600'
+                  : isEgg
+                    ? 'border-amber-500 bg-amber-500'
+                    : 'border-red-600 bg-red-600';
+                return (
+                  <div key={line.item_id || line.variant_id || idx} className="space-y-1 text-xs">
+                    <div className="flex gap-2 justify-between items-start">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start gap-1.5">
+                          <span
+                            className={cn(
+                              'w-3.5 h-3.5 border p-[1.5px] mt-0.5 flex items-center justify-center rounded-sm shrink-0',
+                              dotColor.split(' ')[0]
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'w-1.5 h-1.5 rounded-full',
+                                dotColor.split(' ')[1]
+                              )}
+                            />
+                          </span>
+                          <span className="font-extrabold text-slate-800 text-xs leading-snug">
+                            {line.item_name}{' '}
+                            <span className="text-[#E23744] font-black">×{quantity}</span>
+                          </span>
+                        </div>
+                        {line.description && (
+                          <p className="text-[10px] text-slate-400 mt-0.5 ml-5 line-clamp-1 italic">
+                            {line.description}
+                          </p>
+                        )}
+                      </div>
+                      {itemPrice !== undefined && (
+                        <div className="text-right shrink-0">
+                          <span className="font-mono text-slate-950 font-black text-xs">
+                            ₹{itemPrice}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {Array.isArray(line.add_ons) && line.add_ons.length > 0 && (
+                      <div className="ml-5 px-2 py-1 bg-slate-50 border border-slate-100 rounded-lg text-[10px]">
+                        {line.add_ons.map((ao, adIdx) => (
+                          <div
+                            key={ao.id || `${ao.name}-${adIdx}`}
+                            className="flex justify-between items-center text-slate-500 font-semibold gap-2"
+                          >
+                            <span>• {ao.name}</span>
+                            <span className="text-[9px] text-[#E23744] font-bold">Included</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {cleanedUserMessage && (
+              <div className="bg-slate-50/50 border border-slate-100 p-2 rounded-lg text-[10px] text-slate-500 font-medium flex gap-1.5 items-start">
+                <Info size={12} className="text-[#E23744] shrink-0 mt-0.5" />
+                <span>{cleanedUserMessage}</span>
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT — receipt */}
+          <div className="w-full md:w-5/12 p-3.5 bg-slate-50/50 border-t md:border-t-0 border-slate-150 flex flex-col justify-between space-y-3">
+            <div className="space-y-1.5 text-[11px] font-semibold text-slate-500">
+              {itemTotal !== undefined && (
+                <div className="flex justify-between">
+                  <span>Items Subtotal</span>
+                  <span className="font-mono text-slate-800">₹{itemTotal}</span>
+                </div>
+              )}
+              {feesTotal > 0 && (
+                <div className="flex justify-between">
+                  <span>Taxes, packaging & delivery</span>
+                  <span className="font-mono text-slate-800">₹{feesTotal.toFixed(2)}</span>
+                </div>
+              )}
+              {promoAmount !== undefined && promoAmount > 0 && (
+                <div className="flex justify-between text-emerald-600 font-bold">
+                  <span>Promo {promoCode ? `(${promoCode})` : ''}</span>
+                  <span className="font-mono">- ₹{promoAmount}</span>
+                </div>
+              )}
+              {finalAmount !== undefined && (
+                <div className="flex justify-between items-end pt-1.5 border-t border-slate-200 text-slate-800">
+                  <span className="text-[11px] font-black text-slate-900">Total Payable</span>
+                  <span className="text-sm font-black font-mono text-[#E23744]">
+                    ₹{finalAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }) => {
   const cards = attachments
     .filter((att): att is Attachment => !!att && typeof att === 'object')
@@ -373,6 +594,9 @@ const AttachmentList: React.FC<{ attachments: Attachment[] }> = ({ attachments }
       }
       if (kind === 'restaurant_cards') {
         return <RestaurantCardGrid key={`resto-${idx}`} attachment={att} />;
+      }
+      if (kind === 'cart_card' && att.cart) {
+        return <ZomatoCart key={`cart-${att.cart.cart_id || idx}`} cart={att.cart} />;
       }
       const mime = String(att.mime_type || 'image/png');
       const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';

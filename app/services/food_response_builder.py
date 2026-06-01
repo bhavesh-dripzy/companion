@@ -151,24 +151,28 @@ def _fallback_assistant_message(
     )
 
 
-def _parse_response_llm_output(raw: str) -> tuple[str, list[str] | None]:
-    """Split the response LLM's JSON output into ``(text, featured_variant_ids)``.
+def _parse_response_llm_output(
+    raw: str,
+) -> tuple[str, list[str] | None, bool]:
+    """Split the response LLM's JSON output into ``(text, featured_variant_ids, show_cart)``.
 
-    Contract is ``{"text": "...", "featured_variant_ids": ["v_…", ...]}``.
+    Contract is ``{"text": "...", "featured_variant_ids": ["v_…", ...], "show_cart": bool}``.
 
     Tolerance:
       * If the model wraps the JSON in a markdown fence, strip it.
       * If the model returns plain text (no JSON), treat the whole thing as
         ``text`` and return ``None`` for the featured list so the pipeline
         knows not to apply LLM-driven filtering (falls back to showing all
-        cards rather than hiding them all).
+        cards rather than hiding them all). ``show_cart`` defaults to ``False``.
       * If JSON is present but ``featured_variant_ids`` is missing or not a
         list, treat as empty list (== explicit "no cards").
+      * If ``show_cart`` is missing or non-bool, default to ``False`` (don't
+        accidentally surface a cart card on unrelated turns).
       * Always coerce featured_variant_ids to a list[str] and drop blanks
         — that's what the pipeline filter expects.
     """
     if not isinstance(raw, str) or not raw.strip():
-        return "", None
+        return "", None, False
     s = raw.strip()
     # Strip ```json … ``` / ``` … ``` fences if the LLM hedged.
     if s.startswith("```"):
@@ -182,19 +186,20 @@ def _parse_response_llm_output(raw: str) -> tuple[str, list[str] | None]:
     try:
         obj = json.loads(s)
     except (json.JSONDecodeError, ValueError):
-        return raw.strip(), None
+        return raw.strip(), None, False
     if not isinstance(obj, dict):
-        return raw.strip(), None
+        return raw.strip(), None, False
     text = obj.get("text")
     if not isinstance(text, str):
-        return raw.strip(), None
+        return raw.strip(), None, False
     feat_raw = obj.get("featured_variant_ids")
     feat: list[str] = []
     if isinstance(feat_raw, list):
         for v in feat_raw:
             if isinstance(v, str) and v.strip():
                 feat.append(v.strip())
-    return text.strip(), feat
+    show_cart = bool(obj.get("show_cart"))
+    return text.strip(), feat, show_cart
 
 
 def _openai_compatible_chat(
@@ -234,7 +239,8 @@ _SYSTEM_PROMPT = (
     "```\n"
     "{\n"
     "  \"text\": \"<the spoken reply for the user>\",\n"
-    "  \"featured_variant_ids\": [\"v_111\", \"v_222\", ...]\n"
+    "  \"featured_variant_ids\": [\"v_111\", \"v_222\", ...],\n"
+    "  \"show_cart\": false\n"
     "}\n"
     "```\n"
     "- `text` — the natural-language reply (Hinglish/English to match the user). All "
@@ -255,6 +261,21 @@ _SYSTEM_PROMPT = (
     "    Never invent ids.\n"
     "  • For non-menu replies (checkout confirmation, address nudge, error message, "
     "    general chat), return `[]`.\n"
+    "- `show_cart` — boolean flag asking the UI to render a Zomato cart card "
+    "  (full receipt: items, charges, total, ETA) under your bubble. Set "
+    "  `true` ONLY when BOTH conditions hold:\n"
+    "  1. The user's current message is genuinely about their *cart* — asking "
+    "     what's in it, what the total is, whether they're ready to check out, "
+    "     when it'll arrive, switching restaurants, removing items, the "
+    "     restaurant in the cart, etc. (*\"what's in my cart?\"*, *\"total kya "
+    "     hua?\"*, *\"checkout?\"*, *\"kitna ho gaya?\"*, *\"bill ready?\"*).\n"
+    "  2. There is an actual cart to show — i.e. `tool_results.zomato."
+    "     diagnostics.session_cart` exists and has at least one item.\n"
+    "  Set `false` for everything else: a fresh add-to-cart confirmation "
+    "  (the UI auto-shows the card upstream, you'd just double-render), menu "
+    "  browsing, restaurant search, address nudges, plain chat, errors, the "
+    "  *very* first turn before any cart exists. When in doubt, prefer "
+    "  `false` — a missing card is silent; a wrongly-emitted one feels spammy.\n"
     "\n"
     "How to write `text`:\n"
     "- Speak in first person, as the assistant who just did the work for them. "
@@ -396,6 +417,24 @@ _SYSTEM_PROMPT = (
     "    reply — that list is reserved for `menu_cards` attachments. "
     "    The restaurant cards (and their inline dishes) are shown to "
     "    the user regardless, so no extra filtering is needed here.\n"
+    "- **Cart truthing (Zomato)**: The current cart lives at "
+    "`tool_results.zomato.diagnostics.session_cart` — that is the ONLY "
+    "ground truth for what's in the user's cart right now. Carried forward "
+    "across turns, replaced wholesale by each successful `create_cart`. "
+    "Zomato carts are strictly single-restaurant: every `create_cart` "
+    "REPLACES the prior cart server-side, so when `session_cart.res_id` "
+    "changes between turns the previous cart is gone — only the items in "
+    "the new `session_cart.items[]` are actually orderable. **Never** "
+    "aggregate cart contents from chat history; if the user added X from "
+    "Restaurant A on turn 3 and Y from Restaurant B on turn 5, the cart "
+    "now contains ONLY Y (single restaurant: B). Report `restaurant_name`, "
+    "`items[].item_name` / `quantity` / `discounted_price ?? price`, and "
+    "`final_amount` straight from the snapshot. When the user adds an "
+    "item from a different restaurant than the prior `session_cart`, say "
+    "so plainly — *\"Switched your cart to Burger King — the earlier "
+    "Domino's items aren't in there anymore (Zomato carts can only hold "
+    "one restaurant at a time).\"* When `session_cart` is missing/null, "
+    "there is no active cart; don't invent one.\n"
     "- **Customization defaults (Zomato)**: After a successful `create_cart`, "
     "look at `cart.items[].add_ons[]` in the tool result — that's the set of "
     "required modifiers Zomato auto-picked (e.g. bread, prep, veg, sauce on a "
@@ -693,11 +732,16 @@ def build_assistant_message_with_llm(
     Returns
     -------
     dict
-        ``{"text": <spoken reply>, "featured_variant_ids": [<v_id>, ...] | None}``.
+        ``{"text": <spoken reply>, "featured_variant_ids": [<v_id>, ...] | None,
+        "show_cart": bool}``.
         ``featured_variant_ids`` is a (possibly empty) list when the LLM
         complied with the JSON contract, or ``None`` when it fell back to
         plain text (so the caller can decide whether to filter cards or
-        leave the legacy "show everything" behaviour intact).
+        leave the legacy "show everything" behaviour intact). ``show_cart``
+        is the LLM's signal that the chat UI should render a Zomato cart
+        card under this turn's reply — used for the "user asked about
+        cart contents" path; the add-to-cart confirmation path auto-emits
+        a cart_card upstream regardless.
 
     Parameters
     ----------
@@ -752,7 +796,8 @@ def build_assistant_message_with_llm(
     user_prompt = (
         "Here is the structured tool output along with conversation context. "
         "Reply with the JSON object described in the system prompt — "
-        "`{\"text\": \"...\", \"featured_variant_ids\": [...]}` — and nothing else:\n"
+        "`{\"text\": \"...\", \"featured_variant_ids\": [...], \"show_cart\": false}` — "
+        "and nothing else:\n"
         + json.dumps(payload, ensure_ascii=True, default=str)
     )
     trace(
@@ -770,6 +815,7 @@ def build_assistant_message_with_llm(
         return {
             "text": _fallback_assistant_message(tool_results=tool_results),
             "featured_variant_ids": None,
+            "show_cart": False,
         }
 
     try:
@@ -795,7 +841,7 @@ def build_assistant_message_with_llm(
             trace("response_llm.fallback", reason="empty_text", provider=provider)
             return _fallback()
 
-        text, featured = _parse_response_llm_output(raw)
+        text, featured, show_cart = _parse_response_llm_output(raw)
         if not text:
             trace("response_llm.fallback", reason="empty_text_after_parse", provider=provider)
             return _fallback()
@@ -804,9 +850,14 @@ def build_assistant_message_with_llm(
             provider=provider,
             text=text,
             featured_variant_ids=featured,
+            show_cart=show_cart,
             parsed=featured is not None,
         )
-        return {"text": text, "featured_variant_ids": featured}
+        return {
+            "text": text,
+            "featured_variant_ids": featured,
+            "show_cart": show_cart,
+        }
     except Exception as e:
         trace("response_llm.error", provider=provider, error=f"{type(e).__name__}: {e}")
         return _fallback()

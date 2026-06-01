@@ -721,6 +721,7 @@ def execute_tool_plan_sync(
     session_movies: list[dict[str, Any]] | None = None,
     session_theatres: list[dict[str, Any]] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
+    session_cart: dict[str, Any] | None = None,
     user_geo: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not any(isinstance(step, dict) and str(step.get("tool") or "").strip() for step in tool_plan):
@@ -842,6 +843,7 @@ def execute_tool_plan_sync(
                 session_restaurants=session_restaurants,
                 session_addresses=session_addresses,
                 session_menu=session_menu,
+                session_cart=session_cart,
             )
         elif name == "swiggy_food":
             provider_results[name] = run_swiggy_tool_plan_sync(

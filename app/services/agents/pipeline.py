@@ -604,6 +604,71 @@ def _collect_menu_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str
     return out
 
 
+def _build_cart_card_attachment(
+    snapshot: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any] | None:
+    """Wrap a normalized cart snapshot into a ``cart_card`` attachment.
+
+    Snapshot is the output of ``zomato/mcp_executor._extract_cart_snapshot``
+    — already trimmed to the fields the frontend's <ZomatoCart /> reads
+    (cart_id, items[…], restaurant_*, charge_breakdown, totals, eta, etc.).
+
+    Returns ``None`` if the snapshot doesn't carry the bare minimum to
+    render (cart_id + at least one item) — defensive guard against echoing
+    a stale/empty seed that would render an empty card.
+    """
+    if not isinstance(snapshot, dict):
+        return None
+    cid = snapshot.get("cart_id")
+    items = snapshot.get("items")
+    if not (isinstance(cid, str) and cid.strip() and isinstance(items, list) and items):
+        return None
+    return {
+        "kind": "cart_card",
+        "source": source,
+        "cart": snapshot,
+    }
+
+
+def _collect_cart_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Auto-emit a ``cart_card`` attachment whenever ``create_cart`` ran this turn.
+
+    Mirrors the ``restaurant_cards`` / ``menu_cards`` pattern: the executor
+    flags ``diagnostics.fresh_cart_captured`` immediately after a successful
+    ``create_cart``, and we lift the freshly-extracted snapshot at
+    ``diagnostics.session_cart`` into a chat-renderable card so the user
+    sees their cart receipt right under the assistant's confirmation
+    bubble — no LLM signal required for the add-to-cart happy path.
+
+    For *other* turns where the user asks about cart contents without
+    triggering ``create_cart`` (e.g. *"what's in my cart?"*), the LLM-signal
+    path in ``run_agent_turn`` handles emission from the carried-forward
+    seed.
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        diag = raw.get("diagnostics")
+        if not isinstance(diag, dict):
+            continue
+        if not diag.get("fresh_cart_captured"):
+            continue
+        snap = diag.get("session_cart")
+        if not isinstance(snap, dict):
+            continue
+        att = _build_cart_card_attachment(snap, source=f"{provider_name}.create_cart")
+        if att is not None:
+            out.append(att)
+    return out
+
+
 def _format_routing_message(
     current_message: str,
     conversation_history: list[dict[str, str]] | None = None,
@@ -1238,6 +1303,7 @@ def run_agent_turn(
     session_movies: list[dict[str, Any]] | None = None,
     session_theatres: list[dict[str, Any]] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
+    session_cart: dict[str, Any] | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -1309,6 +1375,16 @@ def run_agent_turn(
             if not isinstance(name, str) or not name.strip():
                 continue
             seed_menu.append({**entry, "variant_id": vid.strip(), "item_name": name.strip()})
+
+    # ``session_cart`` carry-forward — single dict (not LRU) because Zomato
+    # only ever has one active cart per session. Must have ``cart_id`` and
+    # at least one item; otherwise treated as missing and dropped.
+    seed_cart: dict[str, Any] | None = None
+    if isinstance(session_cart, dict):
+        cid = session_cart.get("cart_id")
+        items = session_cart.get("items")
+        if isinstance(cid, str) and cid.strip() and isinstance(items, list) and items:
+            seed_cart = {**session_cart, "cart_id": cid.strip()}
 
     # Saved-address seed (parallel to seed_restaurants). Echoed back to
     # the client so each session keeps a stable address index, and surfaced
@@ -1572,6 +1648,7 @@ def run_agent_turn(
             session_movies=seed_movies or None,
             session_theatres=seed_theatres or None,
             session_menu=seed_menu or None,
+            session_cart=seed_cart,
             user_geo=user_geo,
         )
         provider_results = tool_execution.get("provider_results")
@@ -1618,14 +1695,21 @@ def run_agent_turn(
     restaurant_attachments = _collect_restaurant_attachments(raw_tool_results)
     if restaurant_attachments:
         attachments = attachments + restaurant_attachments
+    cart_attachments = _collect_cart_attachments(raw_tool_results)
+    if cart_attachments:
+        attachments = attachments + cart_attachments
     trace(
         "hoister.out",
         attachment_count=len(attachments),
         payment_attachments=(
-            len(attachments) - len(menu_attachments) - len(restaurant_attachments)
+            len(attachments)
+            - len(menu_attachments)
+            - len(restaurant_attachments)
+            - len(cart_attachments)
         ),
         menu_attachments=len(menu_attachments),
         restaurant_attachments=len(restaurant_attachments),
+        cart_attachments=len(cart_attachments),
         attachments=snip(attachments),
     )
 
@@ -1650,6 +1734,7 @@ def run_agent_turn(
     # whatever the executor emitted (richness-aware merge already done
     # inside the executor).
     next_session_menu: list[dict[str, Any]] = list(seed_menu)
+    next_session_cart: dict[str, Any] | None = seed_cart
     # Same pattern for saved addresses — if the executor (re)fetched the
     # list this turn, its result wins; otherwise we just echo the seed
     # back so the frontend can keep persisting it.
@@ -1734,6 +1819,12 @@ def run_agent_turn(
                 )
             if cleaned_menu:
                 next_session_menu = cleaned_menu
+        _cart = _diag.get("session_cart")
+        if isinstance(_cart, dict):
+            _cid = _cart.get("cart_id")
+            _citems = _cart.get("items")
+            if isinstance(_cid, str) and _cid.strip() and isinstance(_citems, list) and _citems:
+                next_session_cart = {**_cart, "cart_id": _cid.strip()}
         _addrs = _diag.get("session_addresses")
         if isinstance(_addrs, list) and _addrs:
             cleaned_a: list[dict[str, Any]] = []
@@ -1870,6 +1961,11 @@ def run_agent_turn(
         # ("with buttermilk") can be resolved against the already-known
         # leaf options.
         "session_menu": next_session_menu,
+        # Current Zomato cart snapshot (single-restaurant by design). Replaced
+        # wholesale by the next successful ``create_cart``; carried unchanged
+        # on every other turn. Lets the response LLM tell the user what's in
+        # the cart without re-asking Zomato or hallucinating from history.
+        "session_cart": next_session_cart,
         # Saved-address memory — same echo contract as session_restaurants.
         # Lets the chat work with zero "fetch addresses" clicks on the
         # frontend: turn 1 auto-prefetches Zomato addresses, turns 2+ just
@@ -1973,6 +2069,37 @@ def run_agent_turn(
                 featured_count=len(allowed),
                 attachment_count=len(attachments),
             )
+        # LLM-driven cart_card emission for the "no-tool, just describe the
+        # cart" path. Auto-emit (fresh ``create_cart`` this turn) is already
+        # handled by ``_collect_cart_attachments`` above; this branch only
+        # adds a card when:
+        #   * the response LLM signalled ``show_cart: true`` (user asked
+        #     "what's in my cart", "kitna ho gaya", "ready to checkout?", …),
+        #   * we have a real cart to render (``next_session_cart`` carries
+        #     the seed forward when no fresh capture happened), AND
+        #   * no cart_card was already emitted this turn (avoids duplicates
+        #     after a fresh create_cart confirmation).
+        show_cart = bool(response_payload.get("show_cart"))
+        already_has_cart_card = any(
+            isinstance(a, dict) and str(a.get("kind") or "") == "cart_card"
+            for a in attachments
+        )
+        if (
+            show_cart
+            and not already_has_cart_card
+            and isinstance(next_session_cart, dict)
+        ):
+            extra = _build_cart_card_attachment(
+                next_session_cart, source="zomato.session_cart"
+            )
+            if extra is not None:
+                attachments = attachments + [extra]
+                out["attachments"] = attachments
+                trace(
+                    "response_builder.cart_card_emitted",
+                    cart_id=str(next_session_cart.get("cart_id") or ""),
+                    item_count=len(next_session_cart.get("items") or []),
+                )
     trace("response_builder.out", assistant_message=assistant_message)
     out["assistant_message"] = assistant_message
     trace(

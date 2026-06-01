@@ -104,6 +104,14 @@ export interface Attachment {
   // reads these to render the Zomato keyword-search tile row.
   keyword?: string;
   restaurants?: RestaurantCardEntry[];
+  // cart_card-specific field. Populated only when `kind === "cart_card"`;
+  // the frontend's <ZomatoCart /> reads this to render the live cart
+  // receipt under the assistant bubble (auto-shown right after a
+  // successful `create_cart`, or on-demand when the response LLM signals
+  // `show_cart: true` for "what's in my cart?" follow-up turns). The
+  // snapshot is the same shape echoed back as `session_cart` on the next
+  // request — see `SessionCart` above.
+  cart?: SessionCart;
 }
 
 export interface Message {
@@ -173,6 +181,76 @@ export interface SessionMenuEntry {
   [key: string]: unknown;
 }
 
+// Current Zomato cart snapshot. Single dict (not LRU) because Zomato carts
+// are strictly single-restaurant: every successful `create_cart` REPLACES
+// the prior cart server-side. Frontend echoes back as `session_cart` on the
+// next request so the response LLM can describe what's actually in the cart
+// without inferring it from chat history (which fails the moment the user
+// adds an item from a different restaurant).
+//
+// Carries enough rich data (`description`, `image_url`, `item_tags`,
+// `charge_breakdown`, `restaurant_rating`, `distance_in_km`, …) for the
+// chat-side <ZomatoCart /> card to render directly from this snapshot —
+// both right after a successful `create_cart` and on follow-up turns
+// where the LLM says "show the cart" without re-fetching.
+export interface SessionCartItemAddon {
+  id?: string;
+  group_id?: string;
+  name: string;
+  add_on_group_name?: string | null;
+  quantity?: number | null;
+}
+
+export interface SessionCartItem {
+  variant_id: string;
+  item_id?: string | null;
+  item_name: string;
+  quantity?: number | null;
+  price?: number | null;
+  discounted_price?: number | null;
+  description?: string | null;
+  image_url?: string | null;
+  item_tags?: string[];
+  add_ons?: SessionCartItemAddon[];
+}
+
+export interface SessionCartTax {
+  tax_amount: number;
+  tax_type?: string;
+  currency_code?: string;
+}
+
+export interface SessionCartBaseCharge {
+  amount: number;
+  discount?: number | null;
+  charge_type?: string;
+  taxes?: SessionCartTax[];
+}
+
+export interface SessionCartChargeBreakdown {
+  base_charges?: SessionCartBaseCharge[];
+  taxes?: SessionCartTax[];
+}
+
+export interface SessionCart {
+  cart_id: string;
+  res_id?: string | number | null;
+  restaurant_name?: string | null;
+  restaurant_rating?: number | null;
+  distance_in_km?: number | null;
+  items: SessionCartItem[];
+  item_total?: number | null;
+  final_amount?: number | null;
+  payment_method_type?: string | null;
+  eta?: string | null;
+  charge_breakdown?: SessionCartChargeBreakdown | null;
+  user_message?: string | null;
+  shareable_link?: string | null;
+  promo_code?: string | null;
+  promo_discount_amount?: number | null;
+  [key: string]: unknown;
+}
+
 // Backend's compact view of which address is being used this turn and
 // where it came from. The chat UI doesn't render this directly — the
 // response LLM uses `source` to decide whether to nudge the user about
@@ -212,6 +290,10 @@ export interface QueryResponse {
   // planner can cite a literal `variant_id` for "yes plz add" without
   // a redundant menu fetch (or worse, hallucinating a stale vid).
   session_menu?: SessionMenuEntry[];
+  // Current Zomato cart — replaced wholesale by each successful
+  // `create_cart`, carried unchanged otherwise. Frontend echoes back so the
+  // response LLM has ground truth for cart contents on follow-up turns.
+  session_cart?: SessionCart | null;
   address_context?: AddressContext | null;
   attachments?: Attachment[];
 }

@@ -1588,6 +1588,17 @@ def _companion_agent_turn(
             clean_menu.append({**entry, "variant_id": vid.strip(), "item_name": name.strip()})
         session_menu = clean_menu or None
 
+    # ``session_cart`` — single-restaurant snapshot. Drop anything missing
+    # the cart_id or with no items; the executor treats those as "no prior
+    # cart" and starts fresh, which is the correct behaviour.
+    session_cart: dict[str, Any] | None = None
+    raw_cart = getattr(payload, "session_cart", None)
+    if isinstance(raw_cart, dict):
+        cid = raw_cart.get("cart_id")
+        items = raw_cart.get("items")
+        if isinstance(cid, str) and cid.strip() and isinstance(items, list) and items:
+            session_cart = {**raw_cart, "cart_id": cid.strip()}
+
     try:
         result = run_agent_turn(
             user_message=payload.message.strip(),
@@ -1603,6 +1614,7 @@ def _companion_agent_turn(
             session_movies=session_movies,
             session_theatres=session_theatres,
             session_menu=session_menu,
+            session_cart=session_cart,
             pending_variant_choice=pending_variant_choice,
         )
         

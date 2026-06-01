@@ -68,6 +68,13 @@ class FoodQueryRequest(BaseModel):
     # as ``session_restaurants`` — frontends round-trip whatever the prior
     # response returned.
     session_menu: list[dict[str, Any]] | None = None
+    # Current Zomato cart snapshot — ``{cart_id, res_id, restaurant_name,
+    # items: [{variant_id, item_name, quantity, price, add_ons[]}], item_total,
+    # final_amount}``. Replaced wholesale on the next successful ``create_cart``
+    # (Zomato carts are strictly single-restaurant). Frontends echo back what
+    # the prior response returned so the response LLM can report cart contents
+    # on follow-up turns without re-asking Zomato.
+    session_cart: dict[str, Any] | None = None
     # Single-turn deferral state: when the Swiggy executor skipped a cart
     # update because the menu item has a real variant choice (size 8"/10"/
     # 12", crust hand-tossed vs thin), the response carries the variant
@@ -97,6 +104,8 @@ class AgentQueryRequest(BaseModel):
     session_theatres: list[dict[str, Any]] | None = None
     # See FoodQueryRequest.session_menu above.
     session_menu: list[dict[str, Any]] | None = None
+    # See FoodQueryRequest.session_cart above.
+    session_cart: dict[str, Any] | None = None
     # See FoodQueryRequest.pending_variant_choice above.
     pending_variant_choice: list[dict[str, Any]] | None = None
 
