@@ -14,6 +14,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, statu
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response as StarletteResponse
 from mangum import Mangum
 from pydantic import BaseModel
 
@@ -91,19 +92,60 @@ def health_check() -> dict[str, str]:
 
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
+# Cache-control headers for the SPA shell (`index.html`). MUST be
+# no-cache because this file is the *only* place that references the
+# current build's hashed asset filenames (e.g. /assets/index-Cv8krTmH.js).
+# Without this, browsers (and any intermediate proxy) heuristically
+# cache `index.html` for hours, keep loading the *old* hashed asset
+# names, and the user never sees UI changes — even after we redeploy.
+# `must-revalidate` ensures even stale caches phone home before serving.
+_SPA_SHELL_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
+class ImmutableStaticFiles(StaticFiles):
+    """``StaticFiles`` that tags every successful response with
+    ``Cache-Control: public, max-age=31536000, immutable``. Suitable
+    *only* for content-hashed asset directories (e.g. Vite's
+    ``dist/assets/``) where the filename itself changes whenever the
+    bytes change — caching forever is safe and a year-long edge cache
+    is the modern best practice for SPA bundles.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if isinstance(response, StarletteResponse) and response.status_code < 400:
+            response.headers["Cache-Control"] = (
+                "public, max-age=31536000, immutable"
+            )
+        return response
+
 
 @app.get("/", response_class=HTMLResponse)
 @app.get("/food/", response_class=HTMLResponse)
 def food_ui():
-    """Serve the new React frontend SPA."""
+    """Serve the new React frontend SPA shell.
+
+    Always returned with no-cache headers — see ``_SPA_SHELL_HEADERS``
+    above for the rationale. The cost is a single revalidation request
+    per page load (the assets it pulls in are immutable and cached
+    forever).
+    """
     index_path = _FRONTEND_DIST / "index.html"
     if not index_path.exists():
         # Fallback to legacy UI if frontend isn't built
         legacy_path = Path(__file__).resolve().parent.parent / "app" / "templates" / "app" / "food_ui.html"
         if legacy_path.exists():
-            return legacy_path.read_text()
-        return HTMLResponse("Frontend not found. Run 'npm run build' in the frontend directory.", status_code=404)
-    return index_path.read_text()
+            return HTMLResponse(legacy_path.read_text(), headers=_SPA_SHELL_HEADERS)
+        return HTMLResponse(
+            "Frontend not found. Run 'npm run build' in the frontend directory.",
+            status_code=404,
+            headers=_SPA_SHELL_HEADERS,
+        )
+    return HTMLResponse(index_path.read_text(), headers=_SPA_SHELL_HEADERS)
 
 
 @app.get("/favicon.svg")
@@ -114,10 +156,19 @@ def favicon():
     return HTMLResponse("", status_code=404)
 
 
-# Mount static assets (JS, CSS, images) from the React build
+# Mount static assets (JS, CSS, images) from the React build with
+# year-long immutable caching — the filenames are content-hashed by
+# Vite so a new build produces new filenames and old ones can be
+# safely cached forever by browsers + CDNs.
 if (_FRONTEND_DIST / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="assets")
-# Mount public folder files (favicon, etc.)
+    app.mount(
+        "/assets",
+        ImmutableStaticFiles(directory=str(_FRONTEND_DIST / "assets")),
+        name="assets",
+    )
+# Mount public folder files (favicon, etc.). These are NOT hashed, so
+# we keep them on the default (no explicit cache headers — browser
+# heuristics, which is fine for static brand assets).
 if _FRONTEND_DIST.exists():
     app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIST)), name="static")
 
