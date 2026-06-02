@@ -969,6 +969,14 @@ const PriceBreakdown: React.FC<{
   promoCode?: string | null;
   promoDiscount?: number | null;
   finalAmount?: number;
+  // Optional "Order now" CTA wired to the parent's checkout dispatcher.
+  // When supplied, renders a bold full-width button under the total
+  // that fires the existing chat pipeline ("Checkout my cart …") so
+  // the agent runs the normal Zomato checkout flow — no new backend
+  // endpoint or special handling, the button is just sugar over the
+  // same intent the user could type by hand.
+  onPlaceOrder?: () => void;
+  placeOrderDisabled?: boolean;
 }> = ({
   itemTotal,
   platformFee,
@@ -977,6 +985,8 @@ const PriceBreakdown: React.FC<{
   promoCode,
   promoDiscount,
   finalAmount,
+  onPlaceOrder,
+  placeOrderDisabled,
 }) => {
   const hasPromo = typeof promoDiscount === 'number' && promoDiscount > 0;
   return (
@@ -1025,39 +1035,79 @@ const PriceBreakdown: React.FC<{
         )}
       </div>
 
-      {typeof finalAmount === 'number' && (
-        <div className="pt-3 border-t border-dashed border-slate-200">
-          <div className="flex justify-between items-end gap-2">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Total Payable
-              </span>
-              <span className="text-xl font-black font-mono text-[#E23744]">
-                ₹{finalAmount.toFixed(2)}
-              </span>
-            </div>
-            {hasPromo && (
-              <div className="text-right">
-                <span className="text-[10px] text-emerald-600 font-black flex items-center justify-end gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Verified Savings
+      <div className="space-y-3">
+        {typeof finalAmount === 'number' && (
+          <div className="pt-3 border-t border-dashed border-slate-200">
+            <div className="flex justify-between items-end gap-2">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Total Payable
                 </span>
-                <span className="text-[9px] text-slate-400 block mt-0.5 font-medium">
-                  Automatic discount applied
+                <span className="text-xl font-black font-mono text-[#E23744]">
+                  ₹{finalAmount.toFixed(2)}
                 </span>
               </div>
-            )}
+              {hasPromo && (
+                <div className="text-right">
+                  <span className="text-[10px] text-emerald-600 font-black flex items-center justify-end gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Verified Savings
+                  </span>
+                  <span className="text-[9px] text-slate-400 block mt-0.5 font-medium">
+                    Automatic discount applied
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {onPlaceOrder && (
+          <button
+            type="button"
+            onClick={onPlaceOrder}
+            disabled={placeOrderDisabled}
+            title="Place this Zomato order now"
+            className={cn(
+              'w-full flex items-center justify-center gap-2 bg-[#E23744] hover:bg-[#c92e3a] text-white font-extrabold text-sm py-3 rounded-xl shadow-md shadow-red-500/20 transition-all duration-200 active:scale-[0.98]',
+              placeOrderDisabled
+                ? 'opacity-60 cursor-not-allowed pointer-events-none hover:bg-[#E23744]'
+                : 'cursor-pointer',
+            )}
+          >
+            <ShoppingBag size={15} strokeWidth={2.5} />
+            <span>
+              Order now
+              {typeof finalAmount === 'number' && (
+                <span className="font-mono font-black ml-1.5">
+                  · ₹{finalAmount.toFixed(2)}
+                </span>
+              )}
+            </span>
+          </button>
+        )}
+      </div>
     </div>
   );
 };
 
-const ZomatoCart: React.FC<{ cart: SessionCart }> = ({ cart }) => {
+const ZomatoCart: React.FC<{
+  cart: SessionCart;
+  onQuickPrompt?: (prompt: string) => void;
+  disabled?: boolean;
+}> = ({ cart, onQuickPrompt, disabled }) => {
   if (!cart || !cart.cart_id || !Array.isArray(cart.items) || cart.items.length === 0) {
     return null;
   }
+
+  // "Order now" CTA — synthesises a clear checkout intent and ships
+  // it through the same /api/agent/query/ pipeline as if the user had
+  // typed it. The agent's planner already knows how to run Zomato's
+  // checkout flow (place_order tool, payment-method handoff, etc.), so
+  // we don't need any new backend wiring for this button.
+  const handlePlaceOrder = onQuickPrompt
+    ? () => onQuickPrompt('Checkout my Zomato cart and place the order.')
+    : undefined;
 
   // Pull the two well-known base_charges Zomato emits, plus the
   // taxes array, and aggregate. Same logic we had before — kept here
@@ -1120,6 +1170,8 @@ const ZomatoCart: React.FC<{ cart: SessionCart }> = ({ cart }) => {
               finalAmount={
                 typeof cart.final_amount === 'number' ? cart.final_amount : undefined
               }
+              onPlaceOrder={handlePlaceOrder}
+              placeOrderDisabled={disabled}
             />
           </div>
         </div>
@@ -1151,7 +1203,14 @@ const AttachmentList: React.FC<{
         );
       }
       if (kind === 'cart_card' && att.cart) {
-        return <ZomatoCart key={`cart-${att.cart.cart_id || idx}`} cart={att.cart} />;
+        return (
+          <ZomatoCart
+            key={`cart-${att.cart.cart_id || idx}`}
+            cart={att.cart}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
       }
       const mime = String(att.mime_type || 'image/png');
       const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';
