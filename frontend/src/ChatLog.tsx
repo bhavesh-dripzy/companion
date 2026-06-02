@@ -29,6 +29,10 @@ import {
   Plus,
   Eye,
   Menu as MenuIcon,
+  CheckCircle2,
+  Layers,
+  Receipt,
+  ChevronRight,
 } from 'lucide-react';
 
 interface ChatLogProps {
@@ -761,11 +765,304 @@ const RestaurantCardGrid: React.FC<{
 // straight from `attachment.cart` — same shape echoed back as
 // `session_cart` on the next request, so the snapshot is single source
 // of truth and the card stays in lockstep across turns.
+//
+// Split into four small sub-components (`CartHeader`, `RestaurantDetail`,
+// `CartItemList`, `PriceBreakdown`) for readability — none of them are
+// exported because they only make sense in this composition.
+type SessionCartItemAddon = NonNullable<SessionCart['items'][number]['add_ons']>[number];
+
+const CartHeader: React.FC<{ paymentMethodType?: string | null }> = ({
+  paymentMethodType,
+}) => {
+  const method = (paymentMethodType || '').trim().toUpperCase();
+  return (
+    <div className="bg-[#E23744]/5 px-5 py-3.5 bg-gradient-to-r from-[#E23744]/15 to-transparent border-b border-red-100/80 flex items-center justify-between">
+      <div className="flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg bg-[#E23744] text-white flex items-center justify-center shadow-sm shrink-0">
+          <ShoppingBag size={15} />
+        </div>
+        <div className="min-w-0">
+          <span className="text-[10px] uppercase font-mono font-black tracking-widest text-[#E23744] block leading-none">
+            Zomato Checkout API
+          </span>
+          <h4 className="font-extrabold text-sm text-slate-900 leading-none mt-1">
+            Basket Summary
+          </h4>
+        </div>
+      </div>
+      {method && (
+        <span className="flex items-center gap-1 text-[10px] bg-emerald-100 text-emerald-800 font-extrabold px-2 py-1 rounded shrink-0">
+          <CheckCircle2 size={11} className="text-emerald-600" />
+          {method} Ready
+        </span>
+      )}
+    </div>
+  );
+};
+
+const RestaurantDetail: React.FC<{
+  name: string;
+  rating?: number;
+  distanceKm?: number | null;
+  eta?: string | null;
+}> = ({ name, rating, distanceKm, eta }) => {
+  const distanceLabel =
+    typeof distanceKm === 'number' && distanceKm > 0
+      ? `${distanceKm.toFixed(2)} km`
+      : 'Nearby';
+  return (
+    <div className="p-4 md:p-5 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/30">
+      <div className="flex justify-between items-center gap-3">
+        <div className="min-w-0">
+          <h3 className="font-black text-slate-900 text-base tracking-tight truncate">
+            {name || 'Restaurant'}
+          </h3>
+          <div className="flex items-center gap-2 mt-2 text-xs text-slate-500 font-bold font-mono flex-wrap">
+            <span className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded text-[10px]">
+              <MapPin size={11} className="text-slate-400 shrink-0" />
+              {distanceLabel}
+            </span>
+            {eta && (
+              <span className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded text-[10px]">
+                <Clock size={11} className="text-slate-400 shrink-0" />
+                {eta}
+              </span>
+            )}
+          </div>
+        </div>
+        {typeof rating === 'number' && rating > 0 && (
+          <div className="flex items-center gap-1 bg-emerald-600 text-white font-black text-xs px-2.5 py-1 rounded shadow-sm shrink-0 leading-none">
+            <Star size={12} className="fill-white shrink-0" />
+            <span>{rating.toFixed(1)}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Tiny veg/egg/non-veg square indicator. Three-way because our Zomato
+// snapshots tag items with both `veg` and `egg` in `item_tags`, and
+// rendering everything else as red is wrong for egg-bearing items.
+const FoodTypeMark: React.FC<{ tags: string[] }> = ({ tags }) => {
+  const isVeg = tags.includes('veg');
+  const isEgg = tags.includes('egg');
+  const border = isVeg
+    ? 'border-emerald-600'
+    : isEgg
+      ? 'border-amber-500'
+      : 'border-red-600';
+  const dot = isVeg
+    ? 'bg-emerald-600'
+    : isEgg
+      ? 'bg-amber-500'
+      : 'bg-red-600';
+  return (
+    <span
+      className={cn(
+        'w-4 h-4 border p-[2px] mt-0.5 flex items-center justify-center rounded-sm shrink-0',
+        border,
+      )}
+    >
+      <span className={cn('w-2 h-2 rounded-full', dot)} />
+    </span>
+  );
+};
+
+const CartItemList: React.FC<{ items: SessionCart['items'] }> = ({ items }) => {
+  return (
+    <div className="p-4 md:p-5 space-y-4">
+      <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center justify-between">
+        <span>Cart Items</span>
+        <span>
+          {items.length} {items.length === 1 ? 'dish' : 'dishes'}
+        </span>
+      </div>
+
+      {items.map((line, idx) => {
+        const tags = Array.isArray(line.item_tags) ? line.item_tags : [];
+        const price = typeof line.price === 'number' ? line.price : null;
+        const discounted =
+          typeof line.discounted_price === 'number' ? line.discounted_price : null;
+        const payable = discounted ?? price;
+        const showStrikethrough =
+          discounted !== null && price !== null && discounted < price;
+        const quantity =
+          typeof line.quantity === 'number' && line.quantity > 0 ? line.quantity : 1;
+        const addOns: SessionCartItemAddon[] = Array.isArray(line.add_ons)
+          ? line.add_ons
+          : [];
+
+        return (
+          <div
+            key={line.item_id || line.variant_id || idx}
+            className="space-y-2 border-b border-slate-100/60 pb-3 last:border-0 last:pb-0"
+          >
+            <div className="flex gap-4 justify-between items-start">
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex items-start gap-2">
+                  <FoodTypeMark tags={tags} />
+                  <div className="min-w-0">
+                    <span className="font-extrabold text-slate-900 text-sm leading-snug">
+                      {line.item_name}
+                    </span>
+                    <span className="text-xs font-black text-slate-400 ml-2">
+                      × {quantity}
+                    </span>
+                  </div>
+                </div>
+                {line.description && (
+                  <p className="text-[11px] text-slate-400 leading-relaxed ml-6 max-w-lg line-clamp-2">
+                    {line.description}
+                  </p>
+                )}
+              </div>
+
+              {payable !== null && (
+                <div className="text-right shrink-0">
+                  <span className="font-mono text-slate-950 font-black text-sm">
+                    ₹{payable}
+                  </span>
+                  {showStrikethrough && (
+                    <p className="font-mono text-slate-400 line-through text-[10px]">
+                      ₹{price}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {addOns.length > 0 && (
+              <div className="ml-6 p-2.5 bg-slate-50 border border-slate-100 rounded-lg space-y-1">
+                <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 leading-none mb-1">
+                  <Layers size={11} className="text-[#E23744]" />
+                  <span>Toppings &amp; Sides included</span>
+                </div>
+                {addOns.map((ao, adIdx) => (
+                  <div
+                    key={ao.id || `${ao.name}-${adIdx}`}
+                    className="flex justify-between items-center text-[11px] font-bold text-slate-600"
+                  >
+                    <span className="flex items-center gap-1 text-slate-700 min-w-0">
+                      <ChevronRight size={11} className="text-slate-400 shrink-0" />
+                      <span className="truncate">{ao.name}</span>
+                    </span>
+                    <span className="text-[10px] text-emerald-600 font-extrabold bg-emerald-50 px-1.5 py-0.5 rounded shrink-0">
+                      +{ao.quantity ?? 1}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const PriceBreakdown: React.FC<{
+  itemTotal?: number;
+  platformFee: number;
+  deliveryFee: number;
+  taxes: number;
+  promoCode?: string | null;
+  promoDiscount?: number | null;
+  finalAmount?: number;
+}> = ({
+  itemTotal,
+  platformFee,
+  deliveryFee,
+  taxes,
+  promoCode,
+  promoDiscount,
+  finalAmount,
+}) => {
+  const hasPromo = typeof promoDiscount === 'number' && promoDiscount > 0;
+  return (
+    <div className="p-4 md:p-5 flex-1 flex flex-col justify-between gap-4">
+      <div className="space-y-2 text-xs font-semibold text-slate-500">
+        <div className="flex items-center gap-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">
+          <Receipt size={13} />
+          <span>Receipt Summary</span>
+        </div>
+
+        {typeof itemTotal === 'number' && (
+          <div className="flex justify-between">
+            <span>Items Subtotal</span>
+            <span className="font-mono text-slate-800 font-bold">₹{itemTotal}</span>
+          </div>
+        )}
+        {platformFee > 0 && (
+          <div className="flex justify-between">
+            <span>Platform Packaging Fee</span>
+            <span className="font-mono text-slate-800 font-bold">
+              ₹{platformFee.toFixed(2)}
+            </span>
+          </div>
+        )}
+        {deliveryFee > 0 && (
+          <div className="flex justify-between">
+            <span>Delivery Partner Fee</span>
+            <span className="font-mono text-slate-800 font-bold">
+              ₹{deliveryFee.toFixed(2)}
+            </span>
+          </div>
+        )}
+        {taxes > 0 && (
+          <div className="flex justify-between">
+            <span>GST &amp; Restaurant Services</span>
+            <span className="font-mono text-slate-800 font-bold">
+              ₹{taxes.toFixed(2)}
+            </span>
+          </div>
+        )}
+        {hasPromo && (
+          <div className="flex justify-between text-emerald-600 font-extrabold bg-emerald-50 p-1.5 rounded">
+            <span>Promo {promoCode ? `(${promoCode})` : ''}</span>
+            <span className="font-mono">- ₹{promoDiscount}</span>
+          </div>
+        )}
+      </div>
+
+      {typeof finalAmount === 'number' && (
+        <div className="pt-3 border-t border-dashed border-slate-200">
+          <div className="flex justify-between items-end gap-2">
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Total Payable
+              </span>
+              <span className="text-xl font-black font-mono text-[#E23744]">
+                ₹{finalAmount.toFixed(2)}
+              </span>
+            </div>
+            {hasPromo && (
+              <div className="text-right">
+                <span className="text-[10px] text-emerald-600 font-black flex items-center justify-end gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Verified Savings
+                </span>
+                <span className="text-[9px] text-slate-400 block mt-0.5 font-medium">
+                  Automatic discount applied
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ZomatoCart: React.FC<{ cart: SessionCart }> = ({ cart }) => {
   if (!cart || !cart.cart_id || !Array.isArray(cart.items) || cart.items.length === 0) {
     return null;
   }
 
+  // Pull the two well-known base_charges Zomato emits, plus the
+  // taxes array, and aggregate. Same logic we had before — kept here
+  // (not in PriceBreakdown) so the modular sub-components stay
+  // declarative and the shape adapter lives in one place.
   const baseCharges = cart.charge_breakdown?.base_charges ?? [];
   const cartTaxes = cart.charge_breakdown?.taxes ?? [];
   const platformFee = baseCharges
@@ -775,194 +1072,55 @@ const ZomatoCart: React.FC<{ cart: SessionCart }> = ({ cart }) => {
     .filter((c) => c.charge_type === 'CHARGE_ID_DELIVERY_CHARGE')
     .reduce((sum, c) => sum + (c.amount || 0), 0);
   const taxesTotal = cartTaxes.reduce((sum, t) => sum + (t.tax_amount || 0), 0);
-  const feesTotal = platformFee + deliveryFee + taxesTotal;
 
-  const itemTotal = typeof cart.item_total === 'number' ? cart.item_total : undefined;
-  const finalAmount = typeof cart.final_amount === 'number' ? cart.final_amount : undefined;
-  const promoAmount =
-    typeof cart.promo_discount_amount === 'number' ? cart.promo_discount_amount : undefined;
-  const promoCode = typeof cart.promo_code === 'string' ? cart.promo_code : '';
-  const restaurantRating =
-    typeof cart.restaurant_rating === 'number' && cart.restaurant_rating > 0
-      ? cart.restaurant_rating
-      : undefined;
-  const distance =
-    typeof cart.distance_in_km === 'number' && cart.distance_in_km > 0
-      ? `${cart.distance_in_km.toFixed(2)} km`
-      : 'Nearby';
-  const eta = cart.eta ? String(cart.eta).trim() : '';
-  const paymentMethod = cart.payment_method_type
-    ? String(cart.payment_method_type).trim().toUpperCase()
-    : '';
   const cleanedUserMessage = (cart.user_message || '')
     .replace('[AI Agent Instruction]', '')
     .trim();
 
   return (
-    <div className="mt-2 w-full max-w-full md:max-w-3xl">
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-[#E23744]/10 to-transparent border-b border-red-100/60 px-3 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 rounded bg-[#E23744] text-white flex items-center justify-center">
-              <ShoppingBag size={11} />
-            </div>
-            <span className="text-[9px] uppercase font-mono font-extrabold tracking-widest text-[#E23744]">
-              Zomato Cart
-            </span>
-          </div>
-          {paymentMethod && (
-            <span className="text-[9px] font-mono bg-[#E23744] text-white font-extrabold px-1.5 py-0.5 rounded uppercase leading-none">
-              {paymentMethod} Ready
-            </span>
-          )}
-        </div>
+    <div className="mt-3 w-full max-w-full md:max-w-4xl animate-fade-in">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300">
+        <CartHeader paymentMethodType={cart.payment_method_type} />
 
-        {/* Body */}
-        <div className="flex flex-col md:flex-row md:divide-x divide-slate-150">
-          {/* LEFT — restaurant + items */}
-          <div className="w-full md:w-7/12 p-3.5 space-y-3">
-            <div className="flex justify-between items-start gap-3 pb-2 border-b border-slate-100">
-              <div className="min-w-0">
-                <h3 className="font-extrabold text-slate-900 text-sm truncate leading-snug">
-                  {cart.restaurant_name || 'Restaurant'}
-                </h3>
-                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500 font-bold font-mono">
-                  <span className="flex items-center gap-0.5">
-                    <MapPin size={11} className="text-slate-400 shrink-0" />
-                    {distance}
-                  </span>
-                  {eta && (
-                    <>
-                      <span>•</span>
-                      <span className="flex items-center gap-0.5">
-                        <Clock size={11} className="text-slate-400 shrink-0" />
-                        {eta}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-              {restaurantRating !== undefined && (
-                <div className="flex items-center gap-0.5 bg-emerald-600 text-white font-black text-[10px] px-1.5 py-0.5 rounded shrink-0 leading-none">
-                  <Star size={10} className="fill-white shrink-0" />
-                  <span>{restaurantRating.toFixed(1)}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              {cart.items.map((line, idx) => {
-                const tags = Array.isArray(line.item_tags) ? line.item_tags : [];
-                const isVeg = tags.includes('veg');
-                const isEgg = tags.includes('egg');
-                const itemPrice =
-                  typeof line.discounted_price === 'number'
-                    ? line.discounted_price
-                    : typeof line.price === 'number'
-                      ? line.price
-                      : undefined;
-                const quantity =
-                  typeof line.quantity === 'number' && line.quantity > 0 ? line.quantity : 1;
-                const dotColor = isVeg
-                  ? 'border-emerald-600 bg-emerald-600'
-                  : isEgg
-                    ? 'border-amber-500 bg-amber-500'
-                    : 'border-red-600 bg-red-600';
-                return (
-                  <div key={line.item_id || line.variant_id || idx} className="space-y-1 text-xs">
-                    <div className="flex gap-2 justify-between items-start">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start gap-1.5">
-                          <span
-                            className={cn(
-                              'w-3.5 h-3.5 border p-[1.5px] mt-0.5 flex items-center justify-center rounded-sm shrink-0',
-                              dotColor.split(' ')[0]
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                'w-1.5 h-1.5 rounded-full',
-                                dotColor.split(' ')[1]
-                              )}
-                            />
-                          </span>
-                          <span className="font-extrabold text-slate-800 text-xs leading-snug">
-                            {line.item_name}{' '}
-                            <span className="text-[#E23744] font-black">×{quantity}</span>
-                          </span>
-                        </div>
-                        {line.description && (
-                          <p className="text-[10px] text-slate-400 mt-0.5 ml-5 line-clamp-1 italic">
-                            {line.description}
-                          </p>
-                        )}
-                      </div>
-                      {itemPrice !== undefined && (
-                        <div className="text-right shrink-0">
-                          <span className="font-mono text-slate-950 font-black text-xs">
-                            ₹{itemPrice}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {Array.isArray(line.add_ons) && line.add_ons.length > 0 && (
-                      <div className="ml-5 px-2 py-1 bg-slate-50 border border-slate-100 rounded-lg text-[10px]">
-                        {line.add_ons.map((ao, adIdx) => (
-                          <div
-                            key={ao.id || `${ao.name}-${adIdx}`}
-                            className="flex justify-between items-center text-slate-500 font-semibold gap-2"
-                          >
-                            <span>• {ao.name}</span>
-                            <span className="text-[9px] text-[#E23744] font-bold">Included</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
+        {/* 2-column split on desktop, stacked on mobile. Items live on
+            the left (~58%) so descriptions and add-ons have room to
+            breathe; receipt sits on the right (~42%) where the eye
+            naturally lands for a total. */}
+        <div className="flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-slate-100">
+          <div className="w-full md:w-7/12">
+            <RestaurantDetail
+              name={cart.restaurant_name || 'Restaurant'}
+              rating={
+                typeof cart.restaurant_rating === 'number'
+                  ? cart.restaurant_rating
+                  : undefined
+              }
+              distanceKm={cart.distance_in_km}
+              eta={cart.eta}
+            />
+            <CartItemList items={cart.items} />
             {cleanedUserMessage && (
-              <div className="bg-slate-50/50 border border-slate-100 p-2 rounded-lg text-[10px] text-slate-500 font-medium flex gap-1.5 items-start">
-                <Info size={12} className="text-[#E23744] shrink-0 mt-0.5" />
-                <span>{cleanedUserMessage}</span>
+              <div className="mx-4 md:mx-5 mb-4 md:mb-5 bg-slate-50 border border-slate-100 p-2.5 rounded-lg text-[11px] text-slate-500 font-medium flex gap-2 items-start">
+                <Info size={13} className="text-[#E23744] shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{cleanedUserMessage}</span>
               </div>
             )}
           </div>
 
-          {/* RIGHT — receipt */}
-          <div className="w-full md:w-5/12 p-3.5 bg-slate-50/50 border-t md:border-t-0 border-slate-150 flex flex-col justify-between space-y-3">
-            <div className="space-y-1.5 text-[11px] font-semibold text-slate-500">
-              {itemTotal !== undefined && (
-                <div className="flex justify-between">
-                  <span>Items Subtotal</span>
-                  <span className="font-mono text-slate-800">₹{itemTotal}</span>
-                </div>
-              )}
-              {feesTotal > 0 && (
-                <div className="flex justify-between">
-                  <span>Taxes, packaging & delivery</span>
-                  <span className="font-mono text-slate-800">₹{feesTotal.toFixed(2)}</span>
-                </div>
-              )}
-              {promoAmount !== undefined && promoAmount > 0 && (
-                <div className="flex justify-between text-emerald-600 font-bold">
-                  <span>Promo {promoCode ? `(${promoCode})` : ''}</span>
-                  <span className="font-mono">- ₹{promoAmount}</span>
-                </div>
-              )}
-              {finalAmount !== undefined && (
-                <div className="flex justify-between items-end pt-1.5 border-t border-slate-200 text-slate-800">
-                  <span className="text-[11px] font-black text-slate-900">Total Payable</span>
-                  <span className="text-sm font-black font-mono text-[#E23744]">
-                    ₹{finalAmount.toFixed(2)}
-                  </span>
-                </div>
-              )}
-            </div>
+          <div className="w-full md:w-5/12 bg-slate-50/40 flex flex-col">
+            <PriceBreakdown
+              itemTotal={
+                typeof cart.item_total === 'number' ? cart.item_total : undefined
+              }
+              platformFee={platformFee}
+              deliveryFee={deliveryFee}
+              taxes={taxesTotal}
+              promoCode={cart.promo_code}
+              promoDiscount={cart.promo_discount_amount}
+              finalAmount={
+                typeof cart.final_amount === 'number' ? cart.final_amount : undefined
+              }
+            />
           </div>
         </div>
       </div>

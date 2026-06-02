@@ -99,6 +99,17 @@ body > #root {
   animation: spin-slow 6s linear infinite;
 }
 
+/* Gentle entrance used by the quick-action popover on restaurant cards
+   and the Zomato cart-summary card so they don't pop in jarringly when
+   they appear under an assistant bubble or after an item click. */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.28s ease-out both;
+}
+
 /* Hide the horizontal scrollbar on the quick-action chip row while
    still allowing the row itself to scroll on overflow. */
 .scrollbar-none::-webkit-scrollbar {

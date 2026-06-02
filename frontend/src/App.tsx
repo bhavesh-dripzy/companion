@@ -30,6 +30,109 @@ import './index.css';
 // every time the backend confirms (or lazy-creates) a chat_id.
 const ACTIVE_CHAT_STORAGE_KEY = 'companion.active_chat_id';
 
+// Per-chat session snapshot. Mirrors the `session_*` fields the backend
+// round-trips on every /api/agent/query/ turn — restaurants the user
+// has been shown, the LRU of menu items (variant_ids needed to resolve
+// "yes add the second one"), saved delivery addresses, the active cart,
+// and the placeholder-id dictionary (__CART_ID__, __RESTAURANT_ID__, …).
+//
+// We persist this blob under `companion.chat.<chat_id>.session` so a
+// page refresh — or switching to another chat and back — restores the
+// same conversational context the backend was relying on. Without this,
+// reload kept the rendered chat bubbles but blew away the underlying
+// state, so follow-ups like "yes add the second pizza" or "what's in
+// my cart?" would fail right after the user came back.
+const CHAT_SESSION_KEY_PREFIX = 'companion.chat.';
+
+interface PersistedChatSession {
+  session_state: Record<string, string>;
+  session_restaurants: SessionRestaurant[];
+  session_addresses: SessionAddress[];
+  session_menu: SessionMenuEntry[];
+  session_cart: SessionCart | null;
+}
+
+const chatSessionKey = (chatId: string) =>
+  `${CHAT_SESSION_KEY_PREFIX}${chatId}.session`;
+
+const loadChatSession = (chatId: string): PersistedChatSession | null => {
+  try {
+    const raw = localStorage.getItem(chatSessionKey(chatId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      session_state:
+        parsed.session_state && typeof parsed.session_state === 'object'
+          ? (parsed.session_state as Record<string, string>)
+          : {},
+      session_restaurants: Array.isArray(parsed.session_restaurants)
+        ? (parsed.session_restaurants as SessionRestaurant[])
+        : [],
+      session_addresses: Array.isArray(parsed.session_addresses)
+        ? (parsed.session_addresses as SessionAddress[])
+        : [],
+      session_menu: Array.isArray(parsed.session_menu)
+        ? (parsed.session_menu as SessionMenuEntry[])
+        : [],
+      session_cart:
+        parsed.session_cart &&
+        typeof parsed.session_cart === 'object' &&
+        (parsed.session_cart as SessionCart).cart_id
+          ? (parsed.session_cart as SessionCart)
+          : null,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const saveChatSession = (chatId: string, snap: PersistedChatSession) => {
+  try {
+    // Skip writing an entirely-empty snapshot — keeps localStorage tidy
+    // (a brand-new chat that hasn't kicked off any tools yet doesn't
+    // need an entry) and avoids burning a write on every keystroke.
+    const isEmpty =
+      Object.keys(snap.session_state).length === 0 &&
+      snap.session_restaurants.length === 0 &&
+      snap.session_addresses.length === 0 &&
+      snap.session_menu.length === 0 &&
+      snap.session_cart === null;
+    if (isEmpty) {
+      localStorage.removeItem(chatSessionKey(chatId));
+      return;
+    }
+    localStorage.setItem(chatSessionKey(chatId), JSON.stringify(snap));
+  } catch (err) {
+    // Quota exceeded / Safari private mode / storage disabled — best
+    // effort. The chat still works in-memory; we just lose refresh
+    // continuity for this chat, which is no worse than before this
+    // feature existed.
+    console.warn('Failed to persist chat session', err);
+  }
+};
+
+const clearChatSession = (chatId: string) => {
+  try {
+    localStorage.removeItem(chatSessionKey(chatId));
+  } catch {
+    /* noop */
+  }
+};
+
+const clearAllChatSessions = () => {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(CHAT_SESSION_KEY_PREFIX)) keys.push(k);
+    }
+    keys.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    /* noop */
+  }
+};
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!getToken());
   const [username, setUsername] = useState<string>('');
@@ -138,6 +241,32 @@ function App() {
     return () => window.removeEventListener('auth-failure', handleAuthFailure);
   }, []);
 
+  // Per-chat session persistence. Mirrors every change to the
+  // round-tripped session_* fields into localStorage under the current
+  // chat's key so a page refresh restores the same conversational
+  // context (menu LRU, restaurants, cart, addresses, placeholder ids).
+  // No-op while `chatId` is null — that means we're between a "new
+  // chat" click and the first turn's response, and the lazy-create flow
+  // will set `chatId` shortly, which fires this effect again with the
+  // populated session arrays under the correct key.
+  useEffect(() => {
+    if (!chatId) return;
+    saveChatSession(chatId, {
+      session_state: sessionState,
+      session_restaurants: sessionRestaurants,
+      session_addresses: sessionAddresses,
+      session_menu: sessionMenu,
+      session_cart: sessionCart,
+    });
+  }, [
+    chatId,
+    sessionState,
+    sessionRestaurants,
+    sessionAddresses,
+    sessionMenu,
+    sessionCart,
+  ]);
+
   const loadInitialData = async () => {
     // Boot order matters slightly: the chat list has to land before we
     // try to restore the persisted chat_id, so the sidebar can highlight
@@ -145,6 +274,19 @@ function App() {
     // and can lag behind without UX cost.
     await refreshChatList();
     if (chatId) {
+      // Restore the per-chat session blob (restaurants / menu LRU /
+      // addresses / cart / placeholder ids) BEFORE messages so the very
+      // first turn after refresh has all the carry-forward context the
+      // backend was relying on — "yes add the second pizza", cart
+      // truthing, address echoes, etc.
+      const snap = loadChatSession(chatId);
+      if (snap) {
+        setSessionState(snap.session_state);
+        setSessionRestaurants(snap.session_restaurants);
+        setSessionAddresses(snap.session_addresses);
+        setSessionMenu(snap.session_menu);
+        setSessionCart(snap.session_cart);
+      }
       await loadChatMessages(chatId, { silent: true });
     }
     try {
@@ -167,6 +309,7 @@ function App() {
       // (deleted on another device, scrubbed by the backend, etc.) drop
       // the stale id so the workspace doesn't load a ghost.
       if (chatId && !list.some((c) => c.chat_id === chatId)) {
+        clearChatSession(chatId);
         setChatId(null);
         localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
         setMessages([]);
@@ -215,11 +358,16 @@ function App() {
     setChatId(newChatId);
     localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, newChatId);
     setIsAdminOpen(false);
-    setSessionState({});
-    setSessionRestaurants([]);
-    setSessionAddresses([]);
-    setSessionMenu([]);
-    setSessionCart(null);
+    // Hydrate the in-memory session from this chat's persisted blob.
+    // Falls back to an empty session for chats opened on another
+    // browser (no local cache) — the next turn's response will
+    // rebuild and re-persist whatever the backend ships back.
+    const snap = loadChatSession(newChatId);
+    setSessionState(snap?.session_state ?? {});
+    setSessionRestaurants(snap?.session_restaurants ?? []);
+    setSessionAddresses(snap?.session_addresses ?? []);
+    setSessionMenu(snap?.session_menu ?? []);
+    setSessionCart(snap?.session_cart ?? null);
     setSearchQuery('');
     setSearchOpen(false);
     setMessages([]);
@@ -234,6 +382,7 @@ function App() {
       return;
     }
     setChats((prev) => prev.filter((c) => c.chat_id !== targetChatId));
+    clearChatSession(targetChatId);
     // If the deleted chat was the active one, fall back to "new chat"
     // mode — clear the workspace and the localStorage pin.
     if (targetChatId === chatId) {
@@ -303,6 +452,7 @@ function App() {
     setChats([]);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
+    clearAllChatSessions();
   };
 
   const handleNewChat = () => {
