@@ -72,19 +72,35 @@ export interface RestaurantCardEntry {
   res_id: string;
   name: string;
   rating?: number;
-  votes?: number;
+  // Number on Zomato (vote count), short text on Swiggy ("10K+").
+  votes?: number | string;
   eta?: string;
   distance_km?: number;
   res_image?: string;
   res_offer?: string;
   serviceability_status?: string;
   chain_id?: number | string;
+  // Only populated for Swiggy (their listing returns cuisines per row);
+  // Zomato's keyword-search payload doesn't ship cuisines per result.
+  cuisines?: string[];
   items?: RestaurantCardItem[];
 }
+
+// Two providers currently emit chat cards. `provider` is stamped by the
+// backend so the frontend can swap branding (Zomato red `#E23744` vs
+// Swiggy orange `#FC8019`), label text ("Zomato" vs "Swiggy"), and the
+// "Order now" / "Add to cart" prompts wired through the QuickAction
+// popovers. Cards without a `provider` field (legacy turns from before
+// this stamp landed, or a future third provider) fall back to a neutral
+// slate styling — never a wrong-brand colour.
+export type CardProvider = 'zomato' | 'swiggy';
 
 export interface Attachment {
   kind: string;
   source?: string;
+  // Provider tag for card-shaped attachments (menu_cards / restaurant_cards /
+  // cart_card). See `CardProvider` above.
+  provider?: CardProvider;
   mime_type?: string;
   data_b64?: string;
   alt?: string;
@@ -93,21 +109,21 @@ export interface Attachment {
   amount_inr?: number | string;
   oversize?: boolean;
   // menu_cards-specific fields. Populated only when `kind === "menu_cards"`;
-  // the frontend's <MenuCardGrid /> reads these to render the Zomato-style
-  // tile grid below the assistant bubble.
+  // the frontend's <MenuCardGrid /> reads these to render the tile grid
+  // below the assistant bubble (Zomato or Swiggy — same component).
   restaurant_name?: string;
   res_id?: number | string;
   categories?: string[];
   items?: MenuCardItem[];
   // restaurant_cards-specific fields. Populated only when
   // `kind === "restaurant_cards"`; the frontend's <RestaurantCardGrid />
-  // reads these to render the Zomato keyword-search tile row.
+  // reads these to render the restaurant tile row.
   keyword?: string;
   restaurants?: RestaurantCardEntry[];
   // cart_card-specific field. Populated only when `kind === "cart_card"`;
-  // the frontend's <ZomatoCart /> reads this to render the live cart
+  // the frontend's <CartCard /> reads this to render the live cart
   // receipt under the assistant bubble (auto-shown right after a
-  // successful `create_cart`, or on-demand when the response LLM signals
+  // successful cart mutation, or on-demand when the response LLM signals
   // `show_cart: true` for "what's in my cart?" follow-up turns). The
   // snapshot is the same shape echoed back as `session_cart` on the next
   // request — see `SessionCart` above.

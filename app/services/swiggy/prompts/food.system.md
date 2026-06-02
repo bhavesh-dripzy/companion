@@ -94,7 +94,9 @@ Search dishes/items for delivery. Returns customizations; text includes variant/
 
 **⚠️ REQUIRED WORKFLOW:** Never call `search_menu` as the **only** tool when the user asked for a restaurant’s menu. Always **`search_restaurants`** first in the same plan, then `search_menu` with **`restaurantIdOfAddedItem`: `"__RESTAURANT_ID__"`** (set by the prior search step).
 
-**`query` on `search_menu`:** Use a **dish/course** keyword (`pizza`, `burger`, `veg`, `biryani`) or `*` / broad term — **not** the restaurant’s full name alone. Put the restaurant name only in **`search_restaurants.query`**.
+**`query` on `search_menu`:** Use a **dish/course** keyword (`pizza`, `burger`, `veg`, `biryani`). NEVER use `*` / `all` / empty / generic broad terms — Swiggy returns **0 items** for those. Put the restaurant name only in **`search_restaurants.query`**.
+
+**⚠️ WHEN TO PREFER `get_restaurant_menu` INSTEAD:** If the user asks for the full menu of a named restaurant with **no dish filter** (e.g. *“show me Pizza Hut menu”*, *“what does Burger King have?”*, *“Domino's ka menu dikhao”*), plan `search_restaurants` → `get_restaurant_menu` (NOT `search_menu`). `get_restaurant_menu` paginates the real category-grouped menu and returns rows even when no specific dish was named. Only use `search_menu` when the user named a specific dish/course (e.g. *“pizza at Pizza Hut”*, *“veg burgers at BK”*).
 
 **CROSS-RESTAURANT:** Use `restaurantIdOfAddedItem` when scoping menu search to one outlet after `search_restaurants`.
 
@@ -136,8 +138,6 @@ Brief assistant copy + cart refresh.
 
 Addon workflow: variants first ⇒ read `valid_addons` ⇒ addons respecting min/max constraints.
 
-**🚨 MANDATORY CHAIN — search_menu BEFORE every update_food_cart in the SAME plan.** Item IDs in conversation history are stale (the executor never persists them across turns). Always emit `search_menu` first in the plan with `query` set to the item the user named ("Margherita Pizza", "Farmhouse"), then `update_food_cart` second. In the cart step use `cartItems: [{menu_item_id: "__MENU_ITEM_ID__", quantity: N}]` — the executor substitutes the freshly-learned item id from your in-plan `search_menu`. **NEVER paste literal item ids from conversation history. NEVER invent placeholders like `__ITEM_ID__`, `"item_id_from_search_menu_for_X"`, etc.** Only `__MENU_ITEM_ID__` (or `__RESTAURANT_ID__` / `__ADDRESS_ID__`) are real.
-
 **REQUEST SHAPE (strict, snake_case + flat).** Swiggy MCP rejects the response-shape (`itemId` / nested `variations`). Use exactly:
 ```json
 "cartItems": [{
@@ -147,13 +147,27 @@ Addon workflow: variants first ⇒ read `valid_addons` ⇒ addons respecting min
   "addons": [{"group_id": "<gid>", "choice_id": "<cid>"}, ...]
 }]
 ```
-Field rules: `menu_item_id` (NOT `itemId`); each `variantsV2[]` row is **flat** `{group_id, variation_id}` (NOT nested `{groupId, variations:[{id}]}`); each `addons[]` row is `{group_id, choice_id}`. Use the `variants` field (same flat snake_case shape) only for legacy items that expose `variations` in `search_menu` instead of `variantsV2`. Send EITHER `variantsV2` OR `variants` per item, never both. (The executor will still coerce the older shapes into this one as a safety net, but emit the right thing yourself.)
+Field rules: `menu_item_id` (NOT `itemId`); each `variantsV2[]` row is **flat** `{group_id, variation_id}` (NOT nested `{groupId, variations:[{id}]}`); each `addons[]` row is `{group_id, choice_id}`. Use the `variants` field (same flat snake_case shape) only for legacy items that expose `variations` in `search_menu` instead of `variantsV2`. Send EITHER `variantsV2` OR `variants` per item, never both.
 
-**Companion variant-resolution contract:** The executor auto-resolves variants in two ways:
-1. **Trivial items** (one in-stock variation per group) — executor silently injects the default. You may emit `cartItems: [{menu_item_id: "__MENU_ITEM_ID__", quantity: N}]` without variants.
-2. **Real choices** (size 8″/10″/12″, hand-tossed vs thin) — executor DEFERS the cart call and the assistant asks the user to pick. The next turn you'll receive a `Pending variant choice from the previous turn` block in your input containing the actual `item_id`, `group_id` and `variation_id` literals. **Plan ONLY `[update_food_cart, get_food_cart]` (no `search_menu` — the item is already identified) with ALL three values copied as literals from the block**: `cartItems: [{menu_item_id: "<item_id from block>", quantity: 1, variantsV2: [{group_id: "<group_id>", variation_id: "<variation_id>"}]}]`. Match each group's chosen variation to the user's words ("medium" → the Size group's Medium variation). The `restaurantId` should be the literal `res_id` from the `Restaurants already shown` block for that item's restaurant — same one the previous turn used. **NEVER emit `__MENU_ITEM_ID__` here** (a fresh `search_menu` could resolve it to a different Margherita than the one you offered the user) — and **NEVER emit `__GROUP_ID__` / `__VARIANT_ID__` placeholders** (they don't exist).
+**🚨 PLANNER OWNS THE CART ROW. NO EXECUTOR FALLBACKS.** The executor does ZERO variant matching, ZERO addon picking, ZERO shape coercion. It only (a) substitutes placeholders for IDs it remembers and (b) drops rows whose `menu_item_id` is an unresolved placeholder. Every other field — `menu_item_id`, `quantity`, `variantsV2[]`, `addons[]` — must be a literal value YOU put on the row, sourced from either:
+
+  - **The `Menu items already shown to the user this session` block in your input** (cross-turn cache). Each Swiggy row shows `menu_item_id=<id>` plus, when the item has customizations, a `variantsV2: GroupName(VariationName=group_id/variation_id, …)` tail and an `addons: GroupName (min=X, max=Y) → ChoiceName=group_id/choice_id` tail. Copy the IDs literally. Pick ONE variation per `variantsV2` group matching the user's words ("medium" → the Size group's Medium variation, "hand tossed" → the Crust group's Hand-Tossed variation). For each addon group with `min>=1`, you MUST include one or more `{group_id, choice_id}` rows (pick what the user named; otherwise pick the first/cheapest in-stock choice).
+
+  - **An in-plan `search_menu` step you ran in the SAME plan.** Read the `variantsV2[]` and `addons[]` blocks from that response and project them down to the flat request shape above. The executor will substitute the freshly-learned `__MENU_ITEM_ID__` (and `__RESTAURANT_ID__`) for you, but every `group_id` / `variation_id` / `choice_id` must be a literal you copied from the response — `__MENU_ITEM_ID__` is the ONLY placeholder allowed inside `cartItems[]`.
+
+**Mandatory chain — when you must search first:** if the user names an item that is NOT in `Menu items already shown` (or that block has no `variantsV2:` tail when the item clearly has size/crust choices), plan `search_menu` FIRST in the same plan, then `update_food_cart`, then `get_food_cart`. Use `cartItems: [{menu_item_id: "__MENU_ITEM_ID__", quantity: N, variantsV2: [...literal picks from the search_menu response...], addons: [...literal picks...]}]`.
+
+**Skip search_menu when** the user is replying with a pick for an item from the session cache ("add a medium hand-tossed", "make it large with extra cheese") — in that case plan ONLY `[update_food_cart, get_food_cart]` and paste the literal `menu_item_id` from the cache row plus the matching `variantsV2` / `addons` IDs from the same row's tail.
+
+**NEVER** emit `__ITEM_ID__`, `__GROUP_ID__`, `__VARIANT_ID__`, `__VARIATION_ID__`, `"<id>"`, `"<gid>"`, or any other made-up placeholder string. They will be sent verbatim and the cart call will fail. The ONLY real placeholders inside `cartItems[]` are `__MENU_ITEM_ID__` (when you ran a fresh `search_menu` for that item in this same plan) and `__RESTAURANT_ID__` (for the cart-level field, not for items).
+
+**⚠️ NO widget:** Immediately follow `update_food_cart` with **`get_food_cart`** in the same plan to refresh the cart visuals.
 
 *`restaurantId`, `cartItems`, `addressId` required at MCP layer.*
+
+---
+
+**Cart truthing (single-restaurant).** Swiggy carts hold items from exactly ONE restaurant at a time. After a successful cart write the executor caches the cart at `session_cart` and echoes it back next turn. When the user adds an item from a *different* restaurant than the prior `session_cart.res_id`, Swiggy silently replaces the cart — the previous items are gone. Don't aggregate cart contents from chat history; read the response builder's `session_cart` snapshot instead.
 
 ---
 
@@ -231,14 +245,23 @@ When the user wants a **menu** for a specific restaurant (examples: “Tossin Pi
 
 1. **`search_restaurants`** — `query` = **short restaurant name** (e.g. `"Tossin Pizza"`, `"Pizza Hut"`, `"Subway"`). Use `addressId: "__ADDRESS_ID__"`.
 2. Then **one** of:
-   - **`search_menu`** — `addressId: "__ADDRESS_ID__"`, `restaurantIdOfAddedItem: "__RESTAURANT_ID__"`, `query` = dish filter or broad menu term (`pizza`, `all`, `popular`), **or**
-   - **`get_restaurant_menu`** — `addressId: "__ADDRESS_ID__"`, `restaurantId: "__RESTAURANT_ID__"` (and `restaurant_id` if you mirror keys).
+   - **`get_restaurant_menu`** (preferred for "show me X's menu" with no dish filter) — `addressId: "__ADDRESS_ID__"`, `restaurantId: "__RESTAURANT_ID__"` (and `restaurant_id` if you mirror keys). Returns the full category-grouped menu, **or**
+   - **`search_menu`** (only when user named a specific dish/course) — `addressId: "__ADDRESS_ID__"`, `restaurantIdOfAddedItem: "__RESTAURANT_ID__"`, `query` = the **specific dish keyword** the user named (`pizza`, `biryani`, `veg burger`). NEVER `*` / `all` / `popular` / empty — those return 0 items.
 
-**Forbidden:** `tool_plan` with only `search_menu` and `restaurantIdOfAddedItem: "__RESTAURANT_ID__"` and **no** preceding `search_restaurants`.
+**Forbidden:** `tool_plan` with only `search_menu` and `restaurantIdOfAddedItem: "__RESTAURANT_ID__"` and **no** preceding `search_restaurants`. Also forbidden: `search_menu` with `query` of `*`, `all`, `popular`, `menu`, `""`, or any generic term that isn't a dish/course the user actually mentioned.
 
 **Follow-up turns:** If history shows the user already picked a restaurant from your list, still include **`search_restaurants`** with that name in **this** plan (IDs do not carry across HTTP requests).
 
-Example (Tossin Pizza menu):
+Example A — *"show me Pizza Hut menu"* (no dish filter → use `get_restaurant_menu`):
+
+```json
+"tool_plan": [
+  {"tool": "search_restaurants", "arguments": {"addressId": "__ADDRESS_ID__", "query": "Pizza Hut"}},
+  {"tool": "get_restaurant_menu", "arguments": {"addressId": "__ADDRESS_ID__", "restaurantId": "__RESTAURANT_ID__", "restaurant_id": "__RESTAURANT_ID__"}}
+]
+```
+
+Example B — *"show me pizzas at Tossin Pizza"* (specific dish → `search_menu`):
 
 ```json
 "tool_plan": [

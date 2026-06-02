@@ -379,81 +379,144 @@ def _learn_swiggy_restaurant_from_literal_args(
         return
 
 
-# Tools whose responses are worth indexing for ``update_food_cart``
-# auto-enrichment. We harvest ``{itemId -> {hasVariants, variantsV2, ...}}``
-# from each so the executor can auto-pick a default variant when the
-# planner emits a bare ``{itemId, quantity}`` cart row.
+# Tools whose responses are worth indexing into ``session_menu`` for the
+# next-turn planner. Mirrors ``zomato._MENU_PRODUCING_TOOLS``: harvest
+# every menu item the user has been shown so the planner can next turn
+# emit a literal ``menu_item_id`` + correct ``variantsV2`` / ``addons``
+# from the cache, without re-running a noisy ``search_menu``.
 _MENU_PRODUCING_TOOLS = frozenset({"search_menu", "get_restaurant_menu"})
 
+# Cart-producing tools whose envelopes carry the full per-restaurant cart
+# state. Mirrors ``zomato._extract_cart_snapshot`` capture points.
+_CART_PRODUCING_TOOLS = frozenset({"update_food_cart", "get_food_cart"})
 
-def _pick_default_variantsV2(variants_v2: list[Any]) -> list[dict[str, Any]]:
-    """Pick one in-stock variation per group from a Swiggy ``variantsV2`` block.
+# Item-cache cap. Mirrors ``zomato._MAX_REMEMBERED_MENU_ITEMS`` — enough
+# headroom for two restaurants' worth of items the user might cross-shop
+# in a single chat without the planner needing a fresh ``search_menu``.
+_MAX_REMEMBERED_MENU_ITEMS = max(
+    1, int(os.getenv("SWIGGY_REMEMBERED_MENU_ITEMS_CAP", "48"))
+)
 
-    Selection priority within each group: ``default==1 && inStock==1`` →
-    first ``inStock==1`` → first row. Returns the *request-shape* Swiggy
-    MCP expects for ``update_food_cart.cartItems[].variantsV2``:
-    ``[{group_id, variation_id}]`` (flat snake_case rows — verified via
-    the ``swiggy_e2e_probe.py`` end-to-end test against the live MCP).
 
-    NOTE: the *response* shape from ``search_menu`` is the inverse —
-    ``[{groupId, variations:[{id, name, …}]}]`` — so we have to translate
-    here, not pass through. Sending the response shape back as a request
-    triggers ``INVALID_ITEM_IDS_IN_REQUEST``.
+# ---------------------------------------------------------------------------
+# Defensive cart scrub (replaces the heavy `_normalize_swiggy_cart_payload` +
+# `_enrich_cart_items_with_variants` machinery). Mirrors zomato's
+# `_scrub_cart_items_for_zomato`: validate the planner's output, drop rows
+# that obviously can't succeed, surface them in diagnostics. NO code-side
+# variant matching, NO reshape — the planner is responsible for emitting
+# the strict request shape Swiggy MCP expects.
+# ---------------------------------------------------------------------------
+def _is_valid_swiggy_menu_item_id(value: Any) -> bool:
+    """A Swiggy menu_item_id is a non-empty string that isn't a placeholder.
+
+    Empirically Swiggy uses bare numeric strings (e.g. ``"61057692"``) — we
+    don't enforce digits-only because some outlets ship alphanumeric ids
+    and we'd rather forward an unfamiliar shape than silently swallow it.
     """
+    if not isinstance(value, str):
+        return False
+    s = value.strip()
+    if not s:
+        return False
+    if s.startswith("__") and s.endswith("__"):
+        return False
+    return True
+
+
+def _scrub_swiggy_cart_items(
+    args: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Drop ``cartItems[]`` rows missing a valid ``menu_item_id``.
+
+    Returns ``(scrubbed_args, dropped_rows)`` — ``dropped_rows`` captures
+    the rows we refused to send so the caller can stamp a diagnostic and
+    the response LLM can tell the user which item failed.
+
+    Why drop on the client side at all? The planner LLM occasionally
+    sneaks a leftover ``__MENU_ITEM_ID__`` placeholder string into a row
+    when it loses track of the in-plan substitution. That reaches Swiggy
+    as a string the server can't resolve and the whole cart update fails
+    with ``INVALID_ITEM_IDS_IN_REQUEST``. Catching the mix-up here lets
+    the rest of the (correct) rows go through.
+
+    Everything else — variant selection, addon picking, shape coercion —
+    is the planner's responsibility. The system prompt tells it exactly
+    which keys to emit; this scrub only enforces "the id must look real".
+    """
+    items = args.get("cartItems") if isinstance(args.get("cartItems"), list) else None
+    if not items:
+        return args, []
     out: list[dict[str, Any]] = []
-    for group in variants_v2 or []:
-        if not isinstance(group, dict):
+    dropped: list[dict[str, Any]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
             continue
-        gid_raw = group.get("groupId") or group.get("group_id")
-        if gid_raw is None:
+        # Accept any of the four key shapes the planner might emit; the
+        # request schema requires ``menu_item_id`` so we normalise here
+        # for that single field (the rest stays as-is so a planner mistake
+        # surfaces as a real Swiggy error the user can see).
+        iid_raw = (
+            raw.get("menu_item_id")
+            or raw.get("menuItemId")
+            or raw.get("itemId")
+            or raw.get("item_id")
+        )
+        if not _is_valid_swiggy_menu_item_id(iid_raw if isinstance(iid_raw, str) else str(iid_raw or "")):
+            dropped.append(
+                {
+                    "menu_item_id": iid_raw,
+                    "quantity": raw.get("quantity"),
+                    "reason": "invalid_menu_item_id",
+                }
+            )
             continue
-        gid = str(gid_raw).strip()
-        variations = group.get("variations")
-        if not gid or not isinstance(variations, list) or not variations:
-            continue
-        chosen: dict[str, Any] | None = None
-        for v in variations:
-            if (
-                isinstance(v, dict)
-                and v.get("default") in (1, True)
-                and v.get("inStock", 1) in (1, True)
-            ):
-                chosen = v
-                break
-        if chosen is None:
-            for v in variations:
-                if isinstance(v, dict) and v.get("inStock", 1) in (1, True):
-                    chosen = v
-                    break
-        if chosen is None and isinstance(variations[0], dict):
-            chosen = variations[0]
-        if not chosen:
-            continue
-        vid_raw = chosen.get("id") or chosen.get("variantId") or chosen.get("variant_id")
-        if vid_raw is None:
-            continue
-        vid = str(vid_raw).strip()
-        if not vid:
-            continue
-        out.append({"group_id": gid, "variation_id": vid})
-    return out
+        row = dict(raw)
+        row["menu_item_id"] = str(iid_raw).strip()
+        for k in ("itemId", "menuItemId", "item_id"):
+            row.pop(k, None)
+        out.append(row)
+    args["cartItems"] = out
+    return args, dropped
 
 
-def _collect_swiggy_menu_index(envelope: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Build ``{itemId -> {hasVariants, variantsV2, variations, hasAddons, name}}``
-    from a ``search_menu`` / ``get_restaurant_menu`` response.
+# ---------------------------------------------------------------------------
+# Session-menu LRU — mirrors zomato._collect_menu_index_from_envelope +
+# _merge_session_menu. The planner reads it next turn via the "Menu items
+# already shown" block so it can emit literal ``menu_item_id`` + the right
+# ``variantsV2`` / ``addons`` rows without re-running ``search_menu``.
+# ---------------------------------------------------------------------------
+def _collect_swiggy_menu_index_from_envelope(
+    envelope: dict[str, Any],
+    *,
+    res_id: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Walk a Swiggy menu envelope and return ``{menu_item_id -> entry}``.
 
-    Walks the envelope generically so it tolerates the slightly different
-    shapes the two tools return (``data.items[]`` vs nested category
-    arrays). Only rows that look like a real menu item (have a
-    ``menu_item_id`` and some variant signal) are kept.
+    Handles both ``search_menu`` (``data.items[]``) and
+    ``get_restaurant_menu`` (``data.categories[].items[]``) shapes via a
+    generic walk — each item that exposes a ``menu_item_id`` (or
+    ``itemId``) and a ``name`` becomes one cache row. The entry preserves
+    the **response shape** of ``variantsV2`` / ``variations`` / ``addons``
+    verbatim so the planner can pick the right ``{group_id, variation_id}``
+    and ``{group_id, choice_id}`` rows directly from what it sees.
+
+    Each row carries an ``item_name`` alias (in addition to ``name``) and
+    a ``variant_id`` alias (= ``menu_item_id``) so the pipeline's
+    Zomato-shaped session_menu cleanup (which keys on ``variant_id``)
+    accepts these rows unmodified.
     """
     out: dict[str, dict[str, Any]] = {}
     if not isinstance(envelope, dict) or envelope.get("is_error"):
         return out
+    rid = (res_id or "").strip() or None
     for obj in _walk_json(envelope.get("data")):
         if not isinstance(obj, dict):
             continue
+        # Try the menu-item id keys first (search_menu shape), then fall
+        # back to bare ``id`` (get_restaurant_menu shape). For the bare-id
+        # case we require at least one menu-item-discriminator field so
+        # the walk doesn't accidentally index the parent ``restaurant``
+        # or ``category`` blobs (they also carry ``id`` + ``name``).
         iid_raw = (
             obj.get("menu_item_id")
             or obj.get("menuItemId")
@@ -461,292 +524,371 @@ def _collect_swiggy_menu_index(envelope: dict[str, Any]) -> dict[str, dict[str, 
             or obj.get("item_id")
         )
         if iid_raw is None:
-            continue
+            bare_id = obj.get("id")
+            if bare_id is None:
+                continue
+            # Discriminator: a real menu item always carries one of these
+            # fields. Restaurants/categories never do.
+            looks_like_item = (
+                "price" in obj
+                or "hasVariants" in obj
+                or "hasAddons" in obj
+                or "isVeg" in obj
+                or "variantsV2" in obj
+                or "variations" in obj
+            )
+            if not looks_like_item:
+                continue
+            iid_raw = bare_id
         iid = str(iid_raw).strip()
         if not iid or iid in out:
             continue
-        has_variants = bool(obj.get("hasVariants"))
-        v2 = obj.get("variantsV2") if isinstance(obj.get("variantsV2"), list) else []
-        v1 = obj.get("variations") if isinstance(obj.get("variations"), list) else []
-        if not (has_variants or v2 or v1):
-            # Plain menu row without customization signal — not useful for
-            # variant injection; skip to keep the index small.
+        name = obj.get("name") or obj.get("item_name")
+        if not isinstance(name, str) or not name.strip():
             continue
-        out[iid] = {
-            "name": obj.get("name"),
-            "hasVariants": has_variants,
-            "variantsV2": v2,
-            "variations": v1,
+        v2_raw = obj.get("variantsV2") if isinstance(obj.get("variantsV2"), list) else None
+        v1_raw = obj.get("variations") if isinstance(obj.get("variations"), list) else None
+        addons_raw = obj.get("addons") if isinstance(obj.get("addons"), list) else None
+        entry: dict[str, Any] = {
+            "menu_item_id": iid,
+            # Alias so pipeline.py's session_menu cleanup (keyed on
+            # ``variant_id``, designed for Zomato) accepts these rows.
+            "variant_id": iid,
+            "item_name": name.strip(),
+            "name": name.strip(),
+            "hasVariants": bool(obj.get("hasVariants")),
             "hasAddons": bool(obj.get("hasAddons")),
         }
+        if rid:
+            entry["res_id"] = rid
+        for src_key, dst_key in (("price", "price"), ("finalPrice", "final_price"), ("inStock", "in_stock")):
+            v = obj.get(src_key)
+            if v is not None and dst_key not in entry:
+                entry[dst_key] = v
+        if v2_raw:
+            entry["variantsV2"] = v2_raw
+        if v1_raw:
+            entry["variations"] = v1_raw
+        if addons_raw:
+            entry["addons"] = addons_raw
+        out[iid] = entry
     return out
 
 
-def _is_variant_choice_trivial(variants_v2: list[Any]) -> bool:
-    """True when every variant group has ≤1 in-stock variation (no real
-    user choice). Items with a real size/crust/quantity decision return
-    False so we can defer and ask the user instead of silently picking."""
-    for group in variants_v2 or []:
-        if not isinstance(group, dict):
-            continue
-        in_stock = [
-            v
-            for v in (group.get("variations") or [])
-            if isinstance(v, dict) and v.get("inStock", 1) in (1, True)
-        ]
-        if len(in_stock) > 1:
-            return False
-    return True
+def _swiggy_session_menu_key(entry: dict[str, Any]) -> str:
+    """Stable cache key ``(res_id, menu_item_id)`` lower-cased.
+
+    Including ``res_id`` is critical for Swiggy: ``menu_item_id`` is
+    outlet-scoped, so the same item id at Pizza Hut Kalkaji and Pizza Hut
+    Gurgaon point to different rows — without ``res_id`` an address pivot
+    would silently mis-resolve the cart line.
+    """
+    rid = str(entry.get("res_id") or "").strip()
+    iid = str(entry.get("menu_item_id") or entry.get("variant_id") or "").strip()
+    return f"{rid}|{iid}".lower()
 
 
-def _summarize_variant_choices(
-    item_id: str, item_name: str | None, variants_v2: list[Any]
-) -> dict[str, Any]:
-    """Compact ``{item_id, item_name, groups: [{groupId, name, choices: [{id, name, price}]}]}``
-    structure for the response LLM to render as user-facing chips/options."""
-    groups: list[dict[str, Any]] = []
-    for group in variants_v2 or []:
-        if not isinstance(group, dict):
+def _swiggy_menu_index_to_session_entries(
+    menu_index: dict[str, dict[str, Any]],
+    res_id: str | None,
+) -> list[dict[str, Any]]:
+    """Snapshot a per-turn ``menu_index`` into a list ready for session storage."""
+    out: list[dict[str, Any]] = []
+    rid = (res_id or "").strip() or None
+    for entry in menu_index.values():
+        iid = str(entry.get("menu_item_id") or entry.get("variant_id") or "").strip()
+        if not iid:
             continue
-        choices: list[dict[str, Any]] = []
-        for v in group.get("variations") or []:
+        snapshot = dict(entry)
+        if rid and not snapshot.get("res_id"):
+            snapshot["res_id"] = rid
+        out.append(snapshot)
+    return out
+
+
+def _merge_swiggy_session_menu(
+    existing: list[dict[str, Any]],
+    new_entries: list[dict[str, Any]],
+    *,
+    cap: int = _MAX_REMEMBERED_MENU_ITEMS,
+) -> list[dict[str, Any]]:
+    """LRU merge — newest first, cap-trimmed. Newer entry wins on conflict
+    (last menu envelope tends to be the most accurate for that outlet's
+    current state)."""
+    by_key: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for e in new_entries:
+        if not isinstance(e, dict):
+            continue
+        key = _swiggy_session_menu_key(e)
+        if not key or key == "|":
+            continue
+        if key not in by_key:
+            order.append(key)
+        by_key[key] = e
+    for e in existing or []:
+        if not isinstance(e, dict):
+            continue
+        key = _swiggy_session_menu_key(e)
+        if not key or key == "|":
+            continue
+        if key in by_key:
+            # Prefer the new entry's response shape; only fall back to the
+            # existing one when the new one is missing optional fields.
+            merged = dict(by_key[key])
+            for k, v in e.items():
+                if k not in merged or merged.get(k) in (None, "", [], {}):
+                    merged[k] = v
+            by_key[key] = merged
+        else:
+            order.append(key)
+            by_key[key] = e
+    return [by_key[k] for k in order[:cap]]
+
+
+# ---------------------------------------------------------------------------
+# Session-cart snapshot — mirrors zomato._extract_cart_snapshot.
+# Captured after every successful ``update_food_cart`` / ``get_food_cart``
+# so the response LLM has ground-truth for "what's in the user's cart
+# right now", and so the chat-side cart card can render from the snapshot
+# even on later turns that don't touch the cart.
+# ---------------------------------------------------------------------------
+def _extract_swiggy_cart_snapshot(
+    envelope: dict[str, Any],
+    *,
+    restaurant_name_hint: str | None = None,
+    res_id_hint: str | None = None,
+) -> dict[str, Any] | None:
+    """Pull a normalized cart snapshot from a successful Swiggy cart envelope.
+
+    Swiggy carts (like Zomato's) are single-restaurant: every successful
+    ``update_food_cart`` mutates *the* cart for the active outlet. The
+    snapshot is replacement state — the next successful cart envelope
+    overwrites it whole.
+
+    The Swiggy cart envelope (observed live, see
+    ``/tmp/swiggy_cart_envelope_get_food_cart.json``) nests the real cart
+    payload at ``envelope.data.data`` with this shape::
+
+        {
+          "cart_id": <int>,
+          "restaurant": {"deliverySubtitle": "<eta + addr blurb>"},
+          "items": [{"menu_item_id", "name", "quantity", "is_veg",
+                     "subtotal", "total", "final_price", "in_stock",
+                     "variants":[{"name","group_name",...}],
+                     "addons":[{"name","group_name",...}]}],
+          "item_count": <int>,
+          "pricing": {"item_total", "delivery_charge",
+                      "taxes_and_charges", "to_pay"},
+          "offers": {"coupon_applied", "coupon_discount",
+                     "free_delivery_applied"}
+        }
+
+    Swiggy does NOT echo the restaurant **name** back in the cart
+    envelope — only the rid is implicit (matches the
+    ``__RESTAURANT_ID__`` placeholder the planner used). The caller
+    threads the active restaurant's name + rid through
+    ``restaurant_name_hint`` / ``res_id_hint`` so the chat-side
+    <CartCard /> header still reads "Pizza Hut" instead of "Restaurant".
+
+    Output is shaped to match the Zomato ``SessionCart`` contract the
+    frontend already understands (no separate Swiggy-only branch needed).
+
+    Returns ``None`` when the envelope is an error or carries no usable
+    cart shape (e.g. an empty cart from ``get_food_cart`` before the
+    user has added anything).
+    """
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
+        return None
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        return None
+    cart_root: dict[str, Any] | None = None
+    for node in _walk_json(data):
+        if (
+            isinstance(node, dict)
+            and (node.get("cart_id") or node.get("cartId") or node.get("orderId") or node.get("order_id"))
+            and (
+                node.get("cartItems")
+                or node.get("cart_items")
+                or node.get("items")
+            )
+        ):
+            cart_root = node
+            break
+    if not cart_root:
+        return None
+
+    items_raw = (
+        cart_root.get("cartItems")
+        or cart_root.get("cart_items")
+        or cart_root.get("items")
+        or []
+    )
+    items: list[dict[str, Any]] = []
+    for row in items_raw:
+        if not isinstance(row, dict):
+            continue
+        iid = (
+            row.get("menu_item_id")
+            or row.get("menuItemId")
+            or row.get("itemId")
+            or row.get("item_id")
+        )
+        name = row.get("name") or row.get("item_name") or row.get("itemName")
+        if not iid or not isinstance(name, str) or not name.strip():
+            continue
+        # Pricing on Swiggy is per-row:
+        #   * ``subtotal`` = original (pre-promo) line total for ``quantity`` units
+        #   * ``total``     = ``subtotal`` (kept for back-compat)
+        #   * ``final_price`` = the actual chargeable line price (e.g. ₹159 vs
+        #     subtotal ₹296 when a "ITEMS AT ₹X" promo hits)
+        # The frontend's <CartItemList /> shows ``discounted_price`` (struck) vs
+        # ``price`` (bold), matching the Zomato shape. Map ``final_price`` →
+        # ``discounted_price`` when it's strictly less than the subtotal.
+        original = row.get("subtotal") or row.get("total") or row.get("price")
+        discounted = row.get("final_price")
+        is_veg_raw = row.get("is_veg")
+        tags: list[str] = []
+        if str(is_veg_raw) in {"1", "true", "True"}:
+            tags.append("veg")
+        # Roll the chosen Swiggy variants up into the item description so
+        # the cart card surfaces them ("Pizza: Classic Corn / 1st
+        # Appetizer: Half Classic Garlic Breadstix") — these are the
+        # combo picks the user made, not separate addons.
+        variant_parts: list[str] = []
+        for v in row.get("variants") or []:
             if not isinstance(v, dict):
                 continue
-            if v.get("inStock", 1) not in (1, True):
+            vn = (v.get("name") or "").strip()
+            gn = (v.get("group_name") or "").strip()
+            if vn:
+                variant_parts.append(f"{gn}: {vn}" if gn else vn)
+        addons_clean: list[dict[str, Any]] = []
+        for a in row.get("addons") or []:
+            if not isinstance(a, dict):
                 continue
-            vid_raw = v.get("id") or v.get("variantId") or v.get("variant_id")
-            if vid_raw is None:
+            an = (a.get("name") or a.get("addon_name") or "").strip()
+            if not an:
                 continue
-            choice: dict[str, Any] = {"id": str(vid_raw).strip(), "name": str(v.get("name") or "")}
-            if v.get("price") is not None:
-                choice["price"] = v.get("price")
-            choices.append(choice)
-        if not choices:
-            continue
-        groups.append(
-            {
-                "groupId": str(group.get("groupId") or "").strip(),
-                "name": str(group.get("name") or "Choose"),
-                "choices": choices,
-            }
-        )
-    return {"item_id": str(item_id), "item_name": item_name, "groups": groups}
-
-
-def _flatten_variantsV2_request(v2: list[Any]) -> list[dict[str, Any]]:
-    """Coerce any ``variantsV2`` shape the planner produces into the strict
-    *request* shape Swiggy MCP expects: ``[{group_id, variation_id}]``.
-
-    Accepts inputs from any of these sources:
-      * Already flat snake_case: ``{group_id, variation_id}``
-      * Flat camelCase: ``{groupId, variationId}``
-      * Response shape (nested): ``{groupId, variations:[{id, …}]}`` — one
-        flat row is emitted per inner variation (planner is expected to
-        have already pruned to a single chosen variation, but if multiple
-        are listed we forward them all because the cart API tolerates it
-        and the alternative is silently dropping a user pick).
-    """
-    out: list[dict[str, Any]] = []
-    for entry in v2 or []:
-        if not isinstance(entry, dict):
-            continue
-        gid = entry.get("group_id") or entry.get("groupId")
-        if gid is None:
-            continue
-        gid_s = str(gid).strip()
-        if not gid_s:
-            continue
-        vid = entry.get("variation_id") or entry.get("variationId")
-        if vid not in (None, ""):
-            out.append({"group_id": gid_s, "variation_id": str(vid).strip()})
-            continue
-        variations = entry.get("variations")
-        if isinstance(variations, list):
-            for v in variations:
-                if not isinstance(v, dict):
-                    continue
-                vid2 = v.get("id") or v.get("variation_id") or v.get("variationId")
-                if vid2 in (None, ""):
-                    continue
-                out.append({"group_id": gid_s, "variation_id": str(vid2).strip()})
-    return out
-
-
-def _flatten_legacy_variants_request(v1: list[Any]) -> list[dict[str, Any]]:
-    """Coerce a legacy ``variations`` / ``variants`` block into the request
-    shape ``[{group_id, variation_id}]``. Mirrors ``_flatten_variantsV2_request``
-    but tolerates the (rare) legacy menu format where a Swiggy item exposes
-    ``variations`` instead of ``variantsV2``.
-    """
-    out: list[dict[str, Any]] = []
-    for entry in v1 or []:
-        if not isinstance(entry, dict):
-            continue
-        gid = entry.get("group_id") or entry.get("groupId")
-        vid = entry.get("variation_id") or entry.get("variationId") or entry.get("id")
-        if gid in (None, "") or vid in (None, ""):
-            continue
-        out.append({"group_id": str(gid).strip(), "variation_id": str(vid).strip()})
-    return out
-
-
-def _flatten_addons_request(addons: list[Any]) -> list[dict[str, Any]]:
-    """Normalize addon rows to ``[{group_id, choice_id, name?, price?}]``."""
-    out: list[dict[str, Any]] = []
-    for entry in addons or []:
-        if not isinstance(entry, dict):
-            continue
-        gid = entry.get("group_id") or entry.get("groupId")
-        cid = entry.get("choice_id") or entry.get("choiceId") or entry.get("id")
-        if gid in (None, "") or cid in (None, ""):
-            continue
-        row: dict[str, Any] = {
-            "group_id": str(gid).strip(),
-            "choice_id": str(cid).strip(),
+            addons_clean.append({
+                "id": str(a.get("choice_id") or a.get("id") or "").strip() or None,
+                "group_id": str(a.get("group_id") or "").strip() or None,
+                "name": an,
+                "add_on_group_name": (a.get("group_name") or None),
+                "quantity": a.get("quantity") or 1,
+            })
+        item_out: dict[str, Any] = {
+            "menu_item_id": str(iid).strip(),
+            # Alias so the frontend's Zomato-shaped <CartItemList /> key
+            # extractor (``item.variant_id || item.item_id``) finds an id.
+            "variant_id": str(iid).strip(),
+            "item_name": name.strip(),
+            "quantity": row.get("quantity") or 1,
+            "item_tags": tags,
         }
-        if entry.get("name"):
-            row["name"] = entry["name"]
-        if entry.get("price") is not None:
-            row["price"] = entry["price"]
-        out.append(row)
-    return out
+        if isinstance(original, (int, float)) and original > 0:
+            item_out["price"] = original
+        if isinstance(discounted, (int, float)) and discounted > 0:
+            item_out["discounted_price"] = discounted
+        if variant_parts:
+            item_out["description"] = " · ".join(variant_parts)
+        img = row.get("imageUrl") or row.get("image_url")
+        if isinstance(img, str) and img.strip():
+            item_out["image_url"] = img.strip()
+        if addons_clean:
+            item_out["add_ons"] = addons_clean
+        items.append(item_out)
+    if not items:
+        return None
 
-
-def _normalize_swiggy_cart_payload(args: dict[str, Any]) -> None:
-    """In-place normalization of an ``update_food_cart`` payload to the
-    strict snake_case / flat shape Swiggy MCP requires.
-
-    Why this exists: Swiggy's *response* shape (returned by ``search_menu``)
-    and *request* shape (consumed by ``update_food_cart``) differ —
-    request uses ``menu_item_id`` + flat ``{group_id, variation_id}`` rows,
-    response uses ``itemId``/``menu_item_id`` + nested ``{groupId,
-    variations:[{id, …}]}`` blocks. Without this normalizer the planner's
-    natural shape — copied from what it sees in tool context — triggers
-    ``INVALID_ITEM_IDS_IN_REQUEST`` from the MCP. We coerce every common
-    shape (camelCase, nested, mixed) into the one the server actually
-    accepts. Verified end-to-end via ``scripts/swiggy_e2e_probe.py``.
-    """
-    items = args.get("cartItems") if isinstance(args, dict) else None
-    if not isinstance(items, list):
-        return
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        # menu_item_id is REQUIRED and must be snake_case. Coalesce from
-        # any of the four shapes the planner / search_menu might emit.
-        if not item.get("menu_item_id"):
-            iid = (
-                item.get("itemId")
-                or item.get("menuItemId")
-                or item.get("item_id")
-            )
-            if iid not in (None, ""):
-                item["menu_item_id"] = str(iid)
-        # Drop the duplicate keys so the payload is clean and there's no
-        # ambiguity if the server happens to read either form.
-        for k in ("itemId", "menuItemId", "item_id"):
-            item.pop(k, None)
-
-        # variantsV2: flatten + snake_case. Skip / drop the field entirely
-        # when nothing valid remains so Swiggy can auto-pick defaults.
-        v2 = item.get("variantsV2")
-        if isinstance(v2, list):
-            flattened = _flatten_variantsV2_request(v2)
-            if flattened:
-                item["variantsV2"] = flattened
-            else:
-                item.pop("variantsV2", None)
-
-        # Legacy variants/variations: collapse to ``variants`` (snake_case
-        # flat). Some Swiggy items still ship with the ``variations``
-        # field instead of ``variantsV2`` — request schema also accepts
-        # the ``variants`` array.
-        v1 = item.get("variants") or item.get("variations")
-        if isinstance(v1, list):
-            flat_legacy = _flatten_legacy_variants_request(v1)
-            if flat_legacy:
-                item["variants"] = flat_legacy
-            else:
-                item.pop("variants", None)
-            item.pop("variations", None)
-
-        # Addons: snake_case + drop incomplete rows.
-        addons = item.get("addons")
-        if isinstance(addons, list):
-            flat_addons = _flatten_addons_request(addons)
-            if flat_addons:
-                item["addons"] = flat_addons
-            else:
-                item.pop("addons", None)
-
-
-def _enrich_cart_items_with_variants(
-    args: dict[str, Any],
-    menu_index: dict[str, dict[str, Any]],
-    diagnostics: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Decide whether ``update_food_cart`` is ready to send.
-
-    For each ``cartItems[]`` row that targets a ``hasVariants: true`` menu
-    item without explicit variant info, the executor either:
-
-    * **Trivial case** — exactly one in-stock variation per group: silently
-      injects it (e.g. a drink that "has variants" but really only one
-      size; common Swiggy schema quirk).
-    * **Real choice** — any group has multiple in-stock options (Pizza Hut
-      Margherita 8"/10"/12"): defers. The row is left untouched and the
-      item is appended to ``pending_variant_choice`` for the response
-      builder to surface to the user.
-
-    Returns the list of items that still need a user choice. The caller
-    is expected to skip the actual ``update_food_cart`` MCP call when this
-    list is non-empty so we don't pin the user to a guessed default.
-
-    Planner-supplied variants ALWAYS take precedence — we only touch
-    rows that arrive without any variant field.
-    """
-    pending: list[dict[str, Any]] = []
-    if not isinstance(args, dict) or not menu_index:
-        return pending
-    items = args.get("cartItems")
-    if not isinstance(items, list):
-        return pending
-    injected: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        if item.get("variantsV2") or item.get("variations") or item.get("variants"):
-            continue
-        # Planner may emit the item id under any of these keys depending
-        # on whether it copied snake_case from search_menu response or
-        # camelCase from the older system prompt.
-        iid_raw = (
-            item.get("menu_item_id")
-            or item.get("itemId")
-            or item.get("item_id")
-            or item.get("menuItemId")
+    cart_id = (
+        cart_root.get("cart_id")
+        or cart_root.get("cartId")
+        or cart_root.get("orderId")
+        or cart_root.get("order_id")
+    )
+    res_id_raw = (
+        cart_root.get("restaurantId")
+        or cart_root.get("restaurant_id")
+        or cart_root.get("res_id")
+        or res_id_hint
+    )
+    restaurant_name_raw = (
+        cart_root.get("restaurantName")
+        or cart_root.get("restaurant_name")
+        or restaurant_name_hint
+    )
+    # Build the Zomato-shaped ``charge_breakdown`` from Swiggy's
+    # ``pricing`` block so the frontend's <PriceBreakdown /> renders a
+    # familiar receipt without a per-provider branch.
+    pricing = cart_root.get("pricing") if isinstance(cart_root.get("pricing"), dict) else {}
+    item_total = pricing.get("item_total")
+    delivery_charge = pricing.get("delivery_charge") or pricing.get("deliveryCharge")
+    taxes_amount = pricing.get("taxes_and_charges") or pricing.get("taxes")
+    to_pay = pricing.get("to_pay") or pricing.get("toPay") or pricing.get("total")
+    base_charges: list[dict[str, Any]] = []
+    if isinstance(delivery_charge, (int, float)) and delivery_charge > 0:
+        base_charges.append(
+            {"amount": float(delivery_charge), "charge_type": "CHARGE_ID_DELIVERY_CHARGE"}
         )
-        if iid_raw is None:
-            continue
-        iid = str(iid_raw).strip()
-        meta = menu_index.get(iid)
-        if not meta or not meta.get("hasVariants"):
-            continue
-        v2 = meta.get("variantsV2") or []
-        if _is_variant_choice_trivial(v2):
-            picked = _pick_default_variantsV2(v2)
-            if picked:
-                item["variantsV2"] = picked
-                injected.append(
-                    {"item_id": iid, "name": meta.get("name"), "variantsV2": picked}
-                )
-        else:
-            pending.append(_summarize_variant_choices(iid, meta.get("name"), v2))
-    if injected:
-        diagnostics.setdefault("auto_variants_injected", []).extend(injected)
-    if pending:
-        diagnostics.setdefault("pending_variant_choice", []).extend(pending)
-    return pending
+    taxes_list: list[dict[str, Any]] = []
+    if isinstance(taxes_amount, (int, float)) and taxes_amount > 0:
+        taxes_list.append({"tax_amount": float(taxes_amount), "tax_type": "GST"})
+    offers = cart_root.get("offers") if isinstance(cart_root.get("offers"), dict) else {}
+    coupon = offers.get("coupon_applied")
+    coupon_discount = offers.get("coupon_discount")
+
+    # Payment method type — Swiggy exposes ``availablePaymentMethods``
+    # at the envelope.data root (not inside cart_root). For now we
+    # surface the first available method ("Cash on Delivery" is the
+    # default Swiggy MCP returns through our config).
+    payment_method = None
+    parent = envelope.get("data")
+    if isinstance(parent, dict):
+        methods = parent.get("availablePaymentMethods")
+        if isinstance(methods, list) and methods:
+            first = methods[0]
+            if isinstance(first, str) and first.strip():
+                payment_method = first.strip()
+
+    # Swiggy's ``deliverySubtitle`` looks like "35-40 mins to <address>";
+    # split off the leading ETA chunk for the cart-card's eta chip.
+    eta = None
+    rest_blob = cart_root.get("restaurant")
+    if isinstance(rest_blob, dict):
+        subtitle = rest_blob.get("deliverySubtitle") or rest_blob.get("delivery_subtitle")
+        if isinstance(subtitle, str) and " to " in subtitle:
+            eta_part = subtitle.split(" to ", 1)[0].strip()
+            if eta_part:
+                eta = eta_part
+        elif isinstance(subtitle, str) and subtitle.strip():
+            eta = subtitle.strip()
+
+    snapshot: dict[str, Any] = {
+        "cart_id": str(cart_id).strip() if cart_id else None,
+        "res_id": str(res_id_raw).strip() if res_id_raw is not None else None,
+        "restaurant_name": (
+            str(restaurant_name_raw).strip()
+            if isinstance(restaurant_name_raw, str) and restaurant_name_raw.strip()
+            else None
+        ),
+        "items": items,
+        "item_total": item_total if isinstance(item_total, (int, float)) else None,
+        "final_amount": to_pay if isinstance(to_pay, (int, float)) else None,
+        "payment_method_type": payment_method,
+        "eta": eta,
+    }
+    if base_charges or taxes_list:
+        snapshot["charge_breakdown"] = {
+            "base_charges": base_charges,
+            "taxes": taxes_list,
+        }
+    if isinstance(coupon, str) and coupon.strip():
+        snapshot["promo_code"] = coupon.strip()
+    if isinstance(coupon_discount, (int, float)) and coupon_discount > 0:
+        snapshot["promo_discount_amount"] = float(coupon_discount)
+    return snapshot
 
 
 _PREFETCH_ADDRESS_TOOLS = frozenset(
@@ -800,6 +942,8 @@ async def _run_swiggy_session_inner(
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
+    session_menu: list[dict[str, Any]] | None = None,
+    session_cart: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         from mcp import ClientSession
@@ -909,12 +1053,29 @@ async def _run_swiggy_session_inner(
     prefetch_done = False
     prefetch_tool = "get_addresses"
 
-    # Per-plan menu index: ``{itemId -> {hasVariants, variantsV2, ...}}``
-    # populated from every menu-producing step's response. Powers the
-    # auto-variant injection for ``update_food_cart`` below — without
-    # this, Swiggy MCP rejects ``{itemId, quantity}`` rows for items
-    # like Pizza Hut's Margherita that require a size selection.
+    # Per-plan menu index: ``{menu_item_id -> entry}`` populated from
+    # every menu-producing step's response. Surfaced into
+    # ``diagnostics["session_menu"]`` at end-of-turn so the next-turn
+    # planner can emit literal ``menu_item_id`` + the right
+    # ``variantsV2`` / ``addons`` rows without re-running ``search_menu``.
+    # No cart-time matching happens here — mirrors zomato's pattern.
     menu_index: dict[str, dict[str, Any]] = {}
+    # Seed from carry-forward so the LRU keeps items the user saw in
+    # earlier turns even when this turn's plan doesn't re-fetch the menu.
+    seed_menu: list[dict[str, Any]] = []
+    if isinstance(session_menu, list):
+        for entry in session_menu:
+            if isinstance(entry, dict):
+                seed_menu.append(entry)
+
+    # Last-known cart snapshot: seeded from prior turn so the response
+    # LLM can still narrate cart state on turns where no cart tool ran.
+    # Replaced whole on every successful ``update_food_cart`` /
+    # ``get_food_cart`` (Swiggy carts are single-restaurant, just like
+    # Zomato's). Mirrors zomato.session_cart contract.
+    cart_snapshot: dict[str, Any] | None = (
+        session_cart if isinstance(session_cart, dict) else None
+    )
 
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -1055,36 +1216,25 @@ async def _run_swiggy_session_inner(
                     )
                     continue
 
-                # Variant resolution for cart updates. Trivial single-
-                # option items get auto-injected; items with a real user
-                # choice (Margherita 8"/10"/12") cause the cart call to
-                # be DEFERRED — diagnostics carry the variant menu and
-                # the response builder asks the user to pick. The next
-                # turn the planner will emit a fresh ``update_food_cart``
-                # with explicit ``variantsV2`` for the chosen size.
+                # Defensive cart scrub — mirrors zomato._scrub_cart_items_for_zomato.
+                # The planner is responsible for emitting the strict
+                # request shape Swiggy MCP expects (snake_case
+                # ``menu_item_id``, flat ``variantsV2: [{group_id,
+                # variation_id}]``, flat ``addons: [{group_id,
+                # choice_id}]``); we only drop rows where the
+                # ``menu_item_id`` is obviously bogus (leftover
+                # placeholder, blank). Everything else passes through.
                 if tool == "update_food_cart" and isinstance(exec_args, dict):
-                    # Normalize whatever the planner produced into the
-                    # strict snake_case + flat shape Swiggy MCP expects.
-                    # Done BEFORE enrichment so the variant-presence
-                    # check (`item.get("variantsV2")`) sees the normalized
-                    # field name and the auto-injection only fires for
-                    # rows that truly need it.
-                    _normalize_swiggy_cart_payload(exec_args)
-                    pending_choices = _enrich_cart_items_with_variants(
-                        exec_args, menu_index, diagnostics
-                    )
-                    if pending_choices:
-                        diagnostics.setdefault("skipped_tools", []).append(
-                            {
-                                "tool": tool,
-                                "reason": "awaiting_variant_choice",
-                                "items": [p.get("item_name") for p in pending_choices],
-                            }
+                    exec_args, _dropped_rows = _scrub_swiggy_cart_items(exec_args)
+                    if _dropped_rows:
+                        logger.warning(
+                            "update_food_cart: dropped %d row(s) with invalid menu_item_id: %s",
+                            len(_dropped_rows),
+                            _dropped_rows,
                         )
-                        # Don't call MCP — the assistant will ask the
-                        # user which variant they want, and the next
-                        # turn's plan will retry with explicit variants.
-                        continue
+                        diagnostics.setdefault(
+                            "update_food_cart_dropped_rows", []
+                        ).extend(_dropped_rows)
 
                 result = await asyncio.wait_for(
                     session.call_tool(tool, arguments=exec_args or {}),
@@ -1123,13 +1273,64 @@ async def _run_swiggy_session_inner(
                 _learn_swiggy_placeholders(placeholder_values, envelope)
 
                 if tool in _MENU_PRODUCING_TOOLS and not envelope.get("is_error"):
-                    # Harvest variants/addons for any items the planner
-                    # might reference in a downstream ``update_food_cart``
-                    # in this same plan.
+                    # Harvest every menu item the user has been shown into
+                    # the per-turn ``menu_index``, scoped to the active
+                    # restaurant so cross-outlet items stay disambiguated.
+                    # Surfaced as ``diagnostics["session_menu"]`` at
+                    # end-of-turn for the next-turn planner. No code-side
+                    # cart matching happens — mirrors zomato pattern.
+                    active_rid = (
+                        placeholder_values.get("__RESTAURANT_ID__") or ""
+                    ).strip() or None
                     try:
-                        menu_index.update(_collect_swiggy_menu_index(envelope))
+                        fresh_idx = _collect_swiggy_menu_index_from_envelope(
+                            envelope, res_id=active_rid
+                        )
                     except Exception as e:
                         logger.info("swiggy menu index extraction failed: %s", e)
+                        fresh_idx = {}
+                    if fresh_idx:
+                        for k, v in fresh_idx.items():
+                            menu_index[k] = v
+
+                if tool in _CART_PRODUCING_TOOLS and not envelope.get("is_error"):
+                    # Capture the cart Swiggy actually built. Mirrors
+                    # zomato.session_cart contract — sole ground-truth for
+                    # "what's in the user's cart right now" so the response
+                    # LLM doesn't have to infer it from chat history.
+                    #
+                    # Swiggy doesn't echo the restaurant name back in the
+                    # cart envelope, so we hand it the active rid + the
+                    # remembered restaurant entry (LRU) so the snapshot —
+                    # and the chat-side cart card — show "Pizza Hut" in
+                    # the header instead of "Restaurant".
+                    active_rid_for_cart = (
+                        placeholder_values.get("__RESTAURANT_ID__") or ""
+                    ).strip() or None
+                    active_rname: str | None = None
+                    if active_rid_for_cart:
+                        for entry in recent_restaurants:
+                            if (
+                                isinstance(entry, dict)
+                                and str(entry.get("res_id") or "").strip() == active_rid_for_cart
+                            ):
+                                name_val = entry.get("name")
+                                if isinstance(name_val, str) and name_val.strip():
+                                    active_rname = name_val.strip()
+                                    break
+                    try:
+                        snap = _extract_swiggy_cart_snapshot(
+                            envelope,
+                            restaurant_name_hint=active_rname,
+                            res_id_hint=active_rid_for_cart,
+                        )
+                    except Exception as e:
+                        logger.info("swiggy cart snapshot extraction failed: %s", e)
+                        snap = None
+                    if snap:
+                        cart_snapshot = snap
+                        diagnostics["session_cart"] = snap
+                        diagnostics["fresh_cart_captured"] = True
 
                 if tool == "search_restaurants" and not envelope.get("is_error"):
                     # In-plan chaining: let the next menu step in this
@@ -1175,6 +1376,25 @@ async def _run_swiggy_session_inner(
     }
     if recent_restaurants:
         diagnostics["session_restaurants"] = list(recent_restaurants)
+
+    # Merge this turn's harvested menu rows with the seed (LRU) so the
+    # next turn's planner sees everything the user has been shown across
+    # the chat, not just this turn's slice. Mirrors zomato.session_menu.
+    active_rid_final = (
+        placeholder_values.get("__RESTAURANT_ID__") or ""
+    ).strip() or None
+    fresh_session_menu = _swiggy_menu_index_to_session_entries(
+        menu_index, active_rid_final
+    )
+    merged_menu = _merge_swiggy_session_menu(seed_menu, fresh_session_menu)
+    if merged_menu:
+        diagnostics["session_menu"] = merged_menu
+
+    # Echo the (possibly seeded) cart snapshot back so a turn that never
+    # touched the cart still keeps the chat-side cart card alive.
+    if cart_snapshot and not diagnostics.get("session_cart"):
+        diagnostics["session_cart"] = cart_snapshot
+
     return step_results, diagnostics
 
 
@@ -1190,6 +1410,8 @@ def run_swiggy_tool_plan_sync(
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
+    session_menu: list[dict[str, Any]] | None = None,
+    session_cart: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a Swiggy MCP tool plan (Food or Instamart URL)."""
     root = repo_root or repo_root_from_settings()
@@ -1221,6 +1443,8 @@ def run_swiggy_tool_plan_sync(
                 session_placeholders=session_placeholders,
                 session_restaurants=session_restaurants,
                 session_addresses=session_addresses,
+                session_menu=session_menu,
+                session_cart=session_cart,
             )
         )
         skipped = bool(diagnostics.get("skipped_tools"))

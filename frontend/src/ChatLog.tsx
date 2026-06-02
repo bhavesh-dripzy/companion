@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import type {
   Attachment,
+  CardProvider,
   MenuCardItem,
   Message,
   RestaurantCardEntry,
@@ -237,6 +238,71 @@ const VEG_DOT_COLOR: Record<NonNullable<MenuCardItem['veg_kind']>, string> = {
   egg: 'bg-amber-400 ring-amber-700/40',
 };
 
+// Per-provider visual + copy theme. Keeps every card-rendering component
+// pure-presentational: pass `provider` (or undefined for legacy turns)
+// and read the theme once. Adding a third provider later means appending
+// one block here — not editing every card.
+//
+// Colours intentionally match each brand's official mark:
+//   * Zomato — `#E23744` red (CDC system, "Zomato Red")
+//   * Swiggy — `#FC8019` orange ("Swiggy Orange")
+// A neutral slate theme acts as a safe default for unknown/missing
+// providers (older chat history pre-stamp, future providers).
+interface ProviderTheme {
+  label: string;
+  // Solid brand colour used for badges, primary CTAs, accent borders.
+  // We keep it as raw HEX so Tailwind's arbitrary-value syntax can use
+  // it everywhere consistently (`bg-[#E23744]`, `text-[#E23744]`, …).
+  brandHex: string;
+  // Subtle background tint shown behind the cart-header band — chosen
+  // light enough to read white text + dark icons on the same card.
+  brandTintBg: string;
+  brandTintBorder: string;
+  // Copy used for the "Order now" cart CTA so the prompt the user fires
+  // names the correct provider — the backend's intent router pins the
+  // turn to the right MCP based on this exact substring ("Swiggy" vs
+  // "Zomato"), so getting the wording right matters more than aesthetics.
+  checkoutPrompt: string;
+  cartHeaderTitle: string;
+  // Tailwind ring colour for the active-item highlight on restaurant
+  // cards. Matches `brandHex` family but at a softer opacity.
+  activeRingClass: string;
+}
+
+const PROVIDER_THEMES: Record<CardProvider, ProviderTheme> = {
+  zomato: {
+    label: 'Zomato',
+    brandHex: '#E23744',
+    brandTintBg: 'bg-[#E23744]/5',
+    brandTintBorder: 'border-red-100/80',
+    checkoutPrompt: 'Checkout my Zomato cart and place the order.',
+    cartHeaderTitle: 'Zomato Checkout API',
+    activeRingClass: 'bg-[#E23744]/10 ring-1 ring-[#E23744]/30',
+  },
+  swiggy: {
+    label: 'Swiggy',
+    brandHex: '#FC8019',
+    brandTintBg: 'bg-[#FC8019]/5',
+    brandTintBorder: 'border-orange-100/80',
+    checkoutPrompt: 'Checkout my Swiggy cart and place the order.',
+    cartHeaderTitle: 'Swiggy Checkout API',
+    activeRingClass: 'bg-[#FC8019]/10 ring-1 ring-[#FC8019]/30',
+  },
+};
+
+const NEUTRAL_THEME: ProviderTheme = {
+  label: 'Food',
+  brandHex: '#475569', // slate-600
+  brandTintBg: 'bg-slate-100',
+  brandTintBorder: 'border-slate-200',
+  checkoutPrompt: 'Checkout my cart and place the order.',
+  cartHeaderTitle: 'Checkout',
+  activeRingClass: 'bg-slate-100 ring-1 ring-slate-300',
+};
+
+const themeFor = (provider: CardProvider | undefined): ProviderTheme =>
+  (provider && PROVIDER_THEMES[provider]) || NEUTRAL_THEME;
+
 const formatPriceINR = (value: number | undefined): string | null => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
   return `₹${Math.round(value)}`;
@@ -302,6 +368,7 @@ const MenuCard: React.FC<{ item: MenuCardItem }> = ({ item }) => {
 const MenuCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
   const items = Array.isArray(attachment.items) ? attachment.items : [];
   if (items.length === 0) return null;
+  const theme = themeFor(attachment.provider);
   const heading = attachment.restaurant_name ? `Menu — ${attachment.restaurant_name}` : 'Menu';
   const subhead =
     Array.isArray(attachment.categories) && attachment.categories.length > 0
@@ -311,7 +378,17 @@ const MenuCardGrid: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
   return (
     <div className="mt-1 w-full max-w-full">
       <div className="flex items-baseline justify-between mb-2 px-1">
-        <div className="text-xs font-bold uppercase tracking-wider text-slate-500">{heading}</div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {attachment.provider && (
+            <span
+              className="text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase shrink-0"
+              style={{ backgroundColor: theme.brandHex }}
+            >
+              {theme.label}
+            </span>
+          )}
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500 truncate">{heading}</div>
+        </div>
         {subhead && (
           <div className="text-[10px] text-slate-400 truncate ml-3 max-w-[55%]">{subhead}</div>
         )}
@@ -336,7 +413,8 @@ const RestaurantFeaturedItem: React.FC<{
   item: RestaurantCardItem;
   onClick?: (anchor: DOMRect) => void;
   active?: boolean;
-}> = ({ item, onClick, active }) => {
+  activeRingClass?: string;
+}> = ({ item, onClick, active, activeRingClass }) => {
   const [imageBroken, setImageBroken] = useState(false);
   const price = formatPriceINR(item.price);
   const showImage = !!item.image_url && !imageBroken;
@@ -402,7 +480,7 @@ const RestaurantFeaturedItem: React.FC<{
       className={cn(
         'w-full flex items-center gap-2 px-2 py-1.5 text-left transition-colors cursor-pointer',
         active
-          ? 'bg-[#E23744]/10 ring-1 ring-[#E23744]/30'
+          ? (activeRingClass || 'bg-slate-100 ring-1 ring-slate-300')
           : 'hover:bg-slate-50/80',
       )}
       title="Tap for options"
@@ -424,35 +502,51 @@ const formatDistanceKm = (value: number | undefined): string | null => {
 // quick action. Centralised so the wording stays consistent — these
 // strings are intercepted by the existing intent router exactly as if
 // the user typed them, no special path on the backend.
+// Quick-action prompts include the provider name ("on Swiggy" / "on
+// Zomato") so the backend orchestrator's stickiness check pins the turn
+// to the right MCP. Without the suffix, a Swiggy card click followed by
+// an ambiguous query could silently drift to the default Zomato planner.
+const providerSuffix = (provider: CardProvider | undefined): string => {
+  if (provider === 'swiggy') return ' on Swiggy';
+  if (provider === 'zomato') return ' on Zomato';
+  return '';
+};
+
 const buildItemActionPrompt = (
   kind: 'add' | 'details',
   item: RestaurantCardItem,
   restaurantName: string,
+  provider?: CardProvider,
 ): string => {
   const name = (item.name || '').trim() || 'this item';
   const resto = (restaurantName || '').trim();
   const restoSuffix = resto ? ` from ${resto}` : '';
+  const psuffix = providerSuffix(provider);
   if (kind === 'add') {
-    return `Add 1 × ${name}${restoSuffix} to my cart.`;
+    return `Add 1 × ${name}${restoSuffix} to my cart${psuffix}.`;
   }
-  return `Tell me more about ${name}${restoSuffix} — what's in it, price, and any add-ons.`;
+  return `Tell me more about ${name}${restoSuffix}${psuffix} — what's in it, price, and any add-ons.`;
 };
 
 const buildRestoActionPrompt = (
   kind: 'full' | 'veg' | 'nonveg',
   restaurantName: string,
+  provider?: CardProvider,
 ): string => {
   const resto = (restaurantName || '').trim() || 'this restaurant';
-  if (kind === 'veg') return `Show me only the veg items from ${resto}.`;
-  if (kind === 'nonveg') return `Show me only the non-veg items from ${resto}.`;
-  return `Show me the menu of ${resto}.`;
+  const psuffix = providerSuffix(provider);
+  if (kind === 'veg') return `Show me only the veg items from ${resto}${psuffix}.`;
+  if (kind === 'nonveg') return `Show me only the non-veg items from ${resto}${psuffix}.`;
+  return `Show me the menu of ${resto}${psuffix}.`;
 };
 
 const RestaurantCard: React.FC<{
   restaurant: RestaurantCardEntry;
+  provider?: CardProvider;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ restaurant, onQuickPrompt, disabled }) => {
+}> = ({ restaurant, provider, onQuickPrompt, disabled }) => {
+  const theme = themeFor(provider);
   const items = Array.isArray(restaurant.items) ? restaurant.items : [];
   const hasItems = items.length > 0;
   const [imageBroken, setImageBroken] = useState(false);
@@ -527,8 +621,11 @@ const RestaurantCard: React.FC<{
               <UtensilsCrossed size={28} strokeWidth={1.5} />
             </div>
           )}
-          <div className="absolute top-1.5 left-1.5 z-10 bg-[#E23744] text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase">
-            Zomato
+          <div
+            className="absolute top-1.5 left-1.5 z-10 text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase"
+            style={{ backgroundColor: theme.brandHex }}
+          >
+            {theme.label}
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-2">
             {offer && (
@@ -565,8 +662,11 @@ const RestaurantCard: React.FC<{
               <UtensilsCrossed size={28} strokeWidth={1.5} />
             </div>
           )}
-          <div className="absolute top-1.5 left-1.5 z-10 bg-[#E23744] text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase">
-            Zomato
+          <div
+            className="absolute top-1.5 left-1.5 z-10 text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase"
+            style={{ backgroundColor: theme.brandHex }}
+          >
+            {theme.label}
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-2">
             {offer && (
@@ -633,6 +733,7 @@ const RestaurantCard: React.FC<{
                     item={item}
                     onClick={interactive ? handleItemClick(item, key) : undefined}
                     active={itemPopover?.key === key}
+                    activeRingClass={theme.activeRingClass}
                   />
                 );
               })}
@@ -652,14 +753,14 @@ const RestaurantCard: React.FC<{
           actions={[
             {
               label: 'Show full menu',
-              prompt: buildRestoActionPrompt('full', restaurant.name),
+              prompt: buildRestoActionPrompt('full', restaurant.name, provider),
               hint: 'Open the complete menu',
               icon: <MenuIcon size={14} />,
               tone: 'primary',
             },
             {
               label: 'Veg menu only',
-              prompt: buildRestoActionPrompt('veg', restaurant.name),
+              prompt: buildRestoActionPrompt('veg', restaurant.name, provider),
               hint: 'Filter to vegetarian dishes',
               icon: (
                 <span className="w-3 h-3 border border-emerald-600 rounded-sm flex items-center justify-center">
@@ -669,7 +770,7 @@ const RestaurantCard: React.FC<{
             },
             {
               label: 'Non-veg menu only',
-              prompt: buildRestoActionPrompt('nonveg', restaurant.name),
+              prompt: buildRestoActionPrompt('nonveg', restaurant.name, provider),
               hint: 'Filter to non-vegetarian dishes',
               icon: (
                 <span className="w-3 h-3 border border-red-600 rounded-sm flex items-center justify-center">
@@ -696,14 +797,14 @@ const RestaurantCard: React.FC<{
           actions={[
             {
               label: 'Add to cart',
-              prompt: buildItemActionPrompt('add', itemPopover.item, restaurant.name),
-              hint: 'I\'ll add one to your Zomato cart',
+              prompt: buildItemActionPrompt('add', itemPopover.item, restaurant.name, provider),
+              hint: `I'll add one to your ${theme.label} cart`,
               icon: <Plus size={14} strokeWidth={2.5} />,
               tone: 'primary',
             },
             {
               label: 'See details',
-              prompt: buildItemActionPrompt('details', itemPopover.item, restaurant.name),
+              prompt: buildItemActionPrompt('details', itemPopover.item, restaurant.name, provider),
               hint: 'Price, description and add-ons',
               icon: <Eye size={14} />,
             },
@@ -721,13 +822,22 @@ const RestaurantCardGrid: React.FC<{
 }> = ({ attachment, onQuickPrompt, disabled }) => {
   const restaurants = Array.isArray(attachment.restaurants) ? attachment.restaurants : [];
   if (restaurants.length === 0) return null;
+  const theme = themeFor(attachment.provider);
   const keyword = attachment.keyword ? String(attachment.keyword).trim() : '';
   const heading = keyword ? `Restaurants — ${keyword}` : 'Restaurants';
 
   return (
     <div className="mt-1 w-full max-w-full">
       <div className="flex items-center gap-1.5 mb-2 px-1">
-        <TrendingUp size={12} className="text-[#E23744]" />
+        <TrendingUp size={12} style={{ color: theme.brandHex }} />
+        {attachment.provider && (
+          <span
+            className="text-white font-bold text-[9px] tracking-wider px-1.5 py-0.5 rounded uppercase shrink-0"
+            style={{ backgroundColor: theme.brandHex }}
+          >
+            {theme.label}
+          </span>
+        )}
         <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
           {heading} ({restaurants.length})
         </div>
@@ -747,6 +857,7 @@ const RestaurantCardGrid: React.FC<{
           <RestaurantCard
             key={r.res_id || `${r.name}-${idx}`}
             restaurant={r}
+            provider={attachment.provider}
             onQuickPrompt={onQuickPrompt}
             disabled={disabled}
           />
@@ -771,19 +882,32 @@ const RestaurantCardGrid: React.FC<{
 // exported because they only make sense in this composition.
 type SessionCartItemAddon = NonNullable<SessionCart['items'][number]['add_ons']>[number];
 
-const CartHeader: React.FC<{ paymentMethodType?: string | null }> = ({
-  paymentMethodType,
-}) => {
+const CartHeader: React.FC<{
+  paymentMethodType?: string | null;
+  theme: ProviderTheme;
+}> = ({ paymentMethodType, theme }) => {
   const method = (paymentMethodType || '').trim().toUpperCase();
   return (
-    <div className="bg-[#E23744]/5 px-5 py-3.5 bg-gradient-to-r from-[#E23744]/15 to-transparent border-b border-red-100/80 flex items-center justify-between">
+    <div
+      className="px-5 py-3.5 border-b flex items-center justify-between"
+      style={{
+        background: `linear-gradient(to right, ${theme.brandHex}26, transparent)`,
+        borderBottomColor: `${theme.brandHex}33`,
+      }}
+    >
       <div className="flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-[#E23744] text-white flex items-center justify-center shadow-sm shrink-0">
+        <div
+          className="w-8 h-8 rounded-lg text-white flex items-center justify-center shadow-sm shrink-0"
+          style={{ backgroundColor: theme.brandHex }}
+        >
           <ShoppingBag size={15} />
         </div>
         <div className="min-w-0">
-          <span className="text-[10px] uppercase font-mono font-black tracking-widest text-[#E23744] block leading-none">
-            Zomato Checkout API
+          <span
+            className="text-[10px] uppercase font-mono font-black tracking-widest block leading-none"
+            style={{ color: theme.brandHex }}
+          >
+            {theme.cartHeaderTitle}
           </span>
           <h4 className="font-extrabold text-sm text-slate-900 leading-none mt-1">
             Basket Summary
@@ -869,7 +993,10 @@ const FoodTypeMark: React.FC<{ tags: string[] }> = ({ tags }) => {
   );
 };
 
-const CartItemList: React.FC<{ items: SessionCart['items'] }> = ({ items }) => {
+const CartItemList: React.FC<{
+  items: SessionCart['items'];
+  theme: ProviderTheme;
+}> = ({ items, theme }) => {
   return (
     <div className="p-4 md:p-5 space-y-4">
       <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center justify-between">
@@ -935,7 +1062,7 @@ const CartItemList: React.FC<{ items: SessionCart['items'] }> = ({ items }) => {
             {addOns.length > 0 && (
               <div className="ml-6 p-2.5 bg-slate-50 border border-slate-100 rounded-lg space-y-1">
                 <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 leading-none mb-1">
-                  <Layers size={11} className="text-[#E23744]" />
+                  <Layers size={11} style={{ color: theme.brandHex }} />
                   <span>Toppings &amp; Sides included</span>
                 </div>
                 {addOns.map((ao, adIdx) => (
@@ -971,12 +1098,13 @@ const PriceBreakdown: React.FC<{
   finalAmount?: number;
   // Optional "Order now" CTA wired to the parent's checkout dispatcher.
   // When supplied, renders a bold full-width button under the total
-  // that fires the existing chat pipeline ("Checkout my cart …") so
-  // the agent runs the normal Zomato checkout flow — no new backend
-  // endpoint or special handling, the button is just sugar over the
-  // same intent the user could type by hand.
+  // that fires the existing chat pipeline ("Checkout my <provider>
+  // cart …") so the agent runs the provider's normal checkout flow —
+  // no new backend endpoint or special handling, the button is just
+  // sugar over the same intent the user could type by hand.
   onPlaceOrder?: () => void;
   placeOrderDisabled?: boolean;
+  theme: ProviderTheme;
 }> = ({
   itemTotal,
   platformFee,
@@ -987,6 +1115,7 @@ const PriceBreakdown: React.FC<{
   finalAmount,
   onPlaceOrder,
   placeOrderDisabled,
+  theme,
 }) => {
   const hasPromo = typeof promoDiscount === 'number' && promoDiscount > 0;
   return (
@@ -1043,7 +1172,10 @@ const PriceBreakdown: React.FC<{
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                   Total Payable
                 </span>
-                <span className="text-xl font-black font-mono text-[#E23744]">
+                <span
+                  className="text-xl font-black font-mono"
+                  style={{ color: theme.brandHex }}
+                >
                   ₹{finalAmount.toFixed(2)}
                 </span>
               </div>
@@ -1067,11 +1199,12 @@ const PriceBreakdown: React.FC<{
             type="button"
             onClick={onPlaceOrder}
             disabled={placeOrderDisabled}
-            title="Place this Zomato order now"
+            title={`Place this ${theme.label} order now`}
+            style={{ backgroundColor: theme.brandHex }}
             className={cn(
-              'w-full flex items-center justify-center gap-2 bg-[#E23744] hover:bg-[#c92e3a] text-white font-extrabold text-sm py-3 rounded-xl shadow-md shadow-red-500/20 transition-all duration-200 active:scale-[0.98]',
+              'w-full flex items-center justify-center gap-2 text-white font-extrabold text-sm py-3 rounded-xl shadow-md transition-all duration-200 active:scale-[0.98] hover:brightness-95',
               placeOrderDisabled
-                ? 'opacity-60 cursor-not-allowed pointer-events-none hover:bg-[#E23744]'
+                ? 'opacity-60 cursor-not-allowed pointer-events-none hover:brightness-100'
                 : 'cursor-pointer',
             )}
           >
@@ -1091,22 +1224,27 @@ const PriceBreakdown: React.FC<{
   );
 };
 
-const ZomatoCart: React.FC<{
+const CartCard: React.FC<{
   cart: SessionCart;
+  provider?: CardProvider;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ cart, onQuickPrompt, disabled }) => {
+}> = ({ cart, provider, onQuickPrompt, disabled }) => {
   if (!cart || !cart.cart_id || !Array.isArray(cart.items) || cart.items.length === 0) {
     return null;
   }
 
+  const theme = themeFor(provider);
+
   // "Order now" CTA — synthesises a clear checkout intent and ships
   // it through the same /api/agent/query/ pipeline as if the user had
-  // typed it. The agent's planner already knows how to run Zomato's
-  // checkout flow (place_order tool, payment-method handoff, etc.), so
-  // we don't need any new backend wiring for this button.
+  // typed it. The agent's planner already knows how to run each
+  // provider's checkout flow (Zomato: place_order + UPI QR; Swiggy:
+  // place_food_order + cash-on-delivery), so we don't need any new
+  // backend wiring for this button — only the prompt copy changes per
+  // provider so the stickiness check pins the turn to the right MCP.
   const handlePlaceOrder = onQuickPrompt
-    ? () => onQuickPrompt('Checkout my Zomato cart and place the order.')
+    ? () => onQuickPrompt(theme.checkoutPrompt)
     : undefined;
 
   // Pull the two well-known base_charges Zomato emits, plus the
@@ -1130,7 +1268,7 @@ const ZomatoCart: React.FC<{
   return (
     <div className="mt-3 w-full max-w-full md:max-w-4xl animate-fade-in">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300">
-        <CartHeader paymentMethodType={cart.payment_method_type} />
+        <CartHeader paymentMethodType={cart.payment_method_type} theme={theme} />
 
         {/* 2-column split on desktop, stacked on mobile. Items live on
             the left (~58%) so descriptions and add-ons have room to
@@ -1148,10 +1286,10 @@ const ZomatoCart: React.FC<{
               distanceKm={cart.distance_in_km}
               eta={cart.eta}
             />
-            <CartItemList items={cart.items} />
+            <CartItemList items={cart.items} theme={theme} />
             {cleanedUserMessage && (
               <div className="mx-4 md:mx-5 mb-4 md:mb-5 bg-slate-50 border border-slate-100 p-2.5 rounded-lg text-[11px] text-slate-500 font-medium flex gap-2 items-start">
-                <Info size={13} className="text-[#E23744] shrink-0 mt-0.5" />
+                <Info size={13} style={{ color: theme.brandHex }} className="shrink-0 mt-0.5" />
                 <span className="leading-relaxed">{cleanedUserMessage}</span>
               </div>
             )}
@@ -1172,6 +1310,7 @@ const ZomatoCart: React.FC<{
               }
               onPlaceOrder={handlePlaceOrder}
               placeOrderDisabled={disabled}
+              theme={theme}
             />
           </div>
         </div>
@@ -1204,9 +1343,10 @@ const AttachmentList: React.FC<{
       }
       if (kind === 'cart_card' && att.cart) {
         return (
-          <ZomatoCart
+          <CartCard
             key={`cart-${att.cart.cart_id || idx}`}
             cart={att.cart}
+            provider={att.provider}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />

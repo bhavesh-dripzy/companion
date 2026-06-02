@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --animate-orb-glow: orb-glow 8s ease-in-out infinite alternate;
+  --animate-orb-spin: orb-spin 20s linear infinite;
+  --animate-pulse-slow: pulse-slow 3s ease-in-out infinite;
+}
+
+@keyframes orb-glow {
+  0% {
+    transform: scale(1) translate(0px, 0px) rotate(0deg);
+    filter: hue-rotate(0deg) blur(20px);
+  }
+  33% {
+    transform: scale(1.08) translate(5px, -10px) rotate(120deg);
+    filter: hue-rotate(40deg) blur(30px);
+  }
+  66% {
+    transform: scale(0.95) translate(-10px, 8px) rotate(240deg);
+    filter: hue-rotate(85deg) blur(25px);
+  }
+  100% {
+    transform: scale(1.05) translate(2px, -3px) rotate(360deg);
+    filter: hue-rotate(120deg) blur(20px);
+  }
+}
+
+@keyframes orb-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+    box-shadow: 0 0 40px rgba(139, 92, 246, 0.3);
+  }
+}
+
+/* Custom scrollbars for pristine look */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Base resets & smoother gradients */
+body {
+  font-family: var(--font-sans);
+  background-color: #020617;
+}

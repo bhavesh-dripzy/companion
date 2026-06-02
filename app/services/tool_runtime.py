@@ -855,6 +855,8 @@ def execute_tool_plan_sync(
                 session_placeholders=session_placeholders,
                 session_restaurants=session_restaurants,
                 session_addresses=session_addresses,
+                session_menu=session_menu,
+                session_cart=session_cart,
             )
         elif name == "district":
             provider_results[name] = run_district_tool_plan_sync(

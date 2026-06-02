@@ -447,6 +447,7 @@ def _collect_restaurant_attachments(
             attachment: dict[str, Any] = {
                 "kind": "restaurant_cards",
                 "source": f"{provider_name}.{tool}",
+                "provider": "zomato",
                 "restaurants": cards,
             }
             args = step.get("arguments") or {}
@@ -584,6 +585,7 @@ def _collect_menu_attachments(raw_tool_results: dict[str, Any]) -> list[dict[str
             attachment: dict[str, Any] = {
                 "kind": "menu_cards",
                 "source": f"{provider_name}.{tool}",
+                "provider": "zomato",
                 "items": cards,
             }
             res_id = inner.get("res_id") or (step.get("arguments") or {}).get("res_id")
@@ -625,9 +627,18 @@ def _build_cart_card_attachment(
     items = snapshot.get("items")
     if not (isinstance(cid, str) and cid.strip() and isinstance(items, list) and items):
         return None
+    # ``provider`` is decoded from the ``source`` string (e.g.
+    # ``"zomato_food.create_cart"`` → "zomato", ``"swiggy_food.update_food_cart"``
+    # → "swiggy"). The frontend keys cart-card styling + the "Order now"
+    # checkout prompt off this field.
+    provider = "zomato"
+    src_lower = source.lower()
+    if src_lower.startswith("swiggy"):
+        provider = "swiggy"
     return {
         "kind": "cart_card",
         "source": source,
+        "provider": provider,
         "cart": snapshot,
     }
 
@@ -666,6 +677,314 @@ def _collect_cart_attachments(
         att = _build_cart_card_attachment(snap, source=f"{provider_name}.create_cart")
         if att is not None:
             out.append(att)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Swiggy-side card lifters.
+#
+# These mirror the Zomato shape contract (so the frontend renders the same
+# three card kinds — ``restaurant_cards``, ``menu_cards``, ``cart_card`` —
+# uniformly) but read from Swiggy's envelope shapes:
+#
+#   * search_restaurants → ``data.restaurants[]``
+#   * search_menu        → ``data.items[]``
+#   * get_restaurant_menu → ``data.categories[].items[]``
+#   * update_food_cart / get_food_cart → executor diagnostics.session_cart
+#
+# Every attachment is stamped ``provider: "swiggy"`` so the chat-side
+# components switch styling (Swiggy orange ``#FC8019`` vs Zomato red) and
+# wire the right "Order now" / "Add to cart" prompt copy.
+# ---------------------------------------------------------------------------
+_SWIGGY_RESTAURANT_CARD_TOOLS = frozenset({"search_restaurants"})
+_SWIGGY_MENU_CARD_TOOLS = frozenset({"search_menu", "get_restaurant_menu"})
+
+
+def _build_swiggy_restaurant_card_entry(
+    resto: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Normalise one Swiggy ``data.restaurants[]`` row into a card entry.
+
+    Returns ``None`` for rows missing the basics (``id`` + ``name``).
+
+    Source shape (from ``outputs/search_restaurants_*.json``)::
+
+        {id, name, cuisines[], avgRating, totalRatings, costForTwo,
+         areaName, distanceKm, deliveryTimeMinutes, deliveryTimeRange,
+         offer, imageUrl, availabilityStatus}
+    """
+    if not isinstance(resto, dict):
+        return None
+    rid_raw = resto.get("id") or resto.get("restaurant_id") or resto.get("res_id")
+    name = resto.get("name") or resto.get("restaurant_name")
+    if rid_raw is None or not isinstance(name, str) or not name.strip():
+        return None
+    rid = str(rid_raw).strip()
+    if not rid:
+        return None
+    out: dict[str, Any] = {"res_id": rid, "name": name.strip()}
+    rating = resto.get("avgRating") or resto.get("rating")
+    if isinstance(rating, (int, float)) and rating > 0:
+        out["rating"] = round(float(rating), 1)
+    votes = resto.get("totalRatings") or resto.get("votes")
+    if isinstance(votes, str) and votes.strip():
+        out["votes"] = votes.strip()
+    elif isinstance(votes, (int, float)) and votes > 0:
+        out["votes"] = int(votes)
+    eta = (
+        resto.get("deliveryTimeRange")
+        or resto.get("eta")
+        or (
+            f"{resto.get('deliveryTimeMinutes')} MINS"
+            if isinstance(resto.get("deliveryTimeMinutes"), (int, float))
+            else None
+        )
+    )
+    if isinstance(eta, str) and eta.strip():
+        out["eta"] = eta.strip()
+    dist = resto.get("distanceKm") or resto.get("distance_km") or resto.get("distance")
+    if isinstance(dist, (int, float)) and dist >= 0:
+        out["distance_km"] = round(float(dist), 2)
+    image = resto.get("imageUrl") or resto.get("res_image") or resto.get("image_url")
+    if isinstance(image, str) and image.strip():
+        url = image.strip()
+        if not url.startswith(("http://", "https://")):
+            url = f"https://media-assets.swiggy.com/swiggy/image/upload/{url}"
+        out["res_image"] = url
+    offer = resto.get("offer") or resto.get("res_offer")
+    if isinstance(offer, str) and offer.strip():
+        out["res_offer"] = offer.strip()
+    avail = resto.get("availabilityStatus") or resto.get("serviceability_status")
+    if isinstance(avail, str) and avail.strip():
+        out["serviceability_status"] = avail.strip()
+    cuisines = resto.get("cuisines")
+    if isinstance(cuisines, list):
+        clean = [c.strip() for c in cuisines if isinstance(c, str) and c.strip()]
+        if clean:
+            out["cuisines"] = clean[:4]
+    return out
+
+
+def _collect_swiggy_restaurant_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Lift Swiggy ``search_restaurants`` envelopes into renderable cards.
+
+    Mirrors the Zomato ``_collect_restaurant_attachments`` contract — same
+    output shape (``kind: "restaurant_cards"`` with ``restaurants[]``) so
+    the frontend's <RestaurantCardGrid /> can render either provider
+    interchangeably. The ``provider: "swiggy"`` tag steers the visual
+    branding (Swiggy orange instead of Zomato red).
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        if "swiggy" not in str(provider_name or "").lower():
+            continue
+        steps = raw.get("steps") or []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tool = str(step.get("tool") or "").strip()
+            if tool not in _SWIGGY_RESTAURANT_CARD_TOOLS:
+                continue
+            envelope = step.get("result")
+            if not isinstance(envelope, dict) or envelope.get("is_error"):
+                continue
+            data = envelope.get("data") if isinstance(envelope.get("data"), dict) else None
+            if not isinstance(data, dict):
+                continue
+            restos = data.get("restaurants")
+            if not isinstance(restos, list) or not restos:
+                continue
+            cards: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for resto in restos:
+                if len(cards) >= _MAX_RESTAURANT_CARDS:
+                    break
+                entry = _build_swiggy_restaurant_card_entry(resto)
+                if entry is None:
+                    continue
+                if entry["res_id"] in seen:
+                    continue
+                seen.add(entry["res_id"])
+                cards.append(entry)
+            if not cards:
+                continue
+            attachment: dict[str, Any] = {
+                "kind": "restaurant_cards",
+                "source": f"{provider_name}.{tool}",
+                "provider": "swiggy",
+                "restaurants": cards,
+            }
+            args = step.get("arguments") or {}
+            if isinstance(args, dict):
+                keyword = args.get("query") or args.get("keyword")
+                if isinstance(keyword, str) and keyword.strip():
+                    attachment["keyword"] = keyword.strip()
+            out.append(attachment)
+    return out
+
+
+def _build_swiggy_menu_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalise one Swiggy menu item into a renderable menu card.
+
+    Source shapes:
+      * ``search_menu`` items: ``{menu_item_id, name, price, isVeg,
+        inStock, imageUrl, rating, totalRatings, hasVariants, hasAddons,
+        variantsV2, addons}``
+      * ``get_restaurant_menu`` items: ``{id, name, description, price,
+        inStock, isVeg, imageUrl, hasVariants, hasAddons}``
+    """
+    if not isinstance(item, dict):
+        return None
+    iid_raw = (
+        item.get("menu_item_id")
+        or item.get("menuItemId")
+        or item.get("id")
+        or item.get("itemId")
+    )
+    name = item.get("name") or item.get("item_name")
+    if iid_raw is None or not isinstance(name, str) or not name.strip():
+        return None
+    iid = str(iid_raw).strip()
+    if not iid:
+        return None
+    card: dict[str, Any] = {
+        "name": name.strip(),
+        # Same id reused for both keys: the frontend reads ``variant_id``
+        # first then falls back to ``item_id``, so we satisfy the
+        # Zomato-shaped contract without inventing a separate id.
+        "variant_id": iid,
+        "item_id": iid,
+    }
+    price = item.get("price") or item.get("finalPrice")
+    if isinstance(price, (int, float)) and price > 0:
+        card["price"] = price
+    image = item.get("imageUrl") or item.get("image_url")
+    if isinstance(image, str) and image.strip():
+        url = image.strip()
+        if not url.startswith(("http://", "https://")):
+            url = f"https://media-assets.swiggy.com/swiggy/image/upload/{url}"
+        card["image_url"] = url
+    rating = item.get("rating")
+    if isinstance(rating, str):
+        try:
+            rating_f = float(rating)
+            if rating_f > 0:
+                card["rating"] = round(rating_f, 1)
+        except ValueError:
+            pass
+    elif isinstance(rating, (int, float)) and rating > 0:
+        card["rating"] = round(float(rating), 1)
+    is_veg = item.get("isVeg")
+    if isinstance(is_veg, bool):
+        card["veg_kind"] = "veg" if is_veg else "non_veg"
+    elif isinstance(is_veg, int):
+        card["veg_kind"] = "veg" if is_veg == 1 else "non_veg"
+    desc = item.get("description")
+    if isinstance(desc, str) and desc.strip():
+        d = desc.strip()
+        card["description"] = (d[:140] + "…") if len(d) > 140 else d
+    return card
+
+
+def _iter_swiggy_menu_items(envelope: dict[str, Any]):
+    """Yield raw menu-item dicts from a Swiggy menu envelope.
+
+    Handles both shapes:
+      * ``search_menu``: ``data.items[]``
+      * ``get_restaurant_menu``: ``data.categories[].items[]``
+    """
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
+        return
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        return
+    items = data.get("items")
+    if isinstance(items, list):
+        for it in items:
+            if isinstance(it, dict):
+                yield it
+    cats = data.get("categories") or data.get("menu_categories")
+    if isinstance(cats, list):
+        for cat in cats:
+            if not isinstance(cat, dict):
+                continue
+            sub = cat.get("items")
+            if isinstance(sub, list):
+                for it in sub:
+                    if isinstance(it, dict):
+                        yield it
+
+
+def _collect_swiggy_menu_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Lift Swiggy menu rows out of raw tool steps into renderable cards.
+
+    Same output shape as the Zomato lifter — ``kind: "menu_cards"`` with
+    ``items[]`` and ``restaurant_name`` — so the frontend's
+    <MenuCardGrid /> can render either provider interchangeably.
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        if "swiggy" not in str(provider_name or "").lower():
+            continue
+        steps = raw.get("steps") or []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tool = str(step.get("tool") or "").strip()
+            if tool not in _SWIGGY_MENU_CARD_TOOLS:
+                continue
+            envelope = step.get("result")
+            if not isinstance(envelope, dict) or envelope.get("is_error"):
+                continue
+            cards: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for raw_item in _iter_swiggy_menu_items(envelope):
+                if len(cards) >= _MAX_MENU_CARDS:
+                    break
+                card = _build_swiggy_menu_card(raw_item)
+                if card is None:
+                    continue
+                vid = card.get("variant_id")
+                if isinstance(vid, str) and vid in seen:
+                    continue
+                if isinstance(vid, str):
+                    seen.add(vid)
+                cards.append(card)
+            if not cards:
+                continue
+            attachment: dict[str, Any] = {
+                "kind": "menu_cards",
+                "source": f"{provider_name}.{tool}",
+                "provider": "swiggy",
+                "items": cards,
+            }
+            data = envelope.get("data") if isinstance(envelope.get("data"), dict) else None
+            if isinstance(data, dict):
+                rest = data.get("restaurant")
+                if isinstance(rest, dict):
+                    rname = rest.get("name") or rest.get("restaurantName")
+                    if isinstance(rname, str) and rname.strip():
+                        attachment["restaurant_name"] = rname.strip()
+                    rid = rest.get("id") or rest.get("restaurant_id")
+                    if rid not in (None, ""):
+                        attachment["res_id"] = rid
+            out.append(attachment)
     return out
 
 
@@ -807,9 +1126,12 @@ def _format_routing_message(
             )
     if session_menu:
         # Surface the recently-shown menu items so the planner can emit
-        # ``create_cart`` directly when the user picks one (no redundant
-        # menu fetch), and can use the addon_groups schema below to drive
-        # customization picks without another round-trip.
+        # ``create_cart`` / ``update_food_cart`` directly when the user
+        # picks one (no redundant menu fetch). Both Zomato and Swiggy
+        # entries render in this single block — provider is auto-detected
+        # from the shape (Swiggy entries carry ``variantsV2`` / ``addons``
+        # response-shape blocks, Zomato entries carry ``variants`` /
+        # ``addon_groups`` flattened blocks).
         menu_rows: list[str] = []
         for entry in session_menu[:25]:
             if not isinstance(entry, dict):
@@ -828,6 +1150,7 @@ def _format_routing_message(
             tail_bits: list[str] = []
             if rid:
                 tail_bits.append(f"res_id={rid}")
+            # ----- Zomato shape: flattened variants[] + addon_groups[] -----
             variants = entry.get("variants") or []
             if isinstance(variants, list) and variants:
                 names = []
@@ -857,19 +1180,91 @@ def _format_routing_message(
                         gtags.append(f"{gname} (min={mn}, max={mx})")
                 if gtags:
                     tail_bits.append("addon_groups: " + "; ".join(gtags))
+            # ----- Swiggy shape: response-shape variantsV2 + addons -----
+            v2 = entry.get("variantsV2") or []
+            if isinstance(v2, list) and v2:
+                # Compact: "Size: Medium=g1/v1, Large=g1/v2 | Crust: Hand-tossed=g2/v3"
+                group_tags: list[str] = []
+                for grp in v2[:4]:
+                    if not isinstance(grp, dict):
+                        continue
+                    gid = str(grp.get("groupId") or grp.get("group_id") or "").strip()
+                    gname = str(grp.get("name") or "").strip() or gid
+                    choices: list[str] = []
+                    for vrow in (grp.get("variations") or [])[:6]:
+                        if not isinstance(vrow, dict):
+                            continue
+                        if vrow.get("inStock", 1) not in (1, True):
+                            continue
+                        vid2 = str(vrow.get("id") or "").strip()
+                        vname = str(vrow.get("name") or "").strip()
+                        if not vid2:
+                            continue
+                        choices.append(f"{vname or vid2}={gid}/{vid2}")
+                    if choices:
+                        group_tags.append(f"{gname}({','.join(choices)})")
+                if group_tags:
+                    tail_bits.append("variantsV2: " + " | ".join(group_tags))
+            addons = entry.get("addons") or []
+            if isinstance(addons, list) and addons:
+                a_tags: list[str] = []
+                for grp in addons[:4]:
+                    if not isinstance(grp, dict):
+                        continue
+                    gid = str(grp.get("groupId") or grp.get("group_id") or "").strip()
+                    gname = str(grp.get("name") or "").strip() or gid
+                    mn = grp.get("minAddons") or grp.get("min_addons") or grp.get("min") or 0
+                    mx = grp.get("maxAddons") or grp.get("max_addons") or grp.get("max") or 0
+                    choices = []
+                    for ch in (grp.get("choices") or grp.get("addonChoices") or [])[:5]:
+                        if not isinstance(ch, dict):
+                            continue
+                        cid = str(ch.get("id") or ch.get("choice_id") or "").strip()
+                        cname = str(ch.get("name") or "").strip()
+                        if cid:
+                            choices.append(f"{cname or cid}={gid}/{cid}")
+                    cstr = (", ".join(choices)) if choices else ""
+                    a_tags.append(f"{gname} (min={mn}, max={mx}){' → ' + cstr if cstr else ''}")
+                if a_tags:
+                    tail_bits.append("addons: " + " | ".join(a_tags))
             tail = f" [{' | '.join(tail_bits)}]" if tail_bits else ""
-            menu_rows.append(f"  - {iname} → variant_id={vid}{price}{tail}")
+            # Label-switch: use ``menu_item_id=`` for Swiggy entries (any
+            # ``variantsV2`` / ``hasVariants`` / ``hasAddons`` signal) so
+            # the planner reads the right field name for its cart shape.
+            id_label = (
+                "menu_item_id"
+                if (
+                    entry.get("variantsV2")
+                    or entry.get("hasVariants") is not None
+                    or entry.get("hasAddons") is not None
+                    or entry.get("menu_item_id")
+                )
+                else "variant_id"
+            )
+            menu_rows.append(f"  - {iname} → {id_label}={vid}{price}{tail}")
         if menu_rows:
             parts.append(
                 "Menu items already shown to the user this session — when the "
-                "user picks one by name, put the literal variant_id below into "
-                "your `create_cart` items[] (no need to re-run "
-                "get_menu_items_listing / get_restaurant_menu_by_categories). "
-                "If the item has `variants:` listed, pick the variant_id whose "
-                "property values best match what the user said (size/crust/"
-                "etc.). If `addon_groups:` are listed with min>=1, the executor "
-                "will auto-default missing required groups, but you can include "
-                "explicit picks in items[].add_ons when the user names them:\n"
+                "user picks one by name, put the literal id below into your "
+                "cart-add step (no need to re-run menu/search tools).\n"
+                "- **Zomato** rows use `variant_id=…` → paste into `create_cart` "
+                "`items[].variant_id`. If the row lists `variants:`, pick the "
+                "variant whose `property_values` match the user's words "
+                "(size/crust/etc.). If `addon_groups:` are listed with min>=1, "
+                "you can include explicit picks in items[].add_ons when the "
+                "user names them.\n"
+                "- **Swiggy** rows use `menu_item_id=…` → paste into "
+                "`update_food_cart` `cartItems[].menu_item_id`. The `variantsV2:`"
+                " tail lists each group as "
+                "`GroupName(Variation=group_id/variation_id, …)` — pick ONE "
+                "variation per group and emit "
+                "`cartItems[].variantsV2: [{group_id, variation_id}]` for each "
+                "chosen pair. The `addons:` tail uses the same "
+                "`group_id/choice_id` convention — emit "
+                "`cartItems[].addons: [{group_id, choice_id}]` for every required "
+                "addon (min>=1) and any optional ones the user named. Always "
+                "include the literal `restaurantId` from `Restaurants already "
+                "shown` for the item's outlet.\n"
                 + "\n".join(menu_rows)
             )
     if pending_variant_choice:
@@ -1692,9 +2087,15 @@ def run_agent_turn(
     menu_attachments = _collect_menu_attachments(raw_tool_results)
     if menu_attachments:
         attachments = attachments + menu_attachments
+    swiggy_menu_attachments = _collect_swiggy_menu_attachments(raw_tool_results)
+    if swiggy_menu_attachments:
+        attachments = attachments + swiggy_menu_attachments
     restaurant_attachments = _collect_restaurant_attachments(raw_tool_results)
     if restaurant_attachments:
         attachments = attachments + restaurant_attachments
+    swiggy_restaurant_attachments = _collect_swiggy_restaurant_attachments(raw_tool_results)
+    if swiggy_restaurant_attachments:
+        attachments = attachments + swiggy_restaurant_attachments
     cart_attachments = _collect_cart_attachments(raw_tool_results)
     if cart_attachments:
         attachments = attachments + cart_attachments
@@ -1704,11 +2105,15 @@ def run_agent_turn(
         payment_attachments=(
             len(attachments)
             - len(menu_attachments)
+            - len(swiggy_menu_attachments)
             - len(restaurant_attachments)
+            - len(swiggy_restaurant_attachments)
             - len(cart_attachments)
         ),
-        menu_attachments=len(menu_attachments),
-        restaurant_attachments=len(restaurant_attachments),
+        menu_attachments=len(menu_attachments) + len(swiggy_menu_attachments),
+        restaurant_attachments=(
+            len(restaurant_attachments) + len(swiggy_restaurant_attachments)
+        ),
         cart_attachments=len(cart_attachments),
         attachments=snip(attachments),
     )
@@ -1735,6 +2140,11 @@ def run_agent_turn(
     # inside the executor).
     next_session_menu: list[dict[str, Any]] = list(seed_menu)
     next_session_cart: dict[str, Any] | None = seed_cart
+    # Track which provider produced the cart this turn — so the LLM-signal
+    # ``show_cart`` branch downstream stamps the right ``provider`` on the
+    # emitted ``cart_card`` (and the frontend renders Zomato-red vs Swiggy-
+    # orange branding + the right "Order now" prompt).
+    next_session_cart_provider: str | None = None
     # Same pattern for saved addresses — if the executor (re)fetched the
     # list this turn, its result wins; otherwise we just echo the seed
     # back so the frontend can keep persisting it.
@@ -1825,6 +2235,11 @@ def run_agent_turn(
             _citems = _cart.get("items")
             if isinstance(_cid, str) and _cid.strip() and isinstance(_citems, list) and _citems:
                 next_session_cart = {**_cart, "cart_id": _cid.strip()}
+                _pn = str(_provider_name or "").lower()
+                if "swiggy" in _pn:
+                    next_session_cart_provider = "swiggy"
+                elif "zomato" in _pn:
+                    next_session_cart_provider = "zomato"
         _addrs = _diag.get("session_addresses")
         if isinstance(_addrs, list) and _addrs:
             cleaned_a: list[dict[str, Any]] = []
@@ -2089,8 +2504,16 @@ def run_agent_turn(
             and not already_has_cart_card
             and isinstance(next_session_cart, dict)
         ):
+            # Tag the source/provider off the last carry-forward so a
+            # Swiggy ``what's in my cart?`` turn renders the Swiggy-orange
+            # cart card (not the Zomato one).
+            _src_provider = (
+                next_session_cart_provider
+                or ("swiggy" if str(out.get("routed_provider") or "").lower() == "swiggy_food"
+                    else "zomato")
+            )
             extra = _build_cart_card_attachment(
-                next_session_cart, source="zomato.session_cart"
+                next_session_cart, source=f"{_src_provider}.session_cart"
             )
             if extra is not None:
                 attachments = attachments + [extra]
