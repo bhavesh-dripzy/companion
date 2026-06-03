@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence } from 'motion/react';
 import { Login } from './Login';
-import { ChatLog } from './ChatLog';
-import { MessageInput } from './MessageInput';
 import { SettingsModal } from './SettingsModal';
-import { SidebarRail } from './SidebarRail';
-import { RightSidebar } from './RightSidebar';
 import { AdminDashboard } from './AdminDashboard';
+import { LeftSidebar } from './components/LeftSidebar';
+import { ChatArea } from './components/ChatArea';
+import { RemindersPopup } from './components/RemindersPopup';
+import { OrdersPopup } from './components/OrdersPopup';
 import { api, clearToken, getToken } from './api';
 import type {
   ChatSummary,
@@ -21,7 +22,6 @@ import type {
 } from './types';
 import { useUserLocation } from './useUserLocation';
 import { mapsStatus } from './maps';
-import { Menu, PanelRightOpen, Search, Sparkles, X } from 'lucide-react';
 import './index.css';
 
 // localStorage key holding the chat_id the user was last viewing. We
@@ -38,10 +38,7 @@ const ACTIVE_CHAT_STORAGE_KEY = 'companion.active_chat_id';
 //
 // We persist this blob under `companion.chat.<chat_id>.session` so a
 // page refresh — or switching to another chat and back — restores the
-// same conversational context the backend was relying on. Without this,
-// reload kept the rendered chat bubbles but blew away the underlying
-// state, so follow-ups like "yes add the second pizza" or "what's in
-// my cart?" would fail right after the user came back.
+// same conversational context the backend was relying on.
 const CHAT_SESSION_KEY_PREFIX = 'companion.chat.';
 
 interface PersistedChatSession {
@@ -52,8 +49,7 @@ interface PersistedChatSession {
   session_cart: SessionCart | null;
 }
 
-const chatSessionKey = (chatId: string) =>
-  `${CHAT_SESSION_KEY_PREFIX}${chatId}.session`;
+const chatSessionKey = (chatId: string) => `${CHAT_SESSION_KEY_PREFIX}${chatId}.session`;
 
 const loadChatSession = (chatId: string): PersistedChatSession | null => {
   try {
@@ -76,9 +72,9 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
         ? (parsed.session_menu as SessionMenuEntry[])
         : [],
       session_cart:
-        parsed.session_cart &&
-        typeof parsed.session_cart === 'object' &&
-        (parsed.session_cart as SessionCart).cart_id
+        parsed.session_cart
+        && typeof parsed.session_cart === 'object'
+        && (parsed.session_cart as SessionCart).cart_id
           ? (parsed.session_cart as SessionCart)
           : null,
     };
@@ -89,25 +85,18 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
 
 const saveChatSession = (chatId: string, snap: PersistedChatSession) => {
   try {
-    // Skip writing an entirely-empty snapshot — keeps localStorage tidy
-    // (a brand-new chat that hasn't kicked off any tools yet doesn't
-    // need an entry) and avoids burning a write on every keystroke.
     const isEmpty =
-      Object.keys(snap.session_state).length === 0 &&
-      snap.session_restaurants.length === 0 &&
-      snap.session_addresses.length === 0 &&
-      snap.session_menu.length === 0 &&
-      snap.session_cart === null;
+      Object.keys(snap.session_state).length === 0
+      && snap.session_restaurants.length === 0
+      && snap.session_addresses.length === 0
+      && snap.session_menu.length === 0
+      && snap.session_cart === null;
     if (isEmpty) {
       localStorage.removeItem(chatSessionKey(chatId));
       return;
     }
     localStorage.setItem(chatSessionKey(chatId), JSON.stringify(snap));
   } catch (err) {
-    // Quota exceeded / Safari private mode / storage disabled — best
-    // effort. The chat still works in-memory; we just lose refresh
-    // continuity for this chat, which is no worse than before this
-    // feature existed.
     console.warn('Failed to persist chat session', err);
   }
 };
@@ -133,6 +122,32 @@ const clearAllChatSessions = () => {
   }
 };
 
+// Cosmetic, local-only stub for the Reminders popup that ships with
+// the new UI shell. There's no backend route for reminders today, so
+// these live entirely in component state. Pre-populated so the screen
+// has something to render the first time the user opens it.
+const INITIAL_REMINDERS = [
+  { id: 'rem-d1', category: 'daily', text: 'Take daily vitamins & morning supplements', time: '09:00 AM', completed: false },
+  { id: 'rem-d2', category: 'daily', text: 'Postural posture stretch & hydration check', time: 'Every 2 hrs', completed: false },
+  { id: 'rem-d3', category: 'daily', text: 'Review evening workout session and wellness log', time: '06:30 PM', completed: true },
+  { id: 'rem-t1', category: 'today', text: 'Confirm meeting with financial advisor', time: '02:00 PM', completed: false },
+  { id: 'rem-t2', category: 'today', text: 'Track grocery restock through Blinkit/Zepto', time: '04:00 PM', completed: false },
+  { id: 'rem-t3', category: 'today', text: 'Submit car registration insurance renewals', time: 'Today', completed: false },
+];
+
+// Same disclaimer as INITIAL_REMINDERS — there's no /api/orders route,
+// these are visual stubs only. The real orders flow happens through
+// the chat (Zomato/Swiggy carts) and the cart_card attachment.
+const INITIAL_ORDERS = [
+  { id: 'ord-d1', category: 'daily', provider: 'Swiggy Daily', text: 'Fresh low-fat milk bottle & organic whole bread', status: 'Active Subscription', time: 'Daily 7 AM', price: '₹120' },
+  { id: 'ord-d2', category: 'daily', provider: 'Fruits Routine', text: 'Seasonal mixed seed & avocado fitness combo', status: 'Paused', time: 'Daily 9 AM', price: '₹240' },
+  { id: 'ord-t1', category: 'today', provider: 'Zomato Food', text: 'Sourdough Woodfired Pepperoni Pizza x1', status: 'In Transit', time: 'ETA 12 mins', price: '₹480' },
+  { id: 'ord-t2', category: 'today', provider: 'Zepto Quick', text: 'Salted Butter, Fresh Bananas & Greek Yogurt', status: 'Preparing', time: 'ETA 8 mins', price: '₹210' },
+  { id: 'ord-t3', category: 'today', provider: 'Blinkit Spot', text: 'Emergency charging cord & cell lithium batteries', status: 'Delivered', time: 'Delivered today', price: '₹350' },
+];
+
+const ADMIN_USERNAMES = new Set(['admin', 'admin_bhavesh', 'admin_kshitij', 'local_admin']);
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!getToken());
   const [username, setUsername] = useState<string>('');
@@ -142,11 +157,6 @@ function App() {
   const [isThinking, setIsThinking] = useState(false);
 
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
-
-  // Lifted from SettingsModal so the RightSidebar can render live MCP /
-  // integration status without each panel running its own poller. Both
-  // panels read from this same dictionary; SettingsModal still owns the
-  // mutating actions (connect / disconnect / pair).
   const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
   const [isLoadingMcp, setIsLoadingMcp] = useState(false);
   const [gcalStatus, setGcalStatus] = useState<{ connected: boolean; configured: boolean } | null>(null);
@@ -157,17 +167,19 @@ function App() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<'mcp' | 'calendar' | 'models'>('mcp');
   const [settingsInitialProvider, setSettingsInitialProvider] = useState<string | undefined>(undefined);
 
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showQuickActions, setShowQuickActions] = useState(true);
+  // Left sidebar is hideable on every viewport; on mobile it slides
+  // in over the chat surface, on desktop the column collapses to a
+  // 0-width hidden state and a Menu button surfaces in the ChatArea
+  // header to bring it back.
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  // Mobile drawer state. Both sidebars are slide-in panels under
-  // `md` (768px) — the rail opens with the hamburger and the right
-  // panel opens with the panel-icon on the mobile top bar. We never
-  // open both at once; tapping one closes the other to keep the
-  // chat readable behind the backdrop.
-  const [mobileRailOpen, setMobileRailOpen] = useState(false);
-  const [mobileRightOpen, setMobileRightOpen] = useState(false);
+  // Cosmetic popups (no backend wiring) — kept local-only as confirmed
+  // up-front. Users can toggle items / add / delete entries and the
+  // state lives for the session.
+  const [showRemindersPopup, setShowRemindersPopup] = useState(false);
+  const [showOrdersPopup, setShowOrdersPopup] = useState(false);
+  const [reminders, setReminders] = useState(INITIAL_REMINDERS);
+  const [orders, setOrders] = useState(INITIAL_ORDERS);
 
   // Carry-forward state from the backend across turns. See the inline
   // notes in the previous skin: each successful /api/agent/query/ ships
@@ -178,32 +190,14 @@ function App() {
   // user picks a known restaurant by name, etc.
   const [sessionState, setSessionState] = useState<Record<string, string>>({});
   const [sessionRestaurants, setSessionRestaurants] = useState<SessionRestaurant[]>([]);
-  // Saved Zomato delivery addresses, fetched once on the first food
-  // turn and then round-tripped through every subsequent request.
   const [sessionAddresses, setSessionAddresses] = useState<SessionAddress[]>([]);
-  // Cross-turn LRU of menu items the user has been shown this session.
-  // The backend echoes 8 items per restaurant the planner has seen;
-  // we MUST round-trip this so a follow-up like "yes plz add" can be
-  // resolved against the literal variant_id from the prior turn rather
-  // than the planner hallucinating a stale id. (Skipping this echo is
-  // exactly the bug that made "K - Whopper Twin Meal Deal" fail with
-  // "Variant ID … not found in restaurant menu" across several turns.)
   const [sessionMenu, setSessionMenu] = useState<SessionMenuEntry[]>([]);
-  // Current Zomato cart snapshot — replaced on each successful create_cart,
-  // carried unchanged on every other turn. Round-tripping gives the response
-  // LLM ground truth for "what's in my cart" without inferring from chat
-  // history (Zomato carts are single-restaurant; the prior cart is gone the
-  // moment the user adds an item from a different restaurant).
   const [sessionCart, setSessionCart] = useState<SessionCart | null>(null);
 
-  // Multi-chat support. `chats` is the full sidebar list (most-recent
-  // first), `chatId` is the conversation the workspace is currently
-  // showing. `chatId === null` means "fresh new chat about to be
-  // started" — no Dynamo row exists yet; the first /api/agent/query/
-  // call will lazy-create one and return its id, which we'll then pin.
-  // We persist `chatId` in localStorage so a page reload lands the
-  // user back in the same conversation instead of dumping them into a
-  // blank new chat (or worse, the previous chat's stale history).
+  // Multi-chat support — same contract as before. `chatId === null`
+  // means "fresh new chat about to be started" — no Dynamo row exists
+  // yet; the first /api/agent/query/ call will lazy-create one and
+  // return its id, which we'll then pin.
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [chatId, setChatId] = useState<string | null>(
     () => localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || null,
@@ -245,10 +239,6 @@ function App() {
   // round-tripped session_* fields into localStorage under the current
   // chat's key so a page refresh restores the same conversational
   // context (menu LRU, restaurants, cart, addresses, placeholder ids).
-  // No-op while `chatId` is null — that means we're between a "new
-  // chat" click and the first turn's response, and the lazy-create flow
-  // will set `chatId` shortly, which fires this effect again with the
-  // populated session arrays under the correct key.
   useEffect(() => {
     if (!chatId) return;
     saveChatSession(chatId, {
@@ -268,17 +258,8 @@ function App() {
   ]);
 
   const loadInitialData = async () => {
-    // Boot order matters slightly: the chat list has to land before we
-    // try to restore the persisted chat_id, so the sidebar can highlight
-    // the active row from the very first render. Messages load second
-    // and can lag behind without UX cost.
     await refreshChatList();
     if (chatId) {
-      // Restore the per-chat session blob (restaurants / menu LRU /
-      // addresses / cart / placeholder ids) BEFORE messages so the very
-      // first turn after refresh has all the carry-forward context the
-      // backend was relying on — "yes add the second pizza", cart
-      // truthing, address echoes, etc.
       const snap = loadChatSession(chatId);
       if (snap) {
         setSessionState(snap.session_state);
@@ -305,9 +286,6 @@ function App() {
       const data = await api.get('/api/chats/?limit=80');
       const list: ChatSummary[] = Array.isArray(data?.chats) ? data.chats : [];
       setChats(list);
-      // If the localStorage-pinned chat no longer exists on the server
-      // (deleted on another device, scrubbed by the backend, etc.) drop
-      // the stale id so the workspace doesn't load a ghost.
       if (chatId && !list.some((c) => c.chat_id === chatId)) {
         clearChatSession(chatId);
         setChatId(null);
@@ -348,28 +326,17 @@ function App() {
     }
   };
 
-  // Switch the workspace to a different saved chat: pin the id, fetch
-  // its messages, and drop all in-memory carry-forward session state
-  // (cart, restaurants, addresses, menu LRU, placeholders). Those
-  // belong to the chat we're leaving — Zomato cart for chat A has no
-  // business polluting chat B's add-to-cart flow.
   const handleSelectChat = async (newChatId: string) => {
     if (newChatId === chatId) return;
     setChatId(newChatId);
     localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, newChatId);
     setIsAdminOpen(false);
-    // Hydrate the in-memory session from this chat's persisted blob.
-    // Falls back to an empty session for chats opened on another
-    // browser (no local cache) — the next turn's response will
-    // rebuild and re-persist whatever the backend ships back.
     const snap = loadChatSession(newChatId);
     setSessionState(snap?.session_state ?? {});
     setSessionRestaurants(snap?.session_restaurants ?? []);
     setSessionAddresses(snap?.session_addresses ?? []);
     setSessionMenu(snap?.session_menu ?? []);
     setSessionCart(snap?.session_cart ?? null);
-    setSearchQuery('');
-    setSearchOpen(false);
     setMessages([]);
     await loadChatMessages(newChatId);
   };
@@ -383,8 +350,6 @@ function App() {
     }
     setChats((prev) => prev.filter((c) => c.chat_id !== targetChatId));
     clearChatSession(targetChatId);
-    // If the deleted chat was the active one, fall back to "new chat"
-    // mode — clear the workspace and the localStorage pin.
     if (targetChatId === chatId) {
       setChatId(null);
       localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
@@ -456,11 +421,6 @@ function App() {
   };
 
   const handleNewChat = () => {
-    // Lazy chat creation: we don't POST /api/chats/ here. The chat row
-    // only gets written to Dynamo once the user actually sends a turn,
-    // so users can spam "new chat" without polluting the sidebar with
-    // empty rows. The backend lazy-creates on the first /api/agent/query/
-    // request that lacks a chat_id and echoes the new id back.
     setIsAdminOpen(false);
     setMessages([]);
     setSessionState({});
@@ -468,8 +428,6 @@ function App() {
     setSessionAddresses([]);
     setSessionMenu([]);
     setSessionCart(null);
-    setSearchQuery('');
-    setSearchOpen(false);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
@@ -503,31 +461,34 @@ function App() {
   };
 
   const handleSendMessage = async (content: string) => {
-    const userMsg: Message = { role: 'user', content };
+    const text = (content || '').trim();
+    if (!text) return;
+    const userMsg: Message = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setIsThinking(true);
 
     try {
-      let data: QueryResponse = await api.post(
-        '/api/agent/query/',
-        buildAgentBody(content, userLocation),
-      );
+      let data: QueryResponse = await api.post('/api/agent/query/', buildAgentBody(text, userLocation));
 
       const errorCode = (data as any)?.tool_execution?.error_code;
       if (errorCode === 'needs_location') {
         try {
           const fresh = await ensureLocation();
-          data = await api.post('/api/agent/query/', buildAgentBody(content, fresh));
+          data = await api.post('/api/agent/query/', buildAgentBody(text, fresh));
         } catch (geoErr: any) {
           const reason = geoErr?.reason ?? 'unknown';
           const friendly: Record<string, string> = {
-            permission_denied: "I couldn't get your location — you blocked the request. Allow location access in your browser and try again.",
+            permission_denied:
+              "I couldn't get your location — you blocked the request. Allow location access in your browser and try again.",
             position_unavailable: 'Your location is currently unavailable. Try again with a better signal.',
             timeout: 'Getting your location timed out — please try again.',
             unsupported: 'This browser does not expose location services.',
             unknown: 'I could not read your location.',
           };
-          setMessages((prev) => [...prev, { role: 'assistant', content: friendly[reason] || friendly.unknown }]);
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: friendly[reason] || friendly.unknown },
+          ]);
           return;
         }
       }
@@ -535,7 +496,10 @@ function App() {
       const assistantMsg: Message = {
         role: 'assistant',
         content: data.assistant_message,
-        meta: [...data.selected_tool_providers, data.tool_execution.ok ? 'tools ok' : data.tool_execution.error].filter(Boolean) as string[],
+        meta: [
+          ...data.selected_tool_providers,
+          data.tool_execution.ok ? 'tools ok' : data.tool_execution.error,
+        ].filter(Boolean) as string[],
         trace: data.observable_trace,
         attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
         provider:
@@ -546,25 +510,16 @@ function App() {
       if (Array.isArray(data.session_restaurants)) setSessionRestaurants(data.session_restaurants);
       if (Array.isArray(data.session_addresses)) setSessionAddresses(data.session_addresses);
       if (Array.isArray(data.session_menu)) setSessionMenu(data.session_menu);
-      // session_cart is replaced wholesale (null on a fresh session, full
-      // dict after each successful create_cart). null means "no current
-      // cart" — clear it so the prior cart doesn't leak across restaurants.
       if ('session_cart' in data) {
         const c = (data as any).session_cart;
         setSessionCart(c && typeof c === 'object' && c.cart_id ? c : null);
       }
 
-      // Pin the chat_id the backend confirmed (or lazy-created) so all
-      // subsequent turns land in the same conversation. Refresh the
-      // sidebar list so this chat sorts to the top with a fresh preview
-      // — and so a newly-created chat actually shows up.
       if (typeof data.chat_id === 'string' && data.chat_id) {
         if (data.chat_id !== chatId) {
           setChatId(data.chat_id);
           localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
         }
-        // Don't await — let the UI render the assistant message first;
-        // a stale sidebar list for a couple hundred ms is fine.
         refreshChatList();
       }
 
@@ -586,6 +541,60 @@ function App() {
     setIsSettingsOpen(true);
   };
 
+  // Cosmetic reminders/orders handlers — unchanged from the new UI's
+  // reference App.tsx, just lifted into local state because there's no
+  // backend wiring for them yet.
+  const handleToggleReminder = (id: string) =>
+    setReminders((prev) => prev.map((r) => (r.id === id ? { ...r, completed: !r.completed } : r)));
+  const handleAddReminder = (text: string, category: 'daily' | 'today') => {
+    setReminders((prev) => [
+      ...prev,
+      {
+        id: `rem-${Date.now()}`,
+        category,
+        text,
+        time: category === 'daily' ? '08:30 AM' : 'Just now',
+        completed: false,
+      },
+    ]);
+  };
+  const handleDeleteReminder = (id: string) =>
+    setReminders((prev) => prev.filter((r) => r.id !== id));
+  const handleClearCompletedReminders = () =>
+    setReminders((prev) => prev.filter((r) => !r.completed));
+
+  const handleCancelOrder = (id: string) =>
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === id
+          ? { ...o, status: o.status === 'Cancelled' ? 'Preparing' : 'Cancelled' }
+          : o,
+      ),
+    );
+  const handleAddOrder = (provider: string, text: string, category: 'daily' | 'today', price: string) => {
+    setOrders((prev) => [
+      ...prev,
+      {
+        id: `ord-${Date.now()}`,
+        category,
+        provider,
+        text,
+        status: category === 'daily' ? 'Active Subscription' : 'Preparing',
+        time: category === 'daily' ? 'Daily 10 AM' : 'ETA 12 mins',
+        price: price || '₹150',
+      },
+    ]);
+  };
+  const handleDeleteOrder = (id: string) =>
+    setOrders((prev) => prev.filter((o) => o.id !== id));
+
+  const remindersBadge = useMemo(
+    () => reminders.filter((r) => !r.completed).length,
+    [reminders],
+  );
+
+  const isAdmin = ADMIN_USERNAMES.has(username);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -598,137 +607,64 @@ function App() {
     return <Login onLoginSuccess={handleLoginSuccess} />;
   }
 
-  const openMobileRail = () => {
-    setMobileRightOpen(false);
-    setMobileRailOpen(true);
-  };
-  const openMobileRight = () => {
-    setMobileRailOpen(false);
-    setMobileRightOpen(true);
-  };
-
   return (
-    <div className="h-[100dvh] w-screen flex overflow-hidden text-slate-900">
-      <SidebarRail
-        onNewChat={handleNewChat}
-        onToggleSearch={() => setSearchOpen((v) => !v)}
-        onToggleExplore={() => setShowQuickActions((v) => !v)}
-        onOpenSettings={() => openSettings('mcp')}
+    <div className="flex h-[100dvh] w-screen overflow-hidden font-sans select-none relative">
+      <LeftSidebar
+        username={username}
+        isAdmin={isAdmin}
         onLogout={handleLogout}
-        searchActive={searchOpen}
-        exploreActive={showQuickActions}
-        isMobileOpen={mobileRailOpen}
-        onMobileClose={() => setMobileRailOpen(false)}
-        isAdmin={['admin', 'admin_bhavesh', 'admin_kshitij', 'local_admin'].includes(username)}
         onOpenAdmin={() => {
-          setSearchOpen(false);
           setIsAdminOpen(true);
         }}
+        onOpenSettings={() => openSettings('mcp')}
+        onNewChat={handleNewChat}
         chats={chats}
         activeChatId={chatId}
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
+        toolProviders={toolProviders}
+        mcpStatuses={mcpStatuses}
+        onSelectProvider={(id) => openSettings('mcp', id)}
+        remindersBadge={remindersBadge || undefined}
+        onShowReminders={() => setShowRemindersPopup(true)}
+        onShowOrders={() => setShowOrdersPopup(true)}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
       />
 
       <div className="flex-1 flex flex-col relative overflow-hidden min-w-0">
-        {/* Mobile top bar — only visible below `md`. Hamburger opens the
-            rail, the right-panel icon opens the integrations panel, and
-            the brand text gives the user a focal anchor. */}
-        <div className="md:hidden flex items-center justify-between px-3 py-2.5 bg-white/70 backdrop-blur-md border-b border-slate-200/70 z-20 shrink-0">
-          <button
-            onClick={openMobileRail}
-            className="w-10 h-10 rounded-full text-slate-700 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100 flex items-center justify-center transition-all active:scale-95"
-            title="Open menu"
-            aria-label="Open menu"
-          >
-            <Menu size={20} />
-          </button>
-
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-slate-950 text-white flex items-center justify-center shadow">
-              <Sparkles size={12} className="text-amber-300" />
-            </div>
-            <span className="text-sm font-bold text-slate-900 tracking-tight">Companion</span>
-          </div>
-
-          <button
-            onClick={openMobileRight}
-            className="w-10 h-10 rounded-full text-slate-700 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100 flex items-center justify-center transition-all active:scale-95"
-            title="Open integrations panel"
-            aria-label="Open integrations panel"
-          >
-            <PanelRightOpen size={18} />
-          </button>
-        </div>
-
         {isAdminOpen ? (
           <AdminDashboard onClose={() => setIsAdminOpen(false)} />
         ) : (
-          <>
-            {searchOpen && (
-              <div className="absolute top-16 md:top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-full shadow-lg shadow-slate-900/10 pl-3 pr-1 py-1 max-w-[92vw]">
-                <Search size={14} className="text-slate-500 shrink-0" />
-                <input
-                  autoFocus
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search this conversation…"
-                  className="bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-48 md:w-64"
-                />
-                <button
-                  onClick={() => {
-                    setSearchOpen(false);
-                    setSearchQuery('');
-                  }}
-                  className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
-                  title="Close search"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-
-            <ChatLog
-              messages={messages}
-              isThinking={isThinking}
-              sessionAddresses={sessionAddresses}
-              onSelectAddress={(addr) => {
-                const label = (addr.location_name || addr.address_id || '').trim();
-                if (!label || isThinking) return;
-                handleSendMessage(`Switch my delivery address to: ${label}.`);
-              }}
-              searchQuery={searchQuery}
-              onQuickPrompt={(prompt) => {
-                if (isThinking) return;
-                handleSendMessage(prompt);
-              }}
-              quickPromptDisabled={isThinking}
-            />
-
-            <MessageInput
-              onSendMessage={handleSendMessage}
-              disabled={isThinking}
-              showQuickActions={showQuickActions && messages.length === 0}
-            />
-          </>
+          <ChatArea
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            isThinking={isThinking}
+            onSuggestionClick={(prompt) => {
+              if (!isThinking) handleSendMessage(prompt);
+            }}
+            onToggleLeft={() => setIsSidebarCollapsed((v) => !v)}
+            isSidebarCollapsed={isSidebarCollapsed}
+            connectedCount={
+              Object.values(mcpStatuses).filter((s) => {
+                const st = (s as any)?.status;
+                return st === 'ready' || st === 'ready_pending';
+              }).length
+            }
+            username={username}
+            sessionAddresses={sessionAddresses}
+            onSelectAddress={(addr) => {
+              const label = (addr.location_name || addr.address_id || '').trim();
+              if (!label || isThinking) return;
+              handleSendMessage(`Switch my delivery address to: ${label}.`);
+            }}
+            onQuickPrompt={(prompt) => {
+              if (!isThinking) handleSendMessage(prompt);
+            }}
+            quickPromptDisabled={isThinking}
+          />
         )}
       </div>
-
-      <RightSidebar
-        username={username}
-        toolProviders={toolProviders}
-        mcpStatuses={mcpStatuses}
-        isLoadingMcp={isLoadingMcp}
-        onSelectProvider={(id) => openSettings('mcp', id)}
-        gcalStatus={gcalStatus}
-        onConnectGcal={() => openSettings('calendar')}
-        mapsConfigured={mapsConfigured}
-        onOpenMaps={() => openSettings('calendar')}
-        onOpenSettings={() => openSettings('mcp')}
-        isMobileOpen={mobileRightOpen}
-        onMobileClose={() => setMobileRightOpen(false)}
-      />
 
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -746,6 +682,32 @@ function App() {
         initialProviderId={settingsInitialProvider}
       />
 
+      <AnimatePresence>
+        {showRemindersPopup && (
+          <RemindersPopup
+            isOpen={showRemindersPopup}
+            onClose={() => setShowRemindersPopup(false)}
+            reminders={reminders}
+            onToggleReminder={handleToggleReminder}
+            onAddReminder={handleAddReminder}
+            onDeleteReminder={handleDeleteReminder}
+            onClearCompleted={handleClearCompletedReminders}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showOrdersPopup && (
+          <OrdersPopup
+            isOpen={showOrdersPopup}
+            onClose={() => setShowOrdersPopup(false)}
+            orders={orders}
+            onCancelOrder={handleCancelOrder}
+            onAddOrder={handleAddOrder}
+            onDeleteOrder={handleDeleteOrder}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

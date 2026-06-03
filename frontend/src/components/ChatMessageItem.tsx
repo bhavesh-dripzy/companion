@@ -1,0 +1,187 @@
+/**
+ * Companion chat message bubble (redesigned shell + existing backend
+ * payload). Renders one assistant/user turn from the real `Message`
+ * shape (markdown body + optional attachments + optional trace + meta
+ * chips) inside the new UI's avatar/bubble layout. Reuses the existing
+ * `AttachmentList` + `AddressChoices` renderers from `ChatLog.tsx` so
+ * Zomato/Swiggy menu, restaurant, and cart cards keep working exactly
+ * as they did under the old skin.
+ */
+
+import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
+import { motion } from 'motion/react';
+import { ThumbsDown, ThumbsUp } from 'lucide-react';
+import { AddressChoices, AttachmentList, looksLikeAddressPrompt } from '../ChatLog';
+import type { Message, SessionAddress } from '../types';
+
+interface ChatMessageItemProps {
+  msg: Message;
+  /** Is this the most recent assistant message? Controls whether the
+   *  address-choice chips are eligible to surface. */
+  isLatestAssistant?: boolean;
+  /** Hide the address chips while the next turn is in flight so the
+   *  user doesn't fire two address-switch requests on top of each
+   *  other. */
+  isThinking?: boolean;
+  /** Saved delivery addresses to render under the bubble when the
+   *  assistant is explicitly asking the user to pick one. */
+  sessionAddresses?: SessionAddress[];
+  onSelectAddress?: (addr: SessionAddress) => void;
+  /** Forwarded into AttachmentList so restaurant/menu/cart quick
+   *  actions can fire follow-up prompts straight back through the
+   *  agent (e.g. "Add Margherita Pizza to my Zomato cart"). */
+  onQuickPrompt?: (prompt: string) => void;
+  quickPromptDisabled?: boolean;
+}
+
+const formatBubbleTimestamp = (iso?: string): string => {
+  // Backend doesn't always ship a per-message timestamp (older rows in
+  // Dynamo, in-flight bubbles before persist round-trips, etc.) so
+  // fall back to "now" — matches the previous ChatLog behaviour.
+  const d = iso ? new Date(iso) : new Date();
+  if (Number.isNaN(d.getTime())) return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+export function ChatMessageItem({
+  msg,
+  isLatestAssistant = false,
+  isThinking = false,
+  sessionAddresses = [],
+  onSelectAddress,
+  onQuickPrompt,
+  quickPromptDisabled,
+}: ChatMessageItemProps) {
+  const isUser = msg.role === 'user';
+  const [liked, setLiked] = React.useState<'up' | 'down' | null>(null);
+
+  const showAddressPicker =
+    !isUser
+    && isLatestAssistant
+    && !isThinking
+    && sessionAddresses.length > 0
+    && looksLikeAddressPrompt(msg.content || '');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: 'easeOut' }}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start gap-3.5'} items-start w-full group`}
+    >
+      {/* Assistant avatar — circular dark badge matching the redesign */}
+      {!isUser && (
+        <div className="w-9 h-9 rounded-full bg-[#121118] text-white flex items-center justify-center shadow-xs shrink-0 select-none transform hover:scale-105 transition-all text-sm font-black relative">
+          <span>C</span>
+          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
+        </div>
+      )}
+
+      {/* Bubble body + cards + chips */}
+      <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : 'max-w-[88%] flex-1'}`}>
+        <div
+          className={`px-5 py-3 rounded-3xl text-[14.5px] leading-relaxed transition-all duration-200 max-w-full ${
+            isUser
+              ? 'bg-[#121118] text-white shadow-sm font-medium rounded-tr-sm'
+              : 'bg-white border border-[#e3e1e9]/65 text-slate-800 shadow-2xs font-normal rounded-tl-sm select-text'
+          }`}
+        >
+          <div
+            className={`prose max-w-none prose-p:leading-relaxed prose-p:my-1.5 ${
+              isUser
+                ? 'prose-invert prose-strong:text-white prose-a:text-amber-300 prose-code:text-amber-200'
+                : 'prose-slate prose-strong:text-slate-900 prose-a:text-blue-600 prose-code:text-rose-600 prose-pre:bg-slate-900 prose-pre:text-slate-100'
+            }`}
+          >
+            <ReactMarkdown remarkPlugins={[remarkBreaks]}>{msg.content}</ReactMarkdown>
+          </div>
+        </div>
+
+        {/* Real attachments (menu_cards / restaurant_cards / cart_card /
+            QR images) rendered via the existing component so all the
+            previous behaviour (provider theming, quick-prompt popovers,
+            "Order now" CTA) is preserved. */}
+        {msg.attachments && msg.attachments.length > 0 && (
+          <AttachmentList
+            attachments={msg.attachments}
+            onQuickPrompt={onQuickPrompt}
+            quickPromptDisabled={quickPromptDisabled}
+          />
+        )}
+
+        {/* Address picker — only on the latest assistant turn, and only
+            when the body actually asks the user to pick one. */}
+        {showAddressPicker && onSelectAddress && (
+          <AddressChoices addresses={sessionAddresses} onSelect={onSelectAddress} />
+        )}
+
+        {/* Meta chips ("zomato_food", "tools ok", etc.) — kept for
+            parity with the previous skin so users can still see which
+            provider handled a turn at a glance. */}
+        {msg.meta && msg.meta.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-2">
+            {msg.meta.map((m, idx) => (
+              <span
+                key={idx}
+                className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-white/70 border border-slate-200/70 rounded-md text-slate-500"
+              >
+                {m}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Collapsible trace details — preserved from the prior skin
+            so debug/observability info stays one click away. */}
+        {msg.trace && msg.trace.length > 0 && (
+          <details className="mt-2 w-full">
+            <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-700 transition-colors font-medium">
+              View trace details
+            </summary>
+            <div className="mt-2 space-y-2 p-3 bg-white/70 rounded-xl border border-slate-200/70">
+              {msg.trace.map((t: any, idx: number) => (
+                <div key={idx} className="text-[11px] grid grid-cols-[80px_1fr] gap-2">
+                  <span className="text-slate-700 font-semibold">{t.provider || t.stage}:</span>
+                  <span className="text-slate-500 truncate">{t.detail}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        {/* Timestamp + like buttons (assistant only) */}
+        <div
+          className={`text-[10px] text-slate-400 font-sans font-medium mt-1.5 px-1.5 select-none flex items-center gap-3 ${
+            isUser ? 'self-end mr-1' : 'self-start ml-1'
+          }`}
+        >
+          <span>{formatBubbleTimestamp(msg.created_at)}</span>
+          {!isUser && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setLiked((prev) => (prev === 'up' ? null : 'up'))}
+                className={`p-1 rounded transition-all cursor-pointer hover:text-emerald-600 hover:bg-emerald-50 ${
+                  liked === 'up' ? 'text-emerald-600 bg-emerald-50/60' : ''
+                }`}
+                title="Rate helpful"
+              >
+                <ThumbsUp size={11} />
+              </button>
+              <button
+                onClick={() => setLiked((prev) => (prev === 'down' ? null : 'down'))}
+                className={`p-1 rounded transition-all cursor-pointer hover:text-rose-600 hover:bg-rose-50 ${
+                  liked === 'down' ? 'text-rose-600 bg-rose-50/60' : ''
+                }`}
+                title="Rate unhelpful"
+              >
+                <ThumbsDown size={11} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}

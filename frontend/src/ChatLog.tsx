@@ -185,12 +185,12 @@ const QuickActionPopover: React.FC<{
 const ADDRESS_WORD = /\b(address|addresses|adderess|adderesses)\b/i;
 const ADDRESS_PROMPT_HINT = /\?|which|select|pick|choose|switch|change|kaunsa|kaunsi|konsa|konsi|batao|prefer|use a different|use my/i;
 
-const looksLikeAddressPrompt = (text: string): boolean => {
+export const looksLikeAddressPrompt = (text: string): boolean => {
   if (!text) return false;
   return ADDRESS_WORD.test(text) && ADDRESS_PROMPT_HINT.test(text);
 };
 
-const AddressChoices: React.FC<{
+export const AddressChoices: React.FC<{
   addresses: SessionAddress[];
   onSelect: (addr: SessionAddress) => void;
 }> = ({ addresses, onSelect }) => {
@@ -1319,7 +1319,7 @@ const CartCard: React.FC<{
   );
 };
 
-const AttachmentList: React.FC<{
+export const AttachmentList: React.FC<{
   attachments: Attachment[];
   onQuickPrompt?: (prompt: string) => void;
   quickPromptDisabled?: boolean;

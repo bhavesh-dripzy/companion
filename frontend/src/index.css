@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
@@ -5,16 +6,11 @@
   color-scheme: light;
 }
 
-/* Companion — light "glass workspace" theme inspired by the reference
-   layout (left rail · chat feed · right info panel). The canvas is a
-   warm cream gradient, surfaces are translucent white with subtle
-   backdrop-blur, and the primary accent is slate-950 (used for the
-   user bubble, send button, and the avatar tile). Status / activity
-   colours stay as emerald (connected) and amber (waveform highlight)
-   so they sit cleanly against the neutral palette. Tokens are exposed
-   via Tailwind v4 @theme so any leftover `bg-surface` / `bg-accent`
-   class names from the previous dark theme keep rendering against
-   sensible light fallbacks during the transition. */
+/* Companion — new "glass + sunrise" theme based on the redesign. The
+   canvas is a soft amber/sky/lavender gradient blended over a cream
+   base; primary copy is slate-900, accents are indigo + emerald. The
+   tokens below double as fallbacks so any straggler `bg-surface` /
+   `bg-accent` classes from the previous design keep rendering. */
 @theme {
   --color-background: #f6f1ea;
   --color-surface: #ffffff;
@@ -28,6 +24,14 @@
   --color-brand-from: #fef3c7;
   --color-brand-via: #fde68a;
   --color-brand-to: #fbbf24;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --animate-orb-glow: orb-glow 8s ease-in-out infinite alternate;
+  --animate-orb-spin: orb-spin 20s linear infinite;
+  --animate-pulse-slow: pulse-slow 3s ease-in-out infinite;
 }
 
 .brand-gradient {
@@ -53,12 +57,11 @@
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   color: #0f172a;
   /* Soft cream canvas with a faint peach/rose bloom in the upper-right
      and a cooler lavender wash drifting through the centre — mirrors
-     the painterly background in the reference comps without being so
-     saturated that it overwhelms the translucent surfaces on top. */
+     the painterly background in the redesign comps. */
   background-color: #f6f1ea;
   background-image:
     radial-gradient(ellipse 60% 50% at 85% 0%, rgba(251, 191, 36, 0.18) 0%, transparent 70%),
@@ -100,7 +103,7 @@ body > #root {
 }
 
 /* Gentle entrance used by the quick-action popover on restaurant cards
-   and the Zomato cart-summary card so they don't pop in jarringly when
+   and the cart-summary card so they don't pop in jarringly when
    they appear under an assistant bubble or after an item click. */
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(6px); }
@@ -117,4 +120,53 @@ body > #root {
 }
 .scrollbar-none {
   scrollbar-width: none;
+}
+
+/* New UI helper — used by the redesign's horizontal prompt ribbon,
+   sidebar lists, and the chat scroller so they overflow cleanly
+   without showing scrollbars. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Animations pulled in from the new UI for the brand orb in the
+   left sidebar header and the hero idle states. */
+@keyframes orb-glow {
+  0% {
+    transform: scale(1) translate(0px, 0px) rotate(0deg);
+    filter: hue-rotate(0deg) blur(20px);
+  }
+  33% {
+    transform: scale(1.08) translate(5px, -10px) rotate(120deg);
+    filter: hue-rotate(40deg) blur(30px);
+  }
+  66% {
+    transform: scale(0.95) translate(-10px, 8px) rotate(240deg);
+    filter: hue-rotate(85deg) blur(25px);
+  }
+  100% {
+    transform: scale(1.05) translate(2px, -3px) rotate(360deg);
+    filter: hue-rotate(120deg) blur(20px);
+  }
+}
+
+@keyframes orb-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+    box-shadow: 0 0 40px rgba(139, 92, 246, 0.3);
+  }
 }
