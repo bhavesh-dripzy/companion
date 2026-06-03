@@ -16,8 +16,10 @@ from companion_api import settings
 from companion_api.secrets import secret_or_env
 
 _TOKEN_SECRET_ID = "companion/uber-tokens"
-_AUTH_URL = "https://auth.uber.com/oauth/v2/authorize"
-_TOKEN_URL = "https://auth.uber.com/oauth/v2/token"
+_PROD_AUTH_URL = "https://auth.uber.com/oauth/v2/authorize"
+_PROD_TOKEN_URL = "https://auth.uber.com/oauth/v2/token"
+_SANDBOX_AUTH_URL = "https://sandbox-login.uber.com/oauth/v2/authorize"
+_SANDBOX_TOKEN_URL = "https://sandbox-login.uber.com/oauth/v2/token"
 _PROD_API_BASE = "https://api.uber.com/v1.2"
 _SANDBOX_API_BASE = "https://sandbox-api.uber.com/v1.2"
 _PENDING_TTL_SECONDS = 15 * 60
@@ -116,11 +118,17 @@ def _api_base() -> str:
 
 
 def _auth_url() -> str:
-    return secret_or_env("UBER_AUTH_URL", _AUTH_URL)
+    configured = secret_or_env("UBER_AUTH_URL")
+    if configured:
+        return configured
+    return _PROD_AUTH_URL if uber_environment() == "production" else _SANDBOX_AUTH_URL
 
 
 def _token_url() -> str:
-    return secret_or_env("UBER_TOKEN_URL", _TOKEN_URL)
+    configured = secret_or_env("UBER_TOKEN_URL")
+    if configured:
+        return configured
+    return _PROD_TOKEN_URL if uber_environment() == "production" else _SANDBOX_TOKEN_URL
 
 
 def start_uber_oauth(*, user_id: str, redirect_uri: str) -> dict[str, str]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from app.services.uber.client import start_uber_oauth
 from app.services.uber.executor import execute_uber_cab
 from app.services.uber.planner import plan_uber_cab
 from app.services.uber.responder import reply_uber_cab
@@ -68,3 +69,20 @@ def test_uber_responder_surfaces_not_connected_link():
 
     assert "not connected" in text.lower()
     assert "https://m.uber.com" in text
+
+
+def test_uber_oauth_uses_sandbox_host_by_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("UBER_CLIENT_ID", "client-id")
+    monkeypatch.setenv("UBER_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("UBER_ENVIRONMENT", "sandbox")
+    monkeypatch.setenv("UBER_TOKEN_STORE_FILE", str(tmp_path / "uber_tokens.json"))
+    monkeypatch.delenv("UBER_AUTH_URL", raising=False)
+
+    data = start_uber_oauth(
+        user_id="local_admin",
+        redirect_uri="http://127.0.0.1:8000/api/uber/oauth/callback",
+    )
+
+    assert data["authorization_url"].startswith(
+        "https://sandbox-login.uber.com/oauth/v2/authorize?"
+    )
