@@ -59,6 +59,16 @@ class FoodQueryRequest(BaseModel):
     session_addresses: list[dict[str, Any]] | None = None
     session_movies: list[dict[str, Any]] | None = None
     session_theatres: list[dict[str, Any]] | None = None
+    # District event-surface memory — same echo contract as session_movies /
+    # session_theatres. Carry-forward lists of (event_id, name), (venue_id,
+    # name), (artist_id, name) tuples shown this session so the planner can
+    # cite literal ids on follow-ups ("more about that comedy night") without
+    # re-running discovery. ``session_reservation`` is a single dict (not LRU)
+    # because District table bookings are 1-per-cart by design.
+    session_events: list[dict[str, Any]] | None = None
+    session_venues: list[dict[str, Any]] | None = None
+    session_artists: list[dict[str, Any]] | None = None
+    session_reservation: dict[str, Any] | None = None
     # Multi-item menu memory (Zomato-only today): every (res_id, variant_id,
     # item_name, addon_groups) tuple the user has been shown this session.
     # Lets the planner produce a direct create_cart for "add chicken keto
@@ -109,6 +119,12 @@ class AgentQueryRequest(BaseModel):
     session_addresses: list[dict[str, Any]] | None = None
     session_movies: list[dict[str, Any]] | None = None
     session_theatres: list[dict[str, Any]] | None = None
+    # See FoodQueryRequest.session_events / session_venues / session_artists /
+    # session_reservation above.
+    session_events: list[dict[str, Any]] | None = None
+    session_venues: list[dict[str, Any]] | None = None
+    session_artists: list[dict[str, Any]] | None = None
+    session_reservation: dict[str, Any] | None = None
     # See FoodQueryRequest.session_menu above.
     session_menu: list[dict[str, Any]] | None = None
     # See FoodQueryRequest.session_cart above.

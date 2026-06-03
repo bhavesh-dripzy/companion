@@ -14,6 +14,16 @@ import type {
 } from './types';
 import { cn } from './utils';
 import {
+  ArtistCardGrid,
+  DiningCardGrid,
+  EventCardGrid,
+  MovieCardGrid,
+  ReservationCardComponent,
+  ShowCardGrid,
+  TheatreCardGrid,
+  VenueCardGrid,
+} from './components/DistrictCards';
+import {
   ExternalLink,
   MapPin,
   ChevronDown,
@@ -288,6 +298,17 @@ const PROVIDER_THEMES: Record<CardProvider, ProviderTheme> = {
     cartHeaderTitle: 'Swiggy Checkout API',
     activeRingClass: 'bg-[#FC8019]/10 ring-1 ring-[#FC8019]/30',
   },
+  district: {
+    label: 'District',
+    brandHex: '#7C3AED',
+    brandTintBg: 'bg-[#7C3AED]/5',
+    brandTintBorder: 'border-violet-100/80',
+    // District doesn't ship a cart / checkout; the equivalent action is
+    // "confirm reservation" — but we don't auto-trigger that from a card.
+    checkoutPrompt: 'Confirm my District reservation.',
+    cartHeaderTitle: 'District Booking',
+    activeRingClass: 'bg-[#7C3AED]/10 ring-1 ring-[#7C3AED]/30',
+  },
 };
 
 const NEUTRAL_THEME: ProviderTheme = {
@@ -300,7 +321,7 @@ const NEUTRAL_THEME: ProviderTheme = {
   activeRingClass: 'bg-slate-100 ring-1 ring-slate-300',
 };
 
-const themeFor = (provider: CardProvider | undefined): ProviderTheme =>
+export const themeFor = (provider: CardProvider | undefined): ProviderTheme =>
   (provider && PROVIDER_THEMES[provider]) || NEUTRAL_THEME;
 
 const formatPriceINR = (value: number | undefined): string | null => {
@@ -1349,6 +1370,80 @@ export const AttachmentList: React.FC<{
             provider={att.provider}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
+          />
+        );
+      }
+      // District card kinds — each one carries its own list under a typed
+      // field on the Attachment shape (dining_restaurants / movies /
+      // theatres / shows / events / venues / artists / reservation).
+      if (kind === 'dining_cards') {
+        return (
+          <DiningCardGrid
+            key={`district-dining-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'movie_cards') {
+        return (
+          <MovieCardGrid
+            key={`district-movies-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'theatre_cards') {
+        return (
+          <TheatreCardGrid
+            key={`district-theatres-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'show_cards') {
+        return <ShowCardGrid key={`district-shows-${idx}`} attachment={att} />;
+      }
+      if (kind === 'event_cards') {
+        return (
+          <EventCardGrid
+            key={`district-events-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'venue_cards') {
+        return (
+          <VenueCardGrid
+            key={`district-venues-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'artist_cards') {
+        return (
+          <ArtistCardGrid
+            key={`district-artists-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'reservation_card' && att.reservation) {
+        return (
+          <ReservationCardComponent
+            key={`district-reservation-${att.reservation.booking_id || idx}`}
+            reservation={att.reservation}
           />
         );
       }

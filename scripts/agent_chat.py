@@ -70,6 +70,10 @@ def _load_state(path: Path) -> dict[str, Any]:
         "session_restaurants": [],
         "session_movies": [],
         "session_theatres": [],
+        "session_events": [],
+        "session_venues": [],
+        "session_artists": [],
+        "session_reservation": None,
         "session_addresses": [],
         "session_menu": [],
         "session_cart": None,
@@ -86,6 +90,10 @@ def _load_state(path: Path) -> dict[str, Any]:
     loaded.setdefault("session_restaurants", [])
     loaded.setdefault("session_movies", [])
     loaded.setdefault("session_theatres", [])
+    loaded.setdefault("session_events", [])
+    loaded.setdefault("session_venues", [])
+    loaded.setdefault("session_artists", [])
+    loaded.setdefault("session_reservation", None)
     loaded.setdefault("session_addresses", [])
     loaded.setdefault("session_menu", [])
     loaded.setdefault("session_cart", None)
@@ -148,6 +156,13 @@ def main() -> int:
     session_restaurants: list[dict[str, Any]] = state.get("session_restaurants") or []
     session_movies: list[dict[str, Any]] = state.get("session_movies") or []
     session_theatres: list[dict[str, Any]] = state.get("session_theatres") or []
+    session_events: list[dict[str, Any]] = state.get("session_events") or []
+    session_venues: list[dict[str, Any]] = state.get("session_venues") or []
+    session_artists: list[dict[str, Any]] = state.get("session_artists") or []
+    raw_reservation = state.get("session_reservation")
+    session_reservation: dict[str, Any] | None = (
+        raw_reservation if isinstance(raw_reservation, dict) else None
+    )
     session_addresses: list[dict[str, Any]] = state.get("session_addresses") or []
     session_menu: list[dict[str, Any]] = state.get("session_menu") or []
     session_cart: dict[str, Any] | None = state.get("session_cart") if isinstance(state.get("session_cart"), dict) else None
@@ -171,6 +186,14 @@ def main() -> int:
         body["session_movies"] = session_movies
     if session_theatres:
         body["session_theatres"] = session_theatres
+    if session_events:
+        body["session_events"] = session_events
+    if session_venues:
+        body["session_venues"] = session_venues
+    if session_artists:
+        body["session_artists"] = session_artists
+    if session_reservation and session_reservation.get("booking_id"):
+        body["session_reservation"] = session_reservation
     if session_addresses:
         body["session_addresses"] = session_addresses
     if session_menu:
@@ -219,6 +242,15 @@ def main() -> int:
     next_restaurants = result.get("session_restaurants") or []
     next_movies = result.get("session_movies") or []
     next_theatres = result.get("session_theatres") or []
+    next_events = result.get("session_events") or []
+    next_venues = result.get("session_venues") or []
+    next_artists = result.get("session_artists") or []
+    next_reservation_raw = result.get("session_reservation")
+    next_reservation: dict[str, Any] | None = (
+        next_reservation_raw
+        if isinstance(next_reservation_raw, dict) and next_reservation_raw.get("booking_id")
+        else None
+    )
     next_addresses = result.get("session_addresses") or []
     next_menu = result.get("session_menu") or []
     next_cart = result.get("session_cart")
@@ -247,6 +279,28 @@ def main() -> int:
         rests = ", ".join(f"{r.get('name')}({r.get('res_id')})" for r in next_restaurants[:5])
         more = "" if len(next_restaurants) <= 5 else f" (+{len(next_restaurants) - 5} more)"
         print(f"  restaurants OUT   : {rests}{more}")
+    if next_movies:
+        ms = ", ".join(f"{m.get('name')}({m.get('movie_id')})" for m in next_movies[:5])
+        print(f"  movies OUT        : {ms}")
+    if next_theatres:
+        ts = ", ".join(f"{t.get('name')}({t.get('theatre_id')})" for t in next_theatres[:5])
+        print(f"  theatres OUT      : {ts}")
+    if next_events:
+        es = ", ".join(f"{e.get('name')}({e.get('event_id')})" for e in next_events[:5])
+        print(f"  events OUT        : {es}")
+    if next_venues:
+        vs = ", ".join(f"{v.get('name')}({v.get('venue_id')})" for v in next_venues[:5])
+        print(f"  venues OUT        : {vs}")
+    if next_artists:
+        ars = ", ".join(f"{a.get('name')}({a.get('artist_id')})" for a in next_artists[:5])
+        print(f"  artists OUT       : {ars}")
+    if next_reservation:
+        print(
+            f"  reservation OUT   : booking_id={next_reservation.get('booking_id')} "
+            f"res={next_reservation.get('restaurant_name')!r}({next_reservation.get('res_id')}) "
+            f"date={next_reservation.get('booking_date')} time={next_reservation.get('slot_time')} "
+            f"party={next_reservation.get('party_size')} status={next_reservation.get('status')!r}"
+        )
     if next_addresses:
         addrs = ", ".join(f"{_addr_label(a)}({a.get('address_id')})" for a in next_addresses[:5])
         more = "" if len(next_addresses) <= 5 else f" (+{len(next_addresses) - 5} more)"
@@ -331,6 +385,73 @@ def main() -> int:
                         f"            • {it.get('name')} (vid={it.get('variant_id')}, "
                         f"₹{it.get('price')}, {it.get('veg_kind')})"
                     )
+        elif kind == 'dining_cards':
+            rows = att.get('dining_restaurants') or []
+            print(f"    [{j}] kind='dining_cards' provider='district' cards={len(rows)}")
+            for r in rows[:4]:
+                print(
+                    f"        ▸ {r.get('name')} (res_id={r.get('res_id')}, "
+                    f"⭐{r.get('rating')}, {r.get('locality')}, bookable={r.get('bookable_via_agent')})"
+                )
+        elif kind == 'movie_cards':
+            rows = att.get('movies') or []
+            print(f"    [{j}] kind='movie_cards' provider='district' cards={len(rows)}")
+            for m in rows[:4]:
+                langs = ",".join(m.get('languages') or [])
+                print(
+                    f"        ▸ {m.get('name')} (movie_id={m.get('movie_id')}, "
+                    f"{langs}, ⭐{m.get('rating')}, {m.get('duration_minutes')}min)"
+                )
+        elif kind == 'theatre_cards':
+            rows = att.get('theatres') or []
+            print(f"    [{j}] kind='theatre_cards' provider='district' cards={len(rows)}")
+            for t in rows[:4]:
+                print(
+                    f"        ▸ {t.get('name')} (theatre_id={t.get('theatre_id')}, "
+                    f"{t.get('locality')}, {t.get('distance')})"
+                )
+        elif kind == 'show_cards':
+            rows = att.get('shows') or []
+            print(f"    [{j}] kind='show_cards' provider='district' cards={len(rows)}")
+            for s in rows[:4]:
+                print(
+                    f"        ▸ {s.get('movie_name')} @ {s.get('theatre_name')} "
+                    f"({s.get('show_start_time')}, {s.get('screen_type')}, "
+                    f"₹{s.get('min_price')})"
+                )
+        elif kind == 'event_cards':
+            rows = att.get('events') or []
+            print(f"    [{j}] kind='event_cards' provider='district' cards={len(rows)}")
+            for e in rows[:4]:
+                print(
+                    f"        ▸ {e.get('name')} (event_id={e.get('event_id')}, "
+                    f"{e.get('date_string')}, {e.get('venue_name')}, "
+                    f"{e.get('price_string')})"
+                )
+        elif kind == 'venue_cards':
+            rows = att.get('venues') or []
+            print(f"    [{j}] kind='venue_cards' provider='district' cards={len(rows)}")
+            for v in rows[:4]:
+                print(
+                    f"        ▸ {v.get('name')} (venue_id={v.get('venue_id')}, "
+                    f"{v.get('locality')}, {v.get('city')})"
+                )
+        elif kind == 'artist_cards':
+            rows = att.get('artists') or []
+            print(f"    [{j}] kind='artist_cards' provider='district' cards={len(rows)}")
+            for a in rows[:4]:
+                print(
+                    f"        ▸ {a.get('name')} (artist_id={a.get('artist_id')}, "
+                    f"{a.get('artist_type')}, upcoming={a.get('upcoming_event_count')})"
+                )
+        elif kind == 'reservation_card':
+            r = att.get('reservation') or {}
+            print(
+                f"    [{j}] kind='reservation_card' provider='district' "
+                f"booking_id={r.get('booking_id')} res={r.get('restaurant_name')!r} "
+                f"({r.get('booking_date')} {r.get('slot_time')}) "
+                f"party={r.get('party_size')} status={r.get('status')!r}"
+            )
         else:
             print(
                 f"    [{j}] kind={kind!r} mime={att.get('mime_type')!r} "
@@ -355,6 +476,13 @@ def main() -> int:
         state["session_movies"] = next_movies
     if isinstance(next_theatres, list):
         state["session_theatres"] = next_theatres
+    if isinstance(next_events, list):
+        state["session_events"] = next_events
+    if isinstance(next_venues, list):
+        state["session_venues"] = next_venues
+    if isinstance(next_artists, list):
+        state["session_artists"] = next_artists
+    state["session_reservation"] = next_reservation
     if isinstance(next_addresses, list):
         state["session_addresses"] = next_addresses
     if isinstance(next_menu, list):

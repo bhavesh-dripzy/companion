@@ -185,20 +185,30 @@ DISTRICT_PROVIDER = ToolProvider(
     default_mcp_url="https://mcp-server.district.in/mcp",
     tools=frozenset(
         {
+            # Dining (table reservations)
             "search_dining_restaurants",
             "get_dynamic_filters",
             "get_dining_restaurants_details",
             "get_table_reservation_slots",
             "create_table_reservation_booking",
             "get_booking_details",
+            # Movies / shows
             "get_dynamic_filters_movie",
             "search_movies",
             "search_theatres",
             "search_shows",
             "get_movie_critique_reviews",
+            # Events / venues / artists
+            "get_dynamic_filters_event",
+            "search_events",
+            "search_event_venues",
+            "search_artists",
         }
     ),
-    notes="District dining table reservations and movie/theatre/show discovery.",
+    notes=(
+        "District dining table reservations, movie/theatre/show discovery, "
+        "and event/venue/artist discovery."
+    ),
 )
 
 CALORIE_PROVIDER = ToolProvider(
@@ -720,6 +730,10 @@ def execute_tool_plan_sync(
     session_addresses: list[dict[str, Any]] | None = None,
     session_movies: list[dict[str, Any]] | None = None,
     session_theatres: list[dict[str, Any]] | None = None,
+    session_events: list[dict[str, Any]] | None = None,
+    session_venues: list[dict[str, Any]] | None = None,
+    session_artists: list[dict[str, Any]] | None = None,
+    session_reservation: dict[str, Any] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
     session_cart: dict[str, Any] | None = None,
     user_geo: dict[str, Any] | None = None,
@@ -869,6 +883,10 @@ def execute_tool_plan_sync(
                 session_restaurants=session_restaurants,
                 session_movies=session_movies,
                 session_theatres=session_theatres,
+                session_events=session_events,
+                session_venues=session_venues,
+                session_artists=session_artists,
+                session_reservation=session_reservation,
             )
         elif name == "swiggy_instamart":
             from app.services.instamart_mcp_executor import run_tool_plan_sync as run_instamart_plan

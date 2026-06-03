@@ -15,9 +15,15 @@ import type {
   Message,
   QueryResponse,
   SessionAddress,
+  SessionArtist,
   SessionCart,
+  SessionEvent,
   SessionMenuEntry,
+  SessionMovie,
+  SessionReservation,
   SessionRestaurant,
+  SessionTheatre,
+  SessionVenue,
   ToolProvider,
 } from './types';
 import { useUserLocation } from './useUserLocation';
@@ -47,6 +53,16 @@ interface PersistedChatSession {
   session_addresses: SessionAddress[];
   session_menu: SessionMenuEntry[];
   session_cart: SessionCart | null;
+  // District event-surface memory. Same echo contract as
+  // session_restaurants — frontend round-trips whatever the prior turn
+  // returned so the planner can cite literal movie / theatre / event /
+  // venue / artist / booking ids without re-running discovery.
+  session_movies: SessionMovie[];
+  session_theatres: SessionTheatre[];
+  session_events: SessionEvent[];
+  session_venues: SessionVenue[];
+  session_artists: SessionArtist[];
+  session_reservation: SessionReservation | null;
 }
 
 const chatSessionKey = (chatId: string) => `${CHAT_SESSION_KEY_PREFIX}${chatId}.session`;
@@ -77,6 +93,27 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
         && (parsed.session_cart as SessionCart).cart_id
           ? (parsed.session_cart as SessionCart)
           : null,
+      session_movies: Array.isArray(parsed.session_movies)
+        ? (parsed.session_movies as SessionMovie[])
+        : [],
+      session_theatres: Array.isArray(parsed.session_theatres)
+        ? (parsed.session_theatres as SessionTheatre[])
+        : [],
+      session_events: Array.isArray(parsed.session_events)
+        ? (parsed.session_events as SessionEvent[])
+        : [],
+      session_venues: Array.isArray(parsed.session_venues)
+        ? (parsed.session_venues as SessionVenue[])
+        : [],
+      session_artists: Array.isArray(parsed.session_artists)
+        ? (parsed.session_artists as SessionArtist[])
+        : [],
+      session_reservation:
+        parsed.session_reservation
+        && typeof parsed.session_reservation === 'object'
+        && (parsed.session_reservation as SessionReservation).booking_id
+          ? (parsed.session_reservation as SessionReservation)
+          : null,
     };
   } catch {
     return null;
@@ -90,7 +127,13 @@ const saveChatSession = (chatId: string, snap: PersistedChatSession) => {
       && snap.session_restaurants.length === 0
       && snap.session_addresses.length === 0
       && snap.session_menu.length === 0
-      && snap.session_cart === null;
+      && snap.session_cart === null
+      && snap.session_movies.length === 0
+      && snap.session_theatres.length === 0
+      && snap.session_events.length === 0
+      && snap.session_venues.length === 0
+      && snap.session_artists.length === 0
+      && snap.session_reservation === null;
     if (isEmpty) {
       localStorage.removeItem(chatSessionKey(chatId));
       return;
@@ -193,6 +236,17 @@ function App() {
   const [sessionAddresses, setSessionAddresses] = useState<SessionAddress[]>([]);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuEntry[]>([]);
   const [sessionCart, setSessionCart] = useState<SessionCart | null>(null);
+  // District event-surface memory — same echo contract as the food
+  // surfaces above. Round-tripped on every /api/agent/query/ so the
+  // planner can pick a literal movie/theatre/event/venue/artist id
+  // without re-running discovery, and the response LLM can describe
+  // an active reservation without re-fetching it.
+  const [sessionMovies, setSessionMovies] = useState<SessionMovie[]>([]);
+  const [sessionTheatres, setSessionTheatres] = useState<SessionTheatre[]>([]);
+  const [sessionEvents, setSessionEvents] = useState<SessionEvent[]>([]);
+  const [sessionVenues, setSessionVenues] = useState<SessionVenue[]>([]);
+  const [sessionArtists, setSessionArtists] = useState<SessionArtist[]>([]);
+  const [sessionReservation, setSessionReservation] = useState<SessionReservation | null>(null);
 
   // Multi-chat support — same contract as before. `chatId === null`
   // means "fresh new chat about to be started" — no Dynamo row exists
@@ -247,6 +301,12 @@ function App() {
       session_addresses: sessionAddresses,
       session_menu: sessionMenu,
       session_cart: sessionCart,
+      session_movies: sessionMovies,
+      session_theatres: sessionTheatres,
+      session_events: sessionEvents,
+      session_venues: sessionVenues,
+      session_artists: sessionArtists,
+      session_reservation: sessionReservation,
     });
   }, [
     chatId,
@@ -255,6 +315,12 @@ function App() {
     sessionAddresses,
     sessionMenu,
     sessionCart,
+    sessionMovies,
+    sessionTheatres,
+    sessionEvents,
+    sessionVenues,
+    sessionArtists,
+    sessionReservation,
   ]);
 
   const loadInitialData = async () => {
@@ -267,6 +333,12 @@ function App() {
         setSessionAddresses(snap.session_addresses);
         setSessionMenu(snap.session_menu);
         setSessionCart(snap.session_cart);
+        setSessionMovies(snap.session_movies);
+        setSessionTheatres(snap.session_theatres);
+        setSessionEvents(snap.session_events);
+        setSessionVenues(snap.session_venues);
+        setSessionArtists(snap.session_artists);
+        setSessionReservation(snap.session_reservation);
       }
       await loadChatMessages(chatId, { silent: true });
     }
@@ -337,6 +409,12 @@ function App() {
     setSessionAddresses(snap?.session_addresses ?? []);
     setSessionMenu(snap?.session_menu ?? []);
     setSessionCart(snap?.session_cart ?? null);
+    setSessionMovies(snap?.session_movies ?? []);
+    setSessionTheatres(snap?.session_theatres ?? []);
+    setSessionEvents(snap?.session_events ?? []);
+    setSessionVenues(snap?.session_venues ?? []);
+    setSessionArtists(snap?.session_artists ?? []);
+    setSessionReservation(snap?.session_reservation ?? null);
     setMessages([]);
     await loadChatMessages(newChatId);
   };
@@ -359,6 +437,12 @@ function App() {
       setSessionAddresses([]);
       setSessionMenu([]);
       setSessionCart(null);
+      setSessionMovies([]);
+      setSessionTheatres([]);
+      setSessionEvents([]);
+      setSessionVenues([]);
+      setSessionArtists([]);
+      setSessionReservation(null);
     }
   };
 
@@ -414,6 +498,12 @@ function App() {
     setSessionAddresses([]);
     setSessionMenu([]);
     setSessionCart(null);
+    setSessionMovies([]);
+    setSessionTheatres([]);
+    setSessionEvents([]);
+    setSessionVenues([]);
+    setSessionArtists([]);
+    setSessionReservation(null);
     setChats([]);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
@@ -428,6 +518,12 @@ function App() {
     setSessionAddresses([]);
     setSessionMenu([]);
     setSessionCart(null);
+    setSessionMovies([]);
+    setSessionTheatres([]);
+    setSessionEvents([]);
+    setSessionVenues([]);
+    setSessionArtists([]);
+    setSessionReservation(null);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
@@ -456,6 +552,14 @@ function App() {
     if (sessionAddresses.length > 0) body.session_addresses = sessionAddresses;
     if (sessionMenu.length > 0) body.session_menu = sessionMenu;
     if (sessionCart && sessionCart.cart_id) body.session_cart = sessionCart;
+    if (sessionMovies.length > 0) body.session_movies = sessionMovies;
+    if (sessionTheatres.length > 0) body.session_theatres = sessionTheatres;
+    if (sessionEvents.length > 0) body.session_events = sessionEvents;
+    if (sessionVenues.length > 0) body.session_venues = sessionVenues;
+    if (sessionArtists.length > 0) body.session_artists = sessionArtists;
+    if (sessionReservation && sessionReservation.booking_id) {
+      body.session_reservation = sessionReservation;
+    }
     if (chatId) body.chat_id = chatId;
     return body;
   };
@@ -513,6 +617,15 @@ function App() {
       if ('session_cart' in data) {
         const c = (data as any).session_cart;
         setSessionCart(c && typeof c === 'object' && c.cart_id ? c : null);
+      }
+      if (Array.isArray(data.session_movies)) setSessionMovies(data.session_movies);
+      if (Array.isArray(data.session_theatres)) setSessionTheatres(data.session_theatres);
+      if (Array.isArray(data.session_events)) setSessionEvents(data.session_events);
+      if (Array.isArray(data.session_venues)) setSessionVenues(data.session_venues);
+      if (Array.isArray(data.session_artists)) setSessionArtists(data.session_artists);
+      if ('session_reservation' in data) {
+        const r = (data as any).session_reservation;
+        setSessionReservation(r && typeof r === 'object' && r.booking_id ? r : null);
       }
 
       if (typeof data.chat_id === 'string' && data.chat_id) {

@@ -86,20 +86,141 @@ export interface RestaurantCardEntry {
   items?: RestaurantCardItem[];
 }
 
-// Two providers currently emit chat cards. `provider` is stamped by the
-// backend so the frontend can swap branding (Zomato red `#E23744` vs
-// Swiggy orange `#FC8019`), label text ("Zomato" vs "Swiggy"), and the
-// "Order now" / "Add to cart" prompts wired through the QuickAction
-// popovers. Cards without a `provider` field (legacy turns from before
-// this stamp landed, or a future third provider) fall back to a neutral
-// slate styling — never a wrong-brand colour.
-export type CardProvider = 'zomato' | 'swiggy';
+// Three providers currently emit chat cards. `provider` is stamped by the
+// backend so the frontend can swap branding (Zomato red `#E23744`, Swiggy
+// orange `#FC8019`, District purple `#7C3AED`), label text, and the
+// "Order now" / "Add to cart" / "Book table" prompts wired through the
+// QuickAction popovers. Cards without a `provider` field (legacy turns
+// from before this stamp landed) fall back to a neutral slate styling —
+// never a wrong-brand colour.
+export type CardProvider = 'zomato' | 'swiggy' | 'district';
+
+// ---------------------------------------------------------------------------
+// District card entries. District spans three independent discovery
+// surfaces (dining table reservations, movies/shows, events/venues/artists)
+// plus a single-booking reservation snapshot. Each surface gets its own
+// attachment kind so the chat-side renderer can pick the right layout;
+// the backend stamps every district attachment with `provider: "district"`.
+// ---------------------------------------------------------------------------
+export interface DiningCardEntry {
+  res_id: string;
+  name: string;
+  rating?: number;
+  cuisines?: string[];
+  locality?: string;
+  price_for_two?: number | string;
+  image_url?: string;
+  bookable_via_agent?: boolean;
+  distance?: number | string;
+  web_url?: string;
+}
+
+export interface MovieCardEntry {
+  movie_id: string;
+  name: string;
+  languages?: string[];
+  genres?: string[];
+  duration_minutes?: number;
+  rating?: number;
+  cbfc_certification?: string;
+  release_date?: string;
+  poster_url?: string;
+  spotlight_video_url?: string;
+  web_url?: string;
+}
+
+export interface TheatreCardEntry {
+  theatre_id: string;
+  name: string;
+  locality?: string;
+  distance?: number | string;
+  image_url?: string;
+  web_url?: string;
+}
+
+export interface ShowCardEntry {
+  show_id: string;
+  movie_id?: string;
+  movie_name?: string;
+  theatre_id?: string;
+  theatre_name?: string;
+  show_date?: string;
+  show_start_time?: string;
+  screen_type?: string;
+  language?: string;
+  min_price?: number;
+  max_price?: number;
+  seat_availability?: string | number;
+  booking_url?: string;
+  web_url?: string;
+}
+
+export interface EventCardEntry {
+  event_id: string;
+  name: string;
+  description?: string;
+  date_string?: string;
+  venue_name?: string;
+  locality?: string;
+  city?: string;
+  price_string?: string;
+  offer_string?: string;
+  image_url?: string;
+  video_url?: string;
+  web_url?: string;
+  min_price?: number;
+  distance_km?: number;
+  tags?: string[];
+  rating?: number;
+  review_count?: number;
+  is_dining_event?: boolean;
+  is_activity?: boolean;
+  is_play?: boolean;
+  is_attraction?: boolean;
+}
+
+export interface VenueCardEntry {
+  venue_id: string;
+  name: string;
+  city?: string;
+  locality?: string;
+  image_url?: string;
+  web_url?: string;
+  distance_km?: number;
+  event_names?: string[];
+  categories?: string[];
+}
+
+export interface ArtistCardEntry {
+  artist_id: string;
+  name: string;
+  artist_type?: string;
+  description?: string;
+  image_url?: string;
+  upcoming_event_count?: number;
+  genres?: string[];
+}
+
+export interface ReservationCard {
+  booking_id: string;
+  res_id?: string;
+  restaurant_name?: string;
+  booking_date?: string;
+  slot_time?: string;
+  party_size?: number;
+  status?: string;
+  final_amount?: number;
+  payment_status?: string;
+  confirmation_url?: string;
+  cancellation_url?: string;
+  message?: string;
+}
 
 export interface Attachment {
   kind: string;
   source?: string;
   // Provider tag for card-shaped attachments (menu_cards / restaurant_cards /
-  // cart_card). See `CardProvider` above.
+  // cart_card / district cards). See `CardProvider` above.
   provider?: CardProvider;
   mime_type?: string;
   data_b64?: string;
@@ -128,6 +249,26 @@ export interface Attachment {
   // snapshot is the same shape echoed back as `session_cart` on the next
   // request — see `SessionCart` above.
   cart?: SessionCart;
+  // District-specific list payloads. Each attachment populates exactly
+  // one of these depending on its `kind` — see the discriminator below.
+  //   kind === "dining_cards"      → restaurants?  (DiningCardEntry[])
+  //   kind === "movie_cards"       → movies?
+  //   kind === "theatre_cards"     → theatres?
+  //   kind === "show_cards"        → shows?
+  //   kind === "event_cards"       → events?
+  //   kind === "venue_cards"       → venues?
+  //   kind === "artist_cards"      → artists?
+  //   kind === "reservation_card"  → reservation?
+  // We use distinct keys (instead of overloading `restaurants`) so a
+  // single `Attachment` is unambiguous to the renderer.
+  dining_restaurants?: DiningCardEntry[];
+  movies?: MovieCardEntry[];
+  theatres?: TheatreCardEntry[];
+  shows?: ShowCardEntry[];
+  events?: EventCardEntry[];
+  venues?: VenueCardEntry[];
+  artists?: ArtistCardEntry[];
+  reservation?: ReservationCard;
 }
 
 export interface Message {
@@ -267,6 +408,84 @@ export interface SessionCart {
   [key: string]: unknown;
 }
 
+// ---------------------------------------------------------------------------
+// District session indexes — LRU-style memory of every discovery row the
+// backend has shown the user this session. The frontend MUST echo these
+// back on every /api/agent/query/ request so the planner can cite literal
+// ids without re-running discovery tools. Same contract as
+// `SessionRestaurant` / `SessionAddress`.
+// ---------------------------------------------------------------------------
+export interface SessionMovie {
+  movie_id: string;
+  name: string;
+  language?: string | string[];
+  genre?: string | string[];
+  duration_minutes?: number;
+  rating?: number;
+  release_date?: string;
+  cbfc_certification?: string;
+  poster_url?: string;
+  spotlight_video_url?: string;
+  web_url?: string;
+}
+
+export interface SessionTheatre {
+  theatre_id: string;
+  name: string;
+  locality?: string;
+  distance?: number | string;
+  image_url?: string;
+  web_url?: string;
+}
+
+export interface SessionEvent {
+  event_id: string;
+  name: string;
+  date_string?: string;
+  venue_name?: string;
+  locality?: string;
+  city?: string;
+  price_string?: string;
+  min_price?: number;
+  image_url?: string;
+  web_url?: string;
+}
+
+export interface SessionVenue {
+  venue_id: string;
+  name: string;
+  city?: string;
+  locality?: string;
+  distance?: number | string;
+  image_url?: string;
+  web_url?: string;
+}
+
+export interface SessionArtist {
+  artist_id: string;
+  name: string;
+  artist_type?: string;
+  genres?: string[];
+  description?: string;
+  image_url?: string;
+  upcoming_event_count?: number;
+}
+
+export interface SessionReservation {
+  booking_id: string;
+  res_id?: string;
+  restaurant_name?: string;
+  booking_date?: string;
+  slot_time?: string;
+  party_size?: number;
+  status?: string;
+  final_amount?: number;
+  payment_status?: string;
+  confirmation_url?: string;
+  cancellation_url?: string;
+  message?: string;
+}
+
 // Backend's compact view of which address is being used this turn and
 // where it came from. The chat UI doesn't render this directly — the
 // response LLM uses `source` to decide whether to nudge the user about
@@ -322,6 +541,16 @@ export interface QueryResponse {
   session_state?: Record<string, string>;
   session_restaurants?: SessionRestaurant[];
   session_addresses?: SessionAddress[];
+  // District event-surface indexes — same echo contract as
+  // session_restaurants. See `SessionMovie` / `SessionTheatre` /
+  // `SessionEvent` / `SessionVenue` / `SessionArtist` /
+  // `SessionReservation` above.
+  session_movies?: SessionMovie[];
+  session_theatres?: SessionTheatre[];
+  session_events?: SessionEvent[];
+  session_venues?: SessionVenue[];
+  session_artists?: SessionArtist[];
+  session_reservation?: SessionReservation | null;
   // Cross-turn LRU of menu items the user has been shown this session.
   // Frontend echoes back as `session_menu` on the next request so the
   // planner can cite a literal `variant_id` for "yes plz add" without

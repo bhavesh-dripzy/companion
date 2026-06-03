@@ -12,7 +12,7 @@ Return exactly:
 
 Allowed **task_type** values:
 - **food_delivery** — restaurant meals **for delivery to the user**, food carts/menus on Zomato/Swiggy, **and** grocery quick-commerce (Instamart, Zepto). Use this only when the user wants food/groceries brought to them.
-- **going_out** — discovering places to **go to in person**: dining restaurants for dine-in/table booking, movies, theatres, showtimes, movie reviews. Routes to `district` only.
+- **going_out** — discovering places / experiences to **go to in person**: dining restaurants for dine-in/table booking, movies/theatres/showtimes/movie reviews, **and** live events (concerts, comedy shows, gigs, plays, festivals, workshops, exhibitions), event venues (concert halls, comedy clubs), or artists with upcoming shows. Routes to `district` only.
 - **finance_investing** — stocks, F&O, holdings, positions, orders, quotes, portfolio analysis, broker account queries.
 - **health_nutrition** — calorie tracking, meal logging, nutrition lookup, daily calorie summaries, weekly calorie reports.
 - **normal_query** — general questions, chat, facts, advice, or anything **not** about ordering food or groceries.
@@ -61,7 +61,7 @@ Provider rules:
 | Intent | User wants | Examples | Route to |
 |--------|------------|----------|----------|
 | **Food / grocery delivery** | Order food/groceries to be **delivered** to the user | "order pizza", "deliver biryani", "buy milk", "checkout my cart" | `food_delivery` + delivery providers |
-| **Going out (dine-in / movies)** | Discover places to **go to** — restaurants for dine-in/table reservation, movies, theatres, showtimes | "book a table for 2", "restaurants near me to go for dinner", "movies playing tonight", "IMAX showtimes", "find theatres near Koramangala", "search restaurants and movies near sector 38 gurgaon" | `going_out` + `district` |
+| **Going out (dine-in / movies / events)** | Discover places or experiences to **go to** — restaurants for dine-in/table reservation, movies/theatres/showtimes, live events, concerts, comedy shows, plays, festivals, workshops, exhibitions, artists, event venues | "book a table for 2", "restaurants near me to go for dinner", "movies playing tonight", "IMAX showtimes", "find theatres near Koramangala", "comedy shows this weekend", "what concerts are happening near me", "free events tonight", "where is Coldplay playing", "upcoming gigs by Arijit Singh", "things to do this weekend", "what's happening near me" | `going_out` + `district` |
 | **Finance / investing** | Portfolio, broker account, market data, holdings, positions, orders, trades | “show my Zerodha holdings”, “Groww portfolio”, “Nifty quote” | `finance_investing` + providers |
 | **Health / nutrition** | Calorie tracking, meal logging, nutrition lookup | “calories in paneer”, “log lunch”, “weekly calorie report” | `health_nutrition` + providers |
 | **Calendar / reminder** | Schedule, remind, calendar event | “remind me tomorrow at 9am”, “add to calendar”, “schedule dentist Friday 3pm”, “in 30 minutes remind me to…” | `reminder_calendar`, `food_providers": []` |
@@ -86,23 +86,27 @@ When unsure between normal chat and food, prefer **food_delivery** only if there
 
 1. **Movies / theatres / tickets** — movie, movies, theatre, theater, cinema, showtime, showtimes, screen, multiplex, IMAX, 4DX, Screen X, movie ticket(s), book tickets.
 2. **Explicit dine-in / table-booking** — "book a table", "reserve a table", "table for N", "table reservation", "make a reservation", "dine in", "dine-in", "dine out", "dining out", "private dining", "fine dining experience", "rooftop dining", "date night reservation".
-3. **Explicit "going out" intent** — "going out", "go out tonight", "head out", "night out", "want to go out", "outing plans", "going somewhere to eat", "step out for dinner".
-4. **Named app** — the user says "District" (the app).
+3. **Explicit "going out" intent** — "going out", "go out tonight", "head out", "night out", "want to go out", "outing plans", "going somewhere to eat", "step out for dinner", "things to do", "what's happening near me", "plans for the weekend".
+4. **Live events / concerts / comedy / venues / artists** — concert, gig, live music, comedy show, standup, stand-up, play (theatrical, not "to play"), festival, exhibition, workshop, attraction, activity (when used as an outing), event(s) "near me/tonight/this weekend", a named musician/comedian/band the user wants to see live, an event venue (e.g. "where is X performing?", "shows at Phoenix Arena").
+5. **Named app** — the user says "District" (the app).
 
 | Signal | Task | Provider |
 |--------|------|----------|
-| Any of the four explicit going-out cues above | **going_out** | `district` |
+| Any of the five explicit going-out cues above | **going_out** | `district` |
 | "find pizza", "biryani near me", "restaurants near me", "good restaurants", "best Italian places", "search restaurants near X" — **no explicit going-out cue** | **food_delivery** | `zomato` (default) |
 | "order food", "order from", "deliver", "delivery", "home delivery", "send to my address", "cart", "checkout" | **food_delivery** | `zomato` / `swiggy_food` |
 | "buy", "groceries", milk/atta/eggs/bread/rice/etc. | **food_delivery** | `swiggy_instamart` / `zepto` |
 | Mixed: restaurant query + ANY movie/theatre/showtime word | **going_out** | `district` |
 | Mixed: restaurant query + ANY "book a table" / "going out" / "dine in" cue | **going_out** | `district` |
+| Live event / concert / comedy / festival / "what's happening" / "things to do" | **going_out** | `district` |
+| Named musician / band / comedian + "performing", "playing", "tour", "concert", "show" | **going_out** | `district` |
+| Event venue lookups ("where is X happening", "shows at Y venue") | **going_out** | `district` |
 
 **Crucial defaults:**
 - "find pizza options" / "biryani near me" / "good restaurants in Koramangala" → `food_delivery` + `zomato`. Do NOT route to District.
 - The response LLM may softly ask "or are you planning to go out instead?" — that's the response layer's job, not the orchestrator's. Your job is to pick the most likely provider for the literal text, and food delivery (Zomato) is the safe default for ambiguous restaurant queries.
 
-**Never** route movies/theatres/showtimes/table-bookings/explicit-dine-in queries to `zomato` or `swiggy_food`. Those are always District.
+**Never** route movies/theatres/showtimes/table-bookings/explicit-dine-in queries, or live event / concert / comedy / artist / venue queries, to `zomato` or `swiggy_food`. Those are always District.
 
 ---
 
@@ -134,7 +138,7 @@ Classify the user intent **before** picking a provider:
      - **Truly ambiguous** (“order on Swiggy” only) → `swiggy_food`.
    - “Instamart” / “Swiggy Instamart” → `swiggy_instamart`.
    - “Zepto” → `zepto`.
-   - "District" / movies / theatres / showtimes / table reservation / dine-out / "going out" → `district` with `task_type: "going_out"` (e.g. "movies near Koramangala", "book a table at Chianti", "IMAX showtimes", "restaurants and movies near Sector 38").
+   - "District" / movies / theatres / showtimes / table reservation / dine-out / "going out" / live events / concerts / comedy / artists / event venues → `district` with `task_type: "going_out"` (e.g. "movies near Koramangala", "book a table at Chianti", "IMAX showtimes", "restaurants and movies near Sector 38", "comedy shows this weekend", "where is Coldplay playing", "free events tonight", "what's happening near me").
 
 2. **Compare** — “Compare pizza on Zomato and Swiggy” → `["zomato", "swiggy_food"]` (restaurant).  
    Grocery compare only if user compares grocery apps explicitly.

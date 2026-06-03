@@ -1678,6 +1678,49 @@ def _companion_agent_turn(
                 clean_theatres.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
         session_theatres = clean_theatres or None
 
+    # District event-surface seeds. Same shape contract as movies / theatres —
+    # each row must carry (id, name); everything else rides along verbatim
+    # because it was emitted by our own executor on a previous turn.
+    def _clean_session_index(
+        raw: Any, *, id_key: str
+    ) -> list[dict[str, Any]] | None:
+        if not isinstance(raw, list) or not raw:
+            return None
+        cleaned: list[dict[str, Any]] = []
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            ident = entry.get(id_key)
+            name = entry.get("name")
+            if (
+                isinstance(ident, str)
+                and ident.strip()
+                and isinstance(name, str)
+                and name.strip()
+            ):
+                cleaned.append({**entry, id_key: ident.strip(), "name": name.strip()})
+        return cleaned or None
+
+    session_events = _clean_session_index(
+        getattr(payload, "session_events", None), id_key="event_id"
+    )
+    session_venues = _clean_session_index(
+        getattr(payload, "session_venues", None), id_key="venue_id"
+    )
+    session_artists = _clean_session_index(
+        getattr(payload, "session_artists", None), id_key="artist_id"
+    )
+
+    # District reservation snapshot — drop anything without a real
+    # ``booking_id``; the executor treats those as "no prior reservation"
+    # and only stamps a fresh one when a booking call succeeds.
+    session_reservation: dict[str, Any] | None = None
+    raw_reservation = getattr(payload, "session_reservation", None)
+    if isinstance(raw_reservation, dict):
+        bid = raw_reservation.get("booking_id")
+        if isinstance(bid, str) and bid.strip():
+            session_reservation = {**raw_reservation, "booking_id": bid.strip()}
+
     # ``session_menu`` — sanitize so the executor only sees rows with a real
     # ``variant_id`` + ``item_name``. Everything else (addon_groups, variants,
     # price, etc.) is passed through verbatim because it was emitted by our
@@ -1763,6 +1806,10 @@ def _companion_agent_turn(
             session_addresses=session_addresses,
             session_movies=session_movies,
             session_theatres=session_theatres,
+            session_events=session_events,
+            session_venues=session_venues,
+            session_artists=session_artists,
+            session_reservation=session_reservation,
             session_menu=session_menu,
             session_cart=session_cart,
             pending_variant_choice=pending_variant_choice,

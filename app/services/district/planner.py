@@ -13,17 +13,24 @@ _PROMPTS = Path(__file__).resolve().parent / "prompts"
 
 _DISTRICT_TOOLS = frozenset(
     {
+        # Dining (table reservations)
         "search_dining_restaurants",
         "get_dynamic_filters",
         "get_dining_restaurants_details",
         "get_table_reservation_slots",
         "create_table_reservation_booking",
         "get_booking_details",
+        # Movies
         "get_dynamic_filters_movie",
         "search_movies",
         "search_theatres",
         "search_shows",
         "get_movie_critique_reviews",
+        # Events / venues / artists
+        "get_dynamic_filters_event",
+        "search_events",
+        "search_event_venues",
+        "search_artists",
     }
 )
 

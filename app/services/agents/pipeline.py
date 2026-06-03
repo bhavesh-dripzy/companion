@@ -993,6 +993,449 @@ def _collect_swiggy_menu_attachments(
     return out
 
 
+# ---------------------------------------------------------------------------
+# District attachment lifters.
+#
+# District has three discovery surfaces (dining / movies / events) plus a
+# reservation snapshot. Each surface becomes its own attachment kind so the
+# frontend can render the right card layout:
+#
+#   * search_dining_restaurants → ``dining_cards``
+#   * search_movies             → ``movie_cards``
+#   * search_theatres           → ``theatre_cards``
+#   * search_shows              → ``show_cards``
+#   * search_events             → ``event_cards``
+#   * search_event_venues       → ``venue_cards``
+#   * search_artists            → ``artist_cards``
+#   * create_table_reservation_booking → ``reservation_card`` (auto-emit on
+#     fresh booking; chat UI also shows it on follow-up turns via
+#     session_reservation echo + a show_reservation LLM signal)
+#
+# Every attachment is stamped ``provider: "district"`` so the chat-side
+# theme picker switches to District's branding.
+# ---------------------------------------------------------------------------
+_DISTRICT_MAX_CARDS = 8
+
+
+def _district_envelope_data(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    data = envelope.get("data") if isinstance(envelope, dict) else None
+    if isinstance(data, str):
+        try:
+            import json as _json
+
+            parsed = _json.loads(data)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+    return data if isinstance(data, dict) else None
+
+
+def _build_district_dining_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    rid = item.get("res_id") or item.get("restaurant_id") or item.get("id")
+    name = item.get("res_name") or item.get("name") or item.get("restaurant_name")
+    if rid is None or not isinstance(name, str) or not name.strip():
+        return None
+    out: dict[str, Any] = {"res_id": str(rid).strip(), "name": name.strip()}
+    rating = item.get("rating") or item.get("avg_rating")
+    if isinstance(rating, (int, float)) and rating > 0:
+        out["rating"] = round(float(rating), 1)
+    cuisines = item.get("cuisine") or item.get("cuisines")
+    if isinstance(cuisines, list):
+        clean = [c.strip() for c in cuisines if isinstance(c, str) and c.strip()]
+        if clean:
+            out["cuisines"] = clean[:4]
+    elif isinstance(cuisines, str) and cuisines.strip():
+        out["cuisines"] = [cuisines.strip()]
+    locality = item.get("locality") or item.get("area")
+    if isinstance(locality, str) and locality.strip():
+        out["locality"] = locality.strip()
+    price = item.get("price_for_two") or item.get("cost_for_two")
+    if isinstance(price, (int, float, str)) and str(price).strip():
+        out["price_for_two"] = price
+    image = item.get("image_url") or item.get("photo_url")
+    if isinstance(image, str) and image.strip():
+        out["image_url"] = image.strip()
+    bookable = item.get("bookable_via_agent")
+    if isinstance(bookable, bool):
+        out["bookable_via_agent"] = bookable
+    distance = item.get("distance")
+    if isinstance(distance, (int, float)) and distance >= 0:
+        out["distance"] = round(float(distance), 2)
+    elif isinstance(distance, str) and distance.strip():
+        out["distance"] = distance.strip()
+    web_url = item.get("web_url")
+    if isinstance(web_url, str) and web_url.strip():
+        out["web_url"] = web_url.strip()
+    return out
+
+
+def _build_district_movie_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    mid = item.get("movie_id") or item.get("id") or item.get("content_id")
+    name = item.get("movie_name") or item.get("name") or item.get("title")
+    if mid is None or not isinstance(name, str) or not name.strip():
+        return None
+    out: dict[str, Any] = {"movie_id": str(mid).strip(), "name": name.strip()}
+    lang = item.get("language") or item.get("languages")
+    if isinstance(lang, list):
+        clean = [v.strip() for v in lang if isinstance(v, str) and v.strip()]
+        if clean:
+            out["languages"] = clean[:4]
+    elif isinstance(lang, str) and lang.strip():
+        out["languages"] = [lang.strip()]
+    genre = item.get("genre") or item.get("genres")
+    if isinstance(genre, list):
+        clean = [v.strip() for v in genre if isinstance(v, str) and v.strip()]
+        if clean:
+            out["genres"] = clean[:4]
+    elif isinstance(genre, str) and genre.strip():
+        out["genres"] = [genre.strip()]
+    duration = item.get("duration_minutes") or item.get("duration")
+    if isinstance(duration, (int, float)) and duration > 0:
+        out["duration_minutes"] = int(duration)
+    rating = item.get("rating") or item.get("imdb_rating")
+    if isinstance(rating, (int, float)) and rating > 0:
+        out["rating"] = round(float(rating), 1)
+    cert = item.get("cbfc_certification")
+    if isinstance(cert, str) and cert.strip():
+        out["cbfc_certification"] = cert.strip()
+    release = item.get("release_date")
+    if isinstance(release, str) and release.strip():
+        out["release_date"] = release.strip()
+    poster = (
+        item.get("poster_url")
+        or item.get("image_url")
+        or item.get("spotlight_thumbnail_url")
+    )
+    if isinstance(poster, str) and poster.strip():
+        out["poster_url"] = poster.strip()
+    video = item.get("spotlight_video_url")
+    if isinstance(video, str) and video.strip():
+        out["spotlight_video_url"] = video.strip()
+    web_url = item.get("web_url")
+    if isinstance(web_url, str) and web_url.strip():
+        out["web_url"] = web_url.strip()
+    return out
+
+
+def _build_district_theatre_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    tid = (
+        item.get("theatre_id")
+        or item.get("theater_id")
+        or item.get("id")
+        or item.get("cinema_id")
+    )
+    name = item.get("theatre_name") or item.get("name") or item.get("theater_name")
+    if tid is None or not isinstance(name, str) or not name.strip():
+        return None
+    out: dict[str, Any] = {"theatre_id": str(tid).strip(), "name": name.strip()}
+    locality = item.get("locality") or item.get("area")
+    if isinstance(locality, str) and locality.strip():
+        out["locality"] = locality.strip()
+    distance = item.get("distance")
+    if isinstance(distance, (int, float)) and distance >= 0:
+        out["distance"] = round(float(distance), 2)
+    elif isinstance(distance, str) and distance.strip():
+        out["distance"] = distance.strip()
+    image = item.get("image_url") or item.get("photo_url")
+    if isinstance(image, str) and image.strip():
+        out["image_url"] = image.strip()
+    web_url = item.get("web_url")
+    if isinstance(web_url, str) and web_url.strip():
+        out["web_url"] = web_url.strip()
+    return out
+
+
+def _build_district_show_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    sid = item.get("show_id") or item.get("id")
+    if sid is None:
+        return None
+    out: dict[str, Any] = {"show_id": str(sid).strip()}
+    for k_src, k_dst in (
+        ("movie_id", "movie_id"),
+        ("movie_name", "movie_name"),
+        ("theatre_id", "theatre_id"),
+        ("theatre_name", "theatre_name"),
+        ("show_date", "show_date"),
+        ("show_start_time", "show_start_time"),
+        ("screen_type", "screen_type"),
+        ("language", "language"),
+        ("min_price", "min_price"),
+        ("max_price", "max_price"),
+        ("seat_availability", "seat_availability"),
+        ("booking_url", "booking_url"),
+        ("web_url", "web_url"),
+    ):
+        val = item.get(k_src)
+        if val in (None, ""):
+            continue
+        if isinstance(val, str):
+            vs = val.strip()
+            if vs:
+                out[k_dst] = vs
+            continue
+        out[k_dst] = val
+    return out
+
+
+def _build_district_event_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    eid = item.get("event_id") or item.get("id")
+    name = item.get("name") or item.get("event_name") or item.get("title")
+    if eid is None or not isinstance(name, str) or not name.strip():
+        return None
+    out: dict[str, Any] = {"event_id": str(eid).strip(), "name": name.strip()}
+    for k_src, k_dst in (
+        ("description", "description"),
+        ("date_string", "date_string"),
+        ("venue_name", "venue_name"),
+        ("locality", "locality"),
+        ("city", "city"),
+        ("price_string", "price_string"),
+        ("offer_string", "offer_string"),
+        ("image_url", "image_url"),
+        ("video_url", "video_url"),
+        ("web_url", "web_url"),
+    ):
+        val = item.get(k_src)
+        if isinstance(val, str) and val.strip():
+            out[k_dst] = val.strip()
+    min_price = item.get("min_price")
+    if isinstance(min_price, (int, float)) and min_price >= 0:
+        out["min_price"] = float(min_price)
+    distance = item.get("distance")
+    if isinstance(distance, (int, float)) and distance >= 0:
+        out["distance_km"] = round(float(distance), 2)
+    tags = item.get("tags")
+    if isinstance(tags, list):
+        clean = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+        if clean:
+            out["tags"] = clean[:6]
+    for flag in ("is_dining_event", "is_activity", "is_play", "is_attraction"):
+        val = item.get(flag)
+        if isinstance(val, bool) and val:
+            out[flag] = True
+    rating = item.get("rating_info")
+    if isinstance(rating, dict):
+        rv = rating.get("rating")
+        if isinstance(rv, (int, float)) and rv > 0:
+            out["rating"] = round(float(rv), 1)
+        rc = rating.get("review_count")
+        if isinstance(rc, (int, float)) and rc > 0:
+            out["review_count"] = int(rc)
+    return out
+
+
+def _build_district_venue_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    vid = item.get("venue_id") or item.get("id")
+    name = item.get("venue_name") or item.get("name")
+    if vid is None or not isinstance(name, str) or not name.strip():
+        return None
+    out: dict[str, Any] = {"venue_id": str(vid).strip(), "name": name.strip()}
+    for k_src, k_dst in (
+        ("city", "city"),
+        ("locality", "locality"),
+        ("image_url", "image_url"),
+        ("web_url", "web_url"),
+    ):
+        val = item.get(k_src)
+        if isinstance(val, str) and val.strip():
+            out[k_dst] = val.strip()
+    distance = item.get("distance")
+    if isinstance(distance, (int, float)) and distance >= 0:
+        out["distance_km"] = round(float(distance), 2)
+    for k_src, k_dst in (("event_names", "event_names"), ("categories", "categories")):
+        val = item.get(k_src)
+        if isinstance(val, list):
+            clean = [v.strip() for v in val if isinstance(v, str) and v.strip()]
+            if clean:
+                out[k_dst] = clean[:5]
+    return out
+
+
+def _build_district_artist_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    aid = item.get("artist_id") or item.get("id")
+    name = item.get("artist_name") or item.get("name")
+    if aid is None or not isinstance(name, str) or not name.strip():
+        return None
+    out: dict[str, Any] = {"artist_id": str(aid).strip(), "name": name.strip()}
+    a_type = item.get("artist_type")
+    if isinstance(a_type, str) and a_type.strip():
+        out["artist_type"] = a_type.strip()
+    description = item.get("description")
+    if isinstance(description, str) and description.strip():
+        out["description"] = description.strip()
+    image = item.get("image_url")
+    if isinstance(image, str) and image.strip():
+        out["image_url"] = image.strip()
+    upcoming = item.get("upcoming_event_count")
+    if isinstance(upcoming, (int, float)) and upcoming >= 0:
+        out["upcoming_event_count"] = int(upcoming)
+    genres = item.get("genres")
+    if isinstance(genres, list):
+        clean = [g.strip() for g in genres if isinstance(g, str) and g.strip()]
+        if clean:
+            out["genres"] = clean[:5]
+    return out
+
+
+_DISTRICT_CARD_BUILDERS = (
+    # (tool name, list-key in envelope.data, builder fn, attachment kind,
+    #  id key, attachment field name where cards go)
+    # We use distinct attachment field names (e.g. ``dining_restaurants``,
+    # NOT ``restaurants``) so the chat-side <Attachment> shape stays
+    # unambiguous — the Zomato/Swiggy lifters already publish under
+    # ``restaurants`` for keyword-search results, and we don't want a
+    # dining card array to be silently rendered through that path.
+    ("search_dining_restaurants", "restaurants", _build_district_dining_card,
+     "dining_cards", "res_id", "dining_restaurants"),
+    ("get_dining_restaurants_details", "restaurants", _build_district_dining_card,
+     "dining_cards", "res_id", "dining_restaurants"),
+    ("search_movies", "movies", _build_district_movie_card,
+     "movie_cards", "movie_id", "movies"),
+    ("search_theatres", "theatres", _build_district_theatre_card,
+     "theatre_cards", "theatre_id", "theatres"),
+    ("search_shows", "shows", _build_district_show_card,
+     "show_cards", "show_id", "shows"),
+    ("search_events", "events", _build_district_event_card,
+     "event_cards", "event_id", "events"),
+    ("search_event_venues", "venues", _build_district_venue_card,
+     "venue_cards", "venue_id", "venues"),
+    ("search_artists", "artists", _build_district_artist_card,
+     "artist_cards", "artist_id", "artists"),
+)
+
+
+def _collect_district_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Walk every district step and lift discovery envelopes into typed card lists.
+
+    Mirrors the Zomato / Swiggy lifter contract. The original envelope is
+    left untouched so the response LLM, observable trace, and debug
+    payloads still see the raw structure.
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        if "district" not in str(provider_name or "").lower():
+            continue
+        steps = raw.get("steps") or []
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tool = str(step.get("tool") or "").strip()
+            envelope = step.get("result")
+            if not isinstance(envelope, dict) or envelope.get("is_error"):
+                continue
+            data = _district_envelope_data(envelope)
+            if not isinstance(data, dict):
+                continue
+            matched = next(
+                (cfg for cfg in _DISTRICT_CARD_BUILDERS if cfg[0] == tool), None
+            )
+            if matched is None:
+                continue
+            _tool, list_key, builder, kind, id_key, attach_field = matched
+            rows = data.get(list_key)
+            if not isinstance(rows, list) or not rows:
+                continue
+            cards: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for raw_row in rows:
+                if len(cards) >= _DISTRICT_MAX_CARDS:
+                    break
+                card = builder(raw_row)
+                if card is None:
+                    continue
+                ident = str(card.get(id_key) or "").strip()
+                if ident and ident in seen:
+                    continue
+                if ident:
+                    seen.add(ident)
+                cards.append(card)
+            if not cards:
+                continue
+            attachment: dict[str, Any] = {
+                "kind": kind,
+                "source": f"{provider_name}.{tool}",
+                "provider": "district",
+                attach_field: cards,
+            }
+            out.append(attachment)
+    return out
+
+
+def _build_district_reservation_attachment(
+    snapshot: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any] | None:
+    if not isinstance(snapshot, dict):
+        return None
+    if not str(snapshot.get("booking_id") or "").strip():
+        return None
+    return {
+        "kind": "reservation_card",
+        "source": source,
+        "provider": "district",
+        "reservation": dict(snapshot),
+    }
+
+
+def _collect_district_reservation_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Emit a reservation card whenever the executor captured a fresh
+    booking this turn (``diagnostics.fresh_reservation_captured``).
+
+    Mirrors the Zomato cart-card auto-emit pattern. For follow-up turns
+    where the user asks for status without triggering a booking call, the
+    response LLM can ask the chat surface to show the reservation via a
+    ``show_reservation`` signal (handled downstream from
+    ``session_reservation``).
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        if "district" not in str(provider_name or "").lower():
+            continue
+        diag = raw.get("diagnostics")
+        if not isinstance(diag, dict):
+            continue
+        if not diag.get("fresh_reservation_captured"):
+            continue
+        snap = diag.get("session_reservation")
+        if not isinstance(snap, dict):
+            continue
+        att = _build_district_reservation_attachment(
+            snap, source=f"{provider_name}.create_table_reservation_booking"
+        )
+        if att is not None:
+            out.append(att)
+    return out
+
+
 def _format_routing_message(
     current_message: str,
     conversation_history: list[dict[str, str]] | None = None,
@@ -1002,6 +1445,10 @@ def _format_routing_message(
     session_addresses: list[dict[str, Any]] | None = None,
     session_movies: list[dict[str, Any]] | None = None,
     session_theatres: list[dict[str, Any]] | None = None,
+    session_events: list[dict[str, Any]] | None = None,
+    session_venues: list[dict[str, Any]] | None = None,
+    session_artists: list[dict[str, Any]] | None = None,
+    session_reservation: dict[str, Any] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
     selected_address_id: str | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
@@ -1128,6 +1575,70 @@ def _format_routing_message(
                 "Theatres already shown this session — use literal theatre_id "
                 "below for showtimes instead of re-searching:\n"
                 + "\n".join(theatre_rows)
+            )
+    if session_events:
+        event_rows: list[str] = []
+        for entry in session_events[:10]:
+            if not isinstance(entry, dict):
+                continue
+            eid = str(entry.get("event_id") or "").strip()
+            name = str(entry.get("name") or "").strip()
+            if eid and name:
+                date_hint = str(entry.get("date_string") or "").strip()
+                tail = f" [{date_hint}]" if date_hint else ""
+                event_rows.append(f"  - {name} → event_id={eid}{tail}")
+        if event_rows:
+            parts.append(
+                "Events already shown this session — use literal event_id "
+                "below for venue/show follow-ups instead of re-searching:\n"
+                + "\n".join(event_rows)
+            )
+    if session_venues:
+        venue_rows: list[str] = []
+        for entry in session_venues[:10]:
+            if not isinstance(entry, dict):
+                continue
+            vid = str(entry.get("venue_id") or "").strip()
+            name = str(entry.get("name") or "").strip()
+            if vid and name:
+                venue_rows.append(f"  - {name} → venue_id={vid}")
+        if venue_rows:
+            parts.append(
+                "Event venues already shown this session — use literal venue_id "
+                "below instead of re-searching:\n" + "\n".join(venue_rows)
+            )
+    if session_artists:
+        artist_rows: list[str] = []
+        for entry in session_artists[:10]:
+            if not isinstance(entry, dict):
+                continue
+            aid = str(entry.get("artist_id") or "").strip()
+            name = str(entry.get("name") or "").strip()
+            if aid and name:
+                artist_rows.append(f"  - {name} → artist_id={aid}")
+        if artist_rows:
+            parts.append(
+                "Artists already shown this session — use literal artist_id "
+                "below instead of re-searching:\n" + "\n".join(artist_rows)
+            )
+    if session_reservation and isinstance(session_reservation, dict):
+        bid = str(session_reservation.get("booking_id") or "").strip()
+        if bid:
+            who = (
+                str(session_reservation.get("restaurant_name") or "").strip()
+                or "the restaurant"
+            )
+            when_bits = [
+                str(session_reservation.get("booking_date") or "").strip(),
+                str(session_reservation.get("slot_time") or "").strip(),
+            ]
+            when = " ".join(b for b in when_bits if b).strip() or "the chosen slot"
+            party = session_reservation.get("party_size")
+            party_hint = f" for {party}" if isinstance(party, int) and party > 0 else ""
+            parts.append(
+                "Active District reservation in session — use booking_id "
+                f"{bid} (__BOOKING_ID__) when the user asks for status / "
+                f"cancellation; details: {who} at {when}{party_hint}."
             )
     if session_menu:
         # Surface the recently-shown menu items so the planner can emit
@@ -1702,6 +2213,10 @@ def run_agent_turn(
     session_addresses: list[dict[str, Any]] | None = None,
     session_movies: list[dict[str, Any]] | None = None,
     session_theatres: list[dict[str, Any]] | None = None,
+    session_events: list[dict[str, Any]] | None = None,
+    session_venues: list[dict[str, Any]] | None = None,
+    session_artists: list[dict[str, Any]] | None = None,
+    session_reservation: dict[str, Any] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
     session_cart: dict[str, Any] | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
@@ -1758,6 +2273,35 @@ def run_agent_turn(
             name = entry.get("name")
             if isinstance(tid, str) and tid.strip() and isinstance(name, str) and name.strip():
                 seed_theatres.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
+
+    def _seed_index(
+        raw: Any, *, id_key: str
+    ) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        if isinstance(raw, list):
+            for entry in raw:
+                if not isinstance(entry, dict):
+                    continue
+                ident = entry.get(id_key)
+                name = entry.get("name")
+                if (
+                    isinstance(ident, str)
+                    and ident.strip()
+                    and isinstance(name, str)
+                    and name.strip()
+                ):
+                    out.append({**entry, id_key: ident.strip(), "name": name.strip()})
+        return out
+
+    seed_events = _seed_index(session_events, id_key="event_id")
+    seed_venues = _seed_index(session_venues, id_key="venue_id")
+    seed_artists = _seed_index(session_artists, id_key="artist_id")
+
+    seed_reservation: dict[str, Any] | None = None
+    if isinstance(session_reservation, dict):
+        bid = session_reservation.get("booking_id")
+        if isinstance(bid, str) and bid.strip():
+            seed_reservation = {**session_reservation, "booking_id": bid.strip()}
 
     # ``session_menu`` carry-forward — same shape as the Zomato executor
     # emits and consumes. Each entry must have a real ``variant_id`` +
@@ -1897,6 +2441,10 @@ def run_agent_turn(
         session_addresses=seed_addresses or None,
         session_movies=seed_movies or None,
         session_theatres=seed_theatres or None,
+        session_events=seed_events or None,
+        session_venues=seed_venues or None,
+        session_artists=seed_artists or None,
+        session_reservation=seed_reservation,
         session_menu=seed_menu or None,
         selected_address_id=selected_addr,
         pending_variant_choice=seed_variant_choices or None,
@@ -2063,6 +2611,10 @@ def run_agent_turn(
             session_addresses=seed_addresses or None,
             session_movies=seed_movies or None,
             session_theatres=seed_theatres or None,
+            session_events=seed_events or None,
+            session_venues=seed_venues or None,
+            session_artists=seed_artists or None,
+            session_reservation=seed_reservation,
             session_menu=seed_menu or None,
             session_cart=seed_cart,
             user_geo=user_geo,
@@ -2122,6 +2674,14 @@ def run_agent_turn(
     cart_attachments = _collect_cart_attachments(raw_tool_results)
     if cart_attachments:
         attachments = attachments + cart_attachments
+    district_attachments = _collect_district_attachments(raw_tool_results)
+    if district_attachments:
+        attachments = attachments + district_attachments
+    district_reservation_attachments = _collect_district_reservation_attachments(
+        raw_tool_results
+    )
+    if district_reservation_attachments:
+        attachments = attachments + district_reservation_attachments
     trace(
         "hoister.out",
         attachment_count=len(attachments),
@@ -2132,12 +2692,16 @@ def run_agent_turn(
             - len(restaurant_attachments)
             - len(swiggy_restaurant_attachments)
             - len(cart_attachments)
+            - len(district_attachments)
+            - len(district_reservation_attachments)
         ),
         menu_attachments=len(menu_attachments) + len(swiggy_menu_attachments),
         restaurant_attachments=(
             len(restaurant_attachments) + len(swiggy_restaurant_attachments)
         ),
         cart_attachments=len(cart_attachments),
+        district_attachments=len(district_attachments),
+        district_reservation_attachments=len(district_reservation_attachments),
         attachments=snip(attachments),
     )
 
@@ -2158,6 +2722,10 @@ def run_agent_turn(
     next_session_restaurants: list[dict[str, Any]] = list(seed_restaurants)
     next_session_movies: list[dict[str, Any]] = list(seed_movies)
     next_session_theatres: list[dict[str, Any]] = list(seed_theatres)
+    next_session_events: list[dict[str, Any]] = list(seed_events)
+    next_session_venues: list[dict[str, Any]] = list(seed_venues)
+    next_session_artists: list[dict[str, Any]] = list(seed_artists)
+    next_session_reservation: dict[str, Any] | None = seed_reservation
     # Same pattern for the per-item LRU — seed-first, then overwrite with
     # whatever the executor emitted (richness-aware merge already done
     # inside the executor).
@@ -2235,6 +2803,43 @@ def run_agent_turn(
                     cleaned_t.append({**entry, "theatre_id": tid.strip(), "name": name.strip()})
             if cleaned_t:
                 next_session_theatres = cleaned_t
+        # District event-surface indexes — same merge pattern: executor's list
+        # is authoritative (most-recent at the front, deduped by id).
+        for _diag_key, _next_var_name, _id_key in (
+            ("session_events", "events", "event_id"),
+            ("session_venues", "venues", "venue_id"),
+            ("session_artists", "artists", "artist_id"),
+        ):
+            _raw = _diag.get(_diag_key)
+            if not isinstance(_raw, list) or not _raw:
+                continue
+            cleaned_idx: list[dict[str, Any]] = []
+            for entry in _raw:
+                if not isinstance(entry, dict):
+                    continue
+                ident = entry.get(_id_key)
+                name = entry.get("name")
+                if (
+                    isinstance(ident, str)
+                    and ident.strip()
+                    and isinstance(name, str)
+                    and name.strip()
+                ):
+                    cleaned_idx.append(
+                        {**entry, _id_key: ident.strip(), "name": name.strip()}
+                    )
+            if cleaned_idx:
+                if _next_var_name == "events":
+                    next_session_events = cleaned_idx
+                elif _next_var_name == "venues":
+                    next_session_venues = cleaned_idx
+                elif _next_var_name == "artists":
+                    next_session_artists = cleaned_idx
+        _reservation = _diag.get("session_reservation")
+        if isinstance(_reservation, dict):
+            _bid = _reservation.get("booking_id")
+            if isinstance(_bid, str) and _bid.strip():
+                next_session_reservation = {**_reservation, "booking_id": _bid.strip()}
         _menu = _diag.get("session_menu")
         if isinstance(_menu, list) and _menu:
             cleaned_menu: list[dict[str, Any]] = []
@@ -2393,6 +2998,17 @@ def run_agent_turn(
         "session_restaurants": next_session_restaurants,
         "session_movies": next_session_movies,
         "session_theatres": next_session_theatres,
+        # District event-surface indexes — same echo contract as
+        # session_movies / session_theatres. Frontend round-trips these so
+        # the planner can cite literal event/venue/artist ids on follow-ups
+        # without re-running discovery.
+        "session_events": next_session_events,
+        "session_venues": next_session_venues,
+        "session_artists": next_session_artists,
+        # Active District table reservation (single dict — District table
+        # bookings are 1-per-cart). Replaced wholesale by each successful
+        # create_table_reservation_booking; carried unchanged otherwise.
+        "session_reservation": next_session_reservation,
         # Per-item LRU memory — every (res_id, variant_id, addon_groups)
         # tuple the user has been shown this session. Lets the next turn's
         # planner emit ``create_cart`` directly when the user picks one,
