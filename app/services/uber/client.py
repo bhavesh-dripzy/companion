@@ -16,8 +16,8 @@ from companion_api import settings
 from companion_api.secrets import secret_or_env
 
 _TOKEN_SECRET_ID = "companion/uber-tokens"
-_AUTH_URL = "https://login.uber.com/oauth/v2/authorize"
-_TOKEN_URL = "https://login.uber.com/oauth/v2/token"
+_AUTH_URL = "https://auth.uber.com/oauth/v2/authorize"
+_TOKEN_URL = "https://auth.uber.com/oauth/v2/token"
 _PROD_API_BASE = "https://api.uber.com/v1.2"
 _SANDBOX_API_BASE = "https://sandbox-api.uber.com/v1.2"
 _PENDING_TTL_SECONDS = 15 * 60
@@ -115,6 +115,14 @@ def _api_base() -> str:
     return _PROD_API_BASE if uber_environment() == "production" else _SANDBOX_API_BASE
 
 
+def _auth_url() -> str:
+    return secret_or_env("UBER_AUTH_URL", _AUTH_URL)
+
+
+def _token_url() -> str:
+    return secret_or_env("UBER_TOKEN_URL", _TOKEN_URL)
+
+
 def start_uber_oauth(*, user_id: str, redirect_uri: str) -> dict[str, str]:
     client_id, _client_secret = _credentials()
     scopes = tuple(
@@ -145,7 +153,7 @@ def start_uber_oauth(*, user_id: str, redirect_uri: str) -> dict[str, str]:
         "scope": " ".join(scopes),
         "state": state,
     }
-    return {"authorization_url": f"{_AUTH_URL}?{urlencode(params)}", "state": state}
+    return {"authorization_url": f"{_auth_url()}?{urlencode(params)}", "state": state}
 
 
 def complete_uber_oauth(*, code: str, state: str) -> dict[str, Any]:
@@ -161,7 +169,7 @@ def complete_uber_oauth(*, code: str, state: str) -> dict[str, Any]:
         raise UberError("Uber OAuth session expired. Start connection again.", code="invalid_state")
 
     response = requests.post(
-        _TOKEN_URL,
+        _token_url(),
         data={
             "code": code,
             "client_id": client_id,
@@ -222,7 +230,7 @@ def _access_token(user_id: str) -> str:
 
     client_id, client_secret = _credentials()
     response = requests.post(
-        _TOKEN_URL,
+        _token_url(),
         data={
             "client_id": client_id,
             "client_secret": client_secret,
