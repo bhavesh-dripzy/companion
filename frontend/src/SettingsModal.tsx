@@ -5,6 +5,7 @@ import {
   Calendar,
   Zap,
   MapPin,
+  Car,
   Settings as SettingsIcon,
   CheckCircle2,
   AlertCircle,
@@ -98,6 +99,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [mapsLoading, setMapsLoading] = useState(false);
   const [mapsResult, setMapsResult] = useState<MapsRouteSummary | null>(null);
   const [mapsError, setMapsError] = useState<string | null>(null);
+  const [uberStatus, setUberStatus] = useState<{
+    configured: boolean;
+    connected: boolean;
+    environment?: string;
+    production_full_access_required?: boolean;
+  } | null>(null);
 
   const mcpStatus: McpStatus | null = mcpStatuses[selectedProviderId] || null;
   const pairingCommand: string = pairingCommands[selectedProviderId] || '';
@@ -109,6 +116,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       checkAllMcpStatuses();
       checkGcalStatus();
       checkMapsStatus();
+      checkUberStatus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialTab, initialProviderId]);
@@ -167,6 +175,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } catch (err) {
       console.error('Failed to check Google Maps status', err);
       onMapsConfiguredChange(false);
+    }
+  };
+
+  const checkUberStatus = async () => {
+    try {
+      const data = await api.get('/api/uber/status/');
+      setUberStatus(data);
+    } catch (err) {
+      console.error('Failed to check Uber status', err);
+      setUberStatus(null);
     }
   };
 
@@ -257,6 +275,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (data.authorization_url) window.open(data.authorization_url, '_blank');
     } catch (err) {
       console.error('Failed to connect Google Calendar', err);
+    }
+  };
+
+  const handleConnectUber = async () => {
+    try {
+      const data = await api.get('/api/uber/oauth/start');
+      if (data.authorization_url) window.open(data.authorization_url, '_blank');
+    } catch (err) {
+      console.error('Failed to connect Uber', err);
     }
   };
 
@@ -456,6 +483,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full bg-slate-900 text-white hover:bg-slate-800 text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm"
                     >
                       {gcalStatus?.connected ? 'Reconnect Google' : 'Connect Google Calendar'}
+                      <ExternalLink size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-5 bg-white border border-slate-200 rounded-3xl flex items-start gap-4">
+                  <div className="w-11 h-11 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-900 flex-shrink-0">
+                    <Car size={22} />
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h3 className="font-bold text-slate-900">Uber</h3>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        Connect a rider account for cab estimates and ride requests where Uber has approved the required scopes.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-black uppercase text-slate-500">Status:</span>
+                      {uberStatus === null ? (
+                        <span className="text-[10px] font-black uppercase text-slate-500">Checking…</span>
+                      ) : uberStatus.connected ? (
+                        <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 size={12} /> Connected
+                        </span>
+                      ) : uberStatus.configured ? (
+                        <span className="text-[10px] font-black uppercase text-amber-600 flex items-center gap-1">
+                          <AlertCircle size={12} /> Ready to connect
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase text-slate-500">Not configured</span>
+                      )}
+                      {uberStatus?.environment && (
+                        <span className="text-[10px] font-black uppercase text-slate-400">
+                          {uberStatus.environment}
+                        </span>
+                      )}
+                    </div>
+
+                    {uberStatus?.production_full_access_required && (
+                      <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                        Production ride requests require Uber approval for the privileged request scope.
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleConnectUber}
+                      disabled={!uberStatus?.configured}
+                      className="w-full bg-slate-900 text-white hover:bg-slate-800 text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {uberStatus?.connected ? 'Reconnect Uber' : 'Connect Uber'}
                       <ExternalLink size={14} />
                     </button>
                   </div>

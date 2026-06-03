@@ -25,6 +25,11 @@ from app.services.maps import (
     plan_maps_query,
     reply_maps_query,
 )
+from app.services.uber import (
+    execute_uber_cab,
+    plan_uber_cab,
+    reply_uber_cab,
+)
 from app.services.tool_runtime import execute_tool_plan_sync, get_tool_provider
 
 
@@ -1915,6 +1920,8 @@ def run_agent_turn(
         routed = set(orchestration.get("finance_providers") or [])
     elif task_type == "health_nutrition":
         routed = set(orchestration.get("health_providers") or [])
+    elif task_type == "cab_booking":
+        routed = set(orchestration.get("mobility_providers") or ["uber"])
     else:
         routed = set(orchestration.get("food_providers") or [])
     # Going-out is District-only; if the orchestrator forgot to include it
@@ -1976,6 +1983,13 @@ def run_agent_turn(
             user_message=user_message,
             llm=llm,
         )
+    elif task_type == "cab_booking":
+        routed = {"uber"}
+        plan = plan_uber_cab(
+            reasoning=str(orchestration.get("reasoning") or ""),
+            user_message=user_message,
+            llm=llm,
+        )
     elif task_type in {"finance_investing", "health_nutrition"}:
         if not routed:
             plan = _empty_provider_plan(
@@ -2006,6 +2020,7 @@ def run_agent_turn(
     tool_execution: dict[str, Any] | None = None
     calendar_execution: dict[str, Any] | None = None
     maps_execution: dict[str, Any] | None = None
+    uber_execution: dict[str, Any] | None = None
     provider_summaries: dict[str, Any] = {}
     zomato_summary = build_zomato_summary(None)
     raw_tool_results: dict[str, Any] = {}
@@ -2018,6 +2033,12 @@ def run_agent_turn(
     elif task_type == "maps_query" and execute_tools:
         maps_execution = execute_maps_query(
             plan=plan,
+            user_geo=user_geo,
+        )
+    elif task_type == "cab_booking" and execute_tools:
+        uber_execution = execute_uber_cab(
+            plan=plan,
+            user_id=user_id,
             user_geo=user_geo,
         )
     elif execute_tools:
@@ -2073,6 +2094,8 @@ def run_agent_turn(
         if task_type == "reminder_calendar"
         else maps_execution
         if task_type == "maps_query"
+        else uber_execution
+        if task_type == "cab_booking"
         else None
     )
 
@@ -2345,12 +2368,13 @@ def run_agent_turn(
         },
         "calendar_execution": calendar_execution,
         "maps_execution": maps_execution,
+        "uber_execution": uber_execution,
         "observable_trace": build_tool_execution_trace(
             plan=plan if isinstance(plan, dict) else {},
             selected_providers=routed,
             tool_execution=(
                 tool_execution
-                if execute_tools and task_type not in {"reminder_calendar", "maps_query"}
+                if execute_tools and task_type not in {"reminder_calendar", "maps_query", "cab_booking"}
                 else None
             ),
             intent_routing=orchestration,
@@ -2426,6 +2450,12 @@ def run_agent_turn(
         assistant_message = reply_maps_query(
             user_message=user_message,
             execution=maps_execution,
+            execute_tools=execute_tools,
+        )
+    elif task_type == "cab_booking":
+        assistant_message = reply_uber_cab(
+            user_message=user_message,
+            execution=uber_execution,
             execute_tools=execute_tools,
         )
     else:

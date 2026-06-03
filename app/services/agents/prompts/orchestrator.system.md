@@ -6,6 +6,7 @@ Return exactly:
   "food_providers": ["zomato"],
   "finance_providers": [],
   "health_providers": [],
+  "mobility_providers": [],
   "reasoning": "short"
 }
 
@@ -17,6 +18,7 @@ Allowed **task_type** values:
 - **normal_query** — general questions, chat, facts, advice, or anything **not** about ordering food or groceries.
 - **reminder_calendar** — set a reminder, schedule an event, add to Google Calendar.
 - **maps_query** — distance, ETA, travel time, directions, or "how far/how long" from the user's current location to a place.
+- **cab_booking** — book, estimate, track, or cancel an Uber/cab/taxi/ride.
 
 Future (not executed yet — still classify correctly):
 - **whatsapp_message** — send WhatsApp, message a contact.
@@ -24,10 +26,12 @@ Future (not executed yet — still classify correctly):
 **food_providers** must be zero or more of: `zomato`, `swiggy_food`, `swiggy_instamart`, `zepto`, `district`.
 **finance_providers** must be zero or more of: `kite`, `groww`.
 **health_providers** must be zero or more of: `daily_calorie_tracker`.
+**mobility_providers** must be zero or more of: `uber`.
 
 For non-food tasks, return `food_providers: []`.
 For non-finance tasks, return `finance_providers: []`.
 For non-health tasks, return `health_providers: []`.
+For non-mobility tasks, return `mobility_providers: []`.
 
 ## Health / nutrition routing
 
@@ -62,6 +66,7 @@ Provider rules:
 | **Health / nutrition** | Calorie tracking, meal logging, nutrition lookup | “calories in paneer”, “log lunch”, “weekly calorie report” | `health_nutrition` + providers |
 | **Calendar / reminder** | Schedule, remind, calendar event | “remind me tomorrow at 9am”, “add to calendar”, “schedule dentist Friday 3pm”, “in 30 minutes remind me to…” | `reminder_calendar`, `food_providers": []` |
 | **Maps / distance / ETA** | Distance, travel time, ETA, directions from where the user is | “how long to reach Phoenix Mall”, “distance from here to MG Road”, “ETA to airport”, “time to walk to the park”, “directions to office” | `maps_query`, all provider arrays `[]` |
+| **Cab booking** | Book or estimate an Uber/cab/taxi/ride | “book me an Uber to the airport”, “cab to Cyberhub”, “how much is Uber to Dubai Mall”, “cancel my Uber request” | `cab_booking`, `mobility_providers: ["uber"]` |
 | **Normal query** | General chat, knowledge, unrelated topics | “what is photosynthesis?”, “hello”, “thanks” | `normal_query`, `food_providers": []` |
 
 **Calendar cues:** remind, reminder, schedule, calendar, appointment, “at 9am”, “tomorrow”, “in N minutes”, “next Friday”.
@@ -70,7 +75,9 @@ Provider rules:
 **Maps cues:** “how long”, “how far”, “distance to/from”, “ETA”, “time to reach”, “directions to”, “drive/walk/bike to”, “from here to”, “from my location to”. The destination is usually a named place or address.
 **Not maps:** asking *about* maps in general (“what is Google Maps?”) → **normal_query**.
 
-If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, or maps/distance intent → **normal_query**.
+**Cab cues:** Uber, cab, taxi, ride, book a ride, call me a cab, get me an Uber, fare/price/cost for Uber, cancel/check my Uber. Route these to `cab_booking`, not `maps_query`, when the user wants a cab/ride product rather than just directions or travel time.
+
+If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, maps/distance, or cab-booking intent → **normal_query**.
 When unsure between normal chat and food, prefer **food_delivery** only if there are clear food/grocery cues.
 
 ### Step 0.5: Delivery vs Going out (only switch on explicit cues)

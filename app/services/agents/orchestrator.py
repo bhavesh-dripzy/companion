@@ -20,6 +20,7 @@ _KNOWN_TASKS = frozenset(
         "reminder_calendar",
         "maps_query",
         "whatsapp_message",
+        "cab_booking",
     }
 )
 _KNOWN_FOOD = frozenset({"zomato", "swiggy_food", "swiggy_instamart", "zepto", "district"})
@@ -47,6 +48,8 @@ def _previous_provider_fallback(previous_provider: str | None) -> tuple[str, lis
         return "finance_investing", [previous_provider]
     if previous_provider in _KNOWN_HEALTH:
         return "health_nutrition", [previous_provider]
+    if previous_provider == "uber":
+        return "cab_booking", ["uber"]
     return "food_delivery", ["zomato"]
 
 
@@ -90,6 +93,7 @@ def classify_agent_routing(
             "food_providers": fb_providers if fb_task == "food_delivery" else [],
             "finance_providers": fb_providers if fb_task == "finance_investing" else [],
             "health_providers": fb_providers if fb_task == "health_nutrition" else [],
+            "mobility_providers": fb_providers if fb_task == "cab_booking" else [],
             "reasoning": (
                 "Orchestrator returned non-JSON; "
                 f"sticking with previous_provider={previous_provider or 'zomato (default)'}."
@@ -136,6 +140,18 @@ def classify_agent_routing(
         finance = []
     if task != "health_nutrition":
         health = []
+    mobility_raw = raw.get("mobility_providers")
+    if not isinstance(mobility_raw, list):
+        mobility_raw = []
+    mobility = [
+        str(x).strip()
+        for x in mobility_raw
+        if isinstance(x, str) and str(x).strip() == "uber"
+    ]
+    if task != "cab_booking":
+        mobility = []
+    elif not mobility:
+        mobility = ["uber"]
     reasoning = str(raw.get("reasoning") or "").strip()
 
     return {
@@ -143,5 +159,6 @@ def classify_agent_routing(
         "food_providers": foods,
         "finance_providers": finance,
         "health_providers": health,
+        "mobility_providers": mobility,
         "reasoning": reasoning or "(no reasoning given)",
     }
