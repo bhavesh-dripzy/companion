@@ -13,6 +13,7 @@ def test_messages_repo_create():
         repo = MessageRepository(table_name="test-messages")
         repo.create(
             member_id="user-123",
+            chat_id="chat-123",
             message_id="msg-456",
             role="user",
             text="hello",
@@ -24,14 +25,15 @@ def test_messages_repo_create():
         _, kwargs = mock_table.put_item.call_args
         item = kwargs["Item"]
         assert item["member_id"] == "user-123"
+        assert item["chat_id"] == "chat-123"
+        assert item["created_at_message_id"].startswith("msg#chat-123#")
         assert item["role"] == "user"
         assert item["text"] == "hello"
         assert item["task_type"] == "food_delivery"
         assert item["provider"] == "zomato"
-        assert "created_at_message_id" in item
 
 
-def test_messages_repo_list_recent_returns_chronological_items():
+def test_messages_repo_list_for_chat_returns_chronological_items():
     with patch("companion_api.messages_repo._resource") as mock_resource:
         mock_table = MagicMock()
         mock_resource.return_value.Table.return_value = mock_table
@@ -39,13 +41,15 @@ def test_messages_repo_list_recent_returns_chronological_items():
             "Items": [
                 {
                     "member_id": "user-123",
-                    "created_at_message_id": "2026-06-01T10:01:00Z#assistant",
+                    "created_at_message_id": "msg#chat-123#2026-06-01T10:01:00Z#assistant",
+                    "chat_id": "chat-123",
                     "role": "assistant",
                     "text": "hi",
                 },
                 {
                     "member_id": "user-123",
-                    "created_at_message_id": "2026-06-01T10:00:00Z#user",
+                    "created_at_message_id": "msg#chat-123#2026-06-01T10:00:00Z#user",
+                    "chat_id": "chat-123",
                     "role": "user",
                     "text": "hello",
                 },
@@ -53,7 +57,7 @@ def test_messages_repo_list_recent_returns_chronological_items():
         }
 
         repo = MessageRepository(table_name="test-messages")
-        items = repo.list_recent("user-123", limit=2)
+        items = repo.list_for_chat("user-123", "chat-123", limit=2)
 
         assert [item["role"] for item in items] == ["user", "assistant"]
         mock_table.query.assert_called_once()
@@ -229,4 +233,3 @@ def test_lead_cache_repo_get_put_query():
         mock_table.query.assert_called_once()
         _, query_kwargs = mock_table.query.call_args
         assert query_kwargs["IndexName"] == "category-status-index"
-
