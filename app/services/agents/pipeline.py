@@ -2356,13 +2356,19 @@ def run_agent_turn(
     except Exception as e:
         trace("profile_cache.error", error=str(e))
 
-    # Seed session addresses from profile cache if not already present
+    # Seed session addresses from profile cache if not already present.
+    # IMPORTANT: only seed addresses that carry a REAL provider_address_id.
+    # A free-text address_line ("Sector 48, Gurgaon") is NOT a valid Zomato/
+    # Swiggy address id — seeding it makes the provider search a bogus
+    # location and return "no restaurants" (and overrides the real browser
+    # location for text chat). Text-only profile addresses are instead turned
+    # into coordinates (user_geo) just below.
     if profile and isinstance(profile.get("addresses"), dict):
         profile_addrs = profile.get("addresses", {})
         for label, details in profile_addrs.items():
             if not isinstance(details, dict):
                 continue
-            aid = details.get("provider_address_id") or details.get("address_line")
+            aid = details.get("provider_address_id")
             if not aid:
                 continue
             exists = any(str(entry.get("address_id")).strip() == str(aid).strip() for entry in seed_addresses)
@@ -2376,6 +2382,33 @@ def run_agent_turn(
                     "provider_address_id": details.get("provider_address_id")
                 })
 
+    # If the caller didn't supply coordinates (e.g. the voice path, which has
+    # no browser geolocation) but the profile has an address, derive
+    # coordinates so food/cab providers get a usable location instead of a
+    # bogus text address id. NEVER override a user_geo that was already
+    # provided (the browser location used by text chat).
+    if not user_geo and profile and isinstance(profile.get("addresses"), dict):
+        _addrs = profile["addresses"]
+        _cand = _addrs.get("home") if isinstance(_addrs.get("home"), dict) else None
+        if _cand is None:
+            _cand = next((v for v in _addrs.values() if isinstance(v, dict)), None)
+        if isinstance(_cand, dict):
+            _lat, _lng = _cand.get("lat"), _cand.get("lng")
+            if (_lat is None or _lng is None) and _cand.get("address_line"):
+                try:
+                    from companion_api.google_maps import geocode_address
+                    _geo = geocode_address(str(_cand["address_line"]), region="in")
+                    if _geo:
+                        _lat, _lng = _geo.latitude, _geo.longitude
+                except Exception as _e:
+                    trace("profile_cache.geocode_error", error=str(_e))
+            if _lat is not None and _lng is not None:
+                try:
+                    user_geo = {"latitude": float(_lat), "longitude": float(_lng)}
+                    trace("profile_cache.geo_from_address", lat=_lat, lng=_lng)
+                except (TypeError, ValueError):
+                    pass
+
     # Resolve address from message using profile facts
     resolved_addr_id = None
     resolved_label = None
@@ -2385,12 +2418,14 @@ def run_agent_turn(
         if "office" in text_lower or "work" in text_lower:
             office = addresses.get("office")
             if isinstance(office, dict):
-                resolved_addr_id = office.get("provider_address_id") or office.get("address_line")
+                # Only a real provider_address_id is usable as an address id;
+                # a text address_line is not (coords are derived above instead).
+                resolved_addr_id = office.get("provider_address_id")
                 resolved_label = "office"
         elif "home" in text_lower:
             home = addresses.get("home")
             if isinstance(home, dict):
-                resolved_addr_id = home.get("provider_address_id") or home.get("address_line")
+                resolved_addr_id = home.get("provider_address_id")
                 resolved_label = "home"
                 
         if resolved_addr_id:
