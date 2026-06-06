@@ -237,10 +237,17 @@ def _sanitise_session_reservation(raw: dict | None) -> dict[str, Any] | None:
     return None
 
 
-async def voice_tool_execute_endpoint(
+def voice_tool_execute_endpoint(
     request: VoiceToolExecuteRequest,
     user: str = Depends(get_current_user),
 ) -> VoiceToolExecuteResponse:
+    # NOTE: this MUST stay a sync `def`, not `async def`. run_agent_turn calls
+    # the Zomato/Swiggy MCP executors, which call asyncio.run() internally.
+    # asyncio.run() cannot run inside an already-running event loop, so an
+    # async handler makes every food tool call fail with
+    # "asyncio.run() cannot be called from a running event loop". As a sync
+    # def, FastAPI runs this in a threadpool (no running loop), matching the
+    # text-chat endpoints (/api/send-message, /api/agent/query) which work.
     try:
         llm_cfg, err = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
         if err or not llm_cfg:
