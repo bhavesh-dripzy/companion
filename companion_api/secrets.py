@@ -31,4 +31,11 @@ def app_secret() -> dict[str, str]:
 
 
 def secret_or_env(name: str, default: str = "") -> str:
-    return (os.getenv(name) or app_secret().get(name) or default).strip()
+    value = os.getenv(name)
+    if value:
+        return str(value).strip()
+    value = app_secret().get(name)
+    if not value or not str(value).strip():
+        load_json_secret.cache_clear()
+        value = app_secret().get(name)
+    return (str(value) if value else default).strip()
