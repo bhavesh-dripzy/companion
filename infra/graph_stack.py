@@ -269,7 +269,14 @@ class GraphStack(Stack):
             "mkdir -p /etc/companion",
             f"cat <<EOF > /etc/companion/env\n"
             f"AWS_REGION={self.region}\n"
-            f"PROFILE_CACHE_TABLE={project_name}-profile-cache\n"
+            # Use the CDK-created cache tables (which GraphEc2Role is granted
+            # write access to and the API Lambda reads). Hardcoding
+            # "{project_name}-profile-cache" / defaulting LEAD_CACHE_TABLE to
+            # "{project_name}-lead-cache" pointed the worker at tables it
+            # couldn't write to AND the dashboard never reads — silently
+            # breaking leadgen + profile personalization.
+            f"PROFILE_CACHE_TABLE={self.profile_cache.table_name}\n"
+            f"LEAD_CACHE_TABLE={self.lead_cache.table_name}\n"
             f"MESSAGES_TABLE={project_name}-messages\n"
             f"LEADGEN_QUEUE_URL={self.turns_queue.queue_url}\n"
             f"PROJECT_NAME={project_name}\n"
