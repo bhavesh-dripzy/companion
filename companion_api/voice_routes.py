@@ -212,3 +212,94 @@ async def voice_tool_execute_endpoint(
             result="",
             error=str(e),
         )
+
+
+# ---------------------------------------------------------------------------
+# OpenAI Realtime ephemeral token endpoint
+# Frontend calls this to get a short-lived token for WebRTC connection to OpenAI
+# ---------------------------------------------------------------------------
+
+
+class VoiceTokenRequest(BaseModel):
+    pass  # No body needed - uses server-side API key
+
+
+async def voice_token_endpoint(
+    request: VoiceTokenRequest = None,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mint an ephemeral OpenAI Realtime token for WebRTC voice sessions."""
+    openai_key = secret_or_env("OPENAI_API_KEY")
+    if not openai_key:
+        return {"error": "OPENAI_API_KEY not configured", "token": ""}
+
+    import requests
+
+    session_config = {
+        "type": "realtime",
+        "model": "gpt-realtime-2",
+        "output_modalities": ["audio"],
+        "instructions": (
+            "You are Companion, a helpful personal assistant. "
+            "Answer clearly and concisely in plain language. "
+            "Stay factual; say when you are unsure rather than guessing. "
+            "You can help with food ordering, cab booking, finding events, "
+            "managing reminders, and answering questions. "
+            "When the user asks you to perform an action, use the companion_execute function. "
+            "Keep responses brief and conversational. Sound natural, not scripted."
+        ),
+        "audio": {
+            "input": {
+                "noise_reduction": {"type": "near_field"},
+                "transcription": {"model": "gpt-4o-mini-transcribe"},
+                "turn_detection": {
+                    "type": "semantic_vad",
+                    "eagerness": "high",
+                    "create_response": True,
+                    "interrupt_response": True,
+                },
+            },
+            "output": {"voice": "alloy", "speed": 1.0},
+        },
+        "tools": [{
+            "type": "function",
+            "name": "companion_execute",
+            "description": (
+                "Execute actions for the user: order food, book cabs, find events, "
+                "manage reminders, answer questions, and more. Call this when the user "
+                "wants to perform an action or needs information beyond conversational knowledge."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "intent": {
+                        "type": "string",
+                        "description": "The full natural language intent of what the user wants to accomplish. Include all relevant details.",
+                    }
+                },
+                "required": ["intent"],
+            },
+        }],
+    }
+
+    try:
+        resp = requests.post(
+            "https://api.openai.com/v1/realtime/client_secrets",
+            headers={
+                "Authorization": f"Bearer {openai_key}",
+                "Content-Type": "application/json",
+            },
+            json={"session": session_config},
+            timeout=10,
+        )
+        if not resp.ok:
+            logger.error("OpenAI token mint failed: %s", resp.text)
+            return {"error": f"OpenAI returned {resp.status_code}", "token": ""}
+
+        data = resp.json()
+        token = data.get("value") or data.get("client_secret", {}).get("value", "")
+        return {"token": token, "model": "gpt-realtime-2", "voice": "alloy"}
+
+    except Exception as e:
+        logger.exception("voice_token_endpoint")
+        return {"error": str(e), "token": ""}
