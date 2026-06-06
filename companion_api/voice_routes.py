@@ -314,16 +314,38 @@ async def voice_token_endpoint(
 # long-lived GEMINI_API_KEY never leaves the server. The token is single-use
 # (uses=1) and model-constrained, so a leaked token can only start one Live
 # session against our chosen model before it expires.
+#
+# IMPORTANT: the BidiGenerateContentConstrained endpoint only honours the
+# session config that is LOCKED INTO THE TOKEN. Tools / system instruction /
+# transcription sent by the browser in its `setup` message are silently
+# ignored (verified against the live API). So the full session config —
+# including the companion_execute function declaration — MUST be baked into
+# the token's live_connect_constraints.config here, or voice tool-calling
+# silently never fires.
 # ---------------------------------------------------------------------------
 
 GEMINI_LIVE_MODEL_DEFAULT = "gemini-2.5-flash-native-audio-latest"
+
+GEMINI_LIVE_SYSTEM_INSTRUCTION = (
+    "You are Companion, a warm, funny Hindi voice assistant for users in India. "
+    "Always speak in Hindi (Hinglish is fine). Keep replies short and natural, like a dost. "
+    "When the user wants to do something actionable — order food, book a cab, find events, "
+    "manage reminders, or anything needing live data — you MUST call the companion_execute "
+    "function with a complete natural-language intent. Do NOT answer such requests from your "
+    "own knowledge; always route them through companion_execute."
+)
 
 
 async def voice_gemini_token_endpoint(
     request: VoiceTokenRequest = None,
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Mint a single-use ephemeral Gemini Live token for client-side WebSocket use."""
+    """Mint a single-use ephemeral Gemini Live token for client-side WebSocket use.
+
+    The companion_execute tool + system instruction + transcription are baked
+    into the token because the constrained Live endpoint ignores client-supplied
+    setup config.
+    """
     gemini_key = secret_or_env("GEMINI_API_KEY") or secret_or_env("GOOGLE_API_KEY")
     if not gemini_key:
         return {"error": "GEMINI_API_KEY not configured", "token": ""}
@@ -335,11 +357,45 @@ async def voice_gemini_token_endpoint(
         from google.genai import types
 
         client = genai.Client(api_key=gemini_key, http_options={"api_version": "v1alpha"})
+
+        companion_tool = types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name="companion_execute",
+                    description=(
+                        "Execute actions for the user: order food, book cabs, find events, "
+                        "manage reminders, answer questions, and more."
+                    ),
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "intent": types.Schema(
+                                type="STRING",
+                                description="Full natural-language intent with all relevant details.",
+                            )
+                        },
+                        required=["intent"],
+                    ),
+                )
+            ]
+        )
+        live_config = types.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            system_instruction=types.Content(
+                parts=[types.Part(text=GEMINI_LIVE_SYSTEM_INSTRUCTION)]
+            ),
+            tools=[companion_tool],
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+        )
+
         # Defaults give ~1 min to start the session and ~30 min to use it.
         token = client.auth_tokens.create(
             config=types.CreateAuthTokenConfig(
                 uses=1,
-                live_connect_constraints=types.LiveConnectConstraints(model=model),
+                live_connect_constraints=types.LiveConnectConstraints(
+                    model=model, config=live_config
+                ),
             )
         )
         if not token or not token.name:

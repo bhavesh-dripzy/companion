@@ -27,12 +27,11 @@ const WS_HOST =
   'wss://generativelanguage.googleapis.com/ws/' +
   'google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 
-const SYSTEM_INSTRUCTION =
-  'You are Companion, a warm, funny Hindi voice assistant for users in India. ' +
-  'Always speak in Hindi (Hinglish is fine). Keep replies short and natural, like a dost. ' +
-  'When the user wants to do something actionable — order food, book a cab, find events, ' +
-  'manage reminders, or anything needing live data — CALL the companion_execute function ' +
-  'with a complete natural-language intent. Do not answer such requests from your own knowledge.';
+// NOTE: with the constrained endpoint, the session config (tools, system
+// instruction, transcription, response modalities) is LOCKED INTO THE
+// EPHEMERAL TOKEN server-side (see voice_gemini_token_endpoint). Anything we
+// send here in `setup` beyond the model is ignored by the server — so the
+// browser sends a minimal setup and relies on the token's baked-in config.
 
 function floatTo16BitPCMBase64(input: Float32Array): string {
   const i16 = new Int16Array(input.length);
@@ -199,38 +198,8 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       wsRef.current = ws;
 
       ws.onopen = () => {
-        ws.send(
-          JSON.stringify({
-            setup: {
-              model: `models/${model}`,
-              generationConfig: { responseModalities: ['AUDIO'] },
-              systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-              tools: [
-                {
-                  functionDeclarations: [
-                    {
-                      name: 'companion_execute',
-                      description:
-                        'Execute actions for the user: order food, book cabs, find events, manage reminders, answer questions.',
-                      parameters: {
-                        type: 'OBJECT',
-                        properties: {
-                          intent: { type: 'STRING', description: 'Full natural-language intent with all details.' },
-                        },
-                        required: ['intent'],
-                      },
-                    },
-                  ],
-                },
-              ],
-              inputAudioTranscription: {},
-              outputAudioTranscription: {},
-              realtimeInputConfig: {
-                automaticActivityDetection: { disabled: false, silenceDurationMs: 600, prefixPaddingMs: 50 },
-              },
-            },
-          }),
-        );
+        // Minimal setup — tools/system/transcription are baked into the token.
+        ws.send(JSON.stringify({ setup: { model: `models/${model}` } }));
       };
 
       ws.onmessage = async (e) => {
