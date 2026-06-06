@@ -65,6 +65,11 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
   const turnUserRef = useRef('');
   const turnAsstRef = useRef('');
   const turnHadToolRef = useRef(false);
+  // True between receiving a toolCall and the turn completing. While a tool
+  // call is in flight (backend run_agent_turn can take 10-30s), we must NOT
+  // keep streaming mic audio — stray speech/noise triggers VAD, starts a new
+  // turn, and cancels/cuts off the pending tool reply.
+  const toolPendingRef = useRef(false);
 
   const disconnect = useCallback(() => {
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -77,6 +82,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
     outCtxRef.current = null;
     playHeadRef.current = 0;
     speakingRef.current = false;
+    toolPendingRef.current = false;
     if (wsRef.current) {
       wsRef.current.onclose = null;
       wsRef.current.close();
@@ -124,8 +130,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
     procRef.current = proc;
     proc.onaudioprocess = (e) => {
       const ws = wsRef.current;
-      // Gate while the model is speaking to avoid echo feeding back as input.
-      if (!ws || ws.readyState !== WebSocket.OPEN || speakingRef.current) return;
+      // Gate while the model is speaking (echo) OR while a tool call is in
+      // flight (stray audio would cancel/cut off the pending tool reply).
+      if (!ws || ws.readyState !== WebSocket.OPEN || speakingRef.current || toolPendingRef.current) return;
       const data = floatTo16BitPCMBase64(e.inputBuffer.getChannelData(0));
       ws.send(JSON.stringify({ realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data } } }));
     };
@@ -159,6 +166,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       if (obj.toolCall) {
         const calls = obj.toolCall.functionCalls || [];
         turnHadToolRef.current = true;
+        toolPendingRef.current = true; // mute mic until this turn completes
         for (const fc of calls) {
           if (fc?.id) toolNamesRef.current[fc.id] = fc.name;
           onToolCall?.(fc.name, (fc.args || {}) as Record<string, string>, fc.id);
@@ -192,6 +200,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       }
       if (sc.turnComplete) {
         speakingRef.current = false;
+        toolPendingRef.current = false; // re-enable mic for the next user turn
         setIsSpeaking(false);
         const u = turnUserRef.current.trim();
         const a = turnAsstRef.current.trim();

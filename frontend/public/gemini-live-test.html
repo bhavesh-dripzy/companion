@@ -32,7 +32,7 @@ async function toggle(){
  C('connecting');S('Connecting to Gemini...');
  try{
   ws=new WebSocket(WS);ws.binaryType='arraybuffer';
-  ws.onopen=()=>ws.send(JSON.stringify({setup:{model:M,generationConfig:{responseModalities:['AUDIO']},systemInstruction:{parts:[{text:'तुम एक मजेदार, friendly हिंदी voice assistant हो। हमेशा हिंदी में बोलो। थोड़ी Hinglish OK। छोटे और natural जवाब दो। दोस्त की तरह बात करो।'}]},inputAudioTranscription:{},outputAudioTranscription:{},realtimeInputConfig:{automaticActivityDetection:{disabled:!1,silenceDurationMs:600,prefixPaddingMs:50}}}}));
+  ws.onopen=()=>ws.send(JSON.stringify({setup:{model:M,generationConfig:{responseModalities:['AUDIO']},systemInstruction:{parts:[{text:'You are a fun, friendly voice assistant. ALWAYS reply in Hinglish — Hindi written in the Roman/Latin alphabet (e.g. "Theek hai, ho gaya"). NEVER use Devanagari script. Keep replies short and natural, like a dost.'}]},inputAudioTranscription:{},outputAudioTranscription:{},realtimeInputConfig:{automaticActivityDetection:{disabled:!1,silenceDurationMs:600,prefixPaddingMs:50}}}}));
   ws.onmessage=async e=>{
    let t;if(typeof e.data==='string')t=e.data;else if(e.data instanceof Blob)t=await e.data.text();else{t=new TextDecoder().decode(e.data)}
    try{let m=JSON.parse(t);
