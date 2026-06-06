@@ -240,18 +240,19 @@ async def voice_token_endpoint(
         "model": "gpt-realtime-2",
         "output_modalities": ["audio"],
         "instructions": (
-            "You are Companion, a helpful personal assistant. "
-            "Answer clearly and concisely in plain language. "
-            "Stay factual; say when you are unsure rather than guessing. "
-            "You can help with food ordering, cab booking, finding events, "
-            "managing reminders, and answering questions. "
+            "You are Companion, a helpful personal assistant for users in India. "
+            "ALWAYS speak in Hindi (Hinglish is okay when needed). "
+            "Be warm, friendly, and natural — like a helpful dost. "
+            "Answer clearly and concisely. Stay factual; say when you are unsure. "
+            "You can help with food ordering (Zomato/Swiggy), cab booking, "
+            "finding events, managing reminders, and answering questions. "
             "When the user asks you to perform an action, use the companion_execute function. "
             "Keep responses brief and conversational. Sound natural, not scripted."
         ),
         "audio": {
             "input": {
                 "noise_reduction": {"type": "near_field"},
-                "transcription": {"model": "gpt-4o-mini-transcribe"},
+                "transcription": {"model": "gpt-4o-mini-transcribe", "language": "hi"},
                 "turn_detection": {
                     "type": "semantic_vad",
                     "eagerness": "high",
