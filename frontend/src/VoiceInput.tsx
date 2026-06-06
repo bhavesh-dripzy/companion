@@ -10,6 +10,8 @@ const VOICE_PROVIDER = (import.meta.env.VITE_VOICE_PROVIDER as string) || 'gemin
 
 interface VoiceInputProps {
   onVoiceTurn?: (userText: string, assistantText: string) => void;
+  // Per-turn callback (Gemini path) — fires once per completed turn.
+  onVoiceTurnComplete?: (userText: string, assistantText: string, hadToolCall: boolean) => void;
   onVoiceStateChange?: (state: VoiceSessionState) => void;
   onVoiceToolCall?: (intent: string) => Promise<string>;
   onVoiceError?: (message: string) => void;
@@ -18,6 +20,7 @@ interface VoiceInputProps {
 
 export const VoiceInput: React.FC<VoiceInputProps> = ({
   onVoiceTurn,
+  onVoiceTurnComplete,
   onVoiceStateChange,
   onVoiceToolCall,
   onVoiceError,
@@ -49,6 +52,9 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
         }
       }
     },
+    onTurnComplete: (userText: string, assistantText: string, hadToolCall: boolean) => {
+      onVoiceTurnComplete?.(userText, assistantText, hadToolCall);
+    },
     onError: (msg: string) => {
       setErrorMessage(msg);
       onVoiceError?.(msg);
@@ -62,10 +68,14 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
       onVoiceStateChange?.(voiceState);
 
       if (newState === 'disconnected') {
-        const userText = userTranscriptRef.current.trim();
-        const assistantText = assistantTranscriptRef.current.trim();
-        if (userText && assistantText) {
-          onVoiceTurn?.(userText, assistantText);
+        // Gemini renders per-turn via onTurnComplete; only the OpenAI path
+        // uses this disconnect-time batch dump (avoids double-rendering).
+        if (VOICE_PROVIDER === 'openai') {
+          const userText = userTranscriptRef.current.trim();
+          const assistantText = assistantTranscriptRef.current.trim();
+          if (userText && assistantText) {
+            onVoiceTurn?.(userText, assistantText);
+          }
         }
         userTranscriptRef.current = '';
         assistantTranscriptRef.current = '';

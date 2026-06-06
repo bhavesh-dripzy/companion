@@ -8,12 +8,93 @@ from typing import Any
 from fastapi import Depends
 from pydantic import BaseModel
 
+import uuid
+
 from app.services.agents.pipeline import run_agent_turn
 from app.services.llm_config import resolve_llm_from_env
 from companion_api.auth import get_current_user
+from companion_api.leadgen_queue import send_turn_event
+from companion_api.messages_repo import (
+    ChatRepository,
+    MessageRepository,
+    derive_chat_title,
+)
 from companion_api.secrets import secret_or_env
 
 logger = logging.getLogger(__name__)
+
+
+def _persist_and_enqueue_voice_turn(
+    *,
+    user: str,
+    chat_id: str | None,
+    user_text: str,
+    assistant_text: str,
+    task_type: str | None = None,
+    routed_provider: str | None = None,
+    session_addresses: Any = None,
+) -> str | None:
+    """Persist a voice turn + enqueue the leadgen event, mirroring /api/send-message.
+
+    Used by both the tool-call path and the conversational log-turn path so
+    voice conversations show up in chat history AND feed the knowledge-graph /
+    leadgen pipeline exactly like text chats. Best-effort: any Dynamo/SQS error
+    is swallowed so it can never break the live voice reply.
+
+    Returns the resolved chat_id (looked up or freshly created).
+    """
+    resolved_chat_id = (chat_id or "").strip() or None
+    try:
+        chat_repo = ChatRepository()
+        existing = chat_repo.get(user, resolved_chat_id) if resolved_chat_id else None
+        created = False
+        if existing is None:
+            resolved_chat_id = resolved_chat_id or str(uuid.uuid4())
+            chat_repo.create(
+                member_id=user,
+                chat_id=resolved_chat_id,
+                title=derive_chat_title(user_text or "Voice chat"),
+            )
+            created = True
+
+        turn_id = str(uuid.uuid4())
+        msg_repo = MessageRepository()
+        if user_text:
+            msg_repo.create(
+                member_id=user, chat_id=resolved_chat_id, message_id=f"{turn_id}-user",
+                role="user", text=user_text, task_type=task_type, provider=routed_provider,
+            )
+        msg_repo.create(
+            member_id=user, chat_id=resolved_chat_id, message_id=f"{turn_id}-assistant",
+            role="assistant", text=assistant_text, task_type=task_type, provider=routed_provider,
+        )
+        chat_repo.touch(
+            member_id=user,
+            chat_id=resolved_chat_id,
+            last_message_preview=(assistant_text or "").strip(),
+            title=derive_chat_title(user_text) if created else None,
+            increment_count=2 if user_text else 1,
+        )
+    except Exception:
+        logger.exception("voice turn persistence failed (user=%s)", user)
+
+    # Enqueue leadgen independent of persistence (matches the text path).
+    try:
+        send_turn_event(
+            user_id=user,
+            message_id=str(uuid.uuid4()),
+            user_message=user_text,
+            assistant_message=assistant_text,
+            task_type=task_type,
+            routed_provider=routed_provider,
+            session_addresses=session_addresses,
+            user_geo=None,
+            member_id=user,
+        )
+    except Exception:
+        logger.exception("voice turn leadgen enqueue failed (user=%s)", user)
+
+    return resolved_chat_id
 
 
 class VoiceToolExecuteRequest(BaseModel):
@@ -40,6 +121,21 @@ class VoiceToolExecuteResponse(BaseModel):
     session_state: dict = {}
     session_cart: dict | None = None
     session_restaurants: list[dict] = []
+    session_menu: list[dict] = []
+    # Rich cards (menu_cards / restaurant_cards / cart_card) produced by the
+    # turn, so the chat UI can render them live during a voice conversation.
+    attachments: list[dict] = []
+    chat_id: str | None = None
+
+
+class VoiceLogTurnRequest(BaseModel):
+    user_text: str = ""
+    assistant_text: str = ""
+    chat_id: str | None = None
+
+
+class VoiceLogTurnResponse(BaseModel):
+    success: bool
     chat_id: str | None = None
 
 
@@ -196,13 +292,31 @@ async def voice_tool_execute_endpoint(
             pending_variant_choice=None,
         )
 
+        assistant_text = result.get("assistant_message", "")
+        task_type = (
+            result.get("intent_routing", {}).get("task_type") or result.get("task_type")
+        )
+        # Persist this turn + feed the leadgen pipeline, just like text chat.
+        resolved_chat_id = _persist_and_enqueue_voice_turn(
+            user=user,
+            chat_id=request.chat_id,
+            user_text=request.intent.strip(),
+            assistant_text=assistant_text,
+            task_type=task_type,
+            routed_provider=result.get("routed_provider"),
+            session_addresses=result.get("session_addresses"),
+        )
+
+        attachments = result.get("attachments")
         return VoiceToolExecuteResponse(
             success=True,
-            result=result.get("assistant_message", ""),
+            result=assistant_text,
             session_state=result.get("session_state", {}),
             session_cart=result.get("session_cart"),
             session_restaurants=result.get("session_restaurants", []),
-            chat_id=request.chat_id,
+            session_menu=result.get("session_menu", []),
+            attachments=attachments if isinstance(attachments, list) else [],
+            chat_id=resolved_chat_id or request.chat_id,
         )
 
     except Exception as e:
@@ -404,3 +518,27 @@ async def voice_gemini_token_endpoint(
     except Exception as e:
         logger.exception("voice_gemini_token_endpoint")
         return {"error": str(e), "token": ""}
+
+
+async def voice_log_turn_endpoint(
+    request: VoiceLogTurnRequest,
+    user: str = Depends(get_current_user),
+) -> VoiceLogTurnResponse:
+    """Persist + leadgen-enqueue a conversational voice turn (no tool call).
+
+    Tool-call turns are already persisted by voice_tool_execute_endpoint; this
+    captures the chit-chat turns that otherwise never reach the backend, so the
+    full voice conversation lands in history and the leadgen pipeline.
+    """
+    user_text = (request.user_text or "").strip()
+    assistant_text = (request.assistant_text or "").strip()
+    if not user_text and not assistant_text:
+        return VoiceLogTurnResponse(success=False, chat_id=request.chat_id)
+    chat_id = _persist_and_enqueue_voice_turn(
+        user=user,
+        chat_id=request.chat_id,
+        user_text=user_text,
+        assistant_text=assistant_text,
+        task_type="voice_chat",
+    )
+    return VoiceLogTurnResponse(success=True, chat_id=chat_id or request.chat_id)

@@ -624,5 +624,9 @@ export interface VoiceToolCallResponse {
   session_state?: Record<string, string>;
   session_cart?: SessionCart | null;
   session_restaurants?: SessionRestaurant[];
+  session_menu?: SessionMenuEntry[];
+  // Rich cards (menu_cards / restaurant_cards / cart_card) so the chat UI can
+  // render them live during a voice conversation.
+  attachments?: Attachment[];
   chat_id?: string | null;
 }

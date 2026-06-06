@@ -31,6 +31,7 @@ interface ChatAreaProps {
   onQuickPrompt?: (prompt: string) => void;
   quickPromptDisabled?: boolean;
   onVoiceTurn?: (userText: string, assistantText: string) => void;
+  onVoiceTurnComplete?: (userText: string, assistantText: string, hadToolCall: boolean) => void;
   onVoiceToolCall?: (intent: string) => Promise<string>;
   onVoiceStateChange?: (state: import('../types').VoiceSessionState) => void;
   onVoiceError?: (message: string) => void;
@@ -99,6 +100,7 @@ export function ChatArea({
   onQuickPrompt,
   quickPromptDisabled,
   onVoiceTurn,
+  onVoiceTurnComplete,
   onVoiceToolCall,
   onVoiceStateChange,
   onVoiceError,
@@ -434,6 +436,7 @@ export function ChatArea({
               <div className="self-end mb-0.5">
                 <VoiceInput
                   onVoiceTurn={onVoiceTurn}
+                  onVoiceTurnComplete={onVoiceTurnComplete}
                   onVoiceStateChange={onVoiceStateChange}
                   onVoiceToolCall={onVoiceToolCall}
                   onVoiceError={onVoiceError}

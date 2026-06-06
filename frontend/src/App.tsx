@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { Login } from './Login';
 import { SettingsModal } from './SettingsModal';
@@ -9,6 +9,7 @@ import { RemindersPopup } from './components/RemindersPopup';
 import { OrdersPopup } from './components/OrdersPopup';
 import { api, clearToken, getToken } from './api';
 import type {
+  Attachment,
   ChatSummary,
   GeoCoordinate,
   McpStatus,
@@ -652,10 +653,55 @@ function App() {
     }
   };
 
+  // Cards (menu/restaurant/cart) returned by the most recent voice tool call,
+  // held until that turn completes so we can attach them to the rendered
+  // assistant message in the chat log.
+  const pendingVoiceAttachmentsRef = useRef<Attachment[] | null>(null);
+
   const handleVoiceTurn = (userText: string, assistantText: string) => {
+    // OpenAI path only (batch at disconnect). The Gemini path renders each
+    // turn live via handleVoiceTurnComplete.
     const userMsg: Message = { role: 'user', content: userText };
     const assistantMsg: Message = { role: 'assistant', content: assistantText };
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
+  };
+
+  const handleVoiceTurnComplete = async (
+    userText: string,
+    assistantText: string,
+    hadToolCall: boolean,
+  ) => {
+    // Render this turn in the chat log, attaching any cards from the tool call.
+    const attachments = hadToolCall ? pendingVoiceAttachmentsRef.current ?? undefined : undefined;
+    pendingVoiceAttachmentsRef.current = null;
+    setMessages((prev) => {
+      const next = [...prev];
+      if (userText) next.push({ role: 'user', content: userText });
+      if (assistantText || attachments) {
+        next.push({ role: 'assistant', content: assistantText, attachments });
+      }
+      return next;
+    });
+
+    // Tool turns are already persisted + leadgen-enqueued server-side by
+    // /api/voice/tool-execute/. Persist conversational turns here so voice
+    // history and the leadgen pipeline stay complete.
+    if (!hadToolCall && (userText || assistantText)) {
+      try {
+        const data = await api.post('/api/voice/log-turn/', {
+          user_text: userText,
+          assistant_text: assistantText,
+          chat_id: chatId,
+        });
+        if (data?.chat_id && data.chat_id !== chatId) {
+          setChatId(data.chat_id);
+          localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
+        }
+      } catch (err) {
+        console.error('[Voice] log-turn failed', err);
+      }
+    }
+    refreshChatList();
   };
 
   const handleVoiceToolCall = async (intent: string): Promise<string> => {
@@ -684,6 +730,12 @@ function App() {
         if (data.session_restaurants && data.session_restaurants.length > 0) {
           setSessionRestaurants(data.session_restaurants);
         }
+        if (Array.isArray(data.session_menu) && data.session_menu.length > 0) {
+          setSessionMenu(data.session_menu);
+        }
+        // Stash cards for handleVoiceTurnComplete to render on this turn.
+        pendingVoiceAttachmentsRef.current =
+          Array.isArray(data.attachments) && data.attachments.length > 0 ? data.attachments : null;
         if (data.chat_id && data.chat_id !== chatId) {
           setChatId(data.chat_id);
           localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
@@ -832,6 +884,7 @@ function App() {
             }}
             quickPromptDisabled={isThinking}
             onVoiceTurn={handleVoiceTurn}
+            onVoiceTurnComplete={handleVoiceTurnComplete}
             onVoiceToolCall={handleVoiceToolCall}
             onVoiceStateChange={handleVoiceStateChange}
             onVoiceError={handleVoiceError}

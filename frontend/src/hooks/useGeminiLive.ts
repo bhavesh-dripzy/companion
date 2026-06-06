@@ -11,6 +11,10 @@ export interface UseGeminiLiveOptions {
   onUserTranscript?: (text: string) => void;
   onAssistantTranscript?: (text: string) => void;
   onToolCall?: (name: string, args: Record<string, string>, callId: string) => void;
+  // Fires once per completed turn with that turn's full transcript and whether
+  // it invoked a tool. Used to render each turn live and to persist/leadgen
+  // conversational (non-tool) turns.
+  onTurnComplete?: (userText: string, assistantText: string, hadToolCall: boolean) => void;
   onError?: (message: string) => void;
   onStateChange?: (state: 'disconnected' | 'connecting' | 'connected') => void;
 }
@@ -46,7 +50,7 @@ function floatTo16BitPCMBase64(input: Float32Array): string {
 }
 
 export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveReturn {
-  const { onUserTranscript, onAssistantTranscript, onToolCall, onError, onStateChange } = options;
+  const { onUserTranscript, onAssistantTranscript, onToolCall, onTurnComplete, onError, onStateChange } = options;
   const [state, setState] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -58,6 +62,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
   const playHeadRef = useRef(0);
   const speakingRef = useRef(false);
   const toolNamesRef = useRef<Record<string, string>>({});
+  const turnUserRef = useRef('');
+  const turnAsstRef = useRef('');
+  const turnHadToolRef = useRef(false);
 
   const disconnect = useCallback(() => {
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -151,6 +158,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
 
       if (obj.toolCall) {
         const calls = obj.toolCall.functionCalls || [];
+        turnHadToolRef.current = true;
         for (const fc of calls) {
           if (fc?.id) toolNamesRef.current[fc.id] = fc.name;
           onToolCall?.(fc.name, (fc.args || {}) as Record<string, string>, fc.id);
@@ -160,8 +168,14 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
 
       const sc = obj.serverContent;
       if (!sc) return;
-      if (sc.inputTranscription?.text) onUserTranscript?.(sc.inputTranscription.text);
-      if (sc.outputTranscription?.text) onAssistantTranscript?.(sc.outputTranscription.text);
+      if (sc.inputTranscription?.text) {
+        turnUserRef.current += sc.inputTranscription.text;
+        onUserTranscript?.(sc.inputTranscription.text);
+      }
+      if (sc.outputTranscription?.text) {
+        turnAsstRef.current += sc.outputTranscription.text;
+        onAssistantTranscript?.(sc.outputTranscription.text);
+      }
       const parts = sc.modelTurn?.parts || [];
       for (const p of parts) {
         if (p.inlineData?.mimeType?.startsWith('audio/pcm')) {
@@ -179,9 +193,16 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       if (sc.turnComplete) {
         speakingRef.current = false;
         setIsSpeaking(false);
+        const u = turnUserRef.current.trim();
+        const a = turnAsstRef.current.trim();
+        const hadTool = turnHadToolRef.current;
+        turnUserRef.current = '';
+        turnAsstRef.current = '';
+        turnHadToolRef.current = false;
+        if (u || a) onTurnComplete?.(u, a, hadTool);
       }
     },
-    [onStateChange, onToolCall, onUserTranscript, onAssistantTranscript, startMic, playAudioChunk],
+    [onStateChange, onToolCall, onUserTranscript, onAssistantTranscript, onTurnComplete, startMic, playAudioChunk],
   );
 
   const connect = useCallback(async () => {

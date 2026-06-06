@@ -27,6 +27,7 @@ from companion_api.auth import (
 from companion_api.secrets import secret_or_env
 from companion_api.voice_routes import (
     voice_gemini_token_endpoint,
+    voice_log_turn_endpoint,
     voice_tool_execute_endpoint,
     voice_token_endpoint,
 )
@@ -2489,6 +2490,7 @@ def get_admin_profile_graph(
 app.post("/api/voice/tool-execute/")(voice_tool_execute_endpoint)
 app.post("/api/voice/token/")(voice_token_endpoint)
 app.post("/api/voice/gemini-token/")(voice_gemini_token_endpoint)
+app.post("/api/voice/log-turn/")(voice_log_turn_endpoint)
 
 
 handler = Mangum(app, lifespan="off")

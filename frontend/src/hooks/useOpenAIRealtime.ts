@@ -5,6 +5,9 @@ export interface UseOpenAIRealtimeOptions {
   onUserTranscript?: (text: string) => void;
   onAssistantTranscript?: (text: string) => void;
   onToolCall?: (name: string, args: Record<string, string>, callId: string) => void;
+  // Accepted for interface parity with useGeminiLive (not emitted here — the
+  // OpenAI path uses the disconnect-time onVoiceTurn batch instead).
+  onTurnComplete?: (userText: string, assistantText: string, hadToolCall: boolean) => void;
   onError?: (message: string) => void;
   onStateChange?: (state: 'disconnected' | 'connecting' | 'connected') => void;
 }
