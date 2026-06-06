@@ -66,6 +66,21 @@ export function useOpenAIRealtime(options: UseOpenAIRealtimeOptions): UseOpenAIR
       dc.onopen = () => {
         setState('connected');
         onStateChange?.('connected');
+
+        const greetings = [
+          'Bade miya, aaj kya khaana pasand karenge?',
+          'Arre wah! Kya haal hai mere dost? Aaj kuch tasty try karte hain?',
+          'Namaste ji! Aaj ka mood kya keh raha hai — biryani ya pizza?',
+          'Oho! Lagta hai bhookh lagi hai. Batao kya order karna hai!',
+        ];
+        const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+
+        dc.send(JSON.stringify({
+          type: 'response.create',
+          response: {
+            instructions: `Greet the user in a warm, funny, natural Hindi/Hinglish style. Use this exact greeting: "${greeting}" but make it sound natural and conversational. Keep it under 8 seconds.`,
+          },
+        }));
       };
 
       dc.onmessage = (e) => {

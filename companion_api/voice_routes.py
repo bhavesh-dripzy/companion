@@ -239,6 +239,7 @@ async def voice_token_endpoint(
         "type": "realtime",
         "model": "gpt-realtime-2",
         "output_modalities": ["audio"],
+        "reasoning": {"effort": "minimal"},
         "instructions": (
             "You are Companion, a helpful personal assistant for users in India. "
             "ALWAYS speak in Hindi (Hinglish is okay when needed). "
