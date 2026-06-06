@@ -30,6 +30,10 @@ interface ChatAreaProps {
   onSelectAddress?: (addr: SessionAddress) => void;
   onQuickPrompt?: (prompt: string) => void;
   quickPromptDisabled?: boolean;
+  onVoiceTurn?: (userText: string, assistantText: string) => void;
+  onVoiceToolCall?: (intent: string) => Promise<string>;
+  onVoiceStateChange?: (state: import('../types').VoiceSessionState) => void;
+  onVoiceError?: (message: string) => void;
   /** Hero image shown on the empty state. Overridable so we don't
    *  hard-fail offline / blocked-CDN setups. */
   heroImageUrl?: string;
@@ -94,6 +98,10 @@ export function ChatArea({
   onSelectAddress,
   onQuickPrompt,
   quickPromptDisabled,
+  onVoiceTurn,
+  onVoiceToolCall,
+  onVoiceStateChange,
+  onVoiceError,
   heroImageUrl = DEFAULT_HERO,
 }: ChatAreaProps) {
   const [inputValue, setInputValue] = useState('');
@@ -423,15 +431,12 @@ export function ChatArea({
                 className="flex-1 bg-transparent border-none outline-none text-[13.5px] text-slate-800 placeholder-slate-400 py-2.5 px-1 focus:ring-0 min-w-0 resize-none max-h-40 leading-relaxed"
               />
 
-              {/* Real voice input (audio capture → Sarvam transcribe). On
-                  auto-submit it fires whatever was just typed/transcribed. */}
               <div className="self-end mb-0.5">
                 <VoiceInput
-                  onTranscript={(text) =>
-                    setInputValue((prev) => (prev ? `${prev} ${text}` : text))
-                  }
-                  onAutoSubmit={() => handleSubmit()}
-                  autoSubmit
+                  onVoiceTurn={onVoiceTurn}
+                  onVoiceStateChange={onVoiceStateChange}
+                  onVoiceToolCall={onVoiceToolCall}
+                  onVoiceError={onVoiceError}
                   disabled={isThinking}
                 />
               </div>

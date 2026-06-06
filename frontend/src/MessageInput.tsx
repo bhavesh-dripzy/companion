@@ -90,12 +90,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           />
 
           <div className="flex items-center gap-1 self-end mb-0.5">
-            <VoiceInput
-              onTranscript={(text) => setMessage((prev) => (prev ? `${prev} ${text}` : text))}
-              onAutoSubmit={handleSubmit}
-              autoSubmit
-              disabled={disabled}
-            />
+            <VoiceInput disabled={disabled} />
             <button
               type="submit"
               disabled={!message.trim() || disabled}

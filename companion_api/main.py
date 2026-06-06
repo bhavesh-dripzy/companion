@@ -25,6 +25,7 @@ from companion_api.auth import (
     validate_admin_login,
 )
 from companion_api.secrets import secret_or_env
+from companion_api.voice_routes import voice_tool_execute_endpoint
 
 from app.services.food_llm_router import route_food_query
 from app.services.food_response_builder import saved_address_label_from_mcp_item
@@ -2470,6 +2471,9 @@ def get_admin_profile_graph(
         raise HTTPException(
             status_code=502, detail=f"Failed to query graph data from graph service: {e}"
         )
+
+
+app.post("/api/voice/tool-execute/")(voice_tool_execute_endpoint)
 
 
 handler = Mangum(app, lifespan="off")

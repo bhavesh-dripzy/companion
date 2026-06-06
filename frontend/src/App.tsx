@@ -25,6 +25,9 @@ import type {
   SessionTheatre,
   SessionVenue,
   ToolProvider,
+  VoiceSessionState,
+  VoiceToolCallRequest,
+  VoiceToolCallResponse,
 } from './types';
 import { useUserLocation } from './useUserLocation';
 import { mapsStatus } from './maps';
@@ -247,6 +250,7 @@ function App() {
   const [sessionVenues, setSessionVenues] = useState<SessionVenue[]>([]);
   const [sessionArtists, setSessionArtists] = useState<SessionArtist[]>([]);
   const [sessionReservation, setSessionReservation] = useState<SessionReservation | null>(null);
+  const [_voiceSessionState, setVoiceSessionState] = useState<VoiceSessionState>('inactive');
 
   // Multi-chat support — same contract as before. `chatId === null`
   // means "fresh new chat about to be started" — no Dynamo row exists
@@ -648,6 +652,58 @@ function App() {
     }
   };
 
+  const handleVoiceTurn = (userText: string, assistantText: string) => {
+    const userMsg: Message = { role: 'user', content: userText };
+    const assistantMsg: Message = { role: 'assistant', content: assistantText };
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+  };
+
+  const handleVoiceToolCall = async (intent: string): Promise<string> => {
+    const body: VoiceToolCallRequest = {
+      intent,
+      history: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      session_state: Object.keys(sessionState).length > 0 ? sessionState : undefined,
+      chat_id: chatId,
+      ...(sessionRestaurants.length > 0 ? { session_restaurants: sessionRestaurants } : {}),
+      ...(sessionAddresses.length > 0 ? { session_addresses: sessionAddresses } : {}),
+      ...(sessionCart ? { session_cart: sessionCart } : {}),
+    };
+
+    try {
+      const data: VoiceToolCallResponse = await api.post('/api/voice/tool-execute/', body);
+      if (data.success) {
+        if (data.session_state && Object.keys(data.session_state).length > 0) {
+          setSessionState(data.session_state);
+        }
+        if (data.session_cart !== undefined) {
+          setSessionCart(data.session_cart && data.session_cart.cart_id ? data.session_cart : null);
+        }
+        if (data.session_restaurants && data.session_restaurants.length > 0) {
+          setSessionRestaurants(data.session_restaurants);
+        }
+        if (data.chat_id && data.chat_id !== chatId) {
+          setChatId(data.chat_id);
+          localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
+        }
+        return data.result;
+      }
+      return `I couldn't complete that request: ${data.error || 'Unknown error'}`;
+    } catch (err: any) {
+      return `Something went wrong: ${err.message || 'Unknown error'}`;
+    }
+  };
+
+  const handleVoiceStateChange = (state: VoiceSessionState) => {
+    setVoiceSessionState(state);
+  };
+
+  const handleVoiceError = (message: string) => {
+    console.error('[Voice] Error:', message);
+  };
+
   const openSettings = (tab: 'mcp' | 'calendar' | 'models' = 'mcp', providerId?: string) => {
     setSettingsInitialTab(tab);
     setSettingsInitialProvider(providerId);
@@ -775,6 +831,10 @@ function App() {
               if (!isThinking) handleSendMessage(prompt);
             }}
             quickPromptDisabled={isThinking}
+            onVoiceTurn={handleVoiceTurn}
+            onVoiceToolCall={handleVoiceToolCall}
+            onVoiceStateChange={handleVoiceStateChange}
+            onVoiceError={handleVoiceError}
           />
         )}
       </div>

@@ -597,3 +597,32 @@ export interface MapsRouteResponse {
 export interface MapsStatusResponse {
   configured: boolean;
 }
+
+export type VoiceSessionState = 'inactive' | 'connecting' | 'active' | 'error';
+
+export interface VoiceToolCallRequest {
+  intent: string;
+  history: Array<{ role: string; content: string }>;
+  session_state?: Record<string, string>;
+  chat_id?: string | null;
+  session_restaurants?: SessionRestaurant[];
+  session_addresses?: SessionAddress[];
+  session_cart?: SessionCart | null;
+  session_menu?: SessionMenuEntry[];
+  session_movies?: SessionMovie[];
+  session_theatres?: SessionTheatre[];
+  session_events?: SessionEvent[];
+  session_venues?: SessionVenue[];
+  session_artists?: SessionArtist[];
+  session_reservation?: SessionReservation | null;
+}
+
+export interface VoiceToolCallResponse {
+  success: boolean;
+  result: string;
+  error?: string | null;
+  session_state?: Record<string, string>;
+  session_cart?: SessionCart | null;
+  session_restaurants?: SessionRestaurant[];
+  chat_id?: string | null;
+}

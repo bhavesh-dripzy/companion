@@ -1,137 +1,213 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Mic, MicOff, Loader2 } from 'lucide-react';
-import { SarvamAIClient } from 'sarvamai';
-
-type VoiceInputState = 'idle' | 'recording' | 'processing' | 'error';
+import { createUseGeminiLive } from './hooks/useGeminiLive';
+import type { GeminiToolCall } from './hooks/useGeminiLive';
+import { useAudioStream } from './hooks/useAudioStream';
+import type { VoiceSessionState } from './types';
 
 interface VoiceInputProps {
-  onTranscript: (text: string) => void;
+  onVoiceTurn?: (userText: string, assistantText: string) => void;
+  onVoiceStateChange?: (state: VoiceSessionState) => void;
+  onVoiceToolCall?: (intent: string) => Promise<string>;
+  onVoiceError?: (message: string) => void;
   disabled?: boolean;
-  autoSubmit?: boolean;
-  onAutoSubmit?: () => void;
 }
 
-const SARVAM_API_KEY = import.meta.env.VITE_SARVAM_API_KEY as string | undefined;
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+console.log('[VoiceInput] init, VITE_GEMINI_API_KEY:', GEMINI_API_KEY ? 'present (len=' + GEMINI_API_KEY.length + ')' : 'MISSING');
 
 export const VoiceInput: React.FC<VoiceInputProps> = ({
-  onTranscript,
+  onVoiceTurn,
+  onVoiceStateChange,
+  onVoiceToolCall,
+  onVoiceError,
   disabled = false,
-  autoSubmit = false,
-  onAutoSubmit,
 }) => {
-  const [state, setState] = useState<VoiceInputState>('idle');
+  const [state, setState] = useState<VoiceSessionState>('inactive');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const onAutoSubmitRef = useRef<(() => void) | null>(null);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const userTranscriptRef = useRef('');
+  const assistantTranscriptRef = useRef('');
+  const pendingToolCallsRef = useRef<Map<string, GeminiToolCall>>(new Map());
 
-  if (onAutoSubmit) {
-    onAutoSubmitRef.current = onAutoSubmit;
-  }
+  const geminiLive = createUseGeminiLive({
+    apiKey: GEMINI_API_KEY || '',
+    systemInstruction:
+      "You are Companion, a helpful personal assistant. When the user connects, greet them warmly and introduce yourself. Ask what you can help with today. Answer clearly and concisely in plain language. Stay factual; say when you are unsure rather than guessing. You can help with food ordering, cab booking, finding events, managing reminders, and answering questions. When the user asks you to perform an action, use the companion_execute function.",
+    onAudioReceived: (data) => audioStream.playAudio(data),
+    onInputTranscript: (text) => {
+      userTranscriptRef.current += text;
+    },
+    onOutputTranscript: (text) => {
+      assistantTranscriptRef.current += text;
+    },
+    onTurnComplete: () => {
+      const userText = userTranscriptRef.current.trim();
+      const assistantText = assistantTranscriptRef.current.trim();
+      if (userText && assistantText) {
+        onVoiceTurn?.(userText, assistantText);
+      }
+      userTranscriptRef.current = '';
+      assistantTranscriptRef.current = '';
+    },
+    onInterrupted: () => {
+      audioStream.stopPlayback();
+      userTranscriptRef.current = '';
+      assistantTranscriptRef.current = '';
+    },
+    onError: (msg) => {
+      setErrorMessage(msg);
+      onVoiceError?.(msg);
+    },
+    onToolCall: async (call) => {
+      for (const functionCall of call.functionCalls) {
+        if (functionCall.name === 'companion_execute') {
+          const intent = functionCall.args.intent;
+          const callId = functionCall.id;
+          pendingToolCallsRef.current.set(callId, call);
 
-  const startRecording = useCallback(async () => {
-    try {
-      setErrorMessage(null);
-      audioChunksRef.current = [];
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 16000,
-        },
-      });
-
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-
-        if (audioChunksRef.current.length === 0) {
-          setState('idle');
-          return;
-        }
-
-        setState('processing');
-
-        try {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const wavBlob = await convertToWav(audioBlob);
-          const transcript = await transcribeAudio(wavBlob);
-
-          if (transcript && transcript.trim()) {
-            onTranscript(transcript.trim());
-            if (autoSubmit && onAutoSubmitRef.current) {
-              setTimeout(() => onAutoSubmitRef.current?.(), 50);
-            }
-          } else {
-            setErrorMessage('No speech detected. Please try again.');
+          try {
+            const resultText = await onVoiceToolCall?.(intent) ?? '';
+            const toolResponse = {
+              functionResponses: [
+                {
+                  name: 'companion_execute',
+                  id: callId,
+                  response: { result: resultText },
+                },
+              ],
+            };
+            geminiLive.sendToolResponse(toolResponse);
+          } catch {
+            const errorResponse = {
+              functionResponses: [
+                {
+                  name: 'companion_execute',
+                  id: callId,
+                  response: { result: 'Tool execution failed. Please try again.' },
+                },
+              ],
+            };
+            geminiLive.sendToolResponse(errorResponse);
+          } finally {
+            pendingToolCallsRef.current.delete(callId);
           }
-        } catch (err) {
-          setErrorMessage(parseSarvamError(err));
-        } finally {
-          setState('idle');
         }
-      };
+      }
+    },
+    onToolCallCancellation: (ids) => {
+      for (const id of ids) {
+        pendingToolCallsRef.current.delete(id);
+      }
+    },
+  });
 
-      mediaRecorder.start();
-      setState('recording');
+  const audioStream = useAudioStream({
+    onAudioCaptured: (data) => geminiLive.sendAudio(data),
+    onCaptureError: (msg) => {
+      setErrorMessage(msg);
+      onVoiceError?.(msg);
+    },
+  });
 
-      setTimeout(() => {
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.stop();
-        }
-      }, 30000);
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.name === 'NotAllowedError'
-            ? 'Microphone access denied. Please allow microphone access in your browser settings.'
-            : err.message
-          : 'Could not access microphone';
-      setErrorMessage(message);
-      setState('idle');
+  useEffect(() => {
+    let newState: VoiceSessionState;
+    switch (geminiLive.connectionState) {
+      case 'ready':
+        newState = 'active';
+        break;
+      case 'disconnected':
+        newState = 'inactive';
+        break;
+      case 'connecting':
+      case 'settingUp':
+        newState = 'connecting';
+        break;
+      case 'error':
+        newState = 'error';
+        break;
+      default:
+        newState = 'inactive';
     }
-  }, [onTranscript, autoSubmit]);
+    setState(newState);
+    onVoiceStateChange?.(newState);
+  }, [geminiLive.connectionState, onVoiceStateChange]);
 
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
+  useEffect(() => {
+    audioStream.setMicMuted(geminiLive.isModelSpeaking);
+  }, [geminiLive.isModelSpeaking, audioStream]);
+
+  useEffect(() => {
+    return () => {
+      audioStream.stopCapture();
+      audioStream.stopPlayback();
+      geminiLive.disconnect();
+    };
   }, []);
 
-  const handleClick = () => {
-    if (state === 'idle') {
-      startRecording();
-    } else if (state === 'recording') {
-      stopRecording();
+  const handleClick = useCallback(async () => {
+    console.log('[VoiceInput] handleClick', { disabled, state, geminiLiveExists: !!geminiLive, connectFn: typeof geminiLive?.connect });
+    if (disabled) {
+      console.log('[VoiceInput] handleClick - blocked by disabled');
+      return;
     }
-  };
+
+    const currentState = state;
+    console.log('[VoiceInput] handleClick currentState:', currentState);
+
+    if (currentState === 'inactive' || currentState === 'error') {
+      console.log('[VoiceInput] Starting connection...');
+      setErrorMessage(null);
+      setState('connecting');
+
+      try {
+        console.log('[VoiceInput] Calling geminiLive.connect()...');
+        const success = await geminiLive.connect();
+        console.log('[VoiceInput] geminiLive.connect() returned:', success);
+        if (success) {
+          console.log('[VoiceInput] Sending greeting...');
+          geminiLive.sendTextMessage('Hello! Start the conversation. Introduce yourself as Companion and ask how you can help today.');
+          console.log('[VoiceInput] Starting audio capture...');
+          await audioStream.startCapture();
+          console.log('[VoiceInput] Audio capture started - speak now');
+          setState('active');
+        } else {
+          console.log('[VoiceInput] connect returned false');
+          setState('error');
+          setErrorMessage('Failed to connect to Gemini');
+        }
+      } catch (err) {
+        console.error('[VoiceInput] connect threw:', err);
+        setState('error');
+        const msg = err instanceof Error ? err.message : 'Connection failed';
+        setErrorMessage(msg);
+        onVoiceError?.(msg);
+      }
+    } else if (currentState === 'active' || currentState === 'connecting') {
+      audioStream.stopCapture();
+      audioStream.stopPlayback();
+      geminiLive.disconnect();
+      setState('inactive');
+      userTranscriptRef.current = '';
+      assistantTranscriptRef.current = '';
+    }
+  }, [state, disabled, geminiLive, audioStream, onVoiceError]);
 
   const getButtonContent = () => {
-    switch (state) {
-      case 'recording':
-        return <MicOff size={16} strokeWidth={2.5} className="text-white" />;
-      case 'processing':
-        return <Loader2 size={16} strokeWidth={2.5} className="animate-spin" />;
-      default:
-        return <Mic size={16} strokeWidth={2.5} />;
+    if (state === 'connecting') {
+      return <Loader2 size={16} strokeWidth={2.5} className="animate-spin" />;
     }
+    if (state === 'active') {
+      return <MicOff size={16} strokeWidth={2.5} className="text-white" />;
+    }
+    return <Mic size={16} strokeWidth={2.5} />;
   };
 
   const getButtonClass = () => {
     const base =
       'w-9 h-9 rounded-full flex items-center justify-center transition-all flex-shrink-0 disabled:opacity-30 cursor-pointer';
 
-    if (state === 'recording') {
+    if (state === 'active') {
       return `${base} bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-md shadow-red-500/30`;
     }
     return `${base} text-slate-500 hover:text-slate-900 bg-slate-100/60 hover:bg-slate-100`;
@@ -142,23 +218,19 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
       <button
         type="button"
         onClick={handleClick}
-        disabled={disabled || state === 'processing'}
-        aria-label={state === 'recording' ? 'Stop recording' : 'Voice input'}
-        title={
-          state === 'recording'
-            ? 'Click to stop recording'
-            : errorMessage || 'Click to speak'
-        }
+        disabled={disabled}
+        aria-label={state === 'active' ? 'End voice session' : 'Start voice session'}
+        title={errorMessage || 'Click to speak'}
         className={getButtonClass()}
       >
         {getButtonContent()}
       </button>
 
-      {state === 'recording' && (
+      {state === 'active' && (
         <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 rounded-full animate-ping" />
       )}
 
-      {errorMessage && state === 'idle' && (
+      {errorMessage && state === 'inactive' && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 whitespace-nowrap z-10">
           {errorMessage}
         </div>
@@ -166,81 +238,3 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
     </div>
   );
 };
-
-async function convertToWav(webmBlob: Blob): Promise<Blob> {
-  const arrayBuffer = await webmBlob.arrayBuffer();
-  const audioContext = new AudioContext({ sampleRate: 16000 });
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-  audioContext.close();
-
-  const wavBuffer = encodeWav(audioBuffer);
-  return new Blob([wavBuffer], { type: 'audio/wav' });
-}
-
-function encodeWav(audioBuffer: AudioBuffer): ArrayBuffer {
-  const numChannels = 1;
-  const sampleRate = audioBuffer.sampleRate;
-  const bitsPerSample = 16;
-  const bytesPerSample = bitsPerSample / 8;
-  const blockAlign = numChannels * bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const dataLength = audioBuffer.length * bytesPerSample;
-  const buffer = new ArrayBuffer(44 + dataLength);
-  const view = new DataView(buffer);
-
-  writeString(view, 0, 'RIFF');
-  view.setUint32(4, 36 + dataLength, true);
-  writeString(view, 8, 'WAVE');
-  writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-  writeString(view, 36, 'data');
-  view.setUint32(40, dataLength, true);
-
-  const channelData = audioBuffer.getChannelData(0);
-  let offset = 44;
-  for (let i = 0; i < channelData.length; i++) {
-    const sample = Math.max(-1, Math.min(1, channelData[i]));
-    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-    offset += 2;
-  }
-
-  return buffer;
-}
-
-function writeString(view: DataView, offset: number, str: string) {
-  for (let i = 0; i < str.length; i++) {
-    view.setUint8(offset + i, str.charCodeAt(i));
-  }
-}
-
-async function transcribeAudio(wavBlob: Blob): Promise<string> {
-  if (!SARVAM_API_KEY) {
-    throw new Error('Sarvam API key not configured. Set VITE_SARVAM_API_KEY in your .env file.');
-  }
-
-  const client = new SarvamAIClient({ apiSubscriptionKey: SARVAM_API_KEY });
-  const arrayBuffer = await wavBlob.arrayBuffer();
-
-  const response = await client.speechToText.transcribe({
-    file: arrayBuffer,
-    model: 'saaras:v3',
-    mode: 'transcribe',
-  });
-
-  return response.transcript || '';
-}
-
-function parseSarvamError(err: unknown): string {
-  if (err && typeof err === 'object' && 'message' in err) {
-    const msg = (err as { message: unknown }).message;
-    if (typeof msg === 'string') return msg;
-  }
-  if (err instanceof Error) return err.message;
-  return 'Transcription failed. Please try again.';
-}
