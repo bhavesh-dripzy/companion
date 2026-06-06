@@ -123,7 +123,9 @@ jobs:
               existing = json.load(f)
           with open("/tmp/secrets.json") as f:
               updates = json.load(f)
-          existing.update(updates)
+          for k, v in updates.items():
+              if v:
+                  existing[k] = v
           with open("/tmp/secrets.json", "w") as f:
               json.dump(existing, f)
           PY
