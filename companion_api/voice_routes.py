@@ -305,3 +305,46 @@ async def voice_token_endpoint(
     except Exception as e:
         logger.exception("voice_token_endpoint")
         return {"error": str(e), "token": ""}
+
+
+# ---------------------------------------------------------------------------
+# Gemini Live ephemeral token endpoint
+# Frontend calls this to get a short-lived token for a direct WebSocket
+# connection to the Gemini Live API (BidiGenerateContentConstrained). The
+# long-lived GEMINI_API_KEY never leaves the server. The token is single-use
+# (uses=1) and model-constrained, so a leaked token can only start one Live
+# session against our chosen model before it expires.
+# ---------------------------------------------------------------------------
+
+GEMINI_LIVE_MODEL_DEFAULT = "gemini-2.5-flash-native-audio-latest"
+
+
+async def voice_gemini_token_endpoint(
+    request: VoiceTokenRequest = None,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mint a single-use ephemeral Gemini Live token for client-side WebSocket use."""
+    gemini_key = secret_or_env("GEMINI_API_KEY") or secret_or_env("GOOGLE_API_KEY")
+    if not gemini_key:
+        return {"error": "GEMINI_API_KEY not configured", "token": ""}
+
+    model = secret_or_env("GEMINI_LIVE_MODEL", GEMINI_LIVE_MODEL_DEFAULT)
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=gemini_key, http_options={"api_version": "v1alpha"})
+        # Defaults give ~1 min to start the session and ~30 min to use it.
+        token = client.auth_tokens.create(
+            config=types.CreateAuthTokenConfig(
+                uses=1,
+                live_connect_constraints=types.LiveConnectConstraints(model=model),
+            )
+        )
+        if not token or not token.name:
+            return {"error": "Gemini token mint returned no token", "token": ""}
+        return {"token": token.name, "model": model}
+    except Exception as e:
+        logger.exception("voice_gemini_token_endpoint")
+        return {"error": str(e), "token": ""}

@@ -25,7 +25,11 @@ from companion_api.auth import (
     validate_admin_login,
 )
 from companion_api.secrets import secret_or_env
-from companion_api.voice_routes import voice_tool_execute_endpoint, voice_token_endpoint
+from companion_api.voice_routes import (
+    voice_gemini_token_endpoint,
+    voice_tool_execute_endpoint,
+    voice_token_endpoint,
+)
 
 from app.services.food_llm_router import route_food_query
 from app.services.food_response_builder import saved_address_label_from_mcp_item
@@ -1336,7 +1340,16 @@ def uber_oauth_start(
 def uber_oauth_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
 ):
+    if error:
+        detail = error_description or error
+        return _oauth_result_page(
+            "Uber connection failed",
+            f"Uber returned OAuth error {error}: {detail}",
+            ok=False,
+        )
     if not code or not state:
         return _oauth_result_page(
             "Uber connection failed",
@@ -2475,6 +2488,7 @@ def get_admin_profile_graph(
 
 app.post("/api/voice/tool-execute/")(voice_tool_execute_endpoint)
 app.post("/api/voice/token/")(voice_token_endpoint)
+app.post("/api/voice/gemini-token/")(voice_gemini_token_endpoint)
 
 
 handler = Mangum(app, lifespan="off")

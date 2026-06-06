@@ -46,11 +46,13 @@ async function toggle(){
     }}}
     if(sc.turnComplete){speaking=!1;C('on');S('सुन रहा हूं...');T('')}
     if(sc.interrupted){speaking=!1;C('on')}
-   }catch(e){}
+   }catch(err){console.debug('[gemini] non-JSON / parse skip:',err,(t||'').slice(0,80))}
   };
-  ws.onclose=e=>{disconnect()}
-  ws.onerror=()=>{disconnect()}
- }catch(e){C('error');S('Error: '+e.message)}
+  // Surface the real reason. onerror fires BEFORE onclose and must NOT tear
+  // down the session itself — otherwise the close code/reason is lost.
+  ws.onclose=e=>{console.warn('[gemini] ws closed',e.code,e.reason,'wasClean=',e.wasClean);S('Socket closed ['+e.code+']'+(e.reason?': '+e.reason:' (no reason — likely network/proxy/extension)'));disconnect()}
+  ws.onerror=ev=>{console.error('[gemini] ws error event',ev);S('Socket error — close code will follow…')}
+ }catch(e){C('off');S('Error: '+e.message)}
 }
 
 async function startMic(){

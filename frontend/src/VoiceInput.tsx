@@ -1,7 +1,12 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { Mic, MicOff, Loader2 } from 'lucide-react';
 import { useOpenAIRealtime } from './hooks/useOpenAIRealtime';
+import { useGeminiLive } from './hooks/useGeminiLive';
 import type { VoiceSessionState } from './types';
+
+// Which realtime voice backend to use. Defaults to Gemini Live; set
+// VITE_VOICE_PROVIDER=openai to fall back to the OpenAI Realtime path.
+const VOICE_PROVIDER = (import.meta.env.VITE_VOICE_PROVIDER as string) || 'gemini';
 
 interface VoiceInputProps {
   onVoiceTurn?: (userText: string, assistantText: string) => void;
@@ -24,14 +29,17 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
   const userTranscriptRef = useRef('');
   const assistantTranscriptRef = useRef('');
 
-  const realtime = useOpenAIRealtime({
-    onUserTranscript: (text) => {
+  // Both hooks share an identical interface and neither opens any connection
+  // until connect() is called, so calling both and selecting one is safe and
+  // lets us A/B providers at runtime via VITE_VOICE_PROVIDER.
+  const voiceOptions = {
+    onUserTranscript: (text: string) => {
       userTranscriptRef.current += ' ' + text;
     },
-    onAssistantTranscript: (text) => {
+    onAssistantTranscript: (text: string) => {
       assistantTranscriptRef.current += ' ' + text;
     },
-    onToolCall: async (name, args, callId) => {
+    onToolCall: async (name: string, args: Record<string, string>, callId: string) => {
       if (name === 'companion_execute' && onVoiceToolCall) {
         try {
           const resultText = await onVoiceToolCall(args.intent || '');
@@ -41,11 +49,11 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
         }
       }
     },
-    onError: (msg) => {
+    onError: (msg: string) => {
       setErrorMessage(msg);
       onVoiceError?.(msg);
     },
-    onStateChange: (newState) => {
+    onStateChange: (newState: 'disconnected' | 'connecting' | 'connected') => {
       const voiceState: VoiceSessionState =
         newState === 'connected' ? 'active' :
         newState === 'connecting' ? 'connecting' :
@@ -63,7 +71,11 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
         assistantTranscriptRef.current = '';
       }
     },
-  });
+  };
+
+  const gemini = useGeminiLive(voiceOptions);
+  const openai = useOpenAIRealtime(voiceOptions);
+  const realtime = VOICE_PROVIDER === 'openai' ? openai : gemini;
 
   const handleClick = useCallback(async () => {
     if (disabled) return;
