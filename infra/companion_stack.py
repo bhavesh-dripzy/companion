@@ -227,6 +227,7 @@ class CompanionStack(Stack):
             timeout=Duration.seconds(120),
             environment={
                 "APP_SECRET_ID": app_secret.secret_name,
+                "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
                 "FAMILIES_TABLE": families.table_name,
                 "MEMBERS_TABLE": members.table_name,
                 "MESSAGES_TABLE": messages.table_name,
