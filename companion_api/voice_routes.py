@@ -450,6 +450,60 @@ GEMINI_LIVE_SYSTEM_INSTRUCTION = (
 )
 
 
+def _voice_profile_summary(user_id: str) -> str:
+    """Build a compact, personalized profile block for the Live system prompt.
+
+    The conversational layer (Gemini speaking directly) otherwise has no idea
+    who the user is — name, city, saved home/office addresses, interests. We
+    bake a short summary into the system instruction so the assistant greets
+    by name, knows what "home"/"office" mean, and personalizes chit-chat.
+    Tool-driven turns get the full profile separately via run_agent_turn.
+    Best-effort: returns "" if the profile cache is empty or unavailable.
+    """
+    try:
+        from companion_api.profile_cache import ProfileCacheRepository
+
+        profile = ProfileCacheRepository().get(user_id)
+    except Exception:
+        logger.debug("voice profile summary fetch failed", exc_info=True)
+        return ""
+    if not isinstance(profile, dict) or not profile:
+        return ""
+
+    lines: list[str] = []
+    basics = []
+    if profile.get("name"):
+        basics.append(f"name is {profile['name']}")
+    if profile.get("city"):
+        basics.append(f"city is {profile['city']}")
+    if profile.get("language"):
+        basics.append(f"preferred language is {profile['language']}")
+    if basics:
+        lines.append("The user's " + ", ".join(basics) + ".")
+
+    addresses = profile.get("addresses")
+    if isinstance(addresses, dict) and addresses:
+        addr_bits = []
+        for label, details in addresses.items():
+            if isinstance(details, dict) and details.get("address_line"):
+                addr_bits.append(f"{label}: {details['address_line']}")
+        if addr_bits:
+            lines.append("Saved addresses — " + "; ".join(addr_bits) + ".")
+
+    interests = profile.get("interests")
+    if isinstance(interests, list) and interests:
+        cats = [str(i.get("category")) for i in interests[:5] if isinstance(i, dict) and i.get("category")]
+        if cats:
+            lines.append("Interests: " + ", ".join(cats) + ".")
+
+    if not lines:
+        return ""
+    return (
+        "\n\nWhat you know about this user (use it naturally; greet them by name; "
+        "when they say 'home'/'office' you know where they mean):\n" + "\n".join(lines)
+    )
+
+
 async def voice_gemini_token_endpoint(
     request: VoiceTokenRequest = None,
     user: str = Depends(get_current_user),
@@ -493,10 +547,11 @@ async def voice_gemini_token_endpoint(
                 )
             ]
         )
+        system_instruction = GEMINI_LIVE_SYSTEM_INSTRUCTION + _voice_profile_summary(user)
         live_config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=types.Content(
-                parts=[types.Part(text=GEMINI_LIVE_SYSTEM_INSTRUCTION)]
+                parts=[types.Part(text=system_instruction)]
             ),
             tools=[companion_tool],
             input_audio_transcription=types.AudioTranscriptionConfig(),
