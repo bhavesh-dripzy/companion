@@ -2382,33 +2382,6 @@ def run_agent_turn(
                     "provider_address_id": details.get("provider_address_id")
                 })
 
-    # If the caller didn't supply coordinates (e.g. the voice path, which has
-    # no browser geolocation) but the profile has an address, derive
-    # coordinates so food/cab providers get a usable location instead of a
-    # bogus text address id. NEVER override a user_geo that was already
-    # provided (the browser location used by text chat).
-    if not user_geo and profile and isinstance(profile.get("addresses"), dict):
-        _addrs = profile["addresses"]
-        _cand = _addrs.get("home") if isinstance(_addrs.get("home"), dict) else None
-        if _cand is None:
-            _cand = next((v for v in _addrs.values() if isinstance(v, dict)), None)
-        if isinstance(_cand, dict):
-            _lat, _lng = _cand.get("lat"), _cand.get("lng")
-            if (_lat is None or _lng is None) and _cand.get("address_line"):
-                try:
-                    from companion_api.google_maps import geocode_address
-                    _geo = geocode_address(str(_cand["address_line"]), region="in")
-                    if _geo:
-                        _lat, _lng = _geo.latitude, _geo.longitude
-                except Exception as _e:
-                    trace("profile_cache.geocode_error", error=str(_e))
-            if _lat is not None and _lng is not None:
-                try:
-                    user_geo = {"latitude": float(_lat), "longitude": float(_lng)}
-                    trace("profile_cache.geo_from_address", lat=_lat, lng=_lng)
-                except (TypeError, ValueError):
-                    pass
-
     # Resolve address from message using profile facts
     resolved_addr_id = None
     resolved_label = None

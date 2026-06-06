@@ -19,8 +19,10 @@ User
 
 Extract:
 1. Durable profile facts:
-   - Home address, work address, other address
    - Name, age, city, language preferences, email, phone, etc.
+   - Do NOT extract home/work/delivery addresses or locations. Delivery
+     addresses come ONLY from the user's saved addresses on the provider,
+     never from conversation. Ignore any street/area/address the user mentions.
 2. User interests:
    - Likes, cuisines, dish types, shopping interests, travel patterns, electronics interests, etc.
    - Assign a broad category and a specific detail. Prefer one of these category names:
@@ -112,6 +114,12 @@ TRANSCRIPT:
         profile_facts = []
         for fact in json_data.get("profile_facts", []):
             try:
+                # Addresses come ONLY from the user's saved addresses on the
+                # provider apps (Zomato/Swiggy), never from conversation.
+                # Drop any address/location facts the LLM extracts.
+                ftype = str(fact.get("type", "")).strip().lower()
+                if "address" in ftype or ftype in {"home", "office", "work", "location", "place"}:
+                    continue
                 profile_facts.append(ProfileFact(**fact))
             except Exception:
                 continue
