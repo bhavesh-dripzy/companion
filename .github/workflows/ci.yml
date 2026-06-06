@@ -34,7 +34,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Python tests
-        run: pytest --deselect=tests/test_district_mcp_executor.py
+        run: pytest --ignore=tests/test_district_mcp_executor.py
 
   frontend-build:
     runs-on: ubuntu-latest
