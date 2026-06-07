@@ -1645,6 +1645,118 @@ def _collect_instamart_attachments(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Kite (Zerodha) attachment builders
+# ---------------------------------------------------------------------------
+# Mirrors ``_collect_instamart_attachments``. The Kite executor harvests the
+# session indexes into diagnostics and runs read-only/account tools; here we
+# shape per-turn attachments the chat UI renders below the assistant bubble:
+# instrument quote cards, a holdings card, a positions card, an open-orders
+# card, the pending order ticket card, and a margin card. Every attachment is
+# stamped ``provider: "kite"`` so the chat-side theme switches to Kite styling.
+def _collect_kite_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build instrument / holdings / positions / orders / ticket / margin cards."""
+    if not isinstance(raw_tool_results, dict):
+        return []
+    from app.services.kite.mcp_executor import (
+        _kite_holdings_snapshot,
+        _kite_instruments_from_quotes,
+        _kite_instruments_from_search,
+        _kite_open_orders,
+        _kite_positions_snapshot,
+    )
+
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        if str(provider_name or "").lower() != "kite":
+            continue
+        steps = raw.get("steps") or []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tool = str(step.get("tool") or "").strip().split("(", 1)[0]
+            envelope = step.get("result")
+            if not isinstance(envelope, dict) or envelope.get("is_error"):
+                continue
+            if tool in {"search_instruments", "get_ltp", "get_ohlc", "get_quotes"}:
+                rows = (
+                    _kite_instruments_from_search(envelope)
+                    if tool == "search_instruments"
+                    else _kite_instruments_from_quotes(envelope)
+                )
+                if rows:
+                    out.append(
+                        {
+                            "kind": "kite_instrument_cards",
+                            "provider": "kite",
+                            "source": f"{provider_name}.{tool}",
+                            "instruments": rows,
+                        }
+                    )
+            elif tool == "get_holdings":
+                snap = _kite_holdings_snapshot(envelope)
+                if snap is not None:
+                    out.append(
+                        {
+                            "kind": "kite_holdings_card",
+                            "provider": "kite",
+                            "source": f"{provider_name}.{tool}",
+                            "holdings": snap,
+                        }
+                    )
+            elif tool == "get_positions":
+                snap = _kite_positions_snapshot(envelope)
+                if snap is not None:
+                    out.append(
+                        {
+                            "kind": "kite_positions_card",
+                            "provider": "kite",
+                            "source": f"{provider_name}.{tool}",
+                            "positions": snap,
+                        }
+                    )
+            elif tool == "get_orders":
+                orders = _kite_open_orders(envelope)
+                if orders:
+                    out.append(
+                        {
+                            "kind": "kite_open_orders_card",
+                            "provider": "kite",
+                            "source": f"{provider_name}.{tool}",
+                            "orders": orders,
+                        }
+                    )
+            elif tool == "get_margins":
+                data = envelope.get("data")
+                if data is not None:
+                    out.append(
+                        {
+                            "kind": "kite_margin_card",
+                            "provider": "kite",
+                            "source": f"{provider_name}.{tool}",
+                            "margin": data,
+                        }
+                    )
+        # Pending order ticket — one per turn, from the round-tripped ticket.
+        diag = raw.get("diagnostics")
+        if isinstance(diag, dict):
+            ticket = diag.get("session_kite_order_ticket")
+            if isinstance(ticket, dict) and ticket:
+                out.append(
+                    {
+                        "kind": "kite_order_ticket_card",
+                        "provider": "kite",
+                        "source": f"{provider_name}.order_ticket",
+                        "order_ticket": dict(ticket),
+                    }
+                )
+    return out
+
+
 def _format_routing_message(
     current_message: str,
     conversation_history: list[dict[str, str]] | None = None,
@@ -1665,6 +1777,11 @@ def _format_routing_message(
     session_instamart_products: list[dict[str, Any]] | None = None,
     session_instamart_addresses: list[dict[str, Any]] | None = None,
     session_instamart_cart: dict[str, Any] | None = None,
+    session_kite_instruments: list[dict[str, Any]] | None = None,
+    session_kite_holdings: dict[str, Any] | None = None,
+    session_kite_positions: dict[str, Any] | None = None,
+    session_kite_open_orders: list[dict[str, Any]] | None = None,
+    session_kite_order_ticket: dict[str, Any] | None = None,
     selected_address_id: str | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
     user_profile: dict[str, Any] | None = None,
@@ -2165,6 +2282,134 @@ def _format_routing_message(
         elif session_instamart_cart.get("is_empty"):
             parts.append("Current Instamart cart: empty.")
 
+    # Kite (Zerodha) echoes — instrument identity is the
+    # (tradingsymbol, exchange, instrument_token) triple; the planner copies
+    # those literally instead of re-running `search_instruments`. Open orders
+    # surface the `order_id` needed for a modify/cancel, and the pending order
+    # ticket is shown prominently so the planner can place it on a confirm turn.
+    if session_kite_instruments:
+        kite_inst_rows: list[str] = []
+        for entry in session_kite_instruments[:20]:
+            if not isinstance(entry, dict):
+                continue
+            sym = str(entry.get("tradingsymbol") or "").strip()
+            if not sym:
+                continue
+            exch = str(entry.get("exchange") or "").strip()
+            token = entry.get("instrument_token")
+            lp = entry.get("last_price")
+            fetched = entry.get("price_fetched_at")
+            tail_bits = []
+            if isinstance(lp, (int, float)):
+                tail_bits.append(f"ltp ₹{lp:g}")
+            if isinstance(fetched, (int, float)):
+                tail_bits.append(f"price_fetched_at={int(fetched)}")
+            tail = f" — {' / '.join(tail_bits)}" if tail_bits else ""
+            head = f"{exch}:{sym}" if exch else sym
+            kite_inst_rows.append(
+                f"  - {head} → tradingsymbol={sym}, exchange={exch or '?'}, "
+                f"instrument_token={token}{tail}"
+            )
+        if kite_inst_rows:
+            parts.append(
+                "Kite instruments already seen this session — when the user "
+                "refers to one by name, copy the literal tradingsymbol / "
+                "exchange / instrument_token below instead of re-running "
+                "`search_instruments`. The `price_fetched_at` (unix seconds) "
+                "lets you decide if a cached quote is stale (refetch `get_ltp` "
+                "if older than ~10s before placing an order):\n"
+                + "\n".join(kite_inst_rows)
+            )
+    if session_kite_holdings and isinstance(session_kite_holdings, dict):
+        holdings = session_kite_holdings.get("holdings")
+        if isinstance(holdings, list) and holdings:
+            h_rows: list[str] = []
+            for h in holdings[:15]:
+                if not isinstance(h, dict):
+                    continue
+                sym = str(h.get("tradingsymbol") or "").strip()
+                if not sym:
+                    continue
+                qty = h.get("quantity")
+                pnl = h.get("pnl")
+                bits = []
+                if qty is not None:
+                    bits.append(f"qty {qty}")
+                if isinstance(pnl, (int, float)):
+                    bits.append(f"P&L ₹{pnl:g}")
+                tail = f" ({', '.join(bits)})" if bits else ""
+                h_rows.append(f"  - {sym}{tail}")
+            if h_rows:
+                parts.append(
+                    "Current Kite holdings (last `get_holdings` snapshot) — "
+                    "answer portfolio questions from this without re-fetching:\n"
+                    + "\n".join(h_rows)
+                )
+    if session_kite_positions and isinstance(session_kite_positions, dict):
+        pos_rows: list[str] = []
+        for bucket in ("net", "day"):
+            raw = session_kite_positions.get(bucket)
+            if not isinstance(raw, list):
+                continue
+            for p in raw[:10]:
+                if not isinstance(p, dict):
+                    continue
+                sym = str(p.get("tradingsymbol") or "").strip()
+                if not sym:
+                    continue
+                qty = p.get("quantity")
+                pnl = p.get("pnl")
+                bits = [bucket]
+                if qty is not None:
+                    bits.append(f"qty {qty}")
+                if isinstance(pnl, (int, float)):
+                    bits.append(f"P&L ₹{pnl:g}")
+                pos_rows.append(f"  - {sym} ({', '.join(bits)})")
+        if pos_rows:
+            parts.append(
+                "Current Kite positions (last `get_positions` snapshot):\n"
+                + "\n".join(pos_rows)
+            )
+    if session_kite_open_orders:
+        oo_rows: list[str] = []
+        for o in session_kite_open_orders[:15]:
+            if not isinstance(o, dict):
+                continue
+            oid = str(o.get("order_id") or "").strip()
+            if not oid:
+                continue
+            sym = str(o.get("tradingsymbol") or "").strip() or "?"
+            side = str(o.get("transaction_type") or "").strip()
+            qty = o.get("quantity")
+            status = str(o.get("status") or "").strip()
+            oo_rows.append(
+                f"  - {side} {sym} qty {qty} [{status}] → order_id={oid}"
+            )
+        if oo_rows:
+            parts.append(
+                "Kite open orders this session — `modify_order` / `cancel_order` "
+                "REQUIRE the literal order_id below; never invent one, and only "
+                "modify/cancel after the user explicitly confirms which order:\n"
+                + "\n".join(oo_rows)
+            )
+    if session_kite_order_ticket and isinstance(session_kite_order_ticket, dict):
+        ticket = session_kite_order_ticket
+        sym = str(ticket.get("tradingsymbol") or "").strip() or "?"
+        side = str(ticket.get("transaction_type") or "").strip() or "?"
+        qty = ticket.get("quantity")
+        product = str(ticket.get("product") or "").strip() or "?"
+        otype = str(ticket.get("order_type") or "").strip() or "?"
+        price = ticket.get("price")
+        price_bit = f" @ ₹{price:g}" if isinstance(price, (int, float)) else ""
+        parts.append(
+            "PENDING UNCONFIRMED ORDER TICKET (assembled last turn, NOT yet "
+            f"placed): {side} {qty} {sym} — product {product}, {otype}{price_bit}. "
+            "If the user explicitly confirms ('yes' / 'confirm' / 'place it'), "
+            "emit the matching `place_order` (refetch `get_ltp` first if the "
+            "cached price is stale). If the user edits it, re-assemble the "
+            "ticket and keep waiting. If the user backs out, drop it."
+        )
+
     if pending_variant_choice:
         # Surface the variant menu the previous turn deferred so the
         # planner can emit literal groupId / variation.id values when
@@ -2523,6 +2768,12 @@ def _plan_for_provider(
         out = plan_zepto(user_message=routing_message, llm=llm)
         trace("planner.out", provider=provider_id, plan=snip(out))
         return out
+    if provider_id == "kite":
+        from app.services.kite.planner import plan_kite
+
+        out = plan_kite(user_message=routing_message, llm=llm)
+        trace("planner.out", provider=provider_id, plan=snip(out))
+        return out
 
     if tp and not tp.tools:
         return _empty_provider_plan(
@@ -2613,6 +2864,11 @@ def run_agent_turn(
     session_instamart_products: list[dict[str, Any]] | None = None,
     session_instamart_addresses: list[dict[str, Any]] | None = None,
     session_instamart_cart: dict[str, Any] | None = None,
+    session_kite_instruments: list[dict[str, Any]] | None = None,
+    session_kite_holdings: dict[str, Any] | None = None,
+    session_kite_positions: dict[str, Any] | None = None,
+    session_kite_open_orders: list[dict[str, Any]] | None = None,
+    session_kite_order_ticket: dict[str, Any] | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -2828,6 +3084,40 @@ def run_agent_turn(
         if isinstance(im_items, list) or session_instamart_cart.get("is_empty"):
             seed_instamart_cart = dict(session_instamart_cart)
 
+    # Kite seeds — instruments LRU keyed on ``tradingsymbol``; holdings /
+    # positions are single snapshots; open orders are an LRU keyed on
+    # ``order_id``; the order ticket is a single pending dict the planner owns.
+    seed_kite_instruments: list[dict[str, Any]] = []
+    if isinstance(session_kite_instruments, list):
+        for entry in session_kite_instruments:
+            if not isinstance(entry, dict):
+                continue
+            sym = entry.get("tradingsymbol")
+            if isinstance(sym, str) and sym.strip():
+                seed_kite_instruments.append({**entry, "tradingsymbol": sym.strip().upper()})
+
+    seed_kite_holdings: dict[str, Any] | None = (
+        dict(session_kite_holdings) if isinstance(session_kite_holdings, dict) else None
+    )
+    seed_kite_positions: dict[str, Any] | None = (
+        dict(session_kite_positions) if isinstance(session_kite_positions, dict) else None
+    )
+
+    seed_kite_open_orders: list[dict[str, Any]] = []
+    if isinstance(session_kite_open_orders, list):
+        for entry in session_kite_open_orders:
+            if not isinstance(entry, dict):
+                continue
+            oid = entry.get("order_id")
+            if isinstance(oid, str) and oid.strip():
+                seed_kite_open_orders.append({**entry, "order_id": oid.strip()})
+
+    seed_kite_order_ticket: dict[str, Any] | None = (
+        dict(session_kite_order_ticket)
+        if isinstance(session_kite_order_ticket, dict) and session_kite_order_ticket
+        else None
+    )
+
     # ── Phase 2 Profile Personalization Hook ───────────────────────
     from companion_api.profile_cache import ProfileCacheRepository
     profile: dict[str, Any] | None = None
@@ -2941,6 +3231,11 @@ def run_agent_turn(
         session_instamart_products=seed_instamart_products or None,
         session_instamart_addresses=seed_instamart_addresses or None,
         session_instamart_cart=seed_instamart_cart,
+        session_kite_instruments=seed_kite_instruments or None,
+        session_kite_holdings=seed_kite_holdings,
+        session_kite_positions=seed_kite_positions,
+        session_kite_open_orders=seed_kite_open_orders or None,
+        session_kite_order_ticket=seed_kite_order_ticket,
         selected_address_id=selected_addr,
         pending_variant_choice=seed_variant_choices or None,
         user_profile=profile,
@@ -3118,6 +3413,11 @@ def run_agent_turn(
             session_instamart_products=seed_instamart_products or None,
             session_instamart_addresses=seed_instamart_addresses or None,
             session_instamart_cart=seed_instamart_cart,
+            session_kite_instruments=seed_kite_instruments or None,
+            session_kite_holdings=seed_kite_holdings,
+            session_kite_positions=seed_kite_positions,
+            session_kite_open_orders=seed_kite_open_orders or None,
+            session_kite_order_ticket=seed_kite_order_ticket,
             user_geo=user_geo,
         )
         provider_results = tool_execution.get("provider_results")
@@ -3189,6 +3489,9 @@ def run_agent_turn(
     instamart_attachments = _collect_instamart_attachments(raw_tool_results)
     if instamart_attachments:
         attachments = attachments + instamart_attachments
+    kite_attachments = _collect_kite_attachments(raw_tool_results)
+    if kite_attachments:
+        attachments = attachments + kite_attachments
     trace(
         "hoister.out",
         attachment_count=len(attachments),
@@ -3260,6 +3563,20 @@ def run_agent_turn(
     next_session_instamart_addresses: list[dict[str, Any]] = list(seed_instamart_addresses)
     next_session_instamart_cart: dict[str, Any] | None = (
         dict(seed_instamart_cart) if isinstance(seed_instamart_cart, dict) else None
+    )
+    # Kite echoes — same seed-first / executor-overrides pattern. The order
+    # ticket is owned by the planner; it's carried forward verbatim (the
+    # executor round-trips it) until the planner reshapes or clears it.
+    next_session_kite_instruments: list[dict[str, Any]] = list(seed_kite_instruments)
+    next_session_kite_holdings: dict[str, Any] | None = (
+        dict(seed_kite_holdings) if isinstance(seed_kite_holdings, dict) else None
+    )
+    next_session_kite_positions: dict[str, Any] | None = (
+        dict(seed_kite_positions) if isinstance(seed_kite_positions, dict) else None
+    )
+    next_session_kite_open_orders: list[dict[str, Any]] = list(seed_kite_open_orders)
+    next_session_kite_order_ticket: dict[str, Any] | None = (
+        dict(seed_kite_order_ticket) if isinstance(seed_kite_order_ticket, dict) else None
     )
     # ``pending_variant_choice`` is single-turn state: if the executor
     # deferred a cart this turn we echo it back so the next turn's
@@ -3486,6 +3803,39 @@ def run_agent_turn(
         if isinstance(_imcart, dict):
             next_session_instamart_cart = dict(_imcart)
 
+        # Kite echoes — same shape, different keys.
+        _kinst = _diag.get("session_kite_instruments")
+        if isinstance(_kinst, list) and _kinst:
+            cleaned_ki: list[dict[str, Any]] = []
+            for entry in _kinst:
+                if not isinstance(entry, dict):
+                    continue
+                sym = entry.get("tradingsymbol")
+                if isinstance(sym, str) and sym.strip():
+                    cleaned_ki.append({**entry, "tradingsymbol": sym.strip().upper()})
+            if cleaned_ki:
+                next_session_kite_instruments = cleaned_ki
+        _khold = _diag.get("session_kite_holdings")
+        if isinstance(_khold, dict):
+            next_session_kite_holdings = dict(_khold)
+        _kpos = _diag.get("session_kite_positions")
+        if isinstance(_kpos, dict):
+            next_session_kite_positions = dict(_kpos)
+        _koo = _diag.get("session_kite_open_orders")
+        if isinstance(_koo, list) and _koo:
+            cleaned_koo: list[dict[str, Any]] = []
+            for entry in _koo:
+                if not isinstance(entry, dict):
+                    continue
+                oid = entry.get("order_id")
+                if isinstance(oid, str) and oid.strip():
+                    cleaned_koo.append({**entry, "order_id": oid.strip()})
+            if cleaned_koo:
+                next_session_kite_open_orders = cleaned_koo
+        _kticket = _diag.get("session_kite_order_ticket")
+        if isinstance(_kticket, dict):
+            next_session_kite_order_ticket = dict(_kticket) if _kticket else None
+
     # Build a compact `address_context` for the response LLM. Lets the
     # reply nudge the user ("using your home address — change kar dena ho
     # toh batao") without leaking raw IDs into the reply.
@@ -3644,6 +3994,21 @@ def run_agent_turn(
         "session_instamart_products": next_session_instamart_products,
         "session_instamart_addresses": next_session_instamart_addresses,
         "session_instamart_cart": next_session_instamart_cart,
+        # Kite (Zerodha) session memory — REAL-MONEY trading surface.
+        # ``session_kite_instruments`` is an LRU of every instrument the user
+        # has seen (tradingsymbol/exchange/instrument_token + last_price +
+        # price_fetched_at) so the planner copies a literal triple instead of
+        # re-searching. ``session_kite_holdings`` / ``session_kite_positions``
+        # are the latest portfolio snapshots. ``session_kite_open_orders`` is
+        # an LRU keyed on order_id (needed for modify/cancel).
+        # ``session_kite_order_ticket`` is the pending UNCONFIRMED order ticket
+        # the planner assembled — round-tripped until the user confirms (→
+        # place_order), edits it, or backs out.
+        "session_kite_instruments": next_session_kite_instruments,
+        "session_kite_holdings": next_session_kite_holdings,
+        "session_kite_positions": next_session_kite_positions,
+        "session_kite_open_orders": next_session_kite_open_orders,
+        "session_kite_order_ticket": next_session_kite_order_ticket,
         # Compact view the chat UI / debug surface can show without having to
         # cross-reference session_state + session_addresses themselves.
         "address_context": address_context,

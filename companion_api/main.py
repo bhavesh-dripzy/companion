@@ -1865,6 +1865,48 @@ def _companion_agent_turn(
         if isinstance(iitems, list) or raw_icart.get("is_empty"):
             session_instamart_cart = dict(raw_icart)
 
+    # Kite (Zerodha) session-state sanitization — REAL-MONEY trading surface.
+    # Instruments are keyed on ``tradingsymbol``; open orders on ``order_id``;
+    # holdings / positions / order ticket are single dicts.
+    session_kite_instruments: list[dict[str, Any]] | None = None
+    raw_kinst = getattr(payload, "session_kite_instruments", None)
+    if isinstance(raw_kinst, list) and raw_kinst:
+        clean_kinst: list[dict[str, Any]] = []
+        for entry in raw_kinst:
+            if not isinstance(entry, dict):
+                continue
+            sym = entry.get("tradingsymbol")
+            if isinstance(sym, str) and sym.strip():
+                clean_kinst.append({**entry, "tradingsymbol": sym.strip().upper()})
+        session_kite_instruments = clean_kinst or None
+
+    session_kite_holdings: dict[str, Any] | None = None
+    raw_khold = getattr(payload, "session_kite_holdings", None)
+    if isinstance(raw_khold, dict) and raw_khold:
+        session_kite_holdings = dict(raw_khold)
+
+    session_kite_positions: dict[str, Any] | None = None
+    raw_kpos = getattr(payload, "session_kite_positions", None)
+    if isinstance(raw_kpos, dict) and raw_kpos:
+        session_kite_positions = dict(raw_kpos)
+
+    session_kite_open_orders: list[dict[str, Any]] | None = None
+    raw_koo = getattr(payload, "session_kite_open_orders", None)
+    if isinstance(raw_koo, list) and raw_koo:
+        clean_koo: list[dict[str, Any]] = []
+        for entry in raw_koo:
+            if not isinstance(entry, dict):
+                continue
+            oid = entry.get("order_id")
+            if isinstance(oid, str) and oid.strip():
+                clean_koo.append({**entry, "order_id": oid.strip()})
+        session_kite_open_orders = clean_koo or None
+
+    session_kite_order_ticket: dict[str, Any] | None = None
+    raw_kticket = getattr(payload, "session_kite_order_ticket", None)
+    if isinstance(raw_kticket, dict) and raw_kticket:
+        session_kite_order_ticket = dict(raw_kticket)
+
     # Resolve the chat this turn belongs to. Three cases:
     #   * client sent a non-empty ``chat_id`` AND that chat exists → use it.
     #   * client sent a ``chat_id`` we don't recognise (deleted, wrong user,
@@ -1931,6 +1973,11 @@ def _companion_agent_turn(
             session_instamart_products=session_instamart_products,
             session_instamart_addresses=session_instamart_addresses,
             session_instamart_cart=session_instamart_cart,
+            session_kite_instruments=session_kite_instruments,
+            session_kite_holdings=session_kite_holdings,
+            session_kite_positions=session_kite_positions,
+            session_kite_open_orders=session_kite_open_orders,
+            session_kite_order_ticket=session_kite_order_ticket,
             pending_variant_choice=pending_variant_choice,
         )
 

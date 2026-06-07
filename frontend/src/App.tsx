@@ -31,6 +31,11 @@ import type {
   SessionInstamartAddress,
   SessionInstamartCart,
   SessionInstamartProduct,
+  SessionKiteHoldings,
+  SessionKiteInstrument,
+  SessionKiteOpenOrders,
+  SessionKiteOrderTicket,
+  SessionKitePositions,
   ToolProvider,
   VoiceSessionState,
   VoiceToolCallRequest,
@@ -83,6 +88,15 @@ interface PersistedChatSession {
   session_instamart_products: SessionInstamartProduct[];
   session_instamart_addresses: SessionInstamartAddress[];
   session_instamart_cart: SessionInstamartCart | null;
+  // Kite (Zerodha trading) session memory — instrument LRU, the latest
+  // holdings / positions snapshots, the open-orders list, and the pending
+  // unconfirmed order ticket. Same persistence contract as the other
+  // indexes: stored locally so a reload restores the planner's context.
+  session_kite_instruments: SessionKiteInstrument[];
+  session_kite_holdings: SessionKiteHoldings | null;
+  session_kite_positions: SessionKitePositions | null;
+  session_kite_open_orders: SessionKiteOpenOrders[];
+  session_kite_order_ticket: SessionKiteOrderTicket | null;
 }
 
 const chatSessionKey = (chatId: string) => `${CHAT_SESSION_KEY_PREFIX}${chatId}.session`;
@@ -154,6 +168,24 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
         parsed.session_instamart_cart && typeof parsed.session_instamart_cart === 'object'
           ? (parsed.session_instamart_cart as SessionInstamartCart)
           : null,
+      session_kite_instruments: Array.isArray(parsed.session_kite_instruments)
+        ? (parsed.session_kite_instruments as SessionKiteInstrument[])
+        : [],
+      session_kite_holdings:
+        parsed.session_kite_holdings && typeof parsed.session_kite_holdings === 'object'
+          ? (parsed.session_kite_holdings as SessionKiteHoldings)
+          : null,
+      session_kite_positions:
+        parsed.session_kite_positions && typeof parsed.session_kite_positions === 'object'
+          ? (parsed.session_kite_positions as SessionKitePositions)
+          : null,
+      session_kite_open_orders: Array.isArray(parsed.session_kite_open_orders)
+        ? (parsed.session_kite_open_orders as SessionKiteOpenOrders[])
+        : [],
+      session_kite_order_ticket:
+        parsed.session_kite_order_ticket && typeof parsed.session_kite_order_ticket === 'object'
+          ? (parsed.session_kite_order_ticket as SessionKiteOrderTicket)
+          : null,
     };
   } catch {
     return null;
@@ -176,7 +208,12 @@ const saveChatSession = (chatId: string, snap: PersistedChatSession) => {
       && snap.session_reservation === null
       && snap.session_zepto_products.length === 0
       && snap.session_zepto_addresses.length === 0
-      && snap.session_zepto_cart === null;
+      && snap.session_zepto_cart === null
+      && snap.session_kite_instruments.length === 0
+      && snap.session_kite_holdings === null
+      && snap.session_kite_positions === null
+      && snap.session_kite_open_orders.length === 0
+      && snap.session_kite_order_ticket === null;
     if (isEmpty) {
       localStorage.removeItem(chatSessionKey(chatId));
       return;
@@ -301,6 +338,15 @@ function App() {
   const [sessionInstamartProducts, setSessionInstamartProducts] = useState<SessionInstamartProduct[]>([]);
   const [sessionInstamartAddresses, setSessionInstamartAddresses] = useState<SessionInstamartAddress[]>([]);
   const [sessionInstamartCart, setSessionInstamartCart] = useState<SessionInstamartCart | null>(null);
+  // Kite (Zerodha trading) session memory. Same echo contract as the other
+  // indexes — round-trip on every /api/agent/query/ so the planner can
+  // re-use literal instrument triples, read the latest portfolio snapshots,
+  // and resolve a confirmation against the pending order ticket.
+  const [sessionKiteInstruments, setSessionKiteInstruments] = useState<SessionKiteInstrument[]>([]);
+  const [sessionKiteHoldings, setSessionKiteHoldings] = useState<SessionKiteHoldings | null>(null);
+  const [sessionKitePositions, setSessionKitePositions] = useState<SessionKitePositions | null>(null);
+  const [sessionKiteOpenOrders, setSessionKiteOpenOrders] = useState<SessionKiteOpenOrders[]>([]);
+  const [sessionKiteOrderTicket, setSessionKiteOrderTicket] = useState<SessionKiteOrderTicket | null>(null);
 
   // Multi-chat support — same contract as before. `chatId === null`
   // means "fresh new chat about to be started" — no Dynamo row exists
@@ -367,6 +413,11 @@ function App() {
       session_instamart_products: sessionInstamartProducts,
       session_instamart_addresses: sessionInstamartAddresses,
       session_instamart_cart: sessionInstamartCart,
+      session_kite_instruments: sessionKiteInstruments,
+      session_kite_holdings: sessionKiteHoldings,
+      session_kite_positions: sessionKitePositions,
+      session_kite_open_orders: sessionKiteOpenOrders,
+      session_kite_order_ticket: sessionKiteOrderTicket,
     });
   }, [
     chatId,
@@ -387,6 +438,11 @@ function App() {
     sessionInstamartProducts,
     sessionInstamartAddresses,
     sessionInstamartCart,
+    sessionKiteInstruments,
+    sessionKiteHoldings,
+    sessionKitePositions,
+    sessionKiteOpenOrders,
+    sessionKiteOrderTicket,
   ]);
 
   const loadInitialData = async () => {
@@ -411,6 +467,11 @@ function App() {
         setSessionInstamartProducts(snap.session_instamart_products);
         setSessionInstamartAddresses(snap.session_instamart_addresses);
         setSessionInstamartCart(snap.session_instamart_cart);
+        setSessionKiteInstruments(snap.session_kite_instruments);
+        setSessionKiteHoldings(snap.session_kite_holdings);
+        setSessionKitePositions(snap.session_kite_positions);
+        setSessionKiteOpenOrders(snap.session_kite_open_orders);
+        setSessionKiteOrderTicket(snap.session_kite_order_ticket);
       }
       await loadChatMessages(chatId, { silent: true });
     }
@@ -493,6 +554,11 @@ function App() {
     setSessionInstamartProducts(snap?.session_instamart_products ?? []);
     setSessionInstamartAddresses(snap?.session_instamart_addresses ?? []);
     setSessionInstamartCart(snap?.session_instamart_cart ?? null);
+    setSessionKiteInstruments(snap?.session_kite_instruments ?? []);
+    setSessionKiteHoldings(snap?.session_kite_holdings ?? null);
+    setSessionKitePositions(snap?.session_kite_positions ?? null);
+    setSessionKiteOpenOrders(snap?.session_kite_open_orders ?? []);
+    setSessionKiteOrderTicket(snap?.session_kite_order_ticket ?? null);
     setMessages([]);
     await loadChatMessages(newChatId);
   };
@@ -527,6 +593,11 @@ function App() {
       setSessionInstamartProducts([]);
       setSessionInstamartAddresses([]);
       setSessionInstamartCart(null);
+      setSessionKiteInstruments([]);
+      setSessionKiteHoldings(null);
+      setSessionKitePositions(null);
+      setSessionKiteOpenOrders([]);
+      setSessionKiteOrderTicket(null);
     }
   };
 
@@ -594,6 +665,11 @@ function App() {
     setSessionInstamartProducts([]);
     setSessionInstamartAddresses([]);
     setSessionInstamartCart(null);
+    setSessionKiteInstruments([]);
+    setSessionKiteHoldings(null);
+    setSessionKitePositions(null);
+    setSessionKiteOpenOrders([]);
+    setSessionKiteOrderTicket(null);
     setChats([]);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
@@ -620,6 +696,11 @@ function App() {
     setSessionInstamartProducts([]);
     setSessionInstamartAddresses([]);
     setSessionInstamartCart(null);
+    setSessionKiteInstruments([]);
+    setSessionKiteHoldings(null);
+    setSessionKitePositions(null);
+    setSessionKiteOpenOrders([]);
+    setSessionKiteOrderTicket(null);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
@@ -662,6 +743,11 @@ function App() {
     if (sessionInstamartProducts.length > 0) body.session_instamart_products = sessionInstamartProducts;
     if (sessionInstamartAddresses.length > 0) body.session_instamart_addresses = sessionInstamartAddresses;
     if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
+    if (sessionKiteInstruments.length > 0) body.session_kite_instruments = sessionKiteInstruments;
+    if (sessionKiteHoldings) body.session_kite_holdings = sessionKiteHoldings;
+    if (sessionKitePositions) body.session_kite_positions = sessionKitePositions;
+    if (sessionKiteOpenOrders.length > 0) body.session_kite_open_orders = sessionKiteOpenOrders;
+    if (sessionKiteOrderTicket) body.session_kite_order_ticket = sessionKiteOrderTicket;
     if (chatId) body.chat_id = chatId;
     return body;
   };
@@ -740,6 +826,20 @@ function App() {
       if ('session_instamart_cart' in data) {
         const ic = (data as any).session_instamart_cart;
         setSessionInstamartCart(ic && typeof ic === 'object' ? ic : null);
+      }
+      if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
+      if ('session_kite_holdings' in data) {
+        const kh = (data as any).session_kite_holdings;
+        setSessionKiteHoldings(kh && typeof kh === 'object' ? kh : null);
+      }
+      if ('session_kite_positions' in data) {
+        const kp = (data as any).session_kite_positions;
+        setSessionKitePositions(kp && typeof kp === 'object' ? kp : null);
+      }
+      if (Array.isArray(data.session_kite_open_orders)) setSessionKiteOpenOrders(data.session_kite_open_orders);
+      if ('session_kite_order_ticket' in data) {
+        const kt = (data as any).session_kite_order_ticket;
+        setSessionKiteOrderTicket(kt && typeof kt === 'object' ? kt : null);
       }
 
       if (typeof data.chat_id === 'string' && data.chat_id) {

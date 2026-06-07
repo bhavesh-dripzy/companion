@@ -106,6 +106,22 @@ class FoodQueryRequest(BaseModel):
     session_instamart_products: list[dict[str, Any]] | None = None
     session_instamart_addresses: list[dict[str, Any]] | None = None
     session_instamart_cart: dict[str, Any] | None = None
+    # Kite (Zerodha) session indexes — REAL-MONEY trading surface.
+    # ``session_kite_instruments`` is an LRU of every instrument the user has
+    # seen (tradingsymbol / exchange / instrument_token + last_price +
+    # price_fetched_at); the planner copies the literal triple out of it
+    # instead of re-running ``search_instruments``, and uses price_fetched_at
+    # to decide if a cached quote is stale. ``session_kite_holdings`` and
+    # ``session_kite_positions`` are the latest portfolio snapshots.
+    # ``session_kite_open_orders`` is an LRU keyed on ``order_id`` (required
+    # for modify/cancel). ``session_kite_order_ticket`` is the pending,
+    # UNCONFIRMED order ticket the planner assembled — round-tripped until the
+    # user confirms (→ place_order), edits it, or backs out.
+    session_kite_instruments: list[dict[str, Any]] | None = None
+    session_kite_holdings: dict[str, Any] | None = None
+    session_kite_positions: dict[str, Any] | None = None
+    session_kite_open_orders: list[dict[str, Any]] | None = None
+    session_kite_order_ticket: dict[str, Any] | None = None
     # Single-turn deferral state: when the Swiggy executor skipped a cart
     # update because the menu item has a real variant choice (size 8"/10"/
     # 12", crust hand-tossed vs thin), the response carries the variant
@@ -165,6 +181,15 @@ class AgentQueryRequest(BaseModel):
     session_instamart_products: list[dict[str, Any]] | None = None
     session_instamart_addresses: list[dict[str, Any]] | None = None
     session_instamart_cart: dict[str, Any] | None = None
+    # Kite (Zerodha) session indexes — REAL-MONEY trading surface. See
+    # FoodQueryRequest.session_kite_instruments / session_kite_holdings /
+    # session_kite_positions / session_kite_open_orders /
+    # session_kite_order_ticket above for the field semantics.
+    session_kite_instruments: list[dict[str, Any]] | None = None
+    session_kite_holdings: dict[str, Any] | None = None
+    session_kite_positions: dict[str, Any] | None = None
+    session_kite_open_orders: list[dict[str, Any]] | None = None
+    session_kite_order_ticket: dict[str, Any] | None = None
     # See FoodQueryRequest.pending_variant_choice above.
     pending_variant_choice: list[dict[str, Any]] | None = None
 
