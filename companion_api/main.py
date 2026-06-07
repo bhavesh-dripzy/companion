@@ -2099,6 +2099,24 @@ def _chat_summary(item: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+@app.get("/api/hero/greeting/")
+def hero_greeting(user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """A short, catchy, personalized welcome line for the empty/hero state.
+
+    Built from the user's profile (name/city/top interest), current weather at
+    their saved address (Open-Meteo, keyless), and the time of day, then phrased
+    by an LLM (DeepSeek with fallback). Best-effort: always returns a usable
+    greeting — degrades to a static time-of-day line if anything is missing.
+    """
+    from app.services.hero_greeting import build_hero_greeting
+
+    try:
+        return build_hero_greeting(user)
+    except Exception:
+        logger.debug("hero greeting failed", exc_info=True)
+        return {"greeting": "", "source": "error", "time_of_day": None, "weather": None}
+
+
 @app.get("/api/chats/")
 def list_chats(
     limit: int = Query(default=50, ge=1, le=200),

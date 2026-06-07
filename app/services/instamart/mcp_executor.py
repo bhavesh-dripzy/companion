@@ -122,8 +122,10 @@ def _match_address(
     *,
     target_id: str | None,
     location_text: str | None,
+    user_geo: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Pick the best saved-address record: explicit id, then label, then first."""
+    """Pick the best saved-address record: explicit id, then label, then
+    nearest-to-device (issue #18), then first."""
     if not addresses:
         return None
     target_id_clean = (target_id or "").strip()
@@ -151,6 +153,21 @@ def _match_address(
             ).strip().lower()
             if location_clean in line:
                 return addr
+
+    # Nearest saved address to the device location — fallback heuristic only.
+    if user_geo:
+        try:
+            from app.services.address_nearest import nearest_address_id
+
+            nearest = nearest_address_id(addresses, user_geo)
+            if nearest:
+                for addr in addresses:
+                    for key in ("addressId", "address_id", "id"):
+                        if str(addr.get(key) or "").strip() == nearest:
+                            return addr
+        except Exception:
+            logger.debug("instamart nearest-address pick failed", exc_info=True)
+
     return addresses[0]
 
 
@@ -300,6 +317,7 @@ async def _run_instamart_session(
     node_binary: str,
     user_id: str | None,
     location_text: str | None,
+    user_geo: dict[str, Any] | None = None,
     session_placeholders: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
@@ -391,6 +409,7 @@ async def _run_instamart_session(
                     _collect_addresses(envelope.get("data")),
                     target_id=effective_address_id,
                     location_text=location_text,
+                    user_geo=user_geo,
                 )
                 aid = _address_id_of(chosen)
                 if aid and _ADDRESS_ID_PLACEHOLDER not in placeholder_values:
@@ -538,6 +557,7 @@ async def _run_instamart_session(
                         _collect_addresses(envelope.get("data")),
                         target_id=effective_address_id,
                         location_text=location_text,
+                        user_geo=user_geo,
                     )
                     aid = _address_id_of(chosen)
                     if aid and _ADDRESS_ID_PLACEHOLDER not in placeholder_values:
@@ -939,6 +959,7 @@ def run_tool_plan_sync(
     node_binary: str | None = None,
     user_id: str | None = None,
     location_text: str | None = None,
+    user_geo: dict[str, Any] | None = None,
     session_placeholders: dict[str, str] | None = None,
     session_instamart_products: list[dict[str, Any]] | None = None,
     session_instamart_addresses: list[dict[str, Any]] | None = None,
@@ -960,6 +981,7 @@ def run_tool_plan_sync(
                 node_binary=node,
                 user_id=user_id,
                 location_text=location_text,
+                user_geo=user_geo,
                 session_placeholders=session_placeholders,
             )
         )

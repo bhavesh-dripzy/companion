@@ -71,28 +71,27 @@ export function ChatMessageItem({
       transition={{ duration: 0.28, ease: 'easeOut' }}
       className={`flex ${isUser ? 'justify-end' : 'justify-start gap-3.5'} items-start w-full group`}
     >
-      {/* Assistant avatar — circular dark badge matching the redesign */}
+      {/* Assistant avatar — conic mandala brand orb matching the mockup */}
       {!isUser && (
-        <div className="w-9 h-9 rounded-full brand-gradient text-white flex items-center justify-center shadow-xs shrink-0 select-none transform hover:scale-105 transition-all text-sm font-black relative">
-          <span>C</span>
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
+        <div className="brand-orb w-9 h-9 shrink-0 select-none transform hover:scale-105 transition-all relative">
+          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#1a9d6b] border-2 border-white z-10" />
         </div>
       )}
 
       {/* Bubble body + cards + chips */}
       <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : 'max-w-[88%] flex-1'}`}>
         <div
-          className={`animate-fade-in px-5 py-3 rounded-3xl text-[14.5px] leading-relaxed transition-all duration-200 max-w-full ${
+          className={`animate-fade-in px-5 py-3 rounded-[20px] text-[14.5px] leading-relaxed transition-all duration-200 max-w-full ${
             isUser
-              ? 'bg-gradient-to-br from-[#3a5bef]/12 via-[#8b5cf6]/10 to-[#ff6a3d]/10 border border-[#8b5cf6]/25 text-[#1a1626] shadow-sm font-medium rounded-tr-sm'
-              : 'bg-white/75 backdrop-blur-sm border border-[#e8e2d9]/70 text-[#1a1626] shadow-2xs font-normal rounded-tl-sm select-text'
+              ? 'bg-gradient-to-br from-[#2b2f72]/10 via-[#e85d7a]/8 to-[#ff8a1e]/10 border border-[#2b2f72]/15 text-[#221b2e] shadow-sm font-medium rounded-tr-md'
+              : 'bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs font-normal rounded-tl-md select-text'
           }`}
         >
           <div
             className={`prose max-w-none prose-p:leading-relaxed prose-p:my-1.5 ${
               isUser
-                ? 'prose-slate prose-strong:text-[#1a1626] prose-a:text-[#2f49c4] prose-code:text-[#c2401f]'
-                : 'prose-slate prose-strong:text-[#1a1626] prose-a:text-[#2f49c4] prose-code:text-[#c2401f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
+                ? 'prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f]'
+                : 'prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
             }`}
           >
             <ReactMarkdown remarkPlugins={[remarkBreaks]}>{msg.content}</ReactMarkdown>

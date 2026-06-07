@@ -866,6 +866,7 @@ def _learn_zepto_placeholders(
     *,
     new_products: list[dict[str, Any]] | None = None,
     new_addresses: list[dict[str, Any]] | None = None,
+    user_geo: dict[str, Any] | None = None,
 ) -> None:
     if tool in {"search_products", "search_multiple_products"} and new_products:
         first = new_products[0]
@@ -877,10 +878,21 @@ def _learn_zepto_placeholders(
             values["__ZEPTO_SPID__"] = spid.strip()
 
     if tool == "list_saved_addresses" and new_addresses:
-        first = new_addresses[0]
-        aid = first.get("address_id")
-        if isinstance(aid, str) and aid.strip():
-            values.setdefault("__ZEPTO_ADDRESS_ID__", aid.strip())
+        # Prefer the saved address nearest to the device location (issue #18),
+        # else fall back to the first row.
+        chosen_aid: str | None = None
+        if user_geo:
+            try:
+                from app.services.address_nearest import nearest_address_id
+
+                chosen_aid = nearest_address_id(new_addresses, user_geo)
+            except Exception:
+                logger.debug("zepto nearest-address pick failed", exc_info=True)
+        if not chosen_aid:
+            aid = new_addresses[0].get("address_id")
+            chosen_aid = aid.strip() if isinstance(aid, str) and aid.strip() else None
+        if chosen_aid:
+            values.setdefault("__ZEPTO_ADDRESS_ID__", chosen_aid)
 
     if tool == "get_location_serviceability":
         sid = _harvest_store_id(envelope)
@@ -1119,6 +1131,7 @@ async def _run_zepto_session_inner(
                     envelope,
                     new_products=new_products or None,
                     new_addresses=new_addresses or None,
+                    user_geo=user_geo,
                 )
 
                 if new_products:

@@ -49,7 +49,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   }, [message]);
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 px-3 md:px-5 pt-4 md:pt-5 pb-[calc(env(safe-area-inset-bottom)+12px)] md:pb-5 bg-gradient-to-t from-[#f6f3ee]/90 via-[#f6f3ee]/40 to-transparent pointer-events-none">
+    <div className="absolute bottom-0 left-0 right-0 px-3 md:px-5 pt-4 md:pt-5 pb-[calc(env(safe-area-inset-bottom)+12px)] md:pb-5 bg-gradient-to-t from-[#f7f2ea]/90 via-[#f7f2ea]/40 to-transparent pointer-events-none">
       <div className="max-w-4xl mx-auto space-y-2.5 md:space-y-3 pointer-events-auto">
         {showQuickActions && (
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
@@ -57,7 +57,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               <button
                 key={action.label}
                 onClick={() => setMessage(action.query)}
-                className="px-4 py-1.5 rounded-full bg-white/80 backdrop-blur-sm border border-[#8b5cf6]/15 text-xs font-semibold text-[#6d6680] hover:text-[#1a1626] hover:border-[#8b5cf6]/40 hover:bg-[#8b5cf6]/8 transition-all whitespace-nowrap shadow-sm"
+                className="px-4 py-1.5 rounded-[13px] bg-white/80 backdrop-blur-sm border border-[#ece3d6]/80 text-xs font-semibold text-[#7a7388] hover:text-[#221b2e] hover:border-[#2b2f72]/30 hover:bg-[#2b2f72]/6 transition-all whitespace-nowrap shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)]"
               >
                 {action.label}
               </button>
@@ -67,12 +67,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
         <form
           onSubmit={handleSubmit}
-          className="spectrum-ring flex items-end bg-white/80 rounded-3xl py-2 pl-3 pr-2 shadow-lg shadow-[#3a5bef]/8 backdrop-blur-md transition-shadow duration-300 focus-within:shadow-[#8b5cf6]/12"
+          className="flex items-end bg-white/[0.86] border border-[#ece3d6]/80 rounded-[18px] py-2 pl-3 pr-2 shadow-[0_14px_36px_-22px_rgba(60,40,30,0.45)] backdrop-blur-md transition-shadow duration-300 focus-within:shadow-[0_18px_42px_-22px_rgba(60,40,30,0.5)]"
         >
           <button
             type="button"
             tabIndex={-1}
-            className="p-2 text-[#6d6680] hover:text-[#8b5cf6] bg-[#8b5cf6]/8 hover:bg-[#8b5cf6]/14 rounded-full transition-all focus:outline-none cursor-pointer self-end mb-1"
+            className="p-2 text-[#7a7388] hover:text-[#2b2f72] bg-[#2b2f72]/6 hover:bg-[#2b2f72]/12 rounded-[11px] transition-all focus:outline-none cursor-pointer self-end mb-1"
             title="Attachment menu (coming soon)"
           >
             <Plus size={16} />
@@ -83,10 +83,10 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Companion anything…"
+            placeholder="Ask Companion anything…  Hindi, English, ya Hinglish — sab chalega"
             rows={1}
             disabled={disabled}
-            className="flex-1 bg-transparent text-[#1a1626] placeholder:text-[#9a93a8] px-3 py-2 focus:outline-none resize-none min-h-[40px] max-h-40 text-sm font-medium leading-relaxed"
+            className="flex-1 bg-transparent text-[#221b2e] placeholder:text-[#a89f95] px-3 py-2 focus:outline-none resize-none min-h-[40px] max-h-40 text-sm font-medium leading-relaxed"
           />
 
           <div className="flex items-center gap-1 self-end mb-0.5">
@@ -95,7 +95,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               type="submit"
               disabled={!message.trim() || disabled}
               aria-label="Send message"
-              className="btn-spectrum w-9 h-9 disabled:opacity-40 text-white rounded-full flex items-center justify-center hover:scale-105 active:scale-95 cursor-pointer"
+              className="btn-ink w-9.5 h-9.5 disabled:opacity-40 text-white rounded-[13px] flex items-center justify-center active:scale-95 cursor-pointer"
             >
               <Send size={15} className="-ml-0.5" />
             </button>

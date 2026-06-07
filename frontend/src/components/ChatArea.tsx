@@ -15,6 +15,9 @@ import { Menu, Send, Paperclip, Car, Utensils, Calendar, Ticket, Bell, Search, X
 import { motion } from 'motion/react';
 import { ChatMessageItem } from './ChatMessageItem';
 import { VoiceInput } from '../VoiceInput';
+import { INDIA_FACTS, nextFactIndex } from '../data/indiaFacts';
+import { Mandala } from './Mandala';
+import { api } from '../api';
 import type { Message, SessionAddress } from '../types';
 
 interface ChatAreaProps {
@@ -49,7 +52,7 @@ const PROMPT_OPTIONS = [
     prompt: 'Book a cab from my location to the office',
     icon: Car,
     color:
-      'bg-[#3a5bef]/8 border-[#3a5bef]/15 hover:border-[#3a5bef]/45 text-[#2f49c4] hover:bg-[#3a5bef]/12',
+      'bg-[#2b2f72]/8 border-[#2b2f72]/15 hover:border-[#2b2f72]/45 text-[#2b2f72] hover:bg-[#2b2f72]/12',
   },
   {
     id: 'food',
@@ -57,7 +60,7 @@ const PROMPT_OPTIONS = [
     prompt: 'Find good pizza near my saved address on Zomato',
     icon: Utensils,
     color:
-      'bg-[#ff6a3d]/8 border-[#ff6a3d]/15 hover:border-[#ff6a3d]/45 text-[#c2401f] hover:bg-[#ff6a3d]/12',
+      'bg-[#ff8a1e]/10 border-[#ff8a1e]/18 hover:border-[#ff8a1e]/50 text-[#c2630f] hover:bg-[#ff8a1e]/16',
   },
   {
     id: 'groceries',
@@ -65,7 +68,7 @@ const PROMPT_OPTIONS = [
     prompt: 'Search milk and brown bread on Swiggy Instamart',
     icon: Calendar,
     color:
-      'bg-[#8b5cf6]/8 border-[#8b5cf6]/15 hover:border-[#8b5cf6]/45 text-[#7c4ddb] hover:bg-[#8b5cf6]/12',
+      'bg-[#1a9d6b]/8 border-[#1a9d6b]/16 hover:border-[#1a9d6b]/45 text-[#147a53] hover:bg-[#1a9d6b]/12',
   },
   {
     id: 'movie',
@@ -73,7 +76,7 @@ const PROMPT_OPTIONS = [
     prompt: 'Find live music events near me on District',
     icon: Ticket,
     color:
-      'bg-[#5b8def]/8 border-[#5b8def]/15 hover:border-[#5b8def]/45 text-[#2f49c4] hover:bg-[#5b8def]/12',
+      'bg-[#e85d7a]/8 border-[#e85d7a]/16 hover:border-[#e85d7a]/45 text-[#c23e5b] hover:bg-[#e85d7a]/12',
   },
   {
     id: 'reminder',
@@ -81,11 +84,9 @@ const PROMPT_OPTIONS = [
     prompt: "What's currently in my cart?",
     icon: Bell,
     color:
-      'bg-[#d9479b]/8 border-[#d9479b]/15 hover:border-[#d9479b]/45 text-[#b53a82] hover:bg-[#d9479b]/12',
+      'bg-[#ffb347]/12 border-[#ffb347]/20 hover:border-[#ffb347]/55 text-[#b07410] hover:bg-[#ffb347]/18',
   },
 ];
-
-const DEFAULT_HERO = 'https://i.postimg.cc/pT4dvmdP/pakkaaaaa.png';
 
 export function ChatArea({
   messages,
@@ -105,7 +106,6 @@ export function ChatArea({
   onVoiceToolCall,
   onVoiceStateChange,
   onVoiceError,
-  heroImageUrl = DEFAULT_HERO,
 }: ChatAreaProps) {
   const [inputValue, setInputValue] = useState('');
   // In-chat message search — preserved from the prior skin so users can
@@ -172,29 +172,99 @@ export function ChatArea({
   const welcomeName = (username && username.trim()) || 'there';
   const avatarLetter = welcomeName.charAt(0).toUpperCase() || 'C';
 
+  // Personalized AI hero greeting — generated server-side each load from the
+  // user's profile (name/city/interests), live weather at their saved address,
+  // and the time of day (DeepSeek, with a static fallback). Starts with a
+  // sensible local line so the hero never shows empty while the call is in
+  // flight, then swaps in the generated line when it arrives.
+  const localGreeting = `Namaste, ${welcomeName === 'there' ? 'there' : welcomeName}.`;
+  const [greeting, setGreeting] = useState<string>(localGreeting);
+  const [greetingReady, setGreetingReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api
+      .get('/api/hero/greeting/')
+      .then((res: { greeting?: string }) => {
+        if (alive && res && res.greeting) {
+          setGreeting(res.greeting);
+          setGreetingReady(true);
+        }
+      })
+      .catch(() => {
+        /* keep the local fallback greeting */
+      });
+    return () => {
+      alive = false;
+    };
+    // Re-fetch if the signed-in user changes.
+  }, [username]);
+
+  // Rotating "Did you know?" India heritage fact — picked once per mount.
+  // Rotating heritage fact — swaps every ~12s with a cloud-like fade
+  // (the current fact blurs/fades out, a new random one fades in).
+  const [factIdx, setFactIdx] = useState(() => Math.floor(Math.random() * INDIA_FACTS.length));
+  const [factShown, setFactShown] = useState(true);
+  useEffect(() => {
+    const tick = setInterval(() => {
+      setFactShown(false);
+      window.setTimeout(() => {
+        setFactIdx((prev) => nextFactIndex(prev));
+        setFactShown(true);
+      }, 820);
+    }, 12000);
+    return () => clearInterval(tick);
+  }, []);
+  const heritageFact = INDIA_FACTS[factIdx];
+
+  // Big, continuously-morphing mandala behind the hero: two stacked layers
+  // crossfade to a freshly-generated pattern every ~7s (CSS adds a slow spin),
+  // so it's always gently changing.
+  const [mandalaSeeds, setMandalaSeeds] = useState<[number, number]>(() => [
+    Math.floor(Math.random() * 1e9),
+    Math.floor(Math.random() * 1e9),
+  ]);
+  const [mandalaActive, setMandalaActive] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => {
+      setMandalaActive((a) => {
+        const next = a === 0 ? 1 : 0;
+        setMandalaSeeds((s) =>
+          next === 0
+            ? [Math.floor(Math.random() * 1e9), s[1]]
+            : [s[0], Math.floor(Math.random() * 1e9)],
+        );
+        return next;
+      });
+    }, 11000);
+    return () => clearInterval(t);
+  }, []);
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden relative font-sans select-none">
       {/* Header */}
-      <header className="shrink-0 bg-white/45 border-b border-[#e8e2d9]/50 px-5 py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-30 select-none">
+      <header className="shrink-0 bg-white/46 border-b border-[#ece3d6]/60 px-5 py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-30 select-none">
         <div className="flex items-center gap-3">
           {isSidebarCollapsed && (
             <button
               type="button"
               onClick={onToggleLeft}
-              className="p-2 rounded-xl text-[#7c4ddb] bg-[#8b5cf6]/10 border border-[#8b5cf6]/25 hover:bg-[#8b5cf6]/15 hover:border-[#8b5cf6]/40 shadow-sm transition-all duration-300 active:scale-95 cursor-pointer"
+              className="p-2 rounded-xl text-[#2b2f72] bg-[#2b2f72]/8 border border-[#2b2f72]/20 hover:bg-[#2b2f72]/12 hover:border-[#2b2f72]/35 shadow-sm transition-all duration-300 active:scale-95 cursor-pointer"
               title="Expand sidebar"
             >
               <Menu className="w-5 h-5 stroke-[2.2]" />
             </button>
           )}
 
-          <div className="flex items-center gap-2">
-            <span className="brand-gradient-text font-semibold text-[16px] tracking-tight font-display">
+          <div className="flex items-center gap-1">
+            <span className="text-[#221b2e] font-semibold text-[15px] tracking-tight font-display">
               Companion
             </span>
-            <span className="hidden sm:inline-block bg-emerald-500/10 text-emerald-700 border border-emerald-500/20 px-2 py-0.5 rounded-full text-[10px] font-semibold">
-              Ready
-            </span>
+            {/* Subtle tricolor nod — green / white gap / saffron dots */}
+            <span
+              aria-hidden
+              className="hidden sm:inline-block w-2 h-2 rounded-full bg-[#1a9d6b] ml-7"
+              style={{ boxShadow: '-11px 0 0 #fff, -22px 0 0 #ff8a1e' }}
+            />
           </div>
         </div>
 
@@ -210,8 +280,8 @@ export function ChatArea({
                 return !v;
               });
             }}
-            className={`p-2 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer ${
-              searchOpen ? 'bg-slate-100 text-slate-900' : ''
+            className={`w-9 h-9 rounded-[10px] border border-[#ece3d6]/80 text-[#7a7388] bg-white/60 hover:text-[#221b2e] hover:bg-white flex items-center justify-center transition-all cursor-pointer ${
+              searchOpen ? 'bg-white text-[#221b2e]' : ''
             }`}
             title={searchOpen ? 'Close search' : 'Search this conversation'}
             aria-label="Search conversation"
@@ -220,15 +290,15 @@ export function ChatArea({
           </button>
 
           {/* User pill */}
-          <div className="flex items-center gap-2 bg-white/80 text-[#1a1626] border border-[#e8e2d9]/70 pl-2 pr-3.5 py-1.5 rounded-full text-xs font-bold shadow-3xs max-h-9 select-none">
-            <div className="w-5.5 h-5.5 rounded-full brand-gradient text-white flex items-center justify-center font-bold text-[10.5px] shadow-sm select-none">
+          <div className="flex items-center gap-2 bg-white/60 text-[#221b2e] border border-[#ece3d6]/80 pl-1.5 pr-3.5 py-1 rounded-[13px] text-xs font-bold shadow-3xs max-h-9 select-none">
+            <div className="w-6 h-6 rounded-[8px] bg-[#221b2e] text-white flex items-center justify-center font-bold text-[11px] shadow-sm select-none">
               {avatarLetter}
             </div>
-            <span className="hidden sm:inline text-[#1a1626] font-display capitalize">
+            <span className="hidden sm:inline text-[#221b2e] font-display capitalize">
               {welcomeName}
             </span>
             {connectedCount > 0 && (
-              <span className="bg-emerald-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-mono font-bold">
+              <span className="bg-[#1a9d6b] text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-mono font-bold">
                 {connectedCount}
               </span>
             )}
@@ -269,67 +339,86 @@ export function ChatArea({
             className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6 no-scrollbar"
           >
             {messages.length === 0 ? (
-              <div className="mandala-accent h-full min-h-0 flex flex-col justify-center items-center px-4 py-1.5 md:py-2 space-y-4 md:space-y-6 select-none w-full max-w-4xl mx-auto z-10 relative">
+              <div className="h-full min-h-0 flex flex-col justify-center items-center text-center px-5 py-6 select-none w-full max-w-4xl mx-auto z-10 relative overflow-hidden">
+                {/* Big, continuously-morphing mandala (India palette) behind the
+                    hero — two layers crossfade to new generated patterns + slow spin.
+                    Shown whole (the ornate centre included) with a soft edge-fade. */}
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(880px,160%)] aspect-square pointer-events-none [mask-image:radial-gradient(circle_at_50%_50%,#000_58%,transparent_78%)] [-webkit-mask-image:radial-gradient(circle_at_50%_50%,#000_58%,transparent_78%)]">
+                  {[0, 1].map((layer) => (
+                    <Mandala
+                      key={layer}
+                      seed={mandalaSeeds[layer]}
+                      size={880}
+                      className={`absolute inset-0 w-full h-full mandala-spin transition-opacity duration-[2200ms] ease-in-out ${
+                        mandalaActive === layer ? 'opacity-[0.46]' : 'opacity-0'
+                      }`}
+                    />
+                  ))}
+                </div>
+                {/* Soft ivory veil right behind the text block — lifts the
+                    headline/fact off the ornate mandala centre so it reads cleanly. */}
+                <div
+                  className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[680px] h-[480px] pointer-events-none"
+                  style={{
+                    background:
+                      'radial-gradient(ellipse 54% 58% at 50% 50%, rgba(253,250,243,0.94), rgba(253,250,243,0.66) 50%, transparent 76%)',
+                  }}
+                  aria-hidden
+                />
                 <motion.div
-                  initial={{ opacity: 0, y: -15 }}
+                  initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1, duration: 0.6, ease: 'easeOut' }}
-                  className="w-full flex flex-col md:flex-row items-center justify-between gap-3 md:gap-6 relative shrink-0 z-10"
+                  transition={{ delay: 0.05, duration: 0.6, ease: 'easeOut' }}
+                  className="relative z-10 flex flex-col items-center"
                 >
-                  <div className="space-y-1 flex-1 text-center md:text-left">
-                    <h1 className="font-display brand-gradient-text font-semibold text-2xl md:text-[40px] tracking-tight leading-tight capitalize">
-                      Hi {welcomeName}, how can I help you today?
-                    </h1>
+                  {/* Tagline — the brand line, kept short. */}
+                  <div className="text-[12px] font-bold tracking-[0.18em] uppercase brand-gradient-text mb-3.5">
+                    ★ From Bharat, For Bharat ★
                   </div>
 
-                  <div className="flex items-center gap-2.5 shrink-0 relative mt-1 md:mt-0">
-                    <div className="mb-2 relative bg-white border border-slate-150/85 px-3 py-1.5 rounded-2xl shadow-sm text-center">
-                      <span className="text-[10px] font-bold text-slate-900 block leading-tight font-sans">
-                        Hey there! 👋
-                      </span>
-                      <span className="text-[10px] font-bold text-slate-800 block leading-tight font-sans mt-0.5">
-                        Need a boost?
-                      </span>
-                      <div className="absolute right-[-5px] top-5 w-2.5 h-2.5 bg-white border-r border-b border-slate-100 rotate-[-45deg] z-10" />
-                    </div>
+                  {/* Headline — AI-generated personalized greeting (name, time of
+                      day, local weather, interests). Fades/swaps in when ready. */}
+                  <h1
+                    className={`font-display font-semibold text-[clamp(28px,5vw,46px)] leading-[1.08] tracking-tight mb-3.5 text-[#221b2e] max-w-[680px] transition-all duration-700 ease-out ${
+                      greetingReady ? 'opacity-100 blur-0' : 'opacity-90'
+                    }`}
+                  >
+                    {greeting}
+                  </h1>
 
-                    <div
-                      className="w-14 h-14 bg-gradient-to-b from-white to-slate-100 rounded-full border border-slate-200 shadow-md flex items-center justify-center relative animate-bounce shrink-0"
-                      style={{ animationDuration: '4s' }}
-                    >
-                      <div className="w-11 h-8 bg-[#121420] rounded-[12px] border border-slate-700 flex items-center justify-center relative shadow-inner overflow-hidden">
-                        <div className="flex items-center gap-1">
-                          <span className="text-cyan-400 text-xs font-black leading-none animate-pulse">
-                            ^
-                          </span>
-                          <span className="text-cyan-400 text-xs font-black leading-none animate-pulse">
-                            ^
-                          </span>
-                        </div>
-                        <div className="w-full h-[1px] bg-cyan-400/20 absolute top-2.5 left-0 animate-pulse" />
-                      </div>
-                      <div className="absolute -left-1 top-5 w-2 h-4.5 bg-slate-100 border border-slate-200/80 rounded-full transform -rotate-12 shadow-3xs" />
-                      <div className="absolute -right-1 top-5 w-2 h-4.5 bg-slate-100 border border-slate-200/80 rounded-full transform rotate-12 shadow-3xs" />
-                      <div className="absolute top-0.5 left-1.5 w-3 h-1 bg-white/40 rounded-full filter blur-[0.5px]" />
-                    </div>
+                  {/* Subtitle */}
+                  <p className="text-[15px] md:text-base text-[#7a7388] max-w-[520px] mb-6">
+                    Order food &amp; groceries, book cabs, find events, track investments,
+                    set reminders, all in one place, in your language.
+                  </p>
+
+                  {/* Rotating heritage "Did you know?" fact — cloud fade */}
+                  <div className={`heritage-fact fact-rotate mb-7 ${factShown ? '' : 'is-fading'}`} aria-live="polite">
+                    <span>💡</span>
+                    <span>
+                      Did you know? <b>{heritageFact}</b>
+                    </span>
+                  </div>
+
+                  {/* Quick-prompt chips — wired to the existing handlers. */}
+                  <div className="flex flex-wrap gap-2.5 justify-center max-w-[640px]">
+                    {PROMPT_OPTIONS.map((option) => {
+                      const IconComponent = option.icon;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => onSuggestionClick(option.prompt)}
+                          disabled={isThinking}
+                          className={`flex items-center gap-2 border rounded-[13px] px-3.5 py-2.5 text-[13.5px] font-medium bg-white/80 backdrop-blur-sm shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${option.color}`}
+                        >
+                          <IconComponent className="w-4 h-4" />
+                          <span>{option.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </motion.div>
-
-                {/* Hero image */}
-                <div className="w-full relative z-10 flex flex-col items-center justify-center min-h-0 flex-1 max-h-[48vh] md:max-h-[58vh] -mt-1 md:-mt-3">
-                  <div className="relative w-full max-w-lg md:max-w-2xl lg:max-w-3xl mx-auto h-full flex items-center justify-center transition-transform duration-500 hover:scale-[1.015]">
-                    <div className="absolute inset-x-12 top-4 bottom-4 bg-gradient-to-tr from-sky-300/20 via-pink-350/15 to-indigo-400/20 rounded-full filter blur-[45px] opacity-75 pointer-events-none" />
-                    <motion.img
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ type: 'spring', stiffness: 70, damping: 15, duration: 1.0 }}
-                      src={heroImageUrl}
-                      alt="App Companions Collage"
-                      className="max-w-full max-h-full object-contain relative z-10 drop-shadow-[0_12px_28px_rgba(30,41,59,0.12)]"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                </div>
               </div>
             ) : (
               <div className="w-full space-y-6 pb-6">
@@ -360,11 +449,9 @@ export function ChatArea({
                     animate={{ opacity: 1 }}
                     className="flex items-center gap-3 pl-3"
                   >
-                    <div className="w-8 h-8 rounded-full brand-gradient text-white flex items-center justify-center font-bold text-[12px] font-display">
-                      C
-                    </div>
-                    <div className="bg-white/80 border border-[#e8e2d9]/70 py-2.5 px-4 rounded-full flex items-center gap-2 shadow-xs backdrop-blur-xs">
-                      <span className="w-1.5 h-1.5 bg-[#8b5cf6] rounded-full animate-ping" />
+                    <div className="w-8 h-8 brand-orb shrink-0" />
+                    <div className="bg-white/80 border border-[#ece3d6]/80 py-2.5 px-4 rounded-full flex items-center gap-2 shadow-xs backdrop-blur-xs">
+                      <span className="w-1.5 h-1.5 bg-[#ff8a1e] rounded-full animate-ping" />
                       <span className="text-slate-500 font-medium text-xs italic">
                         Thinking…
                       </span>
@@ -376,7 +463,7 @@ export function ChatArea({
           </div>
 
           {/* Bottom composer */}
-          <div className="p-4 bg-gradient-to-t from-[#f6f3ee]/95 via-[#f6f3ee]/30 to-transparent sticky bottom-0 left-0 right-0 z-20">
+          <div className="p-4 bg-gradient-to-t from-[#f7f2ea]/95 via-[#f7f2ea]/30 to-transparent sticky bottom-0 left-0 right-0 z-20">
             {/* Prompt ribbon */}
             <div className="w-full flex items-center gap-2 overflow-x-auto pb-3 mb-1.5 no-scrollbar scroll-smooth">
               {PROMPT_OPTIONS.map((option) => {
@@ -387,9 +474,9 @@ export function ChatArea({
                     type="button"
                     onClick={() => onSuggestionClick(option.prompt)}
                     disabled={isThinking}
-                    className={`shrink-0 flex items-center gap-2 border px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:shadow-sm ${option.color}`}
+                    className={`shrink-0 flex items-center gap-2 border px-3.5 py-1.5 rounded-[13px] text-xs font-semibold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] hover:shadow-sm ${option.color}`}
                   >
-                    <div className="p-1 rounded-md shrink-0">
+                    <div className="p-0.5 rounded-md shrink-0">
                       <IconComponent className="w-3.5 h-3.5" />
                     </div>
                     <span>{option.label}</span>
@@ -400,12 +487,12 @@ export function ChatArea({
 
             <form
               onSubmit={handleSubmit}
-              className="spectrum-ring w-full bg-white/80 backdrop-blur-md shadow-md shadow-[#3a5bef]/8 rounded-3xl flex items-end p-1.5 gap-2 focus-within:shadow-lg focus-within:shadow-[#8b5cf6]/12 transition-shadow duration-300"
+              className="w-full bg-white/[0.86] border border-[#ece3d6]/80 backdrop-blur-md shadow-[0_14px_36px_-22px_rgba(60,40,30,0.45)] rounded-[18px] flex items-end p-1.5 gap-2 focus-within:shadow-[0_18px_42px_-22px_rgba(60,40,30,0.5)] transition-shadow duration-300"
             >
               <button
                 type="button"
                 tabIndex={-1}
-                className="w-9 h-9 text-slate-400 hover:text-[#8b5cf6] hover:bg-[#8b5cf6]/8 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer self-end mb-0.5"
+                className="w-9 h-9 text-[#a89f95] hover:text-[#2b2f72] hover:bg-[#2b2f72]/8 rounded-[11px] flex items-center justify-center transition-colors shrink-0 cursor-pointer self-end mb-0.5"
                 title="Attachment menu (coming soon)"
               >
                 <Paperclip className="w-4.5 h-4.5" />
@@ -420,10 +507,10 @@ export function ChatArea({
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Companion anything…"
+                placeholder="Ask Companion anything…  Hindi, English, ya Hinglish — sab chalega"
                 disabled={isThinking}
                 rows={1}
-                className="flex-1 bg-transparent border-none outline-none text-[13.5px] text-slate-800 placeholder-slate-400 py-2.5 px-1 focus:ring-0 min-w-0 resize-none max-h-40 leading-relaxed"
+                className="flex-1 bg-transparent border-none outline-none text-[14.5px] text-[#221b2e] placeholder-[#a89f95] py-2.5 px-2 focus:ring-0 min-w-0 resize-none max-h-40 leading-relaxed"
               />
 
               <div className="self-end mb-0.5">
@@ -441,10 +528,10 @@ export function ChatArea({
                 type="submit"
                 disabled={!inputValue.trim() || isThinking}
                 aria-label="Send message"
-                className={`w-9.5 h-9.5 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer self-end mb-0.5 ${
+                className={`w-10 h-10 rounded-[13px] flex items-center justify-center transition-all shrink-0 cursor-pointer self-end mb-0.5 ${
                   inputValue.trim() && !isThinking
-                    ? 'btn-spectrum opacity-100 text-white'
-                    : 'bg-slate-100 text-slate-300'
+                    ? 'btn-ink opacity-100 text-white'
+                    : 'bg-[#f3eee6] text-[#bcb3a6]'
                 }`}
               >
                 <Send className="w-4 h-4 stroke-[2.2]" />

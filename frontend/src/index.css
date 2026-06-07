@@ -10,46 +10,56 @@
 }
 
 /* ===========================================================================
-   Companion — "Toran / Gateway" theme (issue #12).
-   Sarvam-inspired continuous BLUE → VIOLET → ORANGE powdery spectrum: soft,
-   grainy radial washes (never flat fills), concentric-mandala geometry as
-   structural accents, gateway-arch framing, wide Clash Display headings.
-   Class names below match the previous design's so existing components keep
-   rendering — only the visual values change.
+   Companion — "India has arrived" theme.
+   Warm ivory parchment with a soft saffron→indigo→rose dawn bloom from the
+   top, a faint jali lattice over the whole canvas, concentric-mandala
+   watermarks, and a monument-skyline line-art motif. Dark near-black ink
+   pill buttons; saffron / indigo / rose accents with a subtle tricolor nod.
+   Ported faithfully from the approved mockup (india.html). Class names below
+   match the prior design's so existing components keep rendering — only the
+   visual values change.
    =========================================================================== */
 @theme {
-  /* Neutral base — warm paper + deep indigo "ink" (not pure black). */
-  --color-background: #f6f3ee;
+  /* Neutral base — warm ivory parchment + deep aubergine "ink". */
+  --color-background: #fdfaf3;
   --color-surface: #ffffff;
   --color-surface-elevated: #ffffffcc;
-  --color-border: #e8e2d9;
-  --color-border-strong: #d8d0c4;
-  --color-ink: #1a1626;
-  --color-muted: #6d6680;
+  --color-border: #ece3d6;
+  --color-border-strong: #ddd0bf;
+  --color-ink: #221b2e;
+  --color-muted: #7a7388;
 
-  /* Primary action ink — deep indigo from the blue end of the spectrum. */
-  --color-accent: #2a2150;
-  --color-accent-hover: #1c1638;
-  --color-accent-soft: rgba(63, 73, 230, 0.10);
+  /* Primary action ink — dark near-black pill (the mockup's --ink). */
+  --color-accent: #221b2e;
+  --color-accent-hover: #14101d;
+  --color-accent-soft: rgba(255, 138, 30, 0.10);
 
-  /* The blue→orange spectrum ramp (the core brand language). */
-  --color-spectrum-blue: #3a5bef;
-  --color-spectrum-azure: #5b8def;
-  --color-spectrum-violet: #8b5cf6;
-  --color-spectrum-magenta: #d9479b;
-  --color-spectrum-coral: #ff6a3d;
-  --color-spectrum-amber: #ff9a3c;
+  /* The India palette (from india.html). */
+  --color-saffron: #ff8a1e;
+  --color-marigold: #ffb347;
+  --color-indigo: #2b2f72;
+  --color-rose: #e85d7a;
+  --color-green: #1a9d6b;
+
+  /* Legacy spectrum-* token names kept (some cards reference them) — retuned
+     onto the saffron→rose→indigo dawn ramp. */
+  --color-spectrum-blue: #2b2f72;
+  --color-spectrum-azure: #4a4fa0;
+  --color-spectrum-violet: #e85d7a;
+  --color-spectrum-magenta: #e85d7a;
+  --color-spectrum-coral: #ff8a1e;
+  --color-spectrum-amber: #ffb347;
 
   /* Legacy brand-* token names kept (some cards reference them) — retuned. */
-  --color-brand-from: #3a5bef;
-  --color-brand-via: #8b5cf6;
-  --color-brand-to: #ff6a3d;
+  --color-brand-from: #ff8a1e;
+  --color-brand-via: #e85d7a;
+  --color-brand-to: #2b2f72;
 
   --font-sans: "Satoshi", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Clash Display", "Satoshi", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  /* Motion language — one fluid easing used everywhere. */
+  /* Motion language — one fluid easing used everywhere (mockup --ease). */
   --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
 
   --animate-orb-glow: orb-glow 9s ease-in-out infinite alternate;
@@ -58,81 +68,161 @@
   --animate-spectrum-drift: spectrum-drift 18s ease-in-out infinite alternate;
 }
 
-/* --- The brand gradient: a continuous blue→violet→orange smudge ---------- */
+/* --- The brand gradient: the saffron→rose→indigo dawn ramp --------------- */
 .brand-gradient {
   background-image: linear-gradient(
-    110deg,
-    #3a5bef 0%,
-    #6f5cf2 32%,
-    #b14fc4 58%,
-    #ff6a3d 100%
+    100deg,
+    #ff8a1e 0%,
+    #ffb347 26%,
+    #e85d7a 58%,
+    #2b2f72 100%
   );
 }
 .brand-gradient-text {
-  background-image: linear-gradient(
-    110deg,
-    #3a5bef 0%,
-    #8b5cf6 45%,
-    #ff6a3d 100%
-  );
+  background-image: linear-gradient(100deg, #ff8a1e, #e85d7a 50%, #2b2f72);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-/* Soft "powdery" gradient pill/border for cards + CTAs. */
+/* --- Brand orb: conic mandala disc with a white-ringed centre ------------ */
+/* Mirrors india.html .orb — a conic saffron→marigold→rose→indigo wheel with
+   an inset white core ringed in faint indigo. Apply to a square element;
+   the ::after draws the core. */
+.brand-orb {
+  position: relative;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, #ff8a1e, #ffb347, #e85d7a, #2b2f72, #ff8a1e);
+  box-shadow: 0 6px 16px -8px rgba(255, 138, 30, 0.6);
+}
+.brand-orb::after {
+  content: "";
+  position: absolute;
+  inset: 20%;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: inset 0 0 0 2px rgba(43, 47, 114, 0.25);
+}
+
+/* Soft frosted ring/border for cards + CTAs (kept for card components). */
 .spectrum-ring {
   position: relative;
   background:
     linear-gradient(var(--color-surface), var(--color-surface)) padding-box,
-    linear-gradient(110deg, #3a5bef, #8b5cf6, #ff6a3d) border-box;
+    linear-gradient(110deg, #ff8a1e, #e85d7a, #2b2f72) border-box;
   border: 1px solid transparent;
 }
 
-/* Primary CTA — gradient fill with a gentle lift. */
+/* Dark-ink primary pill (mockup .newbtn / .send). Legacy `.btn-spectrum`
+   name kept so existing buttons restyle automatically. */
+.btn-ink,
 .btn-spectrum {
-  background-image: linear-gradient(110deg, #3a5bef 0%, #6f5cf2 45%, #ff6a3d 100%);
+  background: var(--color-accent);
   color: #fff;
   transition: transform 0.35s var(--ease-fluid), box-shadow 0.35s var(--ease-fluid), filter 0.35s var(--ease-fluid);
-  box-shadow: 0 8px 24px -10px rgba(58, 91, 239, 0.55);
+  box-shadow: 0 10px 26px -14px rgba(34, 27, 46, 0.65);
 }
+.btn-ink:hover,
 .btn-spectrum:hover {
   transform: translateY(-1px);
-  filter: saturate(1.08);
-  box-shadow: 0 14px 34px -12px rgba(255, 106, 61, 0.5);
+  background: var(--color-accent-hover);
+  box-shadow: 0 16px 34px -16px rgba(34, 27, 46, 0.6);
 }
+.btn-ink:active,
 .btn-spectrum:active { transform: translateY(0); }
+
+/* --- Heritage "Did you know?" fact pill (mockup .fact) ------------------- */
+.heritage-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-indigo);
+  background: rgba(43, 47, 114, 0.07);
+  border: 1px solid rgba(43, 47, 114, 0.14);
+  padding: 7px 14px;
+  border-radius: 99px;
+}
+.heritage-fact b {
+  color: var(--color-saffron);
+  font-weight: 700;
+}
+
+/* Cloud-like rotation: the fact blurs + fades + lifts out, the new one drifts
+   back in. Toggled by the `.is-fading` class while the text swaps. */
+.fact-rotate {
+  transition:
+    opacity 0.8s var(--ease-fluid),
+    filter 0.8s var(--ease-fluid),
+    transform 0.8s var(--ease-fluid);
+}
+.fact-rotate.is-fading {
+  opacity: 0;
+  filter: blur(7px);
+  transform: translateY(-6px) scale(0.97);
+}
+
+/* Very slow continuous rotation for the big hero mandala. */
+@keyframes mandala-rotate { to { transform: rotate(360deg); } }
+.mandala-spin { animation: mandala-rotate 180s linear infinite; transform-origin: 50% 50%; will-change: transform; }
 
 body {
   margin: 0;
   font-family: var(--font-sans);
   color: var(--color-ink);
-  /* Powdery aurora: large, soft, low-opacity radial washes — blue drifting
-     top-left, violet through the centre, coral blooming bottom-right — over
-     warm paper. Diffuse, never hard-edged. */
-  background-color: #f6f3ee;
-  background-image:
-    radial-gradient(60% 55% at 12% 6%, rgba(58, 91, 239, 0.16) 0%, transparent 70%),
-    radial-gradient(55% 50% at 88% 14%, rgba(255, 106, 61, 0.14) 0%, transparent 70%),
-    radial-gradient(70% 60% at 50% 96%, rgba(139, 92, 246, 0.14) 0%, transparent 72%),
-    radial-gradient(90% 70% at 50% 45%, rgba(217, 71, 155, 0.05) 0%, transparent 78%),
-    linear-gradient(180deg, #f7f4ef 0%, #f2ede5 100%);
-  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Warm ivory parchment + soft saffron→indigo dawn bloom (mockup body). */
+  background-color: #fdfaf3;
+  background-image:
+    radial-gradient(48% 38% at 50% -8%, rgba(255, 138, 30, 0.20), rgba(255, 179, 71, 0.08) 42%, transparent 68%),
+    radial-gradient(40% 46% at 4% 26%, rgba(43, 47, 114, 0.10), transparent 62%),
+    radial-gradient(44% 50% at 98% 70%, rgba(232, 93, 122, 0.09), transparent 64%),
+    linear-gradient(180deg, #fdfaf3, #f7f2ea);
+  background-attachment: fixed;
 }
 
-/* Fine grain overlay — gives the gradients a "powdery" film instead of a
-   plastic flat wash. Sits above the canvas, below all content. */
+/* The top dawn bloom as a reusable utility (for Login / hero wrappers). */
+.dawn-bloom {
+  background-image:
+    radial-gradient(48% 38% at 50% -8%, rgba(255, 138, 30, 0.20), rgba(255, 179, 71, 0.08) 42%, transparent 68%),
+    radial-gradient(40% 46% at 4% 26%, rgba(43, 47, 114, 0.10), transparent 62%),
+    radial-gradient(44% 50% at 98% 70%, rgba(232, 93, 122, 0.09), transparent 64%);
+}
+
+/* Faint jali lattice over the whole app (mockup .app::before). Sits above the
+   canvas, below all content. Masked to fade toward the bottom. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.4;
-  mix-blend-mode: soft-light;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.3;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(43, 47, 114, 0.04) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(-45deg, rgba(43, 47, 114, 0.04) 0 1px, transparent 1px 34px);
+  -webkit-mask: radial-gradient(120% 90% at 50% 0%, #000, transparent 75%);
+  mask: radial-gradient(120% 90% at 50% 0%, #000, transparent 75%);
+}
+
+/* Reusable jali overlay utility — drop on a relatively-positioned wrapper. */
+.jali {
+  position: relative;
+}
+.jali::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(43, 47, 114, 0.05) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(-45deg, rgba(43, 47, 114, 0.05) 0 1px, transparent 1px 26px);
+  -webkit-mask: radial-gradient(120% 90% at 50% 0%, #000, transparent 75%);
+  mask: radial-gradient(120% 90% at 50% 0%, #000, transparent 75%);
 }
 
 h1, h2, h3, .font-display {
@@ -140,8 +230,8 @@ h1, h2, h3, .font-display {
   letter-spacing: -0.01em;
 }
 
-/* --- Mandala / gateway structural motifs (used sparingly as accents) ----- */
-/* Faint concentric-ring mandala — drop behind hero/empty states. */
+/* --- Mandala watermark (mockup .hero::before) --------------------------- */
+/* Faint concentric-ring + conic mandala — drop behind hero/empty states. */
 .mandala-accent {
   position: relative;
 }
@@ -152,10 +242,10 @@ h1, h2, h3, .font-display {
   z-index: 0;
   pointer-events: none;
   background-image:
-    repeating-radial-gradient(circle at 50% 50%, rgba(58,91,239,0.05) 0 1px, transparent 1px 26px),
-    conic-gradient(from 0deg at 50% 50%, rgba(255,106,61,0.05), rgba(58,91,239,0.05), rgba(139,92,246,0.05), rgba(255,106,61,0.05));
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 68%);
-  mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 68%);
+    repeating-radial-gradient(circle at 50% 50%, rgba(43, 47, 114, 0.07) 0 1px, transparent 1px 20px),
+    conic-gradient(from 0deg at 50% 50%, rgba(255, 138, 30, 0.05), rgba(43, 47, 114, 0.05), rgba(232, 93, 122, 0.05), rgba(255, 138, 30, 0.05));
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 66%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 66%);
 }
 /* Gateway arch — round the top of a framed element into a toran/arch. */
 .gateway-arch {
@@ -166,14 +256,14 @@ h1, h2, h3, .font-display {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background-image: linear-gradient(180deg, rgba(58,91,239,0.35), rgba(255,106,61,0.35));
+  background-image: linear-gradient(180deg, rgba(255, 138, 30, 0.35), rgba(43, 47, 114, 0.35));
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-image: linear-gradient(180deg, rgba(58,91,239,0.55), rgba(255,106,61,0.55));
+  background-image: linear-gradient(180deg, rgba(255, 138, 30, 0.55), rgba(43, 47, 114, 0.55));
 }
 
-::selection { background: rgba(255, 106, 61, 0.22); color: var(--color-ink); }
+::selection { background: rgba(255, 138, 30, 0.22); color: var(--color-ink); }
 
 body > #root {
   background: transparent;
@@ -214,19 +304,18 @@ button, a, [role="button"], input, textarea, select {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Brand orb — now drifts across the blue→orange spectrum. */
+/* Brand orb — slowly rotates the conic mandala wheel for a living glow. */
 @keyframes orb-glow {
-  0%   { transform: scale(1) translate(0,0) rotate(0deg);     filter: hue-rotate(0deg) blur(22px); }
-  33%  { transform: scale(1.08) translate(6px,-10px) rotate(120deg); filter: hue-rotate(28deg) blur(30px); }
-  66%  { transform: scale(0.95) translate(-10px,8px) rotate(240deg); filter: hue-rotate(-18deg) blur(26px); }
-  100% { transform: scale(1.05) translate(2px,-3px) rotate(360deg);  filter: hue-rotate(12deg) blur(22px); }
+  0%   { transform: scale(1) rotate(0deg);     filter: saturate(1); }
+  50%  { transform: scale(1.05) rotate(180deg); filter: saturate(1.12); }
+  100% { transform: scale(1) rotate(360deg);   filter: saturate(1); }
 }
 @keyframes orb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes pulse-slow {
   0%, 100% { transform: scale(1); opacity: 0.92; }
-  50% { transform: scale(1.03); opacity: 1; box-shadow: 0 0 44px rgba(139, 92, 246, 0.32); }
+  50% { transform: scale(1.03); opacity: 1; box-shadow: 0 0 44px rgba(232, 93, 122, 0.30); }
 }
-/* Slowly drift the brand gradient's hue/position so it feels "alive". */
+/* Slowly drift the brand gradient's position so it feels "alive". */
 @keyframes spectrum-drift {
   0%   { background-position: 0% 50%; }
   100% { background-position: 100% 50%; }

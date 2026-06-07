@@ -165,12 +165,14 @@ def _swiggy_addresses_from_envelope(tool_payload: dict[str, Any]) -> list[dict[s
 def _find_best_address_id_swiggy(
     tool_payload: dict[str, Any],
     location_text: str | None = None,
+    user_geo: dict[str, Any] | None = None,
 ) -> str | None:
     """Resolve a delivery address id from a Swiggy ``get_addresses`` payload.
 
     Match priority: exact tag/label match → partial address-line match →
-    first row (Swiggy returns addresses sorted by last-order recency so
-    the first one is the user's most-likely-correct default).
+    nearest saved address to the device location (issue #18) → first row
+    (Swiggy returns addresses sorted by last-order recency so the first one
+    is the user's most-likely-correct default).
     """
     addresses = _swiggy_addresses_from_envelope(tool_payload)
     if not addresses:
@@ -191,6 +193,17 @@ def _find_best_address_id_swiggy(
                 aid = addr.get("addressId") or addr.get("address_id") or addr.get("id")
                 if aid:
                     return str(aid).strip()
+
+    # Nearest saved address to the device location — fallback heuristic only.
+    if user_geo:
+        try:
+            from app.services.address_nearest import nearest_address_id
+
+            nearest = nearest_address_id(addresses, user_geo)
+            if nearest:
+                return nearest
+        except Exception:
+            logger.debug("swiggy nearest-address pick failed", exc_info=True)
 
     aid = addresses[0].get("addressId") or addresses[0].get("address_id") or addresses[0].get("id")
     return str(aid).strip() if aid else None
@@ -939,6 +952,7 @@ async def _run_swiggy_session_inner(
     node_binary: str,
     user_id: str | None = None,
     location_text: str | None = None,
+    user_geo: dict[str, Any] | None = None,
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
@@ -1104,7 +1118,7 @@ async def _run_swiggy_session_inner(
                     }
                 )
                 step_index += 1
-                nid = _find_best_address_id_swiggy(envelope, location_text=location_text)
+                nid = _find_best_address_id_swiggy(envelope, location_text=location_text, user_geo=user_geo)
                 if nid:
                     resolved_id = nid
                     placeholder_values["__ADDRESS_ID__"] = nid
@@ -1407,6 +1421,7 @@ def run_swiggy_tool_plan_sync(
     node_binary: str | None = None,
     user_id: str | None = None,
     location_text: str | None = None,
+    user_geo: dict[str, Any] | None = None,
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
@@ -1440,6 +1455,7 @@ def run_swiggy_tool_plan_sync(
                 node,
                 user_id,
                 location_text=location_text,
+                user_geo=user_geo,
                 session_placeholders=session_placeholders,
                 session_restaurants=session_restaurants,
                 session_addresses=session_addresses,
