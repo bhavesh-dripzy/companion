@@ -276,6 +276,8 @@ CALORIE_PROVIDER = ToolProvider(
 TWILIO_PROVIDER = ToolProvider(
     name="twilio",
     label="Twilio Voice Calls",
+    mcp_url_env="TWILIO_MCP_URL",
+    default_mcp_url="https://twilio.local/mcp",
     auth_mode="tool",
     tools=frozenset(
         {
@@ -999,6 +1001,13 @@ def execute_tool_plan_sync(
                 session_kite_positions=session_kite_positions,
                 session_kite_open_orders=session_kite_open_orders,
                 session_kite_order_ticket=session_kite_order_ticket,
+            )
+        elif name == "twilio":
+            from app.services.twilio.executor import run_twilio_tool_plan_sync
+
+            provider_results[name] = run_twilio_tool_plan_sync(
+                routed[name],
+                user_id=user_id,
             )
         else:
             provider_results[name] = run_tool_plan_sync(

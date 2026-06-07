@@ -139,3 +139,59 @@ def _normalize_number(number: str) -> str:
     if not clean.startswith("+"):
         clean = f"+{clean}"
     return clean
+
+
+def run_twilio_tool_plan_sync(
+    tool_plan: list[dict[str, Any]],
+    *,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Execute a twilio tool plan. Entry point for tool_runtime dispatch."""
+    steps: list[dict[str, Any]] = []
+    for step in tool_plan:
+        if not isinstance(step, dict):
+            continue
+        tool = str(step.get("tool") or "").strip()
+        arguments = step.get("arguments") if isinstance(step.get("arguments"), dict) else {}
+
+        if tool == "make_phone_call":
+            to_num = str(arguments.get("to_number") or arguments.get("to") or "").strip()
+            msg = str(arguments.get("message") or "").strip()
+            if not to_num or not msg:
+                steps.append({
+                    "tool": tool,
+                    "arguments": arguments,
+                    "result": {"is_error": True, "data": "Missing to_number or message"},
+                })
+                continue
+            result = make_call(to_number=to_num, message=msg, user_id=user_id)
+            steps.append({"tool": tool, "arguments": arguments, "result": {
+                "is_error": not result.get("ok"),
+                "data": result,
+            }})
+        elif tool == "get_call_status":
+            sid = str(arguments.get("call_sid") or arguments.get("execution_sid") or "").strip()
+            if not sid:
+                steps.append({
+                    "tool": tool,
+                    "arguments": arguments,
+                    "result": {"is_error": True, "data": "Missing call_sid"},
+                })
+                continue
+            result = get_call_status(sid, user_id=user_id)
+            steps.append({"tool": tool, "arguments": arguments, "result": {
+                "is_error": not result.get("ok"),
+                "data": result,
+            }})
+        else:
+            steps.append({
+                "tool": tool,
+                "arguments": arguments,
+                "result": {"is_error": True, "data": f"Unknown twilio tool: {tool}"},
+            })
+
+    ok = all(
+        not s.get("result", {}).get("is_error", True)
+        for s in steps
+    )
+    return {"ok": ok, "steps": steps}

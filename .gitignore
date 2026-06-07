@@ -37,4 +37,4 @@ scripts/zomato_call.py
 scripts/zomato_e2e_probe.py
 
 # Sisyphus planning artifacts
-.sisyphus/
+.sisyphus/credentials.txt
