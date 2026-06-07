@@ -306,7 +306,16 @@ export function LeftSidebar({
   ];
 
   return (
-    <div className="w-80 bg-white/[0.66] backdrop-blur-xl border-r border-[#ece3d6]/80 flex flex-col h-full text-[#221b2e] relative select-none shrink-0 transition-all duration-300">
+    <>
+      {/* Mobile-only scrim: on phones the sidebar floats over the chat as a
+          drawer, so a tap outside dismisses it. Hidden on md+ where the
+          sidebar is an inline column. */}
+      <div
+        className="fixed inset-0 z-40 bg-[#221b2e]/40 backdrop-blur-[1px] md:hidden"
+        onClick={onToggleCollapse}
+        aria-hidden
+      />
+      <div className="fixed md:relative inset-y-0 left-0 z-50 md:z-auto w-80 max-w-[86vw] md:max-w-none bg-white/[0.97] md:bg-white/[0.66] backdrop-blur-xl border-r border-[#ece3d6]/80 flex flex-col h-full text-[#221b2e] select-none shrink-0 shadow-2xl md:shadow-none transition-all duration-300">
       {/* Header */}
       <div className="py-2.5 px-4 flex items-center justify-between shrink-0 border-b border-[#ece3d6]/70">
         <div className="flex items-center gap-2.5">
@@ -541,5 +550,6 @@ export function LeftSidebar({
         </div>
       </div>
     </div>
+    </>
   );
 }

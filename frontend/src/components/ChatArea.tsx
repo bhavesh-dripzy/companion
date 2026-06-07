@@ -339,7 +339,7 @@ export function ChatArea({
             className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6 no-scrollbar"
           >
             {messages.length === 0 ? (
-              <div className="h-full min-h-0 flex flex-col justify-center items-center text-center px-5 py-6 select-none w-full max-w-4xl mx-auto z-10 relative overflow-hidden">
+              <div className="h-full min-h-0 flex flex-col justify-start md:justify-center items-center text-center px-5 py-6 select-none w-full max-w-4xl mx-auto z-10 relative overflow-y-auto overflow-x-hidden md:overflow-hidden no-scrollbar">
                 {/* Big, continuously-morphing mandala (India palette) behind the
                     hero — two layers crossfade to new generated patterns + slow spin.
                     Shown whole (the ornate centre included) with a soft edge-fade. */}
@@ -369,7 +369,7 @@ export function ChatArea({
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.05, duration: 0.6, ease: 'easeOut' }}
-                  className="relative z-10 flex flex-col items-center"
+                  className="relative z-10 my-auto flex flex-col items-center"
                 >
                   {/* Tagline — the brand line, kept short. */}
                   <div className="text-[12px] font-bold tracking-[0.18em] uppercase brand-gradient-text mb-3.5">

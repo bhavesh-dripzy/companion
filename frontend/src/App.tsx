@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { Login } from './Login';
 import { SettingsModal } from './SettingsModal';
@@ -293,8 +293,21 @@ function App() {
   // Left sidebar is hideable on every viewport; on mobile it slides
   // in over the chat surface, on desktop the column collapses to a
   // 0-width hidden state and a Menu button surfaces in the ChatArea
-  // header to bring it back.
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  // header to bring it back. Start collapsed on phones so the hero
+  // empty-state gets the full width instead of being crushed into the
+  // ~55px left over beside the 320px sidebar.
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768,
+  );
+
+  // On phones the sidebar floats over the chat, so any navigation that
+  // changes what's underneath should dismiss it (otherwise the drawer
+  // hides the chat the user just opened). No-op on desktop.
+  const closeSidebarOnMobile = useCallback(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setIsSidebarCollapsed(true);
+    }
+  }, []);
 
   // Cosmetic popups (no backend wiring) — kept local-only as confirmed
   // up-front. Users can toggle items / add / delete entries and the
@@ -1095,10 +1108,16 @@ function App() {
           setIsAdminOpen(true);
         }}
         onOpenSettings={() => openSettings('mcp')}
-        onNewChat={handleNewChat}
+        onNewChat={() => {
+          handleNewChat();
+          closeSidebarOnMobile();
+        }}
         chats={chats}
         activeChatId={chatId}
-        onSelectChat={handleSelectChat}
+        onSelectChat={(id) => {
+          handleSelectChat(id);
+          closeSidebarOnMobile();
+        }}
         onDeleteChat={handleDeleteChat}
         toolProviders={toolProviders}
         mcpStatuses={mcpStatuses}
