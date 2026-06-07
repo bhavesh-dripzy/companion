@@ -28,6 +28,9 @@ import type {
   SessionZeptoAddress,
   SessionZeptoCart,
   SessionZeptoProduct,
+  SessionInstamartAddress,
+  SessionInstamartCart,
+  SessionInstamartProduct,
   ToolProvider,
   VoiceSessionState,
   VoiceToolCallRequest,
@@ -77,6 +80,9 @@ interface PersistedChatSession {
   session_zepto_products: SessionZeptoProduct[];
   session_zepto_addresses: SessionZeptoAddress[];
   session_zepto_cart: SessionZeptoCart | null;
+  session_instamart_products: SessionInstamartProduct[];
+  session_instamart_addresses: SessionInstamartAddress[];
+  session_instamart_cart: SessionInstamartCart | null;
 }
 
 const chatSessionKey = (chatId: string) => `${CHAT_SESSION_KEY_PREFIX}${chatId}.session`;
@@ -137,6 +143,16 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
       session_zepto_cart:
         parsed.session_zepto_cart && typeof parsed.session_zepto_cart === 'object'
           ? (parsed.session_zepto_cart as SessionZeptoCart)
+          : null,
+      session_instamart_products: Array.isArray(parsed.session_instamart_products)
+        ? (parsed.session_instamart_products as SessionInstamartProduct[])
+        : [],
+      session_instamart_addresses: Array.isArray(parsed.session_instamart_addresses)
+        ? (parsed.session_instamart_addresses as SessionInstamartAddress[])
+        : [],
+      session_instamart_cart:
+        parsed.session_instamart_cart && typeof parsed.session_instamart_cart === 'object'
+          ? (parsed.session_instamart_cart as SessionInstamartCart)
           : null,
     };
   } catch {
@@ -282,6 +298,9 @@ function App() {
   const [sessionZeptoProducts, setSessionZeptoProducts] = useState<SessionZeptoProduct[]>([]);
   const [sessionZeptoAddresses, setSessionZeptoAddresses] = useState<SessionZeptoAddress[]>([]);
   const [sessionZeptoCart, setSessionZeptoCart] = useState<SessionZeptoCart | null>(null);
+  const [sessionInstamartProducts, setSessionInstamartProducts] = useState<SessionInstamartProduct[]>([]);
+  const [sessionInstamartAddresses, setSessionInstamartAddresses] = useState<SessionInstamartAddress[]>([]);
+  const [sessionInstamartCart, setSessionInstamartCart] = useState<SessionInstamartCart | null>(null);
 
   // Multi-chat support — same contract as before. `chatId === null`
   // means "fresh new chat about to be started" — no Dynamo row exists
@@ -345,6 +364,9 @@ function App() {
       session_zepto_products: sessionZeptoProducts,
       session_zepto_addresses: sessionZeptoAddresses,
       session_zepto_cart: sessionZeptoCart,
+      session_instamart_products: sessionInstamartProducts,
+      session_instamart_addresses: sessionInstamartAddresses,
+      session_instamart_cart: sessionInstamartCart,
     });
   }, [
     chatId,
@@ -362,6 +384,9 @@ function App() {
     sessionZeptoProducts,
     sessionZeptoAddresses,
     sessionZeptoCart,
+    sessionInstamartProducts,
+    sessionInstamartAddresses,
+    sessionInstamartCart,
   ]);
 
   const loadInitialData = async () => {
@@ -383,6 +408,9 @@ function App() {
         setSessionZeptoProducts(snap.session_zepto_products);
         setSessionZeptoAddresses(snap.session_zepto_addresses);
         setSessionZeptoCart(snap.session_zepto_cart);
+        setSessionInstamartProducts(snap.session_instamart_products);
+        setSessionInstamartAddresses(snap.session_instamart_addresses);
+        setSessionInstamartCart(snap.session_instamart_cart);
       }
       await loadChatMessages(chatId, { silent: true });
     }
@@ -462,6 +490,9 @@ function App() {
     setSessionZeptoProducts(snap?.session_zepto_products ?? []);
     setSessionZeptoAddresses(snap?.session_zepto_addresses ?? []);
     setSessionZeptoCart(snap?.session_zepto_cart ?? null);
+    setSessionInstamartProducts(snap?.session_instamart_products ?? []);
+    setSessionInstamartAddresses(snap?.session_instamart_addresses ?? []);
+    setSessionInstamartCart(snap?.session_instamart_cart ?? null);
     setMessages([]);
     await loadChatMessages(newChatId);
   };
@@ -493,6 +524,9 @@ function App() {
       setSessionZeptoProducts([]);
       setSessionZeptoAddresses([]);
       setSessionZeptoCart(null);
+      setSessionInstamartProducts([]);
+      setSessionInstamartAddresses([]);
+      setSessionInstamartCart(null);
     }
   };
 
@@ -557,6 +591,9 @@ function App() {
     setSessionZeptoProducts([]);
     setSessionZeptoAddresses([]);
     setSessionZeptoCart(null);
+    setSessionInstamartProducts([]);
+    setSessionInstamartAddresses([]);
+    setSessionInstamartCart(null);
     setChats([]);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
@@ -580,6 +617,9 @@ function App() {
     setSessionZeptoProducts([]);
     setSessionZeptoAddresses([]);
     setSessionZeptoCart(null);
+    setSessionInstamartProducts([]);
+    setSessionInstamartAddresses([]);
+    setSessionInstamartCart(null);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
@@ -619,6 +659,9 @@ function App() {
     if (sessionZeptoProducts.length > 0) body.session_zepto_products = sessionZeptoProducts;
     if (sessionZeptoAddresses.length > 0) body.session_zepto_addresses = sessionZeptoAddresses;
     if (sessionZeptoCart) body.session_zepto_cart = sessionZeptoCart;
+    if (sessionInstamartProducts.length > 0) body.session_instamart_products = sessionInstamartProducts;
+    if (sessionInstamartAddresses.length > 0) body.session_instamart_addresses = sessionInstamartAddresses;
+    if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
     if (chatId) body.chat_id = chatId;
     return body;
   };
@@ -691,6 +734,12 @@ function App() {
       if ('session_zepto_cart' in data) {
         const zc = (data as any).session_zepto_cart;
         setSessionZeptoCart(zc && typeof zc === 'object' ? zc : null);
+      }
+      if (Array.isArray(data.session_instamart_products)) setSessionInstamartProducts(data.session_instamart_products);
+      if (Array.isArray(data.session_instamart_addresses)) setSessionInstamartAddresses(data.session_instamart_addresses);
+      if ('session_instamart_cart' in data) {
+        const ic = (data as any).session_instamart_cart;
+        setSessionInstamartCart(ic && typeof ic === 'object' ? ic : null);
       }
 
       if (typeof data.chat_id === 'string' && data.chat_id) {

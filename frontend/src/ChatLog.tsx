@@ -24,6 +24,7 @@ import {
   VenueCardGrid,
 } from './components/DistrictCards';
 import { ZeptoCartCard, ZeptoProductCardGrid } from './components/ZeptoCards';
+import { InstamartCartCard, InstamartProductCardGrid } from './components/InstamartCards';
 import {
   ExternalLink,
   MapPin,
@@ -322,6 +323,19 @@ const PROVIDER_THEMES: Record<CardProvider, ProviderTheme> = {
     checkoutPrompt: 'Place my Zepto order.',
     cartHeaderTitle: 'Zepto Grocery',
     activeRingClass: 'bg-[#7B2CFA]/10 ring-1 ring-[#7B2CFA]/30',
+  },
+  // Instamart uses Swiggy's brand orange but warmer/darker so the chat
+  // scroll still telegraphs that this is the grocery surface (not Swiggy
+  // food). Swiggy main = #FC8019; Instamart = #F7BB1F (Swiggy's q-commerce
+  // accent) — high enough contrast and stays recognisable.
+  instamart: {
+    label: 'Instamart',
+    brandHex: '#E8632F',
+    brandTintBg: 'bg-[#E8632F]/5',
+    brandTintBorder: 'border-orange-100/80',
+    checkoutPrompt: 'Place my Instamart order.',
+    cartHeaderTitle: 'Swiggy Instamart',
+    activeRingClass: 'bg-[#E8632F]/10 ring-1 ring-[#E8632F]/30',
   },
 };
 
@@ -1479,6 +1493,27 @@ export const AttachmentList: React.FC<{
           <ZeptoCartCard
             key={`zepto-cart-${idx}`}
             cart={att.zepto_cart}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      // Instamart: same shape as Zepto cards, different theme + spinId key.
+      if (kind === 'instamart_product_cards') {
+        return (
+          <InstamartProductCardGrid
+            key={`instamart-products-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'instamart_cart_card' && att.instamart_cart) {
+        return (
+          <InstamartCartCard
+            key={`instamart-cart-${idx}`}
+            cart={att.instamart_cart}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />

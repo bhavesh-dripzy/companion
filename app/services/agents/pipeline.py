@@ -1550,6 +1550,101 @@ def _collect_zepto_attachments(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Instamart attachment builders
+# ---------------------------------------------------------------------------
+# Mirrors ``_collect_zepto_attachments``. Instamart's executor already
+# harvests ``session_instamart_*`` into diagnostics; here we shape per-turn
+# attachments so the UI gets product grids on every search and a cart card
+# whenever a cart tool ran.
+def _build_instamart_product_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    spin_id = str(item.get("spin_id") or "").strip()
+    name = str(item.get("name") or "").strip()
+    if not spin_id or not name:
+        return None
+    return {
+        "spin_id": spin_id,
+        "product_id": item.get("product_id"),
+        "parent_product_id": item.get("parent_product_id"),
+        "name": name,
+        "brand": item.get("brand"),
+        "quantity_description": item.get("quantity_description"),
+        "price_inr": item.get("price_inr"),
+        "mrp_inr": item.get("mrp_inr"),
+        "image_url": item.get("image_url"),
+        "in_stock": item.get("in_stock", True),
+        "is_promoted": item.get("is_promoted", False),
+        "query": item.get("query"),
+    }
+
+
+def _collect_instamart_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build product-grid + cart-card attachments from the Instamart executor."""
+    if not isinstance(raw_tool_results, dict):
+        return []
+    from app.services.instamart.mcp_executor import (
+        _instamart_products_from_search,
+    )
+
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        if str(provider_name or "").lower() != "swiggy_instamart":
+            continue
+        steps = raw.get("steps") or []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tool = str(step.get("tool") or "").strip().split("(", 1)[0]
+            envelope = step.get("result")
+            if not isinstance(envelope, dict):
+                continue
+            if envelope.get("is_error"):
+                continue
+            if tool in {"search_products", "your_go_to_items"}:
+                args = step.get("arguments") if isinstance(step.get("arguments"), dict) else {}
+                query = str((args or {}).get("query") or "").strip() or None
+                rows = _instamart_products_from_search(envelope, query=query)
+                cards = [
+                    c for c in (_build_instamart_product_card(r) for r in rows) if c is not None
+                ]
+                if cards:
+                    out.append(
+                        {
+                            "kind": "instamart_product_cards",
+                            "provider": "swiggy_instamart",
+                            "source": f"{provider_name}.{tool}",
+                            "products": cards,
+                        }
+                    )
+        # Cart card — one per turn, based on the merged session snapshot.
+        diag = raw.get("diagnostics")
+        if isinstance(diag, dict):
+            cart_snap = diag.get("session_instamart_cart")
+            if isinstance(cart_snap, dict):
+                cart_touched = any(
+                    isinstance(s, dict)
+                    and str(s.get("tool") or "").split("(", 1)[0]
+                    in {"get_cart", "update_cart", "clear_cart"}
+                    for s in (raw.get("steps") or [])
+                )
+                if cart_touched:
+                    out.append(
+                        {
+                            "kind": "instamart_cart_card",
+                            "provider": "swiggy_instamart",
+                            "source": f"{provider_name}.get_cart",
+                            "instamart_cart": dict(cart_snap),
+                        }
+                    )
+    return out
+
+
 def _format_routing_message(
     current_message: str,
     conversation_history: list[dict[str, str]] | None = None,
@@ -1567,6 +1662,9 @@ def _format_routing_message(
     session_zepto_products: list[dict[str, Any]] | None = None,
     session_zepto_addresses: list[dict[str, Any]] | None = None,
     session_zepto_cart: dict[str, Any] | None = None,
+    session_instamart_products: list[dict[str, Any]] | None = None,
+    session_instamart_addresses: list[dict[str, Any]] | None = None,
+    session_instamart_cart: dict[str, Any] | None = None,
     selected_address_id: str | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
     user_profile: dict[str, Any] | None = None,
@@ -1984,6 +2082,88 @@ def _format_routing_message(
                 )
         elif session_zepto_cart.get("is_empty"):
             parts.append("Current Zepto cart: empty.")
+
+    # Instamart echoes — same contract as Zepto. The product index is keyed
+    # on ``spin_id`` (Instamart's per-variant cart key); the planner copies
+    # those literally into ``update_cart.items[]`` instead of re-searching.
+    if session_instamart_products:
+        im_prod_rows: list[str] = []
+        for entry in session_instamart_products[:15]:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            spin = str(entry.get("spin_id") or "").strip()
+            if not name or not spin:
+                continue
+            price = entry.get("price_inr")
+            pack = entry.get("quantity_description")
+            tail_bits = []
+            if pack:
+                tail_bits.append(str(pack))
+            if isinstance(price, (int, float)):
+                tail_bits.append(f"₹{price:g}")
+            tail = f" — {' / '.join(tail_bits)}" if tail_bits else ""
+            im_prod_rows.append(f"  - {name}{tail} → spinId={spin}")
+        if im_prod_rows:
+            parts.append(
+                "Instamart products already shown to the user this session — "
+                "when the user picks one by name (or asks to add it / change "
+                "qty / remove it), copy the literal spinId below into "
+                "`update_cart.items[]` instead of re-running `search_products`. "
+                "Each row is one variant (pack size) — the user must explicitly "
+                "pick a variant before any add-to-cart:\n" + "\n".join(im_prod_rows)
+            )
+    if session_instamart_addresses:
+        im_addr_rows: list[str] = []
+        for entry in session_instamart_addresses[:8]:
+            if not isinstance(entry, dict):
+                continue
+            aid = str(entry.get("address_id") or "").strip()
+            label = str(entry.get("label") or "").strip() or str(entry.get("category") or "").strip()
+            if not aid:
+                continue
+            line = str(entry.get("address_line") or "").strip()
+            tail = f" ({line[:80]})" if line else ""
+            head = label or "(unlabelled)"
+            im_addr_rows.append(f"  - {head} → addressId={aid}{tail}")
+        if im_addr_rows:
+            parts.append(
+                "Instamart saved addresses available this session — when the "
+                "user asks to switch delivery address, copy the literal "
+                "addressId below; the executor will substitute it into "
+                "`__ADDRESS_ID__` automatically:\n" + "\n".join(im_addr_rows)
+            )
+    if session_instamart_cart and isinstance(session_instamart_cart, dict):
+        im_items = session_instamart_cart.get("items") or []
+        if isinstance(im_items, list) and im_items:
+            im_cart_lines: list[str] = []
+            for it in im_items[:10]:
+                if not isinstance(it, dict):
+                    continue
+                nm = str(it.get("name") or "").strip() or "(item)"
+                qty = it.get("quantity") or 1
+                spin = str(it.get("spin_id") or "").strip()
+                if not spin:
+                    continue
+                im_cart_lines.append(f"  - {nm} ×{qty} → spinId={spin}")
+            if im_cart_lines:
+                total = session_instamart_cart.get("grand_total_paise")
+                total_line = (
+                    f" (grand total: ₹{total/100:.0f})"
+                    if isinstance(total, (int, float)) and total
+                    else ""
+                )
+                parts.append(
+                    "Current Instamart cart (last `get_cart` snapshot)"
+                    + total_line
+                    + " — Instamart `update_cart` is REPLACE-ALL, so to add a "
+                    "new item or change qty you must re-list every spinId "
+                    "below with the desired quantity (omit a line, or use "
+                    "`clear_cart`, to remove):\n"
+                    + "\n".join(im_cart_lines)
+                )
+        elif session_instamart_cart.get("is_empty"):
+            parts.append("Current Instamart cart: empty.")
 
     if pending_variant_choice:
         # Surface the variant menu the previous turn deferred so the
@@ -2430,6 +2610,9 @@ def run_agent_turn(
     session_zepto_products: list[dict[str, Any]] | None = None,
     session_zepto_addresses: list[dict[str, Any]] | None = None,
     session_zepto_cart: dict[str, Any] | None = None,
+    session_instamart_products: list[dict[str, Any]] | None = None,
+    session_instamart_addresses: list[dict[str, Any]] | None = None,
+    session_instamart_cart: dict[str, Any] | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -2612,6 +2795,39 @@ def run_agent_turn(
         if (isinstance(items, list)) or session_zepto_cart.get("is_empty"):
             seed_zepto_cart = dict(session_zepto_cart)
 
+    # Instamart seeds — same contract as Zepto. Products keyed on ``spin_id``.
+    seed_instamart_products: list[dict[str, Any]] = []
+    if isinstance(session_instamart_products, list):
+        for entry in session_instamart_products:
+            if not isinstance(entry, dict):
+                continue
+            spin = entry.get("spin_id")
+            name = entry.get("name")
+            if (
+                isinstance(spin, str)
+                and spin.strip()
+                and isinstance(name, str)
+                and name.strip()
+            ):
+                seed_instamart_products.append(
+                    {**entry, "spin_id": spin.strip(), "name": name.strip()}
+                )
+
+    seed_instamart_addresses: list[dict[str, Any]] = []
+    if isinstance(session_instamart_addresses, list):
+        for entry in session_instamart_addresses:
+            if not isinstance(entry, dict):
+                continue
+            aid = entry.get("address_id")
+            if isinstance(aid, str) and aid.strip():
+                seed_instamart_addresses.append({**entry, "address_id": aid.strip()})
+
+    seed_instamart_cart: dict[str, Any] | None = None
+    if isinstance(session_instamart_cart, dict):
+        im_items = session_instamart_cart.get("items")
+        if isinstance(im_items, list) or session_instamart_cart.get("is_empty"):
+            seed_instamart_cart = dict(session_instamart_cart)
+
     # ── Phase 2 Profile Personalization Hook ───────────────────────
     from companion_api.profile_cache import ProfileCacheRepository
     profile: dict[str, Any] | None = None
@@ -2722,6 +2938,9 @@ def run_agent_turn(
         session_zepto_products=seed_zepto_products or None,
         session_zepto_addresses=seed_zepto_addresses or None,
         session_zepto_cart=seed_zepto_cart,
+        session_instamart_products=seed_instamart_products or None,
+        session_instamart_addresses=seed_instamart_addresses or None,
+        session_instamart_cart=seed_instamart_cart,
         selected_address_id=selected_addr,
         pending_variant_choice=seed_variant_choices or None,
         user_profile=profile,
@@ -2896,6 +3115,9 @@ def run_agent_turn(
             session_zepto_products=seed_zepto_products or None,
             session_zepto_addresses=seed_zepto_addresses or None,
             session_zepto_cart=seed_zepto_cart,
+            session_instamart_products=seed_instamart_products or None,
+            session_instamart_addresses=seed_instamart_addresses or None,
+            session_instamart_cart=seed_instamart_cart,
             user_geo=user_geo,
         )
         provider_results = tool_execution.get("provider_results")
@@ -2964,6 +3186,9 @@ def run_agent_turn(
     zepto_attachments = _collect_zepto_attachments(raw_tool_results)
     if zepto_attachments:
         attachments = attachments + zepto_attachments
+    instamart_attachments = _collect_instamart_attachments(raw_tool_results)
+    if instamart_attachments:
+        attachments = attachments + instamart_attachments
     trace(
         "hoister.out",
         attachment_count=len(attachments),
@@ -3029,6 +3254,12 @@ def run_agent_turn(
     next_session_zepto_addresses: list[dict[str, Any]] = list(seed_zepto_addresses)
     next_session_zepto_cart: dict[str, Any] | None = (
         dict(seed_zepto_cart) if isinstance(seed_zepto_cart, dict) else None
+    )
+    # Instamart echoes — same seed-first / executor-overrides pattern.
+    next_session_instamart_products: list[dict[str, Any]] = list(seed_instamart_products)
+    next_session_instamart_addresses: list[dict[str, Any]] = list(seed_instamart_addresses)
+    next_session_instamart_cart: dict[str, Any] | None = (
+        dict(seed_instamart_cart) if isinstance(seed_instamart_cart, dict) else None
     )
     # ``pending_variant_choice`` is single-turn state: if the executor
     # deferred a cart this turn we echo it back so the next turn's
@@ -3220,6 +3451,41 @@ def run_agent_turn(
             # the frontend should render.
             next_session_zepto_cart = dict(_zcart)
 
+        # Instamart echoes — same shape, different keys.
+        _improd = _diag.get("session_instamart_products")
+        if isinstance(_improd, list) and _improd:
+            cleaned_ip: list[dict[str, Any]] = []
+            for entry in _improd:
+                if not isinstance(entry, dict):
+                    continue
+                spin = entry.get("spin_id")
+                name = entry.get("name")
+                if (
+                    isinstance(spin, str)
+                    and spin.strip()
+                    and isinstance(name, str)
+                    and name.strip()
+                ):
+                    cleaned_ip.append(
+                        {**entry, "spin_id": spin.strip(), "name": name.strip()}
+                    )
+            if cleaned_ip:
+                next_session_instamart_products = cleaned_ip
+        _imaddr = _diag.get("session_instamart_addresses")
+        if isinstance(_imaddr, list) and _imaddr:
+            cleaned_ia: list[dict[str, Any]] = []
+            for entry in _imaddr:
+                if not isinstance(entry, dict):
+                    continue
+                aid = entry.get("address_id")
+                if isinstance(aid, str) and aid.strip():
+                    cleaned_ia.append({**entry, "address_id": aid.strip()})
+            if cleaned_ia:
+                next_session_instamart_addresses = cleaned_ia
+        _imcart = _diag.get("session_instamart_cart")
+        if isinstance(_imcart, dict):
+            next_session_instamart_cart = dict(_imcart)
+
     # Build a compact `address_context` for the response LLM. Lets the
     # reply nudge the user ("using your home address — change kar dena ho
     # toh batao") without leaking raw IDs into the reply.
@@ -3370,6 +3636,14 @@ def run_agent_turn(
         "session_zepto_products": next_session_zepto_products,
         "session_zepto_addresses": next_session_zepto_addresses,
         "session_zepto_cart": next_session_zepto_cart,
+        # Instamart session memory — same shape as Zepto, but keyed on
+        # ``spin_id`` (Instamart's per-variant cart key). Round-tripped so the
+        # planner can call ``update_cart`` directly when the user picks an
+        # item by name. ``session_instamart_addresses`` mirrors saved-address
+        # data; ``session_instamart_cart`` is the latest ``get_cart`` snapshot.
+        "session_instamart_products": next_session_instamart_products,
+        "session_instamart_addresses": next_session_instamart_addresses,
+        "session_instamart_cart": next_session_instamart_cart,
         # Compact view the chat UI / debug surface can show without having to
         # cross-reference session_state + session_addresses themselves.
         "address_context": address_context,

@@ -569,6 +569,367 @@ async def _run_instamart_session(
     return step_results, diagnostics
 
 
+# ---------------------------------------------------------------------------
+# Session-state harvesting — Zepto-style LRUs of products / addresses / cart.
+#
+# Layered on top of the auto-prefetch executor without disturbing its
+# placeholder-resolution logic. The harvesters walk completed step results,
+# extract user-meaningful entities, and merge them into recency-bounded lists
+# the pipeline can round-trip on every turn. The planner reads these on the
+# next turn so it can:
+#   * copy a literal ``spinId`` out of memory instead of re-searching, and
+#   * answer "what's in my cart" without an extra ``get_cart`` call.
+# ---------------------------------------------------------------------------
+
+_MAX_REMEMBERED_PRODUCTS = 60
+_MAX_REMEMBERED_ADDRESSES = 24
+
+
+def _coerce_price_inr(price_obj: Any) -> tuple[float | None, float | None]:
+    """Extract ``(offer_price_inr, mrp_inr)`` from a price dict."""
+    if not isinstance(price_obj, dict):
+        return (None, None)
+    mrp = price_obj.get("mrp")
+    offer = price_obj.get("offerPrice") or price_obj.get("offer_price") or mrp
+    try:
+        mrp_inr = float(mrp) if mrp is not None else None
+    except (TypeError, ValueError):
+        mrp_inr = None
+    try:
+        offer_inr = float(offer) if offer is not None else mrp_inr
+    except (TypeError, ValueError):
+        offer_inr = mrp_inr
+    return (offer_inr, mrp_inr)
+
+
+def _instamart_products_from_search(envelope: dict[str, Any], *, query: str | None) -> list[dict[str, Any]]:
+    """Flatten a ``search_products`` envelope into one entry per variant.
+
+    Instamart returns products with multiple ``variations`` (pack sizes).
+    The card layer wants one card per variant since each is a unique
+    ``spinId`` with its own price; the planner also needs spinId-keyed
+    rows in memory so a follow-up "add the 1L pack" resolves cleanly.
+    """
+    if not isinstance(envelope, dict):
+        return []
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        return []
+    products = data.get("products")
+    if not isinstance(products, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for prod in products:
+        if not isinstance(prod, dict):
+            continue
+        parent_name = str(prod.get("displayName") or "").strip()
+        brand = str(prod.get("brand") or "").strip()
+        product_id = str(prod.get("productId") or "").strip()
+        parent_product_id = str(prod.get("parentProductId") or "").strip()
+        is_promoted = bool(prod.get("isPromoted"))
+        variations = prod.get("variations") if isinstance(prod.get("variations"), list) else []
+        for var in variations:
+            if not isinstance(var, dict):
+                continue
+            spin_id = str(var.get("spinId") or "").strip()
+            if not spin_id:
+                continue
+            offer_inr, mrp_inr = _coerce_price_inr(var.get("price"))
+            name = (
+                str(var.get("displayName") or "").strip()
+                or parent_name
+            )
+            row: dict[str, Any] = {
+                "spin_id": spin_id,
+                "product_id": product_id or None,
+                "parent_product_id": parent_product_id or None,
+                "name": name,
+                "brand": str(var.get("brandName") or brand or "").strip() or None,
+                "quantity_description": str(var.get("quantityDescription") or "").strip() or None,
+                "price_inr": offer_inr,
+                "mrp_inr": mrp_inr,
+                "image_url": str(var.get("imageUrl") or "").strip() or None,
+                "in_stock": bool(var.get("isInStockAndAvailable")),
+                "is_promoted": is_promoted,
+                "query": (query or None),
+            }
+            out.append(row)
+    return out
+
+
+def _instamart_addresses_from_envelope(envelope: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten ``get_addresses`` into the session LRU shape."""
+    if not isinstance(envelope, dict):
+        return []
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        return []
+    raw = data.get("addresses") or data.get("user_addresses") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for addr in raw:
+        if not isinstance(addr, dict):
+            continue
+        aid = (
+            str(addr.get("id") or "").strip()
+            or str(addr.get("addressId") or "").strip()
+            or str(addr.get("address_id") or "").strip()
+        )
+        if not aid:
+            continue
+        out.append(
+            {
+                "address_id": aid,
+                "label": str(addr.get("addressTag") or "").strip() or None,
+                "category": str(addr.get("addressCategory") or "").strip() or None,
+                "address_line": str(addr.get("addressLine") or "").strip() or None,
+                "phone_number": str(addr.get("phoneNumber") or "").strip() or None,
+            }
+        )
+    return out
+
+
+def _instamart_cart_snapshot(
+    envelope: dict[str, Any],
+    *,
+    session_products: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Build a cart snapshot from a ``get_cart`` / ``update_cart`` envelope.
+
+    Falls back gracefully when the cart is empty or the server returns a
+    non-fatal error (Instamart's ``get_cart`` returns ``is_error=True`` on
+    a brand-new cart — treat that as "empty"); the snapshot shape stays
+    consistent so the UI can always render *something*.
+    """
+    if not isinstance(envelope, dict):
+        return None
+    by_spin: dict[str, dict[str, Any]] = {}
+    for p in session_products or []:
+        spin = p.get("spin_id")
+        if isinstance(spin, str):
+            by_spin[spin] = p
+
+    data = envelope.get("data")
+    is_err = bool(envelope.get("is_error"))
+    summary_text: str | None = None
+    if isinstance(data, str):
+        summary_text = data.strip() or None
+
+    if is_err and not isinstance(data, dict):
+        # An empty / expired cart is the most common error here.
+        return {
+            "is_empty": True,
+            "items": [],
+            "grand_total_paise": 0,
+            "summary_text": summary_text,
+            "selected_address_id": None,
+        }
+
+    if not isinstance(data, dict):
+        return None
+
+    # Instamart's cart payload nests differently depending on the endpoint
+    # variant; walk a few common keys for the line items.
+    items_raw: list[Any] = []
+    for cart_key in ("items", "cartItems", "cart_items"):
+        v = data.get(cart_key)
+        if isinstance(v, list):
+            items_raw = v
+            break
+    if not items_raw:
+        # Sometimes wrapped under ``cart`` / ``data``.
+        inner = data.get("cart") if isinstance(data.get("cart"), dict) else None
+        if inner:
+            for cart_key in ("items", "cartItems", "cart_items"):
+                v = inner.get(cart_key)
+                if isinstance(v, list):
+                    items_raw = v
+                    break
+
+    items: list[dict[str, Any]] = []
+    computed_total_paise = 0
+    has_priced = False
+    for it in items_raw:
+        if not isinstance(it, dict):
+            continue
+        spin = (
+            str(it.get("spinId") or it.get("spin_id") or it.get("variantId") or "").strip()
+            or None
+        )
+        try:
+            qty = int(it.get("quantity") or it.get("qty") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        offer_inr, mrp_inr = _coerce_price_inr(it.get("price"))
+        # Some envelopes store price flat at the item level (in INR or paise).
+        if offer_inr is None:
+            for k in ("offerPrice", "offer_price", "price_inr", "price"):
+                v = it.get(k)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    offer_inr = float(v)
+                    break
+        sess = by_spin.get(spin) if isinstance(spin, str) else None
+        name = (
+            str(it.get("displayName") or "").strip()
+            or str(it.get("name") or "").strip()
+            or ((sess or {}).get("name") if sess else None)
+        )
+        image_url = (
+            str(it.get("imageUrl") or "").strip()
+            or ((sess or {}).get("image_url") if sess else None)
+        )
+        pack = (
+            str(it.get("quantityDescription") or "").strip()
+            or ((sess or {}).get("quantity_description") if sess else None)
+        )
+        price_final = offer_inr if offer_inr is not None else (sess or {}).get("price_inr") if sess else None
+        if isinstance(price_final, (int, float)):
+            computed_total_paise += int(round(float(price_final) * 100)) * qty
+            has_priced = True
+        items.append(
+            {
+                "spin_id": spin,
+                "quantity": qty,
+                "name": name,
+                "brand": ((sess or {}).get("brand") if sess else None) or str(it.get("brand") or "").strip() or None,
+                "price_inr": price_final,
+                "mrp_inr": mrp_inr if mrp_inr is not None else ((sess or {}).get("mrp_inr") if sess else None),
+                "image_url": image_url or None,
+                "quantity_description": pack or None,
+            }
+        )
+
+    # Pull the server's own total whenever it's surfaced; else use ours.
+    grand_total_paise: int | None = None
+    for src in (data, data.get("bill") if isinstance(data.get("bill"), dict) else None):
+        if not isinstance(src, dict):
+            continue
+        for k in (
+            "grandTotalPaise",
+            "grand_total_paise",
+            "billTotalPaise",
+            "totalPaise",
+        ):
+            v = src.get(k)
+            if isinstance(v, (int, float)):
+                grand_total_paise = int(v)
+                break
+        if grand_total_paise is not None:
+            break
+        for k in ("grandTotal", "billTotal", "total", "subtotal"):
+            v = src.get(k)
+            if isinstance(v, (int, float)):
+                # Heuristic: Instamart prices in this MCP are INR-denominated
+                # (we saw mrp=72 for milk above), so treat plain numbers as INR.
+                grand_total_paise = int(round(float(v) * 100))
+                break
+        if grand_total_paise is not None:
+            break
+    if grand_total_paise is None and has_priced:
+        grand_total_paise = computed_total_paise
+
+    selected_address_id: str | None = None
+    sel = data.get("selectedAddressDetails")
+    if isinstance(sel, dict):
+        aid = sel.get("id") or sel.get("addressId") or sel.get("address_id")
+        if aid:
+            selected_address_id = str(aid).strip() or None
+
+    return {
+        "is_empty": not items,
+        "items": items,
+        "grand_total_paise": grand_total_paise,
+        "summary_text": summary_text if not items else None,
+        "selected_address_id": selected_address_id,
+    }
+
+
+def _merge_recent(
+    prior: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
+    *,
+    key: str,
+    cap: int,
+) -> list[dict[str, Any]]:
+    """LRU merge — most-recent items first, dedup by ``key``."""
+    seen: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for src in (incoming, prior):
+        for row in src or []:
+            if not isinstance(row, dict):
+                continue
+            k = row.get(key)
+            if not isinstance(k, str) or not k:
+                continue
+            if k in seen:
+                continue
+            seen.add(k)
+            merged.append(row)
+            if len(merged) >= cap:
+                return merged
+    return merged
+
+
+def _harvest_instamart_session(
+    steps: list[dict[str, Any]],
+    *,
+    seed_products: list[dict[str, Any]] | None,
+    seed_addresses: list[dict[str, Any]] | None,
+    seed_cart: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Walk all step envelopes and return updated session indexes."""
+    products = list(seed_products or [])
+    addresses = list(seed_addresses or [])
+    cart: dict[str, Any] | None = dict(seed_cart) if isinstance(seed_cart, dict) else None
+
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        tool = str(step.get("tool") or "").strip().split("(", 1)[0]  # strip "(auto)" suffix
+        envelope = step.get("result") if isinstance(step.get("result"), dict) else {}
+        if tool == "search_products" or tool == "your_go_to_items":
+            args = step.get("arguments") or {}
+            query = None
+            if isinstance(args, dict):
+                query = str(args.get("query") or "").strip() or None
+            new_products = _instamart_products_from_search(envelope, query=query)
+            if new_products:
+                products = _merge_recent(
+                    products, new_products, key="spin_id", cap=_MAX_REMEMBERED_PRODUCTS
+                )
+        elif tool == "get_addresses":
+            new_addresses = _instamart_addresses_from_envelope(envelope)
+            if new_addresses:
+                addresses = _merge_recent(
+                    addresses, new_addresses, key="address_id", cap=_MAX_REMEMBERED_ADDRESSES
+                )
+        elif tool in {"get_cart", "update_cart"}:
+            snap = _instamart_cart_snapshot(envelope, session_products=products)
+            if snap is not None:
+                cart = snap
+        elif tool == "clear_cart":
+            # ``clear_cart`` has no response payload to parse, but a non-error
+            # call unambiguously means the cart is now empty. Without this
+            # the next turn would still echo the pre-clear cart from memory
+            # and the assistant would contradict itself ("cleared" + the
+            # cart card still showing items).
+            if not envelope.get("is_error"):
+                cart = {
+                    "is_empty": True,
+                    "items": [],
+                    "grand_total_paise": 0,
+                    "summary_text": None,
+                    "selected_address_id": (cart or {}).get("selected_address_id"),
+                }
+
+    return {
+        "session_instamart_products": products,
+        "session_instamart_addresses": addresses,
+        "session_instamart_cart": cart,
+    }
+
+
 def run_tool_plan_sync(
     tool_plan: list[dict[str, Any]],
     *,
@@ -579,6 +940,9 @@ def run_tool_plan_sync(
     user_id: str | None = None,
     location_text: str | None = None,
     session_placeholders: dict[str, str] | None = None,
+    session_instamart_products: list[dict[str, Any]] | None = None,
+    session_instamart_addresses: list[dict[str, Any]] | None = None,
+    session_instamart_cart: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a Swiggy Instamart MCP tool plan."""
     root = repo_root or repo_root_from_settings()
@@ -599,6 +963,20 @@ def run_tool_plan_sync(
                 session_placeholders=session_placeholders,
             )
         )
+        harvested = _harvest_instamart_session(
+            steps,
+            seed_products=session_instamart_products,
+            seed_addresses=session_instamart_addresses,
+            seed_cart=session_instamart_cart,
+        )
+        # Only echo non-empty indexes — keeps diagnostics tight.
+        if harvested["session_instamart_products"]:
+            diagnostics["session_instamart_products"] = harvested["session_instamart_products"]
+        if harvested["session_instamart_addresses"]:
+            diagnostics["session_instamart_addresses"] = harvested["session_instamart_addresses"]
+        if harvested["session_instamart_cart"] is not None:
+            diagnostics["session_instamart_cart"] = harvested["session_instamart_cart"]
+
         skipped = bool(diagnostics.get("skipped_tools"))
         return {
             "ok": not skipped,

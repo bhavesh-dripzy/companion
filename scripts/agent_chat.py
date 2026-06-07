@@ -80,6 +80,9 @@ def _load_state(path: Path) -> dict[str, Any]:
         "session_zepto_products": [],
         "session_zepto_addresses": [],
         "session_zepto_cart": None,
+        "session_instamart_products": [],
+        "session_instamart_addresses": [],
+        "session_instamart_cart": None,
         "pending_variant_choice": [],
         "token": None,
         "chat_id": None,
@@ -103,6 +106,9 @@ def _load_state(path: Path) -> dict[str, Any]:
     loaded.setdefault("session_zepto_products", [])
     loaded.setdefault("session_zepto_addresses", [])
     loaded.setdefault("session_zepto_cart", None)
+    loaded.setdefault("session_instamart_products", [])
+    loaded.setdefault("session_instamart_addresses", [])
+    loaded.setdefault("session_instamart_cart", None)
     loaded.setdefault("pending_variant_choice", [])
     loaded.setdefault("chat_id", None)
     return loaded
@@ -178,6 +184,12 @@ def main() -> int:
     session_zepto_cart: dict[str, Any] | None = (
         session_zepto_cart_raw if isinstance(session_zepto_cart_raw, dict) else None
     )
+    session_instamart_products: list[dict[str, Any]] = state.get("session_instamart_products") or []
+    session_instamart_addresses: list[dict[str, Any]] = state.get("session_instamart_addresses") or []
+    session_instamart_cart_raw = state.get("session_instamart_cart")
+    session_instamart_cart: dict[str, Any] | None = (
+        session_instamart_cart_raw if isinstance(session_instamart_cart_raw, dict) else None
+    )
     pending_variant_choice: list[dict[str, Any]] = state.get("pending_variant_choice") or []
     chat_id: str | None = state.get("chat_id") if isinstance(state.get("chat_id"), str) and state.get("chat_id") else None
     turn_idx = int(state.get("turn") or 0) + 1
@@ -218,6 +230,12 @@ def main() -> int:
         body["session_zepto_addresses"] = session_zepto_addresses
     if session_zepto_cart is not None:
         body["session_zepto_cart"] = session_zepto_cart
+    if session_instamart_products:
+        body["session_instamart_products"] = session_instamart_products
+    if session_instamart_addresses:
+        body["session_instamart_addresses"] = session_instamart_addresses
+    if session_instamart_cart is not None:
+        body["session_instamart_cart"] = session_instamart_cart
     if pending_variant_choice:
         body["pending_variant_choice"] = pending_variant_choice
     if chat_id:
@@ -279,6 +297,12 @@ def main() -> int:
     next_zepto_cart_raw = result.get("session_zepto_cart")
     next_zepto_cart: dict[str, Any] | None = (
         next_zepto_cart_raw if isinstance(next_zepto_cart_raw, dict) else None
+    )
+    next_instamart_products = result.get("session_instamart_products") or []
+    next_instamart_addresses = result.get("session_instamart_addresses") or []
+    next_instamart_cart_raw = result.get("session_instamart_cart")
+    next_instamart_cart: dict[str, Any] | None = (
+        next_instamart_cart_raw if isinstance(next_instamart_cart_raw, dict) else None
     )
     next_pending_variant_choice = result.get("pending_variant_choice") or []
     next_chat_id_raw = result.get("chat_id")
@@ -365,6 +389,34 @@ def main() -> int:
         )
         empty = " (empty)" if next_zepto_cart.get("is_empty") else ""
         print(f"  zepto cart OUT    : items=[{zci}]{empty}")
+    if next_instamart_products:
+        ips = ", ".join(
+            f"{p.get('name')}(spin={(p.get('spin_id') or '')[:8]}…)"
+            for p in next_instamart_products[:4]
+        )
+        more = (
+            ""
+            if len(next_instamart_products) <= 4
+            else f" (+{len(next_instamart_products) - 4} more)"
+        )
+        print(f"  imart products OUT: {ips}{more}")
+    if next_instamart_addresses:
+        ias = ", ".join(
+            f"{a.get('label') or a.get('category') or '?'}({(a.get('address_id') or '')[:8]}…)"
+            for a in next_instamart_addresses[:4]
+        )
+        print(f"  imart addresses OUT: {ias}")
+    if next_instamart_cart:
+        ici = ", ".join(
+            f"{i.get('name')}x{i.get('quantity') or 1}"
+            for i in (next_instamart_cart.get("items") or [])[:4]
+        )
+        total_paise = next_instamart_cart.get("grand_total_paise")
+        total_lbl = (
+            f" total=₹{total_paise/100:.0f}" if isinstance(total_paise, (int, float)) and total_paise else ""
+        )
+        empty = " (empty)" if next_instamart_cart.get("is_empty") else ""
+        print(f"  imart cart OUT    : items=[{ici}]{total_lbl}{empty}")
     if next_cart:
         ci = ", ".join(
             f"{i.get('item_name')}x{i.get('quantity') or 1}" for i in (next_cart.get("items") or [])[:4]
@@ -522,6 +574,32 @@ def main() -> int:
                 f"    [{j}] kind='zepto_cart_card' source={att.get('source')!r} "
                 f"items=[{zci}]{empty}"
             )
+        elif kind == 'instamart_product_cards':
+            rows = att.get('instamart_products') or att.get('products') or []
+            print(
+                f"    [{j}] kind='instamart_product_cards' provider={att.get('provider')!r} "
+                f"source={att.get('source')!r} cards={len(rows)}"
+            )
+            for p in rows[:4]:
+                print(
+                    f"        ▸ {p.get('name')} (spinId={(p.get('spin_id') or '')[:8]}…, "
+                    f"₹{p.get('price_inr')}, {p.get('quantity_description')!r})"
+                )
+        elif kind == 'instamart_cart_card':
+            c = att.get('instamart_cart') or {}
+            ici = ", ".join(
+                f"{i.get('name')}x{i.get('quantity') or 1}"
+                for i in (c.get('items') or [])[:4]
+            )
+            total = c.get('grand_total_paise')
+            total_lbl = (
+                f" total=₹{total/100:.0f}" if isinstance(total, (int, float)) and total else ""
+            )
+            empty = " (empty)" if c.get('is_empty') else ""
+            print(
+                f"    [{j}] kind='instamart_cart_card' source={att.get('source')!r} "
+                f"items=[{ici}]{total_lbl}{empty}"
+            )
         else:
             print(
                 f"    [{j}] kind={kind!r} mime={att.get('mime_type')!r} "
@@ -563,6 +641,11 @@ def main() -> int:
     if isinstance(next_zepto_addresses, list):
         state["session_zepto_addresses"] = next_zepto_addresses
     state["session_zepto_cart"] = next_zepto_cart
+    if isinstance(next_instamart_products, list):
+        state["session_instamart_products"] = next_instamart_products
+    if isinstance(next_instamart_addresses, list):
+        state["session_instamart_addresses"] = next_instamart_addresses
+    state["session_instamart_cart"] = next_instamart_cart
     state["chat_id"] = next_chat_id
     if isinstance(next_pending_variant_choice, list):
         state["pending_variant_choice"] = next_pending_variant_choice

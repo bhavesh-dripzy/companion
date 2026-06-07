@@ -96,6 +96,16 @@ class FoodQueryRequest(BaseModel):
     session_zepto_products: list[dict[str, Any]] | None = None
     session_zepto_addresses: list[dict[str, Any]] | None = None
     session_zepto_cart: dict[str, Any] | None = None
+    # Instamart-specific session indexes. Same shape as Zepto's but keyed
+    # on Instamart's ``spin_id`` (per-variant cart key). ``session_instamart_
+    # products`` is an LRU of every variant the user has been shown so the
+    # planner can copy the spinId out of memory when the user picks an item
+    # by name. ``session_instamart_addresses`` mirrors the saved-address book
+    # for Instamart (Swiggy address ids). ``session_instamart_cart`` is the
+    # latest ``get_cart`` snapshot kept in sync with ``update_cart``.
+    session_instamart_products: list[dict[str, Any]] | None = None
+    session_instamart_addresses: list[dict[str, Any]] | None = None
+    session_instamart_cart: dict[str, Any] | None = None
     # Single-turn deferral state: when the Swiggy executor skipped a cart
     # update because the menu item has a real variant choice (size 8"/10"/
     # 12", crust hand-tossed vs thin), the response carries the variant
@@ -145,6 +155,16 @@ class AgentQueryRequest(BaseModel):
     session_zepto_products: list[dict[str, Any]] | None = None
     session_zepto_addresses: list[dict[str, Any]] | None = None
     session_zepto_cart: dict[str, Any] | None = None
+    # Instamart-specific session indexes. Same shape as Zepto's but keyed
+    # on Instamart's ``spin_id`` (per-variant cart key). ``session_instamart_
+    # products`` is an LRU of every variant the user has been shown so the
+    # planner can copy the spinId out of memory when the user picks an item
+    # by name. ``session_instamart_addresses`` mirrors the saved-address book
+    # for Instamart (Swiggy address ids). ``session_instamart_cart`` is the
+    # latest ``get_cart`` snapshot kept in sync with ``update_cart``.
+    session_instamart_products: list[dict[str, Any]] | None = None
+    session_instamart_addresses: list[dict[str, Any]] | None = None
+    session_instamart_cart: dict[str, Any] | None = None
     # See FoodQueryRequest.pending_variant_choice above.
     pending_variant_choice: list[dict[str, Any]] | None = None
 

@@ -85,6 +85,7 @@ SWIGGY_INSTAMART_PROVIDER = ToolProvider(
     default_mcp_url="https://mcp.swiggy.com/im",
     tools=frozenset(
         {
+            # Exactly the 10 tools the Instamart MCP currently exposes.
             "get_addresses",
             "search_products",
             "your_go_to_items",
@@ -96,6 +97,12 @@ SWIGGY_INSTAMART_PROVIDER = ToolProvider(
             "track_order",
             "report_error",
         }
+    ),
+    notes=(
+        "Swiggy's q-commerce (groceries) surface. Mutating tools "
+        "(update_cart, clear_cart, checkout) are guarded by explicit user "
+        "confirmation in the planner prompt; update_cart is always chained "
+        "with get_cart so the cart card carries the authoritative bill."
     ),
 )
 
@@ -757,6 +764,9 @@ def execute_tool_plan_sync(
     session_zepto_products: list[dict[str, Any]] | None = None,
     session_zepto_addresses: list[dict[str, Any]] | None = None,
     session_zepto_cart: dict[str, Any] | None = None,
+    session_instamart_products: list[dict[str, Any]] | None = None,
+    session_instamart_addresses: list[dict[str, Any]] | None = None,
+    session_instamart_cart: dict[str, Any] | None = None,
     user_geo: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not any(isinstance(step, dict) and str(step.get("tool") or "").strip() for step in tool_plan):
@@ -919,6 +929,9 @@ def execute_tool_plan_sync(
                 user_id=user_id,
                 location_text=requested_location,
                 session_placeholders=session_placeholders,
+                session_instamart_products=session_instamart_products,
+                session_instamart_addresses=session_instamart_addresses,
+                session_instamart_cart=session_instamart_cart,
             )
         elif name == "zepto":
             provider_results[name] = run_zepto_tool_plan_sync(

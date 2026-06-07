@@ -93,7 +93,7 @@ export interface RestaurantCardEntry {
 // QuickAction popovers. Cards without a `provider` field (legacy turns
 // from before this stamp landed) fall back to a neutral slate styling —
 // never a wrong-brand colour.
-export type CardProvider = 'zomato' | 'swiggy' | 'district' | 'zepto';
+export type CardProvider = 'zomato' | 'swiggy' | 'district' | 'zepto' | 'instamart';
 
 // ---------------------------------------------------------------------------
 // District card entries. District spans three independent discovery
@@ -248,6 +248,45 @@ export interface ZeptoCart {
   summary_text?: string | null;
 }
 
+// Instamart product / cart shapes — mirrors the Zepto types above but
+// keyed on Instamart's ``spin_id`` (per-variant cart key). Products are
+// flattened to one entry per variant (pack size) so each card maps 1:1
+// to a cart line.
+export interface InstamartProductCardEntry {
+  spin_id: string;
+  product_id?: string | null;
+  parent_product_id?: string | null;
+  name: string;
+  brand?: string | null;
+  quantity_description?: string | null;
+  price_inr?: number | null;
+  mrp_inr?: number | null;
+  image_url?: string | null;
+  in_stock?: boolean;
+  is_promoted?: boolean;
+  query?: string | null;
+}
+
+export interface InstamartCartItem {
+  spin_id: string;
+  quantity: number;
+  name?: string | null;
+  brand?: string | null;
+  price_inr?: number | null;
+  mrp_inr?: number | null;
+  image_url?: string | null;
+  quantity_description?: string | null;
+}
+
+export interface InstamartCart {
+  is_empty?: boolean;
+  items: InstamartCartItem[];
+  // INR × 100. Synthesized executor-side when the server omits a total.
+  grand_total_paise?: number | null;
+  summary_text?: string | null;
+  selected_address_id?: string | null;
+}
+
 export interface ReservationCard {
   booking_id: string;
   res_id?: string;
@@ -323,6 +362,13 @@ export interface Attachment {
   //     can equally hold a Zomato `SessionCart` or a Zepto `ZeptoCart`.
   products?: ZeptoProductCardEntry[];
   zepto_cart?: ZeptoCart;
+  // Instamart attachments — separate fields to avoid the same name-collision
+  // we had to dodge for Zepto (the legacy ``items`` field is already taken by
+  // menu cards, and ``cart`` is taken by Zomato/Swiggy ``SessionCart``).
+  //   kind === "instamart_product_cards" → instamart_products (variant-level)
+  //   kind === "instamart_cart_card"     → instamart_cart
+  instamart_products?: InstamartProductCardEntry[];
+  instamart_cart?: InstamartCart;
 }
 
 export interface Message {
@@ -548,6 +594,20 @@ export interface SessionZeptoAddress {
 
 export type SessionZeptoCart = ZeptoCart;
 
+// Instamart-flavoured session indexes — same contract as the Zepto ones
+// above, keyed on Instamart's ``spin_id`` / ``address_id``.
+export type SessionInstamartProduct = InstamartProductCardEntry;
+
+export interface SessionInstamartAddress {
+  address_id: string;
+  label?: string | null;
+  category?: string | null;
+  address_line?: string | null;
+  phone_number?: string | null;
+}
+
+export type SessionInstamartCart = InstamartCart;
+
 export interface SessionReservation {
   booking_id: string;
   res_id?: string;
@@ -646,6 +706,9 @@ export interface QueryResponse {
   session_zepto_products?: SessionZeptoProduct[];
   session_zepto_addresses?: SessionZeptoAddress[];
   session_zepto_cart?: SessionZeptoCart | null;
+  session_instamart_products?: SessionInstamartProduct[];
+  session_instamart_addresses?: SessionInstamartAddress[];
+  session_instamart_cart?: SessionInstamartCart | null;
   address_context?: AddressContext | null;
   attachments?: Attachment[];
 }

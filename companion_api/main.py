@@ -1826,6 +1826,45 @@ def _companion_agent_turn(
         if isinstance(zitems, list) or raw_zcart.get("is_empty"):
             session_zepto_cart = dict(raw_zcart)
 
+    # Instamart session-state sanitization. Same shape as Zepto's blocks
+    # above but keyed on Instamart's ``spin_id`` (per-variant cart key).
+    session_instamart_products: list[dict[str, Any]] | None = None
+    raw_iprod = getattr(payload, "session_instamart_products", None)
+    if isinstance(raw_iprod, list) and raw_iprod:
+        clean_ip: list[dict[str, Any]] = []
+        for entry in raw_iprod:
+            if not isinstance(entry, dict):
+                continue
+            spin = entry.get("spin_id")
+            name = entry.get("name")
+            if (
+                isinstance(spin, str)
+                and spin.strip()
+                and isinstance(name, str)
+                and name.strip()
+            ):
+                clean_ip.append({**entry, "spin_id": spin.strip(), "name": name.strip()})
+        session_instamart_products = clean_ip or None
+
+    session_instamart_addresses: list[dict[str, Any]] | None = None
+    raw_iaddr = getattr(payload, "session_instamart_addresses", None)
+    if isinstance(raw_iaddr, list) and raw_iaddr:
+        clean_ia: list[dict[str, Any]] = []
+        for entry in raw_iaddr:
+            if not isinstance(entry, dict):
+                continue
+            aid = entry.get("address_id")
+            if isinstance(aid, str) and aid.strip():
+                clean_ia.append({**entry, "address_id": aid.strip()})
+        session_instamart_addresses = clean_ia or None
+
+    session_instamart_cart: dict[str, Any] | None = None
+    raw_icart = getattr(payload, "session_instamart_cart", None)
+    if isinstance(raw_icart, dict):
+        iitems = raw_icart.get("items")
+        if isinstance(iitems, list) or raw_icart.get("is_empty"):
+            session_instamart_cart = dict(raw_icart)
+
     # Resolve the chat this turn belongs to. Three cases:
     #   * client sent a non-empty ``chat_id`` AND that chat exists → use it.
     #   * client sent a ``chat_id`` we don't recognise (deleted, wrong user,
@@ -1889,6 +1928,9 @@ def _companion_agent_turn(
             session_zepto_products=session_zepto_products,
             session_zepto_addresses=session_zepto_addresses,
             session_zepto_cart=session_zepto_cart,
+            session_instamart_products=session_instamart_products,
+            session_instamart_addresses=session_instamart_addresses,
+            session_instamart_cart=session_instamart_cart,
             pending_variant_choice=pending_variant_choice,
         )
 
