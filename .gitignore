@@ -35,3 +35,6 @@ scripts/replay_conversation.py
 scripts/swiggy_e2e_probe.py
 scripts/zomato_call.py
 scripts/zomato_e2e_probe.py
+
+# Sisyphus planning artifacts
+.sisyphus/

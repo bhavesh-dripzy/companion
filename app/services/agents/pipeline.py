@@ -3260,6 +3260,8 @@ def run_agent_turn(
         routed = set(orchestration.get("health_providers") or [])
     elif task_type == "cab_booking":
         routed = set(orchestration.get("mobility_providers") or ["uber"])
+    elif task_type == "phone_call":
+        routed = set(orchestration.get("phone_providers") or ["twilio"])
     else:
         routed = set(orchestration.get("food_providers") or [])
     # Going-out is District-only; if the orchestrator forgot to include it
@@ -3328,7 +3330,7 @@ def run_agent_turn(
             user_message=user_message,
             llm=llm,
         )
-    elif task_type in {"finance_investing", "health_nutrition"}:
+    elif task_type in {"finance_investing", "health_nutrition", "phone_call"}:
         if not routed:
             plan = _empty_provider_plan(
                 reasoning=str(orchestration.get("reasoning") or "No MCP provider selected."),

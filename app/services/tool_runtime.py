@@ -273,6 +273,24 @@ CALORIE_PROVIDER = ToolProvider(
     stdio_args=("node_modules/daily-calorie-tracker-mcp/dist/index.js",),
 )
 
+TWILIO_PROVIDER = ToolProvider(
+    name="twilio",
+    label="Twilio Voice Calls",
+    auth_mode="tool",
+    tools=frozenset(
+        {
+            "make_phone_call",
+            "get_call_status",
+        }
+    ),
+    notes=(
+        "Outbound voice calls via Twilio with dynamic TTS messages "
+        "(Amazon Polly Aditi voice, Hinglish-capable). "
+        "Credentials in AWS Secrets Manager (companion/twilio-credentials). "
+        "All calls require explicit user confirmation before execution."
+    ),
+)
+
 BUILTIN_PROVIDERS = (
     ZOMATO_PROVIDER,
     SWIGGY_FOOD_PROVIDER,
@@ -283,6 +301,7 @@ BUILTIN_PROVIDERS = (
     KITE_PROVIDER,
     GROWW_PROVIDER,
     CALORIE_PROVIDER,
+    TWILIO_PROVIDER,
 )
 PROVIDERS = BUILTIN_PROVIDERS
 

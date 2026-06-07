@@ -300,6 +300,24 @@ class GraphStack(Stack):
             "WantedBy=multi-user.target\n"
             "EOF",
             
+            # Systemd Service for twilio-voice Gemini Live bridge
+            "cat <<EOF > /etc/systemd/system/twilio-voice.service\n"
+            "[Unit]\n"
+            "Description=Gemini Live Twilio Voice Bridge\n"
+            "After=network.target\n"
+            "\n"
+            "[Service]\n"
+            "Type=simple\n"
+            "User=root\n"
+            "WorkingDirectory=/var/www/companion\n"
+            "EnvironmentFile=/etc/companion/env\n"
+            "ExecStart=/var/www/companion/venv/bin/uvicorn deploy.graph-ec2.twilio_voice_service:app --host 127.0.0.1 --port 8001\n"
+            "Restart=always\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
+            "EOF",
+            
             # Systemd Service for leadgen-worker
             "cat <<EOF > /etc/systemd/system/leadgen-worker.service\n"
             "[Unit]\n"
@@ -323,12 +341,16 @@ class GraphStack(Stack):
             "graph.houzzat.in {\n"
             "    reverse_proxy 127.0.0.1:8000\n"
             "}\n"
+            "voice.houzzat.in {\n"
+            "    reverse_proxy 127.0.0.1:8001\n"
+            "}\n"
             "EOF",
             
             # Start services
             "systemctl daemon-reload",
             "systemctl enable --now graph-service",
             "systemctl enable --now leadgen-worker",
+            "systemctl enable --now twilio-voice",
             "systemctl enable --now caddy",
             "echo '--- Bootstrap Completed ---'",
         )
@@ -374,5 +396,12 @@ class GraphStack(Stack):
             "GraphAliasRecord",
             zone=zone,
             record_name="graph",
+            target=route53.RecordTarget.from_ip_addresses(eip.ref),
+        )
+        route53.ARecord(
+            self,
+            "VoiceAliasRecord",
+            zone=zone,
+            record_name="voice",
             target=route53.RecordTarget.from_ip_addresses(eip.ref),
         )

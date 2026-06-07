@@ -27,11 +27,13 @@ Future (not executed yet — still classify correctly):
 **finance_providers** must be zero or more of: `kite`, `groww`.
 **health_providers** must be zero or more of: `daily_calorie_tracker`.
 **mobility_providers** must be zero or more of: `uber`.
+**phone_providers** must be zero or more of: `twilio`.
 
 For non-food tasks, return `food_providers: []`.
 For non-finance tasks, return `finance_providers: []`.
 For non-health tasks, return `health_providers: []`.
 For non-mobility tasks, return `mobility_providers: []`.
+For non-phone tasks, return `phone_providers: []`.
 
 ## Health / nutrition routing
 
@@ -67,6 +69,7 @@ Provider rules:
 | **Calendar / reminder** | Schedule, remind, calendar event | “remind me tomorrow at 9am”, “add to calendar”, “schedule dentist Friday 3pm”, “in 30 minutes remind me to…” | `reminder_calendar`, `food_providers": []` |
 | **Maps / distance / ETA** | Distance, travel time, ETA, directions from where the user is | “how long to reach Phoenix Mall”, “distance from here to MG Road”, “ETA to airport”, “time to walk to the park”, “directions to office” | `maps_query`, all provider arrays `[]` |
 | **Cab booking** | Book or estimate an Uber/cab/taxi/ride | “book me an Uber to the airport”, “cab to Cyberhub”, “how much is Uber to Dubai Mall”, “cancel my Uber request” | `cab_booking`, `mobility_providers: ["uber"]` |
+| **Phone call** | Call/dial someone and speak a message | "call my father at 9910295298 and remind him to take medicine", "ring mom and tell her dinner is ready", "dial +1-555-0123 and say the meeting is at 3" | `phone_call`, `phone_providers: ["twilio"]` |
 | **Normal query** | General chat, knowledge, unrelated topics | “what is photosynthesis?”, “hello”, “thanks” | `normal_query`, `food_providers": []` |
 
 **Calendar cues:** remind, reminder, schedule, calendar, appointment, “at 9am”, “tomorrow”, “in N minutes”, “next Friday”.
@@ -77,7 +80,9 @@ Provider rules:
 
 **Cab cues:** Uber, cab, taxi, ride, book a ride, call me a cab, get me an Uber, fare/price/cost for Uber, cancel/check my Uber. Route these to `cab_booking`, not `maps_query`, when the user wants a cab/ride product rather than just directions or travel time.
 
-If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, maps/distance, or cab-booking intent → **normal_query**.
+**Phone call cues:** "call", "phone", "dial", "ring", "give [someone] a call" — combined with a phone number OR a named person with explicit calling intent ("call my dad", "ring my mother"). Must include a phone number in the message. Without a number → do NOT classify as phone_call (route to normal_query and let the response layer ask for the number). The word "call" without a number or contact ("call it a day", "phone call with my boss tomorrow" meaning a scheduled meeting) is NOT a phone_call.
+
+If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, maps/distance, cab-booking, or phone-call intent → **normal_query**.
 When unsure between normal chat and food, prefer **food_delivery** only if there are clear food/grocery cues.
 
 ### Step 0.5: Delivery vs Going out (only switch on explicit cues)
