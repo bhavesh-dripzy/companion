@@ -867,6 +867,30 @@ function App() {
   // assistant message in the chat log.
   const pendingVoiceAttachmentsRef = useRef<Attachment[] | null>(null);
 
+  // Live mirror of the conversation state the voice handlers need. The Gemini
+  // Live session captures handleVoiceToolCall / handleVoiceTurnComplete ONCE at
+  // connect() time (the WebSocket message handler closes over them), so reading
+  // `messages` / `chatId` / session indices directly would send a stale,
+  // session-start snapshot — empty history and a null chat_id — making every
+  // voice tool call mint a brand-new chat and lose context. Reading through this
+  // ref (whose .current is refreshed every render) always sees the latest state.
+  const voiceCtxRef = useRef({
+    messages,
+    sessionState,
+    chatId,
+    sessionRestaurants,
+    sessionAddresses,
+    sessionCart,
+  });
+  voiceCtxRef.current = {
+    messages,
+    sessionState,
+    chatId,
+    sessionRestaurants,
+    sessionAddresses,
+    sessionCart,
+  };
+
   const handleVoiceTurn = (userText: string, assistantText: string) => {
     // OpenAI path only (batch at disconnect). The Gemini path renders each
     // turn live via handleVoiceTurnComplete.
@@ -897,12 +921,16 @@ function App() {
     // history and the leadgen pipeline stay complete.
     if (!hadToolCall && (userText || assistantText)) {
       try {
+        // Live chatId via the ref — the captured closure is frozen at
+        // session-start (null for a fresh chat), which would fork a new chat
+        // for every conversational voice turn.
+        const liveChatId = voiceCtxRef.current.chatId;
         const data = await api.post('/api/voice/log-turn/', {
           user_text: userText,
           assistant_text: assistantText,
-          chat_id: chatId,
+          chat_id: liveChatId,
         });
-        if (data?.chat_id && data.chat_id !== chatId) {
+        if (data?.chat_id && data.chat_id !== liveChatId) {
           setChatId(data.chat_id);
           localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
         }
@@ -914,17 +942,27 @@ function App() {
   };
 
   const handleVoiceToolCall = async (intent: string): Promise<string> => {
+    // Read live state via the ref — the captured closure would be stale (see
+    // voiceCtxRef), which is what made each voice tool call look like a new chat.
+    const {
+      messages: liveMessages,
+      sessionState: liveSessionState,
+      chatId: liveChatId,
+      sessionRestaurants: liveSessionRestaurants,
+      sessionAddresses: liveSessionAddresses,
+      sessionCart: liveSessionCart,
+    } = voiceCtxRef.current;
     const body: VoiceToolCallRequest = {
       intent,
-      history: messages.map((m) => ({
+      history: liveMessages.map((m) => ({
         role: m.role,
         content: m.content,
       })),
-      session_state: Object.keys(sessionState).length > 0 ? sessionState : undefined,
-      chat_id: chatId,
-      ...(sessionRestaurants.length > 0 ? { session_restaurants: sessionRestaurants } : {}),
-      ...(sessionAddresses.length > 0 ? { session_addresses: sessionAddresses } : {}),
-      ...(sessionCart ? { session_cart: sessionCart } : {}),
+      session_state: Object.keys(liveSessionState).length > 0 ? liveSessionState : undefined,
+      chat_id: liveChatId,
+      ...(liveSessionRestaurants.length > 0 ? { session_restaurants: liveSessionRestaurants } : {}),
+      ...(liveSessionAddresses.length > 0 ? { session_addresses: liveSessionAddresses } : {}),
+      ...(liveSessionCart ? { session_cart: liveSessionCart } : {}),
     };
 
     try {

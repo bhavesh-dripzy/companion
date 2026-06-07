@@ -694,11 +694,15 @@ def _extract_payment_from_checkout(
     return payment
 
 
-def _find_best_address_id(tool_payload: dict[str, Any], location_text: str | None = None) -> str | None:
+def _find_best_address_id(
+    tool_payload: dict[str, Any],
+    location_text: str | None = None,
+    user_geo: dict[str, Any] | None = None,
+) -> str | None:
     blob = tool_payload.get("data")
     if blob is None:
         return None
-    
+
     addresses: list[dict[str, Any]] = []
     data_dict = blob if isinstance(blob, dict) else (blob[0] if isinstance(blob, list) and blob else {})
     if isinstance(data_dict, dict):
@@ -727,7 +731,19 @@ def _find_best_address_id(tool_payload: dict[str, Any], location_text: str | Non
                 aid = addr.get("address_id") or addr.get("addressId") or addr.get("id")
                 if aid: return str(aid).strip()
 
-    # 3. Fallback to first address
+    # 3. Nearest saved address to the device location (issue #18). Only a
+    #    fallback heuristic — explicit/label matches above still win.
+    if user_geo:
+        try:
+            from app.services.address_nearest import nearest_address_id
+
+            nearest = nearest_address_id(addresses, user_geo)
+            if nearest:
+                return nearest
+        except Exception:
+            logger.debug("zomato nearest-address pick failed", exc_info=True)
+
+    # 4. Fallback to first address
     aid = addresses[0].get("address_id") or addresses[0].get("addressId") or addresses[0].get("id")
     return str(aid).strip() if aid else None
 
@@ -1939,6 +1955,7 @@ async def _run_session_inner(
     node_binary: str,
     user_id: str | None = None,
     location_text: str | None = None,
+    user_geo: dict[str, Any] | None = None,
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
@@ -2111,7 +2128,7 @@ async def _run_session_inner(
                     }
                 )
                 step_index += 1
-                nid = _find_best_address_id(envelope, location_text=location_text)
+                nid = _find_best_address_id(envelope, location_text=location_text, user_geo=user_geo)
                 if nid:
                     resolved_id = nid
                     placeholder_values["__ADDRESS_ID__"] = nid
@@ -3396,6 +3413,7 @@ def run_tool_plan_sync(
     node_binary: str | None = None,
     user_id: str | None = None,
     location_text: str | None = None,
+    user_geo: dict[str, Any] | None = None,
     session_placeholders: dict[str, str] | None = None,
     session_restaurants: list[dict[str, Any]] | None = None,
     session_addresses: list[dict[str, Any]] | None = None,
@@ -3430,6 +3448,7 @@ def run_tool_plan_sync(
                 node,
                 user_id,
                 location_text=location_text,
+                user_geo=user_geo,
                 session_placeholders=session_placeholders,
                 session_restaurants=session_restaurants,
                 session_addresses=session_addresses,

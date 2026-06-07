@@ -250,17 +250,17 @@ export function LeftSidebar({
           }
           onSelectChat(chat.chat_id);
         }}
-        className={`group relative flex items-center justify-between py-1.5 px-2 rounded-lg border transition-all duration-300 cursor-pointer ${
+        className={`group relative flex items-center justify-between py-1.5 px-2 rounded-[11px] border transition-all duration-300 cursor-pointer ${
           isActive
-            ? 'bg-gradient-to-r from-[#3a5bef]/10 via-[#8b5cf6]/8 to-[#ff6a3d]/8 border-[#8b5cf6]/30 shadow-[0_1.5px_3px_rgba(58,91,239,0.06)] font-semibold text-[#1a1626]'
-            : 'bg-transparent border-transparent hover:bg-white/50 text-[#6d6680] hover:text-[#1a1626]'
+            ? 'bg-[#ff8a1e]/10 border-[#ff8a1e]/25 shadow-[0_2px_6px_-2px_rgba(255,138,30,0.3)] font-semibold text-[#221b2e]'
+            : 'bg-transparent border-transparent hover:bg-white/50 text-[#544e63] hover:text-[#221b2e]'
         }`}
         title={chat.title || 'Untitled chat'}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <MessageSquare
             className={`w-3.5 h-3.5 shrink-0 transition-colors ${
-              isActive ? 'text-[#8b5cf6]' : 'text-slate-400/70'
+              isActive ? 'text-[#ff8a1e]' : 'text-slate-400/70'
             }`}
           />
           <span className="text-[12.5px] font-bold truncate">
@@ -306,32 +306,29 @@ export function LeftSidebar({
   ];
 
   return (
-    <div className="w-80 bg-white/55 backdrop-blur-xl border-r border-[#e8e2d9]/70 flex flex-col h-full text-[#1a1626] relative select-none shrink-0 transition-all duration-300">
+    <div className="w-80 bg-white/[0.66] backdrop-blur-xl border-r border-[#ece3d6]/80 flex flex-col h-full text-[#221b2e] relative select-none shrink-0 transition-all duration-300">
       {/* Header */}
-      <div className="py-2.5 px-4 flex items-center justify-between shrink-0 border-b border-[#e8e2d9]/60">
+      <div className="py-2.5 px-4 flex items-center justify-between shrink-0 border-b border-[#ece3d6]/70">
         <div className="flex items-center gap-2.5">
-          <div className="w-8.5 h-8.5 rounded-full brand-gradient flex items-center justify-center relative shadow-sm shrink-0 animate-orb-glow">
-            <div className="w-4 h-4 rounded-full border border-white/40 absolute animate-spin-slow" />
-            <div className="w-1.5 h-1.5 rounded-full bg-white absolute animate-pulse" />
-          </div>
+          <div className="brand-orb w-8.5 h-8.5 shrink-0 animate-orb-glow" />
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="brand-gradient-text font-semibold text-[16px] font-display tracking-tight leading-none">
+              <span className="text-[#221b2e] font-semibold text-[19px] font-display tracking-tight leading-none">
                 Companion
               </span>
-              <span className="bg-[#8b5cf6]/10 text-[#7c4ddb] px-1.5 py-0.5 rounded text-[8.5px] font-extrabold font-mono tracking-tight leading-none border border-[#8b5cf6]/20">
+              <span className="bg-[#2b2f72]/8 text-[#2b2f72] px-1.5 py-0.5 rounded text-[8.5px] font-extrabold font-mono tracking-tight leading-none border border-[#2b2f72]/15">
                 v2.6
               </span>
             </div>
-            <span className="text-[10.5px] text-[#6d6680] block font-medium mt-0.5 font-sans leading-none">
-              AI that cares
+            <span className="text-[10.5px] text-[#7a7388] block font-medium mt-0.5 font-sans leading-none">
+              Bharat&rsquo;s everything-assistant
             </span>
           </div>
         </div>
 
         <button
           onClick={onToggleCollapse}
-          className="p-1.5 hover:bg-white border border-[#e3e1e9]/20 text-slate-500 hover:text-slate-800 rounded-lg transition-all cursor-pointer flex items-center justify-center shadow-3xs"
+          className="p-1.5 hover:bg-white border border-[#ece3d6]/40 text-[#7a7388] hover:text-[#221b2e] rounded-lg transition-all cursor-pointer flex items-center justify-center shadow-3xs"
           title="Collapse sidebar"
         >
           <svg
@@ -505,12 +502,12 @@ export function LeftSidebar({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 border-t border-[#e8e2d9]/60 bg-white/40 backdrop-blur-sm px-3 py-2.5 flex items-center justify-between gap-2">
+      <div className="shrink-0 border-t border-[#ece3d6]/70 bg-white/40 backdrop-blur-sm px-3 py-2.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <div className="w-7 h-7 rounded-full brand-gradient text-white flex items-center justify-center font-bold text-[11px] shadow-sm shrink-0">
+          <div className="w-7.5 h-7.5 rounded-[9px] bg-[#221b2e] text-white flex items-center justify-center font-bold text-[12px] shadow-sm shrink-0">
             {(username || 'C').charAt(0).toUpperCase()}
           </div>
-          <span className="text-[12px] font-bold text-[#1a1626] truncate capitalize">
+          <span className="text-[12px] font-bold text-[#221b2e] truncate capitalize">
             {username || 'Companion'}
           </span>
         </div>

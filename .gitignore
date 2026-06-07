@@ -35,6 +35,22 @@ scripts/replay_conversation.py
 scripts/swiggy_e2e_probe.py
 scripts/zomato_call.py
 scripts/zomato_e2e_probe.py
+scripts/zomato_oauth_selftest.py
+
+# Loose credential / token dumps + ad-hoc probe artifacts that have
+# accumulated in the working tree (OAuth tokens, SCPs, raw responses).
+# Never commit — these hold live secrets. Kept on disk, out of git.
+auth.json
+auth2.json
+new_scp.json
+legacy_token.txt
+token.txt
+token2.txt
+response.json
+ssm_run.py
+test_lambda_secret.py
+test_parse.py
+/test_api.py
 
 # Sisyphus planning artifacts
 .sisyphus/credentials.txt
