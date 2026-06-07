@@ -11,8 +11,6 @@ Return JSON ONLY — no markdown, no explanation outside the JSON object:
         "message": "Namaste uncle ji, main Rahul ka assistant hoon..."
       }
     }
-      }
-    }
   ]
 }
 
