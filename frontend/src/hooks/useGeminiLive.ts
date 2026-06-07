@@ -270,7 +270,15 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       JSON.stringify({
         toolResponse: {
           functionResponses: [
-            { id: callId, name: toolNamesRef.current[callId] || 'companion_execute', response: output },
+            {
+              id: callId,
+              name: toolNamesRef.current[callId] || 'companion_execute',
+              response: output,
+              // companion_execute is declared NON_BLOCKING (so the model can
+              // speak a status line while it runs); INTERRUPT makes the model
+              // promptly speak the real result once it's ready.
+              scheduling: 'INTERRUPT',
+            },
           ],
         },
       }),
