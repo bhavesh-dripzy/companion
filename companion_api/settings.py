@@ -60,3 +60,11 @@ GOOGLE_MAPS_REQUEST_TIMEOUT_SECONDS = int(
 )
 GOOGLE_MAPS_DEFAULT_LANGUAGE = os.getenv("GOOGLE_MAPS_DEFAULT_LANGUAGE", "en-IN")
 GOOGLE_MAPS_DEFAULT_REGION = os.getenv("GOOGLE_MAPS_DEFAULT_REGION", "IN")
+
+# ── Twilio Voice Calls ────────────────────────────────────────────────────
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")
+TWILIO_VOICE_BRIDGE_URL = os.getenv(
+    "TWILIO_VOICE_BRIDGE_URL", "https://voice.houzzat.in"
+)

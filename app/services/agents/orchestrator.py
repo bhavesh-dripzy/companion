@@ -21,11 +21,13 @@ _KNOWN_TASKS = frozenset(
         "maps_query",
         "whatsapp_message",
         "cab_booking",
+        "phone_call",
     }
 )
 _KNOWN_FOOD = frozenset({"zomato", "swiggy_food", "swiggy_instamart", "zepto", "district"})
 _KNOWN_FINANCE = frozenset({"kite", "groww"})
 _KNOWN_HEALTH = frozenset({"daily_calorie_tracker"})
+_KNOWN_PHONE = frozenset({"twilio"})
 
 
 @lru_cache(maxsize=1)
@@ -48,6 +50,8 @@ def _previous_provider_fallback(previous_provider: str | None) -> tuple[str, lis
         return "finance_investing", [previous_provider]
     if previous_provider in _KNOWN_HEALTH:
         return "health_nutrition", [previous_provider]
+    if previous_provider in _KNOWN_PHONE:
+        return "phone_call", [previous_provider]
     if previous_provider == "uber":
         return "cab_booking", ["uber"]
     return "food_delivery", ["zomato"]
@@ -94,6 +98,7 @@ def classify_agent_routing(
             "finance_providers": fb_providers if fb_task == "finance_investing" else [],
             "health_providers": fb_providers if fb_task == "health_nutrition" else [],
             "mobility_providers": fb_providers if fb_task == "cab_booking" else [],
+            "phone_providers": fb_providers if fb_task == "phone_call" else [],
             "reasoning": (
                 "Orchestrator returned non-JSON; "
                 f"sticking with previous_provider={previous_provider or 'zomato (default)'}."
@@ -152,6 +157,18 @@ def classify_agent_routing(
         mobility = []
     elif not mobility:
         mobility = ["uber"]
+    phone_raw = raw.get("phone_providers")
+    if not isinstance(phone_raw, list):
+        phone_raw = []
+    phone = [
+        str(x).strip()
+        for x in phone_raw
+        if isinstance(x, str) and str(x).strip() in _KNOWN_PHONE
+    ]
+    if task != "phone_call":
+        phone = []
+    elif not phone:
+        phone = ["twilio"]
     reasoning = str(raw.get("reasoning") or "").strip()
 
     return {
@@ -160,5 +177,6 @@ def classify_agent_routing(
         "finance_providers": finance,
         "health_providers": health,
         "mobility_providers": mobility,
+        "phone_providers": phone,
         "reasoning": reasoning or "(no reasoning given)",
     }

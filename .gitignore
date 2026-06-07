@@ -51,3 +51,6 @@ ssm_run.py
 test_lambda_secret.py
 test_parse.py
 /test_api.py
+
+# Sisyphus planning artifacts
+.sisyphus/credentials.txt
