@@ -1436,6 +1436,120 @@ def _collect_district_reservation_attachments(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Zepto attachment builders
+# ---------------------------------------------------------------------------
+# Zepto search responses come back as formatted prose; the executor lifts
+# each result into a normalised row in ``diagnostics.session_zepto_products``
+# (the freshly-merged list always includes whatever this turn added). For
+# UI rendering we want only the *newly added* rows from this turn, not the
+# carried-forward LRU, so the chat doesn't re-show the same products on
+# every follow-up message.
+def _build_zepto_product_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    pvid = str(item.get("product_variant_id") or "").strip()
+    spid = str(item.get("store_product_id") or "").strip()
+    name = str(item.get("name") or "").strip()
+    if not pvid or not spid or not name:
+        return None
+    return {
+        "product_variant_id": pvid,
+        "store_product_id": spid,
+        "name": name,
+        "price_inr": item.get("price_inr"),
+        "price_text": item.get("price_text"),
+        "pack_size": item.get("pack_size"),
+        "image_url": item.get("image_url"),
+        "query": item.get("query"),
+    }
+
+
+def _collect_zepto_attachments(
+    raw_tool_results: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build ``product_cards`` + ``zepto_cart_card`` attachments from the
+    Zepto executor's diagnostics for this turn.
+
+    Card emission rules:
+      * Every ``search_products`` / ``search_multiple_products`` /
+        ``get_past_order_items`` step that returned products → one
+        ``product_cards`` attachment scoped to those rows.
+      * Every ``view_cart`` / ``update_cart`` step → one
+        ``zepto_cart_card`` reflecting the freshest cart snapshot the
+        executor surfaced this turn (``diagnostics.session_zepto_cart``).
+    """
+    if not isinstance(raw_tool_results, dict):
+        return []
+    from app.services.zepto.mcp_executor import (
+        _harvest_multi_products,
+        _harvest_products,
+    )
+
+    out: list[dict[str, Any]] = []
+    for provider_name, raw in raw_tool_results.items():
+        if not isinstance(raw, dict):
+            continue
+        if str(provider_name or "").lower() != "zepto":
+            continue
+        steps = raw.get("steps") or []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tool = str(step.get("tool") or "").strip()
+            envelope = step.get("result")
+            if not isinstance(envelope, dict):
+                continue
+            if envelope.get("is_error"):
+                continue
+            if tool in {"search_products", "search_multiple_products"}:
+                if tool == "search_products":
+                    args = step.get("arguments") or {}
+                    rows = _harvest_products(
+                        envelope,
+                        query=str((args or {}).get("query") or "").strip() or None,
+                    )
+                else:
+                    rows = _harvest_multi_products(envelope)
+                cards = [
+                    c
+                    for c in (_build_zepto_product_card(r) for r in rows)
+                    if c is not None
+                ]
+                if cards:
+                    out.append(
+                        {
+                            "kind": "zepto_product_cards",
+                            "provider": "zepto",
+                            "source": f"{provider_name}.{tool}",
+                            "products": cards,
+                        }
+                    )
+        # Cart card — one per turn, based on the merged session snapshot.
+        diag = raw.get("diagnostics")
+        if isinstance(diag, dict):
+            cart_snap = diag.get("session_zepto_cart")
+            if isinstance(cart_snap, dict):
+                # Only emit a card when the executor actually ran a cart
+                # tool this turn (otherwise we'd spam every turn with the
+                # same cart UI). Detect via tool history.
+                cart_touched = any(
+                    isinstance(s, dict)
+                    and str(s.get("tool") or "") in {"view_cart", "update_cart"}
+                    for s in (raw.get("steps") or [])
+                )
+                if cart_touched:
+                    out.append(
+                        {
+                            "kind": "zepto_cart_card",
+                            "provider": "zepto",
+                            "source": f"{provider_name}.view_cart",
+                            "zepto_cart": dict(cart_snap),
+                        }
+                    )
+    return out
+
+
 def _format_routing_message(
     current_message: str,
     conversation_history: list[dict[str, str]] | None = None,
@@ -1450,6 +1564,9 @@ def _format_routing_message(
     session_artists: list[dict[str, Any]] | None = None,
     session_reservation: dict[str, Any] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
+    session_zepto_products: list[dict[str, Any]] | None = None,
+    session_zepto_addresses: list[dict[str, Any]] | None = None,
+    session_zepto_cart: dict[str, Any] | None = None,
     selected_address_id: str | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
     user_profile: dict[str, Any] | None = None,
@@ -1783,6 +1900,91 @@ def _format_routing_message(
                 "shown` for the item's outlet.\n"
                 + "\n".join(menu_rows)
             )
+    if session_zepto_products:
+        # Surface the most-recently-shown Zepto products with their
+        # ``pvid`` + ``spid`` ids so the planner can call ``update_cart``
+        # directly when the user picks one by name. Zepto search returns
+        # a different pvid every time we re-search even for the same
+        # product, so re-searching is both wasteful and breaks cart adds.
+        product_rows: list[str] = []
+        for entry in session_zepto_products[:12]:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            pvid = str(entry.get("product_variant_id") or "").strip()
+            spid = str(entry.get("store_product_id") or "").strip()
+            if not name or not pvid or not spid:
+                continue
+            price = entry.get("price_text") or (
+                f"₹{entry.get('price_inr')}" if entry.get("price_inr") else None
+            )
+            pack = entry.get("pack_size")
+            tail_bits = []
+            if pack:
+                tail_bits.append(str(pack))
+            if price:
+                tail_bits.append(str(price))
+            tail = f" — {' / '.join(tail_bits)}" if tail_bits else ""
+            product_rows.append(
+                f"  - {name}{tail} → pvid={pvid}, spid={spid}"
+            )
+        if product_rows:
+            parts.append(
+                "Zepto products already shown to the user this session — "
+                "when the user picks one by name (or asks to add it / "
+                "remove it), copy the literal pvid + spid below into "
+                "`update_cart.cartItems[]` instead of re-running "
+                "`search_products` (a fresh search returns a different "
+                "pvid for the same product, which silently breaks the "
+                "cart flow):\n" + "\n".join(product_rows)
+            )
+    if session_zepto_addresses:
+        zaddr_rows: list[str] = []
+        for entry in session_zepto_addresses[:8]:
+            if not isinstance(entry, dict):
+                continue
+            aid = str(entry.get("address_id") or "").strip()
+            label = str(entry.get("label") or "").strip()
+            if not aid or not label:
+                continue
+            line = str(entry.get("address_line") or "").strip()
+            tail = f" ({line[:80]})" if line else ""
+            zaddr_rows.append(f"  - {label} → addressId={aid}{tail}")
+        if zaddr_rows:
+            parts.append(
+                "Zepto saved addresses available this session — when the "
+                "user asks to switch delivery address, copy the literal "
+                "addressId below into `select_saved_address`:\n"
+                + "\n".join(zaddr_rows)
+            )
+    if session_zepto_cart and isinstance(session_zepto_cart, dict):
+        items = session_zepto_cart.get("items") or []
+        if isinstance(items, list) and items:
+            cart_lines: list[str] = []
+            for it in items[:10]:
+                if not isinstance(it, dict):
+                    continue
+                nm = str(it.get("name") or "").strip() or "(item)"
+                qty = it.get("quantity") or 1
+                pvid = str(it.get("product_variant_id") or "").strip()
+                spid = str(it.get("store_product_id") or "").strip()
+                if not pvid or not spid:
+                    continue
+                cart_lines.append(
+                    f"  - {nm} ×{qty} → pvid={pvid}, spid={spid}"
+                )
+            if cart_lines:
+                parts.append(
+                    "Current Zepto cart (echoes server state from the "
+                    "last `view_cart` or optimistic projection from "
+                    "`update_cart`) — set `quantity: 0` for these "
+                    "pvid/spid pairs to remove items, or any positive "
+                    "number to set the new quantity:\n"
+                    + "\n".join(cart_lines)
+                )
+        elif session_zepto_cart.get("is_empty"):
+            parts.append("Current Zepto cart: empty.")
+
     if pending_variant_choice:
         # Surface the variant menu the previous turn deferred so the
         # planner can emit literal groupId / variation.id values when
@@ -2135,6 +2337,12 @@ def _plan_for_provider(
         out = plan_district(user_message=routing_message, llm=llm)
         trace("planner.out", provider=provider_id, plan=snip(out))
         return out
+    if provider_id == "zepto":
+        from app.services.zepto.planner import plan_zepto
+
+        out = plan_zepto(user_message=routing_message, llm=llm)
+        trace("planner.out", provider=provider_id, plan=snip(out))
+        return out
 
     if tp and not tp.tools:
         return _empty_provider_plan(
@@ -2219,6 +2427,9 @@ def run_agent_turn(
     session_reservation: dict[str, Any] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
     session_cart: dict[str, Any] | None = None,
+    session_zepto_products: list[dict[str, Any]] | None = None,
+    session_zepto_addresses: list[dict[str, Any]] | None = None,
+    session_zepto_cart: dict[str, Any] | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -2347,6 +2558,60 @@ def run_agent_turn(
                 continue
             seed_addresses.append({**entry, "address_id": sid})
 
+    # Zepto session seeds (products, saved addresses, cart). Same echo
+    # contract as the other providers — the frontend round-trips each
+    # field verbatim, the executor merges its new harvests on top, and
+    # the response envelope ships the merged result back out.
+    seed_zepto_products: list[dict[str, Any]] = []
+    if isinstance(session_zepto_products, list):
+        for entry in session_zepto_products:
+            if not isinstance(entry, dict):
+                continue
+            pvid = entry.get("product_variant_id")
+            spid = entry.get("store_product_id")
+            name = entry.get("name")
+            if (
+                isinstance(pvid, str)
+                and pvid.strip()
+                and isinstance(spid, str)
+                and spid.strip()
+                and isinstance(name, str)
+                and name.strip()
+            ):
+                seed_zepto_products.append(
+                    {
+                        **entry,
+                        "product_variant_id": pvid.strip(),
+                        "store_product_id": spid.strip(),
+                        "name": name.strip(),
+                    }
+                )
+
+    seed_zepto_addresses: list[dict[str, Any]] = []
+    if isinstance(session_zepto_addresses, list):
+        for entry in session_zepto_addresses:
+            if not isinstance(entry, dict):
+                continue
+            aid = entry.get("address_id")
+            label = entry.get("label")
+            if (
+                isinstance(aid, str)
+                and aid.strip()
+                and isinstance(label, str)
+                and label.strip()
+            ):
+                seed_zepto_addresses.append(
+                    {**entry, "address_id": aid.strip(), "label": label.strip()}
+                )
+
+    seed_zepto_cart: dict[str, Any] | None = None
+    if isinstance(session_zepto_cart, dict):
+        # Cart snapshot is single dict, but echo it back even when items is
+        # an empty list (so the frontend can render "empty cart" UI).
+        items = session_zepto_cart.get("items")
+        if (isinstance(items, list)) or session_zepto_cart.get("is_empty"):
+            seed_zepto_cart = dict(session_zepto_cart)
+
     # ── Phase 2 Profile Personalization Hook ───────────────────────
     from companion_api.profile_cache import ProfileCacheRepository
     profile: dict[str, Any] | None = None
@@ -2454,6 +2719,9 @@ def run_agent_turn(
         session_artists=seed_artists or None,
         session_reservation=seed_reservation,
         session_menu=seed_menu or None,
+        session_zepto_products=seed_zepto_products or None,
+        session_zepto_addresses=seed_zepto_addresses or None,
+        session_zepto_cart=seed_zepto_cart,
         selected_address_id=selected_addr,
         pending_variant_choice=seed_variant_choices or None,
         user_profile=profile,
@@ -2625,6 +2893,9 @@ def run_agent_turn(
             session_reservation=seed_reservation,
             session_menu=seed_menu or None,
             session_cart=seed_cart,
+            session_zepto_products=seed_zepto_products or None,
+            session_zepto_addresses=seed_zepto_addresses or None,
+            session_zepto_cart=seed_zepto_cart,
             user_geo=user_geo,
         )
         provider_results = tool_execution.get("provider_results")
@@ -2690,6 +2961,9 @@ def run_agent_turn(
     )
     if district_reservation_attachments:
         attachments = attachments + district_reservation_attachments
+    zepto_attachments = _collect_zepto_attachments(raw_tool_results)
+    if zepto_attachments:
+        attachments = attachments + zepto_attachments
     trace(
         "hoister.out",
         attachment_count=len(attachments),
@@ -2702,6 +2976,7 @@ def run_agent_turn(
             - len(cart_attachments)
             - len(district_attachments)
             - len(district_reservation_attachments)
+            - len(zepto_attachments)
         ),
         menu_attachments=len(menu_attachments) + len(swiggy_menu_attachments),
         restaurant_attachments=(
@@ -2710,6 +2985,7 @@ def run_agent_turn(
         cart_attachments=len(cart_attachments),
         district_attachments=len(district_attachments),
         district_reservation_attachments=len(district_reservation_attachments),
+        zepto_attachments=len(zepto_attachments),
         attachments=snip(attachments),
     )
 
@@ -2748,6 +3024,12 @@ def run_agent_turn(
     # list this turn, its result wins; otherwise we just echo the seed
     # back so the frontend can keep persisting it.
     next_session_addresses: list[dict[str, Any]] = list(seed_addresses)
+    # Zepto echoes: same seed-first / executor-overrides pattern.
+    next_session_zepto_products: list[dict[str, Any]] = list(seed_zepto_products)
+    next_session_zepto_addresses: list[dict[str, Any]] = list(seed_zepto_addresses)
+    next_session_zepto_cart: dict[str, Any] | None = (
+        dict(seed_zepto_cart) if isinstance(seed_zepto_cart, dict) else None
+    )
     # ``pending_variant_choice`` is single-turn state: if the executor
     # deferred a cart this turn we echo it back so the next turn's
     # planner can resolve the user's pick. If the executor did NOT
@@ -2894,6 +3176,49 @@ def run_agent_turn(
         _src = _diag.get("address_source")
         if isinstance(_src, str) and _src.strip():
             address_source = _src.strip()
+        # Zepto session-state harvests. Executor's diagnostics already
+        # carry the merged (seed + fresh) lists, so overwriting wholesale
+        # is the right call — same pattern as session_movies / events.
+        _zprod = _diag.get("session_zepto_products")
+        if isinstance(_zprod, list) and _zprod:
+            cleaned_zp: list[dict[str, Any]] = []
+            for entry in _zprod:
+                if not isinstance(entry, dict):
+                    continue
+                pvid = str(entry.get("product_variant_id") or "").strip()
+                spid = str(entry.get("store_product_id") or "").strip()
+                name = str(entry.get("name") or "").strip()
+                if pvid and spid and name:
+                    cleaned_zp.append(
+                        {
+                            **entry,
+                            "product_variant_id": pvid,
+                            "store_product_id": spid,
+                            "name": name,
+                        }
+                    )
+            if cleaned_zp:
+                next_session_zepto_products = cleaned_zp
+        _zaddr = _diag.get("session_zepto_addresses")
+        if isinstance(_zaddr, list) and _zaddr:
+            cleaned_za: list[dict[str, Any]] = []
+            for entry in _zaddr:
+                if not isinstance(entry, dict):
+                    continue
+                aid = str(entry.get("address_id") or "").strip()
+                label = str(entry.get("label") or "").strip()
+                if aid and label:
+                    cleaned_za.append(
+                        {**entry, "address_id": aid, "label": label}
+                    )
+            if cleaned_za:
+                next_session_zepto_addresses = cleaned_za
+        _zcart = _diag.get("session_zepto_cart")
+        if isinstance(_zcart, dict):
+            # Always trust executor's cart snapshot when present — even
+            # an empty cart (``is_empty: true``) is a legitimate state
+            # the frontend should render.
+            next_session_zepto_cart = dict(_zcart)
 
     # Build a compact `address_context` for the response LLM. Lets the
     # reply nudge the user ("using your home address — change kar dena ho
@@ -3034,6 +3359,17 @@ def run_agent_turn(
         # frontend: turn 1 auto-prefetches Zomato addresses, turns 2+ just
         # round-trip the list back and skip the MCP call.
         "session_addresses": next_session_addresses,
+        # Zepto session memory. ``session_zepto_products`` is an LRU of
+        # every product (name + pvid + spid + price/pack metadata) the
+        # user has seen; the planner pulls literal ids from here when the
+        # user picks an item by name. ``session_zepto_addresses`` mirrors
+        # ``session_addresses`` but holds Zepto's own saved-address ids.
+        # ``session_zepto_cart`` is a single dict snapshot of the active
+        # cart, kept in sync with ``view_cart`` and optimistically
+        # updated after every ``update_cart`` call.
+        "session_zepto_products": next_session_zepto_products,
+        "session_zepto_addresses": next_session_zepto_addresses,
+        "session_zepto_cart": next_session_zepto_cart,
         # Compact view the chat UI / debug surface can show without having to
         # cross-reference session_state + session_addresses themselves.
         "address_context": address_context,

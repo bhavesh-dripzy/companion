@@ -23,6 +23,7 @@ import {
   TheatreCardGrid,
   VenueCardGrid,
 } from './components/DistrictCards';
+import { ZeptoCartCard, ZeptoProductCardGrid } from './components/ZeptoCards';
 import {
   ExternalLink,
   MapPin,
@@ -308,6 +309,19 @@ const PROVIDER_THEMES: Record<CardProvider, ProviderTheme> = {
     checkoutPrompt: 'Confirm my District reservation.',
     cartHeaderTitle: 'District Booking',
     activeRingClass: 'bg-[#7C3AED]/10 ring-1 ring-[#7C3AED]/30',
+  },
+  // Zepto brand palette is a bright violet/purple ("Zepto Purple"
+  // #7B2CFA — close enough to District's #7C3AED that we shift a few
+  // hex steps to keep the two visually distinct: District is desaturated
+  // royal, Zepto leans warmer / pinker).
+  zepto: {
+    label: 'Zepto',
+    brandHex: '#7B2CFA',
+    brandTintBg: 'bg-[#7B2CFA]/5',
+    brandTintBorder: 'border-violet-100/80',
+    checkoutPrompt: 'Place my Zepto order.',
+    cartHeaderTitle: 'Zepto Grocery',
+    activeRingClass: 'bg-[#7B2CFA]/10 ring-1 ring-[#7B2CFA]/30',
   },
 };
 
@@ -1444,6 +1458,29 @@ export const AttachmentList: React.FC<{
           <ReservationCardComponent
             key={`district-reservation-${att.reservation.booking_id || idx}`}
             reservation={att.reservation}
+          />
+        );
+      }
+      // Zepto: product grid + cart receipt. See ./components/ZeptoCards.tsx
+      // for the visual layout; both pipe quick-prompt strings back through
+      // the same /api/agent/query/ chat round-trip used everywhere else.
+      if (kind === 'zepto_product_cards') {
+        return (
+          <ZeptoProductCardGrid
+            key={`zepto-products-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'zepto_cart_card' && att.zepto_cart) {
+        return (
+          <ZeptoCartCard
+            key={`zepto-cart-${idx}`}
+            cart={att.zepto_cart}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
           />
         );
       }

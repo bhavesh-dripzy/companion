@@ -25,6 +25,9 @@ import type {
   SessionRestaurant,
   SessionTheatre,
   SessionVenue,
+  SessionZeptoAddress,
+  SessionZeptoCart,
+  SessionZeptoProduct,
   ToolProvider,
   VoiceSessionState,
   VoiceToolCallRequest,
@@ -67,6 +70,13 @@ interface PersistedChatSession {
   session_venues: SessionVenue[];
   session_artists: SessionArtist[];
   session_reservation: SessionReservation | null;
+  // Zepto session memory — products LRU, saved-address book, live cart.
+  // Same persistence contract as the other indexes: stored locally so a
+  // reload restores the planner's context (otherwise the user has to
+  // re-search for the same milk after every page refresh).
+  session_zepto_products: SessionZeptoProduct[];
+  session_zepto_addresses: SessionZeptoAddress[];
+  session_zepto_cart: SessionZeptoCart | null;
 }
 
 const chatSessionKey = (chatId: string) => `${CHAT_SESSION_KEY_PREFIX}${chatId}.session`;
@@ -118,6 +128,16 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
         && (parsed.session_reservation as SessionReservation).booking_id
           ? (parsed.session_reservation as SessionReservation)
           : null,
+      session_zepto_products: Array.isArray(parsed.session_zepto_products)
+        ? (parsed.session_zepto_products as SessionZeptoProduct[])
+        : [],
+      session_zepto_addresses: Array.isArray(parsed.session_zepto_addresses)
+        ? (parsed.session_zepto_addresses as SessionZeptoAddress[])
+        : [],
+      session_zepto_cart:
+        parsed.session_zepto_cart && typeof parsed.session_zepto_cart === 'object'
+          ? (parsed.session_zepto_cart as SessionZeptoCart)
+          : null,
     };
   } catch {
     return null;
@@ -137,7 +157,10 @@ const saveChatSession = (chatId: string, snap: PersistedChatSession) => {
       && snap.session_events.length === 0
       && snap.session_venues.length === 0
       && snap.session_artists.length === 0
-      && snap.session_reservation === null;
+      && snap.session_reservation === null
+      && snap.session_zepto_products.length === 0
+      && snap.session_zepto_addresses.length === 0
+      && snap.session_zepto_cart === null;
     if (isEmpty) {
       localStorage.removeItem(chatSessionKey(chatId));
       return;
@@ -252,6 +275,13 @@ function App() {
   const [sessionArtists, setSessionArtists] = useState<SessionArtist[]>([]);
   const [sessionReservation, setSessionReservation] = useState<SessionReservation | null>(null);
   const [_voiceSessionState, setVoiceSessionState] = useState<VoiceSessionState>('inactive');
+  // Zepto session memory. Same echo contract as the other indexes —
+  // round-trip on every /api/agent/query/ so the planner can re-use
+  // literal pvid/spid ids and the chat surface keeps the cart in sync
+  // with what the executor projected after the last update_cart call.
+  const [sessionZeptoProducts, setSessionZeptoProducts] = useState<SessionZeptoProduct[]>([]);
+  const [sessionZeptoAddresses, setSessionZeptoAddresses] = useState<SessionZeptoAddress[]>([]);
+  const [sessionZeptoCart, setSessionZeptoCart] = useState<SessionZeptoCart | null>(null);
 
   // Multi-chat support — same contract as before. `chatId === null`
   // means "fresh new chat about to be started" — no Dynamo row exists
@@ -312,6 +342,9 @@ function App() {
       session_venues: sessionVenues,
       session_artists: sessionArtists,
       session_reservation: sessionReservation,
+      session_zepto_products: sessionZeptoProducts,
+      session_zepto_addresses: sessionZeptoAddresses,
+      session_zepto_cart: sessionZeptoCart,
     });
   }, [
     chatId,
@@ -326,6 +359,9 @@ function App() {
     sessionVenues,
     sessionArtists,
     sessionReservation,
+    sessionZeptoProducts,
+    sessionZeptoAddresses,
+    sessionZeptoCart,
   ]);
 
   const loadInitialData = async () => {
@@ -344,6 +380,9 @@ function App() {
         setSessionVenues(snap.session_venues);
         setSessionArtists(snap.session_artists);
         setSessionReservation(snap.session_reservation);
+        setSessionZeptoProducts(snap.session_zepto_products);
+        setSessionZeptoAddresses(snap.session_zepto_addresses);
+        setSessionZeptoCart(snap.session_zepto_cart);
       }
       await loadChatMessages(chatId, { silent: true });
     }
@@ -420,6 +459,9 @@ function App() {
     setSessionVenues(snap?.session_venues ?? []);
     setSessionArtists(snap?.session_artists ?? []);
     setSessionReservation(snap?.session_reservation ?? null);
+    setSessionZeptoProducts(snap?.session_zepto_products ?? []);
+    setSessionZeptoAddresses(snap?.session_zepto_addresses ?? []);
+    setSessionZeptoCart(snap?.session_zepto_cart ?? null);
     setMessages([]);
     await loadChatMessages(newChatId);
   };
@@ -448,6 +490,9 @@ function App() {
       setSessionVenues([]);
       setSessionArtists([]);
       setSessionReservation(null);
+      setSessionZeptoProducts([]);
+      setSessionZeptoAddresses([]);
+      setSessionZeptoCart(null);
     }
   };
 
@@ -509,6 +554,9 @@ function App() {
     setSessionVenues([]);
     setSessionArtists([]);
     setSessionReservation(null);
+    setSessionZeptoProducts([]);
+    setSessionZeptoAddresses([]);
+    setSessionZeptoCart(null);
     setChats([]);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
@@ -529,6 +577,9 @@ function App() {
     setSessionVenues([]);
     setSessionArtists([]);
     setSessionReservation(null);
+    setSessionZeptoProducts([]);
+    setSessionZeptoAddresses([]);
+    setSessionZeptoCart(null);
     setChatId(null);
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
@@ -565,6 +616,9 @@ function App() {
     if (sessionReservation && sessionReservation.booking_id) {
       body.session_reservation = sessionReservation;
     }
+    if (sessionZeptoProducts.length > 0) body.session_zepto_products = sessionZeptoProducts;
+    if (sessionZeptoAddresses.length > 0) body.session_zepto_addresses = sessionZeptoAddresses;
+    if (sessionZeptoCart) body.session_zepto_cart = sessionZeptoCart;
     if (chatId) body.chat_id = chatId;
     return body;
   };
@@ -631,6 +685,12 @@ function App() {
       if ('session_reservation' in data) {
         const r = (data as any).session_reservation;
         setSessionReservation(r && typeof r === 'object' && r.booking_id ? r : null);
+      }
+      if (Array.isArray(data.session_zepto_products)) setSessionZeptoProducts(data.session_zepto_products);
+      if (Array.isArray(data.session_zepto_addresses)) setSessionZeptoAddresses(data.session_zepto_addresses);
+      if ('session_zepto_cart' in data) {
+        const zc = (data as any).session_zepto_cart;
+        setSessionZeptoCart(zc && typeof zc === 'object' ? zc : null);
       }
 
       if (typeof data.chat_id === 'string' && data.chat_id) {

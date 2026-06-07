@@ -93,7 +93,7 @@ export interface RestaurantCardEntry {
 // QuickAction popovers. Cards without a `provider` field (legacy turns
 // from before this stamp landed) fall back to a neutral slate styling —
 // never a wrong-brand colour.
-export type CardProvider = 'zomato' | 'swiggy' | 'district';
+export type CardProvider = 'zomato' | 'swiggy' | 'district' | 'zepto';
 
 // ---------------------------------------------------------------------------
 // District card entries. District spans three independent discovery
@@ -201,6 +201,53 @@ export interface ArtistCardEntry {
   genres?: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Zepto card entries. Zepto's discovery surface is products (single-store
+// grocery), so cards are flat rows with `pvid` + `spid` ids the planner
+// uses verbatim on follow-up "add to cart" turns. Cart snapshot mirrors
+// `SessionZeptoCart` below — same shape echoed back by the executor on
+// every `view_cart` / `update_cart` step.
+// ---------------------------------------------------------------------------
+export interface ZeptoProductCardEntry {
+  product_variant_id: string;
+  store_product_id: string;
+  name: string;
+  // Already converted from paise → rupees in the backend executor so the
+  // UI can format directly with no conversion ambiguity.
+  price_inr?: number | null;
+  // Pre-formatted "₹46" string when a price is available. Always trust
+  // `price_inr` when present; this is just the display-ready fallback.
+  price_text?: string | null;
+  mrp_inr?: number | null;
+  pack_size?: string | null;
+  image_url?: string | null;
+  available_quantity?: number | null;
+  is_ad?: boolean;
+  // Echoes the search query that produced this row (used by
+  // `search_multiple_products` to group cards per query).
+  query?: string | null;
+}
+
+export interface ZeptoCartItem {
+  product_variant_id?: string | null;
+  store_product_id?: string | null;
+  quantity?: number | null;
+  name?: string | null;
+  price_inr?: number | null;
+  price_text?: string | null;
+  pack_size?: string | null;
+  image_url?: string | null;
+}
+
+export interface ZeptoCart {
+  is_empty?: boolean;
+  items: ZeptoCartItem[];
+  // Backend stores the live Zepto total in paise (same as the API);
+  // multiply by 0.01 in the UI when rendering.
+  grand_total_paise?: number | null;
+  summary_text?: string | null;
+}
+
 export interface ReservationCard {
   booking_id: string;
   res_id?: string;
@@ -269,6 +316,13 @@ export interface Attachment {
   venues?: VenueCardEntry[];
   artists?: ArtistCardEntry[];
   reservation?: ReservationCard;
+  // Zepto-specific list payloads:
+  //   kind === "zepto_product_cards"  → products  (ZeptoProductCardEntry[])
+  //   kind === "zepto_cart_card"      → cart      (ZeptoCart)  — reuses the
+  //     `cart` field above; discriminator is the `kind` tag, since `cart`
+  //     can equally hold a Zomato `SessionCart` or a Zepto `ZeptoCart`.
+  products?: ZeptoProductCardEntry[];
+  zepto_cart?: ZeptoCart;
 }
 
 export interface Message {
@@ -471,6 +525,29 @@ export interface SessionArtist {
   upcoming_event_count?: number;
 }
 
+// Zepto session-state echoes. `session_zepto_products` is an LRU of every
+// product (name + pvid + spid + price/pack/image) the user has been shown.
+// `session_zepto_addresses` mirrors `SessionAddress` but holds Zepto's
+// own `addressId` values (the user's saved-address book is provider-
+// specific — Zomato's address ids don't work on Zepto). `session_zepto_cart`
+// is a single dict snapshot of the live cart, kept in sync with every
+// `view_cart` / `update_cart` step (optimistic projection from the args
+// for update_cart so the UI updates without a round-trip).
+export interface SessionZeptoProduct extends ZeptoProductCardEntry {
+  [key: string]: unknown;
+}
+
+export interface SessionZeptoAddress {
+  address_id: string;
+  label: string;
+  address_line?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  [key: string]: unknown;
+}
+
+export type SessionZeptoCart = ZeptoCart;
+
 export interface SessionReservation {
   booking_id: string;
   res_id?: string;
@@ -560,6 +637,15 @@ export interface QueryResponse {
   // `create_cart`, carried unchanged otherwise. Frontend echoes back so the
   // response LLM has ground truth for cart contents on follow-up turns.
   session_cart?: SessionCart | null;
+  // Zepto session memory. Same echo contract as `session_restaurants` /
+  // `session_addresses`: frontend round-trips these untouched so the
+  // planner can copy literal Zepto ids on follow-up turns ("add the milk
+  // we just looked at") without rerunning `search_products` (a fresh
+  // search returns a different pvid for the same product, which silently
+  // breaks the cart flow).
+  session_zepto_products?: SessionZeptoProduct[];
+  session_zepto_addresses?: SessionZeptoAddress[];
+  session_zepto_cart?: SessionZeptoCart | null;
   address_context?: AddressContext | null;
   attachments?: Attachment[];
 }

@@ -77,6 +77,9 @@ def _load_state(path: Path) -> dict[str, Any]:
         "session_addresses": [],
         "session_menu": [],
         "session_cart": None,
+        "session_zepto_products": [],
+        "session_zepto_addresses": [],
+        "session_zepto_cart": None,
         "pending_variant_choice": [],
         "token": None,
         "chat_id": None,
@@ -97,6 +100,9 @@ def _load_state(path: Path) -> dict[str, Any]:
     loaded.setdefault("session_addresses", [])
     loaded.setdefault("session_menu", [])
     loaded.setdefault("session_cart", None)
+    loaded.setdefault("session_zepto_products", [])
+    loaded.setdefault("session_zepto_addresses", [])
+    loaded.setdefault("session_zepto_cart", None)
     loaded.setdefault("pending_variant_choice", [])
     loaded.setdefault("chat_id", None)
     return loaded
@@ -166,6 +172,12 @@ def main() -> int:
     session_addresses: list[dict[str, Any]] = state.get("session_addresses") or []
     session_menu: list[dict[str, Any]] = state.get("session_menu") or []
     session_cart: dict[str, Any] | None = state.get("session_cart") if isinstance(state.get("session_cart"), dict) else None
+    session_zepto_products: list[dict[str, Any]] = state.get("session_zepto_products") or []
+    session_zepto_addresses: list[dict[str, Any]] = state.get("session_zepto_addresses") or []
+    session_zepto_cart_raw = state.get("session_zepto_cart")
+    session_zepto_cart: dict[str, Any] | None = (
+        session_zepto_cart_raw if isinstance(session_zepto_cart_raw, dict) else None
+    )
     pending_variant_choice: list[dict[str, Any]] = state.get("pending_variant_choice") or []
     chat_id: str | None = state.get("chat_id") if isinstance(state.get("chat_id"), str) and state.get("chat_id") else None
     turn_idx = int(state.get("turn") or 0) + 1
@@ -200,6 +212,12 @@ def main() -> int:
         body["session_menu"] = session_menu
     if session_cart and session_cart.get("cart_id"):
         body["session_cart"] = session_cart
+    if session_zepto_products:
+        body["session_zepto_products"] = session_zepto_products
+    if session_zepto_addresses:
+        body["session_zepto_addresses"] = session_zepto_addresses
+    if session_zepto_cart is not None:
+        body["session_zepto_cart"] = session_zepto_cart
     if pending_variant_choice:
         body["pending_variant_choice"] = pending_variant_choice
     if chat_id:
@@ -256,6 +274,12 @@ def main() -> int:
     next_cart = result.get("session_cart")
     if not (isinstance(next_cart, dict) and next_cart.get("cart_id")):
         next_cart = None
+    next_zepto_products = result.get("session_zepto_products") or []
+    next_zepto_addresses = result.get("session_zepto_addresses") or []
+    next_zepto_cart_raw = result.get("session_zepto_cart")
+    next_zepto_cart: dict[str, Any] | None = (
+        next_zepto_cart_raw if isinstance(next_zepto_cart_raw, dict) else None
+    )
     next_pending_variant_choice = result.get("pending_variant_choice") or []
     next_chat_id_raw = result.get("chat_id")
     next_chat_id: str | None = next_chat_id_raw if isinstance(next_chat_id_raw, str) and next_chat_id_raw else chat_id
@@ -317,6 +341,30 @@ def main() -> int:
         )
         more = "" if len(next_menu) <= 5 else f" (+{len(next_menu) - 5} more)"
         print(f"  menu items OUT    : {items}{more}")
+    if next_zepto_products:
+        zps = ", ".join(
+            f"{p.get('name')}(pvid={p.get('product_variant_id')[:8] if p.get('product_variant_id') else '?'}…)"
+            for p in next_zepto_products[:4]
+        )
+        more = (
+            ""
+            if len(next_zepto_products) <= 4
+            else f" (+{len(next_zepto_products) - 4} more)"
+        )
+        print(f"  zepto products OUT: {zps}{more}")
+    if next_zepto_addresses:
+        zas = ", ".join(
+            f"{a.get('label')}({(a.get('address_id') or '')[:8]}…)"
+            for a in next_zepto_addresses[:4]
+        )
+        print(f"  zepto addresses OUT: {zas}")
+    if next_zepto_cart:
+        zci = ", ".join(
+            f"{i.get('name')}x{i.get('quantity') or 1}"
+            for i in (next_zepto_cart.get("items") or [])[:4]
+        )
+        empty = " (empty)" if next_zepto_cart.get("is_empty") else ""
+        print(f"  zepto cart OUT    : items=[{zci}]{empty}")
     if next_cart:
         ci = ", ".join(
             f"{i.get('item_name')}x{i.get('quantity') or 1}" for i in (next_cart.get("items") or [])[:4]
@@ -452,6 +500,28 @@ def main() -> int:
                 f"({r.get('booking_date')} {r.get('slot_time')}) "
                 f"party={r.get('party_size')} status={r.get('status')!r}"
             )
+        elif kind == 'zepto_product_cards':
+            rows = att.get('products') or []
+            print(
+                f"    [{j}] kind='zepto_product_cards' provider={att.get('provider')!r} "
+                f"source={att.get('source')!r} cards={len(rows)}"
+            )
+            for p in rows[:4]:
+                print(
+                    f"        ▸ {p.get('name')} (pvid={(p.get('product_variant_id') or '')[:8]}…, "
+                    f"₹{p.get('price_inr')}, {p.get('pack_size')!r})"
+                )
+        elif kind == 'zepto_cart_card':
+            c = att.get('zepto_cart') or att.get('cart') or {}
+            zci = ", ".join(
+                f"{i.get('name')}x{i.get('quantity') or 1}"
+                for i in (c.get('items') or [])[:4]
+            )
+            empty = " (empty)" if c.get('is_empty') else ""
+            print(
+                f"    [{j}] kind='zepto_cart_card' source={att.get('source')!r} "
+                f"items=[{zci}]{empty}"
+            )
         else:
             print(
                 f"    [{j}] kind={kind!r} mime={att.get('mime_type')!r} "
@@ -488,6 +558,11 @@ def main() -> int:
     if isinstance(next_menu, list):
         state["session_menu"] = next_menu
     state["session_cart"] = next_cart
+    if isinstance(next_zepto_products, list):
+        state["session_zepto_products"] = next_zepto_products
+    if isinstance(next_zepto_addresses, list):
+        state["session_zepto_addresses"] = next_zepto_addresses
+    state["session_zepto_cart"] = next_zepto_cart
     state["chat_id"] = next_chat_id
     if isinstance(next_pending_variant_choice, list):
         state["pending_variant_choice"] = next_pending_variant_choice

@@ -8,6 +8,7 @@ from typing import Any
 
 from app.services.district_mcp_executor import run_district_tool_plan_sync
 from app.services.swiggy_mcp_executor import run_swiggy_tool_plan_sync
+from app.services.zepto_mcp_executor import run_zepto_tool_plan_sync
 from app.services.zomato_mcp_executor import (
     _mcp_token_secret,
     _merge_mcp_token_secret,
@@ -113,24 +114,41 @@ ZEPTO_PROVIDER = ToolProvider(
     default_mcp_url="https://mcp.zepto.co.in/mcp",
     tools=frozenset(
         {
+            # Discovery
             "search_products",
+            "search_multiple_products",
             "get_product_details",
-            "get_user_preferences",
-            "get_cart",
-            "add_item_to_cart",
-            "update_cart_item",
-            "remove_cart_item",
-            "clear_cart",
-            "get_cart_offers",
-            "checkout",
-            "place_order",
-            "get_order_history",
-            "get_order_details",
+            "get_past_order_items",
+            "zepto_shop",
+            # Location & store
+            "get_location_serviceability",
+            "list_saved_addresses",
+            "select_saved_address",
+            "add_saved_address",
+            "update_drop_zone",
+            "select_store",
+            # Cart
+            "view_cart",
+            "update_cart",
+            # User profile
+            "get_user_details",
+            "update_user_name",
+            # Orders
+            "list_order_history",
+            "get_order_detail",
+            # Payment & order placement
+            "get_payment_methods",
+            "create_order",
+            "create_online_payment_order",
+            "create_wallet_order",
+            "create_upi_reserve_pay_order",
+            "check_payment_status",
         }
     ),
     notes=(
-        "Official Zepto MCP endpoint. Tool names are mapped to the public shopping "
-        "flows documented by Zepto: search, cart, checkout, and order history."
+        "Official Zepto MCP endpoint. Discovery, address/store, cart, "
+        "and order/payment flows. Mutating tools (update_cart, address "
+        "switches, order placement) are guarded by the planner prompt."
     ),
 )
 
@@ -736,6 +754,9 @@ def execute_tool_plan_sync(
     session_reservation: dict[str, Any] | None = None,
     session_menu: list[dict[str, Any]] | None = None,
     session_cart: dict[str, Any] | None = None,
+    session_zepto_products: list[dict[str, Any]] | None = None,
+    session_zepto_addresses: list[dict[str, Any]] | None = None,
+    session_zepto_cart: dict[str, Any] | None = None,
     user_geo: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not any(isinstance(step, dict) and str(step.get("tool") or "").strip() for step in tool_plan):
@@ -898,6 +919,18 @@ def execute_tool_plan_sync(
                 user_id=user_id,
                 location_text=requested_location,
                 session_placeholders=session_placeholders,
+            )
+        elif name == "zepto":
+            provider_results[name] = run_zepto_tool_plan_sync(
+                routed[name],
+                mcp_url=resolved_url,
+                user_id=user_id,
+                location_text=requested_location,
+                user_geo=user_geo,
+                session_placeholders=session_placeholders,
+                session_zepto_products=session_zepto_products,
+                session_zepto_addresses=session_zepto_addresses,
+                session_zepto_cart=session_zepto_cart,
             )
         else:
             provider_results[name] = run_tool_plan_sync(

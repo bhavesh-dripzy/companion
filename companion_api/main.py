@@ -1767,6 +1767,65 @@ def _companion_agent_turn(
         if isinstance(cid, str) and cid.strip() and isinstance(items, list) and items:
             session_cart = {**raw_cart, "cart_id": cid.strip()}
 
+    # Zepto session-state sanitization. Products / addresses keep the
+    # same LRU shape as other providers (each entry needs an id pair +
+    # a name). Cart is a single dict — we keep it even when empty so the
+    # frontend can render the empty-cart state.
+    session_zepto_products: list[dict[str, Any]] | None = None
+    raw_zprod = getattr(payload, "session_zepto_products", None)
+    if isinstance(raw_zprod, list) and raw_zprod:
+        clean_zprod: list[dict[str, Any]] = []
+        for entry in raw_zprod:
+            if not isinstance(entry, dict):
+                continue
+            pvid = entry.get("product_variant_id")
+            spid = entry.get("store_product_id")
+            name = entry.get("name")
+            if (
+                isinstance(pvid, str)
+                and pvid.strip()
+                and isinstance(spid, str)
+                and spid.strip()
+                and isinstance(name, str)
+                and name.strip()
+            ):
+                clean_zprod.append(
+                    {
+                        **entry,
+                        "product_variant_id": pvid.strip(),
+                        "store_product_id": spid.strip(),
+                        "name": name.strip(),
+                    }
+                )
+        session_zepto_products = clean_zprod or None
+
+    session_zepto_addresses: list[dict[str, Any]] | None = None
+    raw_zaddr = getattr(payload, "session_zepto_addresses", None)
+    if isinstance(raw_zaddr, list) and raw_zaddr:
+        clean_zaddr: list[dict[str, Any]] = []
+        for entry in raw_zaddr:
+            if not isinstance(entry, dict):
+                continue
+            aid = entry.get("address_id")
+            label = entry.get("label")
+            if (
+                isinstance(aid, str)
+                and aid.strip()
+                and isinstance(label, str)
+                and label.strip()
+            ):
+                clean_zaddr.append(
+                    {**entry, "address_id": aid.strip(), "label": label.strip()}
+                )
+        session_zepto_addresses = clean_zaddr or None
+
+    session_zepto_cart: dict[str, Any] | None = None
+    raw_zcart = getattr(payload, "session_zepto_cart", None)
+    if isinstance(raw_zcart, dict):
+        zitems = raw_zcart.get("items")
+        if isinstance(zitems, list) or raw_zcart.get("is_empty"):
+            session_zepto_cart = dict(raw_zcart)
+
     # Resolve the chat this turn belongs to. Three cases:
     #   * client sent a non-empty ``chat_id`` AND that chat exists → use it.
     #   * client sent a ``chat_id`` we don't recognise (deleted, wrong user,
@@ -1827,6 +1886,9 @@ def _companion_agent_turn(
             session_reservation=session_reservation,
             session_menu=session_menu,
             session_cart=session_cart,
+            session_zepto_products=session_zepto_products,
+            session_zepto_addresses=session_zepto_addresses,
+            session_zepto_cart=session_zepto_cart,
             pending_variant_choice=pending_variant_choice,
         )
 

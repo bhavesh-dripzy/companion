@@ -85,6 +85,17 @@ class FoodQueryRequest(BaseModel):
     # the prior response returned so the response LLM can report cart contents
     # on follow-up turns without re-asking Zomato.
     session_cart: dict[str, Any] | None = None
+    # Zepto-specific session indexes. ``session_zepto_products`` is an LRU
+    # of every product (name + pvid + spid + price/pack) the user has been
+    # shown; the planner copies literal ids out of it when the user picks
+    # a product by name (re-searching returns different ids and silently
+    # breaks the cart). ``session_zepto_addresses`` mirrors the global
+    # ``session_addresses`` field but holds Zepto's own ``addressId``
+    # values. ``session_zepto_cart`` is a single snapshot of the live
+    # Zepto cart kept in sync with ``view_cart`` / ``update_cart``.
+    session_zepto_products: list[dict[str, Any]] | None = None
+    session_zepto_addresses: list[dict[str, Any]] | None = None
+    session_zepto_cart: dict[str, Any] | None = None
     # Single-turn deferral state: when the Swiggy executor skipped a cart
     # update because the menu item has a real variant choice (size 8"/10"/
     # 12", crust hand-tossed vs thin), the response carries the variant
@@ -129,6 +140,11 @@ class AgentQueryRequest(BaseModel):
     session_menu: list[dict[str, Any]] | None = None
     # See FoodQueryRequest.session_cart above.
     session_cart: dict[str, Any] | None = None
+    # See FoodQueryRequest.session_zepto_products / session_zepto_addresses
+    # / session_zepto_cart above.
+    session_zepto_products: list[dict[str, Any]] | None = None
+    session_zepto_addresses: list[dict[str, Any]] | None = None
+    session_zepto_cart: dict[str, Any] | None = None
     # See FoodQueryRequest.pending_variant_choice above.
     pending_variant_choice: list[dict[str, Any]] | None = None
 

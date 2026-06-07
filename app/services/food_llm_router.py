@@ -86,6 +86,28 @@ _ALLOWED_TOOLS = frozenset(
         "search_theatres",
         "search_shows",
         "get_movie_critique_reviews",
+        # Zepto (full surface — see app/services/zepto/planner.py for the
+        # authoritative provider tool list).
+        "search_multiple_products",
+        "get_past_order_items",
+        "zepto_shop",
+        "get_location_serviceability",
+        "list_saved_addresses",
+        "select_saved_address",
+        "add_saved_address",
+        "update_drop_zone",
+        "select_store",
+        "view_cart",
+        "get_user_details",
+        "update_user_name",
+        "list_order_history",
+        "get_order_detail",
+        "get_payment_methods",
+        "create_order",
+        "create_online_payment_order",
+        "create_wallet_order",
+        "create_upi_reserve_pay_order",
+        "check_payment_status",
     }
 )
 
