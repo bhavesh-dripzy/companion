@@ -48,7 +48,8 @@ const PROMPT_OPTIONS = [
     label: 'Book a Cab',
     prompt: 'Book a cab from my location to the office',
     icon: Car,
-    color: 'bg-blue-50/70 border-blue-100 hover:border-blue-400 text-blue-600 hover:bg-blue-50/95',
+    color:
+      'bg-[#3a5bef]/8 border-[#3a5bef]/15 hover:border-[#3a5bef]/45 text-[#2f49c4] hover:bg-[#3a5bef]/12',
   },
   {
     id: 'food',
@@ -56,7 +57,7 @@ const PROMPT_OPTIONS = [
     prompt: 'Find good pizza near my saved address on Zomato',
     icon: Utensils,
     color:
-      'bg-orange-50/70 border-orange-100 hover:border-orange-400 text-orange-600 hover:bg-orange-50/95',
+      'bg-[#ff6a3d]/8 border-[#ff6a3d]/15 hover:border-[#ff6a3d]/45 text-[#c2401f] hover:bg-[#ff6a3d]/12',
   },
   {
     id: 'groceries',
@@ -64,7 +65,7 @@ const PROMPT_OPTIONS = [
     prompt: 'Search milk and brown bread on Swiggy Instamart',
     icon: Calendar,
     color:
-      'bg-emerald-50/70 border-emerald-100 hover:border-emerald-400 text-emerald-600 hover:bg-emerald-50/95',
+      'bg-[#8b5cf6]/8 border-[#8b5cf6]/15 hover:border-[#8b5cf6]/45 text-[#7c4ddb] hover:bg-[#8b5cf6]/12',
   },
   {
     id: 'movie',
@@ -72,7 +73,7 @@ const PROMPT_OPTIONS = [
     prompt: 'Find live music events near me on District',
     icon: Ticket,
     color:
-      'bg-indigo-50/70 border-indigo-100 hover:border-indigo-400 text-indigo-600 hover:bg-indigo-50/95',
+      'bg-[#5b8def]/8 border-[#5b8def]/15 hover:border-[#5b8def]/45 text-[#2f49c4] hover:bg-[#5b8def]/12',
   },
   {
     id: 'reminder',
@@ -80,7 +81,7 @@ const PROMPT_OPTIONS = [
     prompt: "What's currently in my cart?",
     icon: Bell,
     color:
-      'bg-purple-50/70 border-purple-100 hover:border-purple-400 text-purple-600 hover:bg-purple-50/95',
+      'bg-[#d9479b]/8 border-[#d9479b]/15 hover:border-[#d9479b]/45 text-[#b53a82] hover:bg-[#d9479b]/12',
   },
 ];
 
@@ -172,23 +173,15 @@ export function ChatArea({
   const avatarLetter = welcomeName.charAt(0).toUpperCase() || 'C';
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gradient-to-tr from-[#fafbf7] via-[#f1f7fe] to-[#edf5ff] overflow-hidden relative font-sans select-none">
-      {/* Background mesh — sunlit amber + sky-blue + white */}
-      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute top-[15%] -left-[10%] w-[55%] h-[50%] rounded-full bg-[#fdf8d7]/70 filter blur-[110px] opacity-75" />
-        <div className="absolute -bottom-[12%] right-[5%] w-[60%] h-[55%] rounded-full bg-[#dbeeff]/75 filter blur-[125px] opacity-80" />
-        <div className="absolute top-[-5%] right-[10%] w-[50%] h-[45%] rounded-full bg-white/95 filter blur-[100px] opacity-95" />
-        <div className="absolute top-[35%] left-[20%] w-[45%] h-[45%] rounded-full bg-[#e3f4f1]/55 filter blur-[110px] opacity-70" />
-      </div>
-
+    <div className="flex-1 flex flex-col h-full overflow-hidden relative font-sans select-none">
       {/* Header */}
-      <header className="shrink-0 bg-white/50 border-b border-slate-200/40 px-5 py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-30 select-none">
+      <header className="shrink-0 bg-white/45 border-b border-[#e8e2d9]/50 px-5 py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-30 select-none">
         <div className="flex items-center gap-3">
           {isSidebarCollapsed && (
             <button
               type="button"
               onClick={onToggleLeft}
-              className="p-2 rounded-xl text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100/80 hover:border-indigo-300 shadow-sm transition-all duration-300 active:scale-95 cursor-pointer"
+              className="p-2 rounded-xl text-[#7c4ddb] bg-[#8b5cf6]/10 border border-[#8b5cf6]/25 hover:bg-[#8b5cf6]/15 hover:border-[#8b5cf6]/40 shadow-sm transition-all duration-300 active:scale-95 cursor-pointer"
               title="Expand sidebar"
             >
               <Menu className="w-5 h-5 stroke-[2.2]" />
@@ -196,7 +189,7 @@ export function ChatArea({
           )}
 
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-800 text-[15px] tracking-tight font-display">
+            <span className="brand-gradient-text font-semibold text-[16px] tracking-tight font-display">
               Companion
             </span>
             <span className="hidden sm:inline-block bg-emerald-500/10 text-emerald-700 border border-emerald-500/20 px-2 py-0.5 rounded-full text-[10px] font-semibold">
@@ -227,11 +220,11 @@ export function ChatArea({
           </button>
 
           {/* User pill */}
-          <div className="flex items-center gap-2 bg-white/90 text-slate-800 border border-slate-200/70 pl-2 pr-3.5 py-1.5 rounded-full text-xs font-bold shadow-3xs max-h-9 select-none">
-            <div className="w-5.5 h-5.5 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-600 text-white flex items-center justify-center font-bold text-[10.5px] shadow-sm select-none">
+          <div className="flex items-center gap-2 bg-white/80 text-[#1a1626] border border-[#e8e2d9]/70 pl-2 pr-3.5 py-1.5 rounded-full text-xs font-bold shadow-3xs max-h-9 select-none">
+            <div className="w-5.5 h-5.5 rounded-full brand-gradient text-white flex items-center justify-center font-bold text-[10.5px] shadow-sm select-none">
               {avatarLetter}
             </div>
-            <span className="hidden sm:inline text-slate-700 font-display capitalize">
+            <span className="hidden sm:inline text-[#1a1626] font-display capitalize">
               {welcomeName}
             </span>
             {connectedCount > 0 && (
@@ -276,15 +269,15 @@ export function ChatArea({
             className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6 no-scrollbar"
           >
             {messages.length === 0 ? (
-              <div className="h-full min-h-0 flex flex-col justify-center items-center px-4 py-1.5 md:py-2 space-y-4 md:space-y-6 select-none w-full max-w-4xl mx-auto z-10 relative">
+              <div className="mandala-accent h-full min-h-0 flex flex-col justify-center items-center px-4 py-1.5 md:py-2 space-y-4 md:space-y-6 select-none w-full max-w-4xl mx-auto z-10 relative">
                 <motion.div
                   initial={{ opacity: 0, y: -15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.1, duration: 0.6, ease: 'easeOut' }}
-                  className="w-full flex flex-col md:flex-row items-center justify-between gap-3 md:gap-6 relative shrink-0"
+                  className="w-full flex flex-col md:flex-row items-center justify-between gap-3 md:gap-6 relative shrink-0 z-10"
                 >
                   <div className="space-y-1 flex-1 text-center md:text-left">
-                    <h1 className="font-display font-black text-slate-900 text-2xl md:text-[36px] tracking-tight leading-tight capitalize">
+                    <h1 className="font-display brand-gradient-text font-semibold text-2xl md:text-[40px] tracking-tight leading-tight capitalize">
                       Hi {welcomeName}, how can I help you today?
                     </h1>
                   </div>
@@ -367,11 +360,11 @@ export function ChatArea({
                     animate={{ opacity: 1 }}
                     className="flex items-center gap-3 pl-3"
                   >
-                    <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-[12px] font-display">
+                    <div className="w-8 h-8 rounded-full brand-gradient text-white flex items-center justify-center font-bold text-[12px] font-display">
                       C
                     </div>
-                    <div className="bg-white/80 border border-slate-200/60 py-2.5 px-4 rounded-full flex items-center gap-2 shadow-xs backdrop-blur-xs">
-                      <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-ping" />
+                    <div className="bg-white/80 border border-[#e8e2d9]/70 py-2.5 px-4 rounded-full flex items-center gap-2 shadow-xs backdrop-blur-xs">
+                      <span className="w-1.5 h-1.5 bg-[#8b5cf6] rounded-full animate-ping" />
                       <span className="text-slate-500 font-medium text-xs italic">
                         Thinking…
                       </span>
@@ -383,7 +376,7 @@ export function ChatArea({
           </div>
 
           {/* Bottom composer */}
-          <div className="p-4 bg-gradient-to-t from-[#edf5ff]/95 via-[#edf5ff]/20 to-transparent sticky bottom-0 left-0 right-0 z-20">
+          <div className="p-4 bg-gradient-to-t from-[#f6f3ee]/95 via-[#f6f3ee]/30 to-transparent sticky bottom-0 left-0 right-0 z-20">
             {/* Prompt ribbon */}
             <div className="w-full flex items-center gap-2 overflow-x-auto pb-3 mb-1.5 no-scrollbar scroll-smooth">
               {PROMPT_OPTIONS.map((option) => {
@@ -407,12 +400,12 @@ export function ChatArea({
 
             <form
               onSubmit={handleSubmit}
-              className="w-full bg-white border border-slate-200/80 shadow-md shadow-slate-300/10 rounded-3xl flex items-end p-1.5 gap-2"
+              className="spectrum-ring w-full bg-white/80 backdrop-blur-md shadow-md shadow-[#3a5bef]/8 rounded-3xl flex items-end p-1.5 gap-2 focus-within:shadow-lg focus-within:shadow-[#8b5cf6]/12 transition-shadow duration-300"
             >
               <button
                 type="button"
                 tabIndex={-1}
-                className="w-9 h-9 text-slate-400 hover:text-slate-650 hover:bg-slate-50 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer self-end mb-0.5"
+                className="w-9 h-9 text-slate-400 hover:text-[#8b5cf6] hover:bg-[#8b5cf6]/8 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer self-end mb-0.5"
                 title="Attachment menu (coming soon)"
               >
                 <Paperclip className="w-4.5 h-4.5" />
@@ -450,7 +443,7 @@ export function ChatArea({
                 aria-label="Send message"
                 className={`w-9.5 h-9.5 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer self-end mb-0.5 ${
                   inputValue.trim() && !isThinking
-                    ? 'bg-slate-900 opacity-100 text-white shadow-md hover:bg-slate-800'
+                    ? 'btn-spectrum opacity-100 text-white'
                     : 'bg-slate-100 text-slate-300'
                 }`}
               >

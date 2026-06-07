@@ -73,7 +73,7 @@ export function ChatMessageItem({
     >
       {/* Assistant avatar — circular dark badge matching the redesign */}
       {!isUser && (
-        <div className="w-9 h-9 rounded-full bg-[#121118] text-white flex items-center justify-center shadow-xs shrink-0 select-none transform hover:scale-105 transition-all text-sm font-black relative">
+        <div className="w-9 h-9 rounded-full brand-gradient text-white flex items-center justify-center shadow-xs shrink-0 select-none transform hover:scale-105 transition-all text-sm font-black relative">
           <span>C</span>
           <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
         </div>
@@ -82,17 +82,17 @@ export function ChatMessageItem({
       {/* Bubble body + cards + chips */}
       <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : 'max-w-[88%] flex-1'}`}>
         <div
-          className={`px-5 py-3 rounded-3xl text-[14.5px] leading-relaxed transition-all duration-200 max-w-full ${
+          className={`animate-fade-in px-5 py-3 rounded-3xl text-[14.5px] leading-relaxed transition-all duration-200 max-w-full ${
             isUser
-              ? 'bg-[#121118] text-white shadow-sm font-medium rounded-tr-sm'
-              : 'bg-white border border-[#e3e1e9]/65 text-slate-800 shadow-2xs font-normal rounded-tl-sm select-text'
+              ? 'bg-gradient-to-br from-[#3a5bef]/12 via-[#8b5cf6]/10 to-[#ff6a3d]/10 border border-[#8b5cf6]/25 text-[#1a1626] shadow-sm font-medium rounded-tr-sm'
+              : 'bg-white/75 backdrop-blur-sm border border-[#e8e2d9]/70 text-[#1a1626] shadow-2xs font-normal rounded-tl-sm select-text'
           }`}
         >
           <div
             className={`prose max-w-none prose-p:leading-relaxed prose-p:my-1.5 ${
               isUser
-                ? 'prose-invert prose-strong:text-white prose-a:text-amber-300 prose-code:text-amber-200'
-                : 'prose-slate prose-strong:text-slate-900 prose-a:text-blue-600 prose-code:text-rose-600 prose-pre:bg-slate-900 prose-pre:text-slate-100'
+                ? 'prose-slate prose-strong:text-[#1a1626] prose-a:text-[#2f49c4] prose-code:text-[#c2401f]'
+                : 'prose-slate prose-strong:text-[#1a1626] prose-a:text-[#2f49c4] prose-code:text-[#c2401f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
             }`}
           >
             <ReactMarkdown remarkPlugins={[remarkBreaks]}>{msg.content}</ReactMarkdown>
