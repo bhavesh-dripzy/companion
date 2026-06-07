@@ -458,7 +458,13 @@ GEMINI_LIVE_SYSTEM_INSTRUCTION = (
     "When the user wants to do something actionable — order food, book a cab, find events, "
     "manage reminders, or anything needing live data — you MUST call the companion_execute "
     "function with a complete natural-language intent. Do NOT answer such requests from your "
-    "own knowledge; always route them through companion_execute."
+    "own knowledge; always route them through companion_execute. "
+    # companion_execute is NON_BLOCKING, so you can keep talking while it runs.
+    "IMPORTANT: the moment you call companion_execute, FIRST say ONE short, natural Hinglish "
+    "status line so the user is never left in silence while it works — e.g. 'Ek second, check "
+    "kar raha hoon...', 'Zomato pe dekh raha hoon...', 'Order laga raha hoon...'. Keep it to "
+    "one short line, tailored to what they asked. Do NOT invent specific progress or fake "
+    "results — just a brief 'on it' cue. When the result comes back, speak the actual answer."
 )
 
 
@@ -542,6 +548,11 @@ async def voice_gemini_token_endpoint(
             function_declarations=[
                 types.FunctionDeclaration(
                     name="companion_execute",
+                    # NON_BLOCKING keeps the live conversation alive while the
+                    # tool runs (run_agent_turn can take 10-30s), so the model
+                    # can speak a status line instead of leaving dead air. The
+                    # client sends the result back with scheduling=INTERRUPT.
+                    behavior=types.Behavior.NON_BLOCKING,
                     description=(
                         "Execute actions for the user: order food, book cabs, find events, "
                         "manage reminders, answer questions, and more."
