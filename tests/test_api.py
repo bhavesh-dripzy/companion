@@ -71,6 +71,20 @@ def test_login_fails_with_wrong_credentials():
     assert response.status_code == 401
 
 
+def test_uber_oauth_callback_surfaces_provider_error():
+    response = client.get(
+        "/api/uber/oauth/callback",
+        params={
+            "error": "invalid_request",
+            "error_description": "No redirect URI for this client.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Uber returned OAuth error invalid_request" in response.text
+    assert "No redirect URI for this client." in response.text
+
+
 def test_login_uses_cognito_when_enabled(monkeypatch):
     class FakeCognitoClient:
         def initiate_auth(self, **kwargs):
@@ -1019,7 +1033,10 @@ def test_finance_and_health_providers_are_registered():
     assert providers["kite"]["label"] == "Zerodha Kite MCP"
     assert providers["kite"]["auth_mode"] == "tool"
     assert "get_holdings" in providers["kite"]["tools"]
-    assert "place_order" not in providers["kite"]["tools"]
+    # Mutating order tools are registered (routable) but guarded by mandatory
+    # two-step confirmation in the planner prompt; the executor never
+    # auto-emits them.
+    assert "place_order" in providers["kite"]["tools"]
 
     assert providers["groww"]["label"] == "Groww MCP"
     assert providers["groww"]["auth_mode"] == "oauth"

@@ -26,6 +26,14 @@ import {
 import { ZeptoCartCard, ZeptoProductCardGrid } from './components/ZeptoCards';
 import { InstamartCartCard, InstamartProductCardGrid } from './components/InstamartCards';
 import {
+  KiteHoldingsCard,
+  KiteInstrumentGrid,
+  KiteMarginCard,
+  KiteOpenOrdersCard,
+  KiteOrderTicketCard,
+  KitePositionsCard,
+} from './components/KiteCards';
+import {
   ExternalLink,
   MapPin,
   ChevronDown,
@@ -336,6 +344,19 @@ const PROVIDER_THEMES: Record<CardProvider, ProviderTheme> = {
     checkoutPrompt: 'Place my Instamart order.',
     cartHeaderTitle: 'Swiggy Instamart',
     activeRingClass: 'bg-[#E8632F]/10 ring-1 ring-[#E8632F]/30',
+  },
+  // Kite (Zerodha) uses Zerodha's brand blue (#387ED1) — visually distinct
+  // from every food / grocery provider so trading turns stand out in the
+  // chat scroll. ``checkoutPrompt`` doubles as the order-ticket confirm
+  // string (the safety-critical order ticket card fires it verbatim).
+  kite: {
+    label: 'Kite',
+    brandHex: '#387ED1',
+    brandTintBg: 'bg-[#387ED1]/5',
+    brandTintBorder: 'border-blue-100/80',
+    checkoutPrompt: 'Confirm and place the order.',
+    cartHeaderTitle: 'Zerodha Kite',
+    activeRingClass: 'bg-[#387ED1]/10 ring-1 ring-[#387ED1]/30',
   },
 };
 
@@ -1514,6 +1535,70 @@ export const AttachmentList: React.FC<{
           <InstamartCartCard
             key={`instamart-cart-${idx}`}
             cart={att.instamart_cart}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      // Kite (Zerodha trading): instrument tiles, portfolio tables, open
+      // orders, margins, and the safety-critical order ticket. See
+      // ./components/KiteCards.tsx — every action routes through the same
+      // /api/agent/query/ chat round-trip via onQuickPrompt.
+      if (kind === 'kite_instrument_cards') {
+        return (
+          <KiteInstrumentGrid
+            key={`kite-instruments-${idx}`}
+            attachment={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'kite_holdings_card' && att.holdings) {
+        return (
+          <KiteHoldingsCard
+            key={`kite-holdings-${idx}`}
+            holdings={att.holdings}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'kite_positions_card' && att.positions) {
+        return (
+          <KitePositionsCard
+            key={`kite-positions-${idx}`}
+            positions={att.positions}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'kite_open_orders_card' && att.orders) {
+        return (
+          <KiteOpenOrdersCard
+            key={`kite-orders-${idx}`}
+            orders={att.orders}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'kite_margin_card' && att.margin) {
+        return (
+          <KiteMarginCard
+            key={`kite-margin-${idx}`}
+            margin={att.margin}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'kite_order_ticket_card' && att.order_ticket) {
+        return (
+          <KiteOrderTicketCard
+            key={`kite-ticket-${idx}`}
+            ticket={att.order_ticket}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />

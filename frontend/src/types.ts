@@ -93,7 +93,7 @@ export interface RestaurantCardEntry {
 // QuickAction popovers. Cards without a `provider` field (legacy turns
 // from before this stamp landed) fall back to a neutral slate styling —
 // never a wrong-brand colour.
-export type CardProvider = 'zomato' | 'swiggy' | 'district' | 'zepto' | 'instamart';
+export type CardProvider = 'zomato' | 'swiggy' | 'district' | 'zepto' | 'instamart' | 'kite';
 
 // ---------------------------------------------------------------------------
 // District card entries. District spans three independent discovery
@@ -287,6 +287,121 @@ export interface InstamartCart {
   selected_address_id?: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Kite (Zerodha trading) card entries. The kite provider surfaces a
+// brokerage account, so cards are flat financial tables rather than the
+// product grids the grocery providers ship. Every kite attachment is
+// stamped ``provider: "kite"`` so the chat-side theme picker switches to
+// Zerodha blue. All fields except identifiers are optional — the backend
+// harvesters (``app/services/kite/mcp_executor.py``) coerce missing /
+// malformed values to ``null`` defensively, so the UI must guard every
+// numeric before formatting.
+// ---------------------------------------------------------------------------
+
+// One tradeable instrument tile — from ``search_instruments`` or the
+// quote harvesters (``get_ltp`` / ``get_ohlc`` / ``get_quotes``). The
+// quote harvesters stamp ``price_fetched_at`` (unix seconds) so the
+// planner's staleness rule has a timestamp; the UI shows it as a freshness
+// hint on the LTP chip.
+export interface KiteInstrumentCardEntry {
+  tradingsymbol: string;
+  exchange?: string | null;
+  instrument_token?: number | null;
+  name?: string | null;
+  last_price?: number | null;
+  // Unix seconds. Present only on rows lifted from a live quote fetch.
+  price_fetched_at?: number | null;
+}
+
+// One holdings row — a long-term (CNC) position in the demat account.
+export interface KiteHoldingRow {
+  tradingsymbol: string;
+  exchange?: string | null;
+  instrument_token?: number | null;
+  quantity?: number | null;
+  average_price?: number | null;
+  last_price?: number | null;
+  close_price?: number | null;
+  pnl?: number | null;
+  day_change?: number | null;
+  day_change_percentage?: number | null;
+  product?: string | null;
+}
+
+export interface KiteHoldings {
+  holdings: KiteHoldingRow[];
+  // Unix seconds stamped by the harvester when the snapshot was taken.
+  fetched_at?: number | null;
+}
+
+// One positions row — an intraday (MIS) / carry-forward (NRML) open
+// position, split into ``net`` and ``day`` buckets by the harvester.
+export interface KitePositionRow {
+  tradingsymbol: string;
+  exchange?: string | null;
+  instrument_token?: number | null;
+  product?: string | null;
+  quantity?: number | null;
+  average_price?: number | null;
+  last_price?: number | null;
+  pnl?: number | null;
+  m2m?: number | null;
+  value?: number | null;
+}
+
+export interface KitePositions {
+  net: KitePositionRow[];
+  day: KitePositionRow[];
+  fetched_at?: number | null;
+}
+
+// One open / pending order from ``get_orders``.
+export interface KiteOpenOrder {
+  order_id: string;
+  status?: string | null;
+  tradingsymbol?: string | null;
+  exchange?: string | null;
+  transaction_type?: string | null;
+  quantity?: number | null;
+  filled_quantity?: number | null;
+  pending_quantity?: number | null;
+  price?: number | null;
+  average_price?: number | null;
+  trigger_price?: number | null;
+  order_type?: string | null;
+  product?: string | null;
+  variety?: string | null;
+  order_timestamp?: string | null;
+}
+
+// The SAFETY-CRITICAL pending order ticket. The planner assembles this
+// (LLM-side) and it is round-tripped verbatim as ``session_kite_order_ticket``
+// every turn until the user confirms or cancels. The card renders EVERY
+// field explicitly with no silent defaults so the user reviews the exact
+// order before it is placed against a real-money account.
+export interface KiteOrderTicket {
+  tradingsymbol?: string | null;
+  exchange?: string | null;
+  transaction_type?: string | null;
+  quantity?: number | null;
+  order_type?: string | null;
+  product?: string | null;
+  variety?: string | null;
+  price?: number | null;
+  trigger_price?: number | null;
+  last_price?: number | null;
+  estimated_cost?: number | null;
+  [key: string]: unknown;
+}
+
+// Margin / funds snapshot from ``get_margins``. The backend forwards
+// whatever Kite returns (the equity/commodity ``available`` blocks), so
+// the shape is opaque — the card renders available cash + a couple of key
+// rows defensively.
+export interface KiteMargin {
+  [key: string]: unknown;
+}
+
 export interface ReservationCard {
   booking_id: string;
   res_id?: string;
@@ -369,6 +484,21 @@ export interface Attachment {
   //   kind === "instamart_cart_card"     → instamart_cart
   instamart_products?: InstamartProductCardEntry[];
   instamart_cart?: InstamartCart;
+  // Kite attachments — each kind carries exactly one of these typed
+  // fields (the backend's ``_collect_kite_attachments`` discriminates on
+  // ``kind``):
+  //   kind === "kite_instrument_cards" → instruments  (KiteInstrumentCardEntry[])
+  //   kind === "kite_holdings_card"    → holdings      (KiteHoldings)
+  //   kind === "kite_positions_card"   → positions     (KitePositions)
+  //   kind === "kite_open_orders_card" → orders        (KiteOpenOrder[])
+  //   kind === "kite_order_ticket_card"→ order_ticket  (KiteOrderTicket)
+  //   kind === "kite_margin_card"      → margin        (KiteMargin)
+  instruments?: KiteInstrumentCardEntry[];
+  holdings?: KiteHoldings;
+  positions?: KitePositions;
+  orders?: KiteOpenOrder[];
+  order_ticket?: KiteOrderTicket;
+  margin?: KiteMargin;
 }
 
 export interface Message {
@@ -608,6 +738,26 @@ export interface SessionInstamartAddress {
 
 export type SessionInstamartCart = InstamartCart;
 
+// Kite session-state echoes. ``session_kite_instruments`` is an LRU of
+// every instrument the user has been shown (so the planner can copy a
+// literal tradingsymbol/exchange/instrument_token triple instead of
+// re-running ``search_instruments``). ``session_kite_holdings`` /
+// ``session_kite_positions`` are the latest portfolio snapshots (single
+// dicts). ``session_kite_open_orders`` is the latest open-orders list, and
+// ``session_kite_order_ticket`` is the pending UNCONFIRMED order ticket
+// the planner assembled last turn — carried verbatim until the user
+// confirms or cancels. Same round-trip contract as the other session
+// indexes; the frontend echoes these untouched on every request.
+export type SessionKiteInstrument = KiteInstrumentCardEntry;
+
+export type SessionKiteHoldings = KiteHoldings;
+
+export type SessionKitePositions = KitePositions;
+
+export type SessionKiteOpenOrders = KiteOpenOrder;
+
+export type SessionKiteOrderTicket = KiteOrderTicket;
+
 export interface SessionReservation {
   booking_id: string;
   res_id?: string;
@@ -709,6 +859,16 @@ export interface QueryResponse {
   session_instamart_products?: SessionInstamartProduct[];
   session_instamart_addresses?: SessionInstamartAddress[];
   session_instamart_cart?: SessionInstamartCart | null;
+  // Kite session memory. Same echo contract as the other indexes — the
+  // frontend round-trips these untouched so the planner can copy literal
+  // instrument triples, read the latest portfolio snapshots, and resolve
+  // a "yes, place it" confirmation against the pending order ticket
+  // without re-deriving any of it from chat history.
+  session_kite_instruments?: SessionKiteInstrument[];
+  session_kite_holdings?: SessionKiteHoldings | null;
+  session_kite_positions?: SessionKitePositions | null;
+  session_kite_open_orders?: SessionKiteOpenOrders[];
+  session_kite_order_ticket?: SessionKiteOrderTicket | null;
   address_context?: AddressContext | null;
   attachments?: Attachment[];
 }

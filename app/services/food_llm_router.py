@@ -29,6 +29,7 @@ _BUILTIN_PROMPTS: dict[str, Path] = {
     "swiggy_instamart": _SVC_ROOT / "instamart" / "prompts" / "food.system.md",
     "zepto": _SVC_ROOT / "zepto" / "prompts" / "food.system.md",
     "district": _SVC_ROOT / "district" / "prompts" / "going_out.system.md",
+    "kite": _SVC_ROOT / "kite" / "prompts" / "trading.system.md",
 }
 
 # Union of known MCP tool names (used only to drop hallucinated tools).
@@ -108,6 +109,31 @@ _ALLOWED_TOOLS = frozenset(
         "create_wallet_order",
         "create_upi_reserve_pay_order",
         "check_payment_status",
+        # Kite / Zerodha (full surface — see app/services/kite/planner.py for the
+        # authoritative provider tool list). Mutating order tools are included
+        # here so the planner can emit them on a confirm turn; the two-step
+        # confirmation gate lives in app/services/kite/prompts/trading.system.md.
+        "login",
+        "get_profile",
+        "get_margins",
+        "get_holdings",
+        "get_positions",
+        "get_mf_holdings",
+        "get_order_history",
+        "get_order_trades",
+        "get_trades",
+        "get_gtts",
+        "get_historical_data",
+        "search_instruments",
+        "get_ltp",
+        "get_ohlc",
+        "get_quotes",
+        "place_order",
+        "modify_order",
+        "cancel_order",
+        "place_gtt_order",
+        "modify_gtt_order",
+        "delete_gtt_order",
     }
 )
 

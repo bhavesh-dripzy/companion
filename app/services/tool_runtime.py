@@ -167,27 +167,44 @@ KITE_PROVIDER = ToolProvider(
     auth_mode="tool",
     tools=frozenset(
         {
+            # Auth
             "login",
+            # Market data
             "search_instruments",
             "get_quotes",
             "get_ltp",
             "get_ohlc",
             "get_historical_data",
+            # Account / portfolio (read)
             "get_profile",
             "get_margins",
             "get_holdings",
             "get_positions",
             "get_mf_holdings",
+            # Orders & trades (read)
             "get_orders",
             "get_trades",
             "get_order_history",
             "get_order_trades",
             "get_gtts",
+            # Mutating — real-money order placement / modification. Registered
+            # (routable) but the planner prompt gates every one behind
+            # mandatory two-step user confirmation; the executor never
+            # auto-emits them.
+            "place_order",
+            "modify_order",
+            "cancel_order",
+            "place_gtt_order",
+            "modify_gtt_order",
+            "delete_gtt_order",
         }
     ),
     notes=(
-        "Hosted Zerodha Kite MCP endpoint. Companion exposes read-only/account "
-        "inspection tools by default; trading tools are intentionally not routed."
+        "Hosted Zerodha Kite MCP endpoint — a REAL-MONEY trading surface. "
+        "Read-only/account-inspection tools run freely; mutating order tools "
+        "(place/modify/cancel order + GTTs) are guarded by mandatory two-step "
+        "confirmation in the planner prompt and are never auto-called by the "
+        "executor."
     ),
 )
 
@@ -767,6 +784,11 @@ def execute_tool_plan_sync(
     session_instamart_products: list[dict[str, Any]] | None = None,
     session_instamart_addresses: list[dict[str, Any]] | None = None,
     session_instamart_cart: dict[str, Any] | None = None,
+    session_kite_instruments: list[dict[str, Any]] | None = None,
+    session_kite_holdings: dict[str, Any] | None = None,
+    session_kite_positions: dict[str, Any] | None = None,
+    session_kite_open_orders: list[dict[str, Any]] | None = None,
+    session_kite_order_ticket: dict[str, Any] | None = None,
     user_geo: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not any(isinstance(step, dict) and str(step.get("tool") or "").strip() for step in tool_plan):
@@ -944,6 +966,20 @@ def execute_tool_plan_sync(
                 session_zepto_products=session_zepto_products,
                 session_zepto_addresses=session_zepto_addresses,
                 session_zepto_cart=session_zepto_cart,
+            )
+        elif name == "kite":
+            from app.services.kite_mcp_executor import run_tool_plan_sync as run_kite_plan
+
+            provider_results[name] = run_kite_plan(
+                routed[name],
+                mcp_url=resolved_url,
+                user_id=user_id,
+                session_placeholders=session_placeholders,
+                session_kite_instruments=session_kite_instruments,
+                session_kite_holdings=session_kite_holdings,
+                session_kite_positions=session_kite_positions,
+                session_kite_open_orders=session_kite_open_orders,
+                session_kite_order_ticket=session_kite_order_ticket,
             )
         else:
             provider_results[name] = run_tool_plan_sync(
