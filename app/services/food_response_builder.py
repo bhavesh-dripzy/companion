@@ -472,8 +472,18 @@ _SYSTEM_PROMPT = (
     "implying it's the full list. **Never** invent or mention items beyond "
     "the visible slice; the next-turn planner cannot resolve their "
     "variant_id and create_cart will go to the wrong item.\n"
-    "- When the tool failed or returned nothing useful, acknowledge it gracefully "
-    "in plain language, and give the user a clear next step.\n"
+    "- **Distinguish a tool ERROR from genuinely empty results — they are not "
+    "the same.** A provider block with `\"ok\": false` (or a non-null `error` / "
+    "`error_detail`, e.g. one mentioning a timeout, 'timed out', connection, or "
+    "OAuth) means the lookup *could not be completed* — it does NOT mean nothing "
+    "exists. In that case say the service was slow or unavailable for a moment and "
+    "ask the user to try again (e.g. *\"<provider> abhi thoda slow tha, ek baar "
+    "phir try karein?\"*). NEVER tell the user there are no options / nothing is "
+    "delivering / no matches when the tool actually errored — that's a false "
+    "negative that makes a working restaurant look unavailable. Only say 'nothing "
+    "found' when `\"ok\": true` and the results are genuinely empty.\n"
+    "- When the tool returned nothing useful (ok, but empty results), acknowledge it "
+    "gracefully in plain language, and give the user a clear next step.\n"
     "- **Unresolved placeholders — read the diagnostics literally.** If the "
     "tool execution was incomplete the diagnostics contain a `skipped_tools` "
     "list, each item carrying `tool`, `reason`, and `placeholders`. The "
@@ -723,6 +733,7 @@ def build_assistant_message_with_llm(
     conversation_history: list[dict[str, str]] | None = None,
     attachments: list[dict[str, Any]] | None = None,
     address_context: dict[str, Any] | None = None,
+    reply_language: str | None = None,
 ) -> dict[str, Any]:
     """Generate the final assistant reply from raw tool output.
 
@@ -790,12 +801,26 @@ def build_assistant_message_with_llm(
         "address_context": safe_address_context,
     }
 
+    # Voice turns force Hinglish: the spoken conversation is in romanized
+    # Hindi, but ``current_user_message`` is a machine-generated English intent
+    # ("Add Rasmalai from Bikanervala to cart"). Left to its own language
+    # matching, the LLM would reply in English and break the voice persona.
+    language_directive = ""
+    if (reply_language or "").strip().lower() in {"hinglish", "hindi"}:
+        language_directive = (
+            "\n\nIMPORTANT: Reply in natural romanized Hinglish (conversational "
+            "Hindi written in the Roman/Latin alphabet, never Devanagari), "
+            "regardless of the language of `current_user_message` — that field is "
+            "a machine-generated English intent, not how the user actually spoke."
+        )
+
     user_prompt = (
         "Here is the structured tool output along with conversation context. "
         "Reply with the JSON object described in the system prompt — "
         "`{\"text\": \"...\", \"featured_variant_ids\": [...], \"show_cart\": false}` — "
         "and nothing else:\n"
         + json.dumps(payload, ensure_ascii=True, default=str)
+        + language_directive
     )
     trace(
         "response_llm.in",

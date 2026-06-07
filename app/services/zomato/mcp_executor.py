@@ -1606,8 +1606,11 @@ def _pick_richer_menu_entry(
     if new_rich < prev_rich:
         # Keep prev's addon/variant schema but refresh the cheap scalar
         # fields (price/discounted_price) from the newer envelope.
+        # ``res_id`` is refreshed too: a variant_id is outlet-scoped, so the
+        # newer fetch's res_id is authoritative and fixes any stale/missing
+        # restaurant stamp carried forward from a previous turn.
         merged = dict(prev)
-        for k in ("price", "discounted_price", "categories"):
+        for k in ("price", "discounted_price", "categories", "res_id"):
             if new.get(k) is not None:
                 merged[k] = new[k]
         return merged
@@ -1617,7 +1620,7 @@ def _pick_richer_menu_entry(
     if new_len and (not prev_len or new_len < prev_len):
         return new
     merged = dict(prev)
-    for k in ("price", "discounted_price", "categories"):
+    for k in ("price", "discounted_price", "categories", "res_id"):
         if new.get(k) is not None:
             merged[k] = new[k]
     return merged
@@ -2384,6 +2387,24 @@ async def _run_session_inner(
                             if rich_entries:
                                 new_entries = _merge_menu_index(new_entries, rich_entries)
                     if new_entries:
+                        # Stamp each fresh entry with the res_id THIS menu tool
+                        # actually queried (post-substitution exec_args), not the
+                        # global ``__RESTAURANT_ID__``. When the planner used a
+                        # literal res_id pulled from ``session_restaurants`` (the
+                        # fast path — e.g. "show Bikanervala ka menu" without a
+                        # fresh keyword search), ``__RESTAURANT_ID__`` still points
+                        # at the *previous* keyword search's first hit. The
+                        # end-of-turn ``current_rid`` stamp would then mis-tag
+                        # every item with the wrong restaurant, and the next
+                        # ``create_cart`` fails with "Variant ID … not found in
+                        # restaurant menu". The per-tool res_id is always correct.
+                        menu_fetch_rid = str((exec_args or {}).get("res_id") or "").strip()
+                        if menu_fetch_rid and not menu_fetch_rid.startswith("__"):
+                            for _entry in new_entries.values():
+                                if isinstance(_entry, dict) and not str(
+                                    _entry.get("res_id") or ""
+                                ).strip():
+                                    _entry["res_id"] = menu_fetch_rid
                         # Richness-aware merge into the cross-restaurant LRU.
                         # A sparse listing envelope arriving AFTER a
                         # by-categories envelope must not strip the

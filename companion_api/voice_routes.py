@@ -297,6 +297,10 @@ def voice_tool_execute_endpoint(
             session_menu=session_menu,
             session_cart=session_cart,
             pending_variant_choice=None,
+            # Voice persona speaks romanized Hinglish; the ``intent`` we pass as
+            # the user message is machine-generated English, so force the reply
+            # language explicitly or the responder would answer in English.
+            reply_language="hinglish",
         )
 
         assistant_text = result.get("assistant_message", "")

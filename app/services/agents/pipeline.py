@@ -2870,6 +2870,7 @@ def run_agent_turn(
     session_kite_open_orders: list[dict[str, Any]] | None = None,
     session_kite_order_ticket: dict[str, Any] | None = None,
     pending_variant_choice: list[dict[str, Any]] | None = None,
+    reply_language: str | None = None,
 ) -> dict[str, Any]:
     """
     Orchestrated agent turn producing the same response envelope as legacy /api/food/query/.
@@ -4040,6 +4041,7 @@ def run_agent_turn(
             user_message=user_message,
             llm=llm,
             conversation_history=conversation_history,
+            reply_language=reply_language,
         )
     elif task_type == "reminder_calendar":
         assistant_message = reply_reminder_calendar(
@@ -4071,6 +4073,7 @@ def run_agent_turn(
             conversation_history=conversation_history,
             attachments=attachments,
             address_context=address_context,
+            reply_language=reply_language,
         )
         assistant_message = str(response_payload.get("text") or "").strip()
         featured_ids = response_payload.get("featured_variant_ids")

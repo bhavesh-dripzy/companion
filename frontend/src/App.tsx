@@ -881,6 +881,7 @@ function App() {
     sessionRestaurants,
     sessionAddresses,
     sessionCart,
+    sessionMenu,
   });
   voiceCtxRef.current = {
     messages,
@@ -889,6 +890,7 @@ function App() {
     sessionRestaurants,
     sessionAddresses,
     sessionCart,
+    sessionMenu,
   };
 
   const handleVoiceTurn = (userText: string, assistantText: string) => {
@@ -951,6 +953,7 @@ function App() {
       sessionRestaurants: liveSessionRestaurants,
       sessionAddresses: liveSessionAddresses,
       sessionCart: liveSessionCart,
+      sessionMenu: liveSessionMenu,
     } = voiceCtxRef.current;
     const body: VoiceToolCallRequest = {
       intent,
@@ -963,6 +966,13 @@ function App() {
       ...(liveSessionRestaurants.length > 0 ? { session_restaurants: liveSessionRestaurants } : {}),
       ...(liveSessionAddresses.length > 0 ? { session_addresses: liveSessionAddresses } : {}),
       ...(liveSessionCart ? { session_cart: liveSessionCart } : {}),
+      // Round-trip the menu the user was just shown. Without this, the next
+      // turn ("add Rasmalai to cart") arrives with no variant_id and no
+      // res_id stamp, so the planner can't build a valid create_cart and the
+      // add silently fails — the exact bug where voice "doesn't show menu"
+      // and cart adds never land, while text chat (which always echoes
+      // session_menu) works.
+      ...(liveSessionMenu.length > 0 ? { session_menu: liveSessionMenu } : {}),
     };
 
     try {

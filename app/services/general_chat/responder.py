@@ -67,9 +67,18 @@ def reply_general_chat(
     user_message: str,
     llm: ResolvedLlm,
     conversation_history: list[dict[str, str]] | None = None,
+    reply_language: str | None = None,
 ) -> str:
     """General-chat agent turn: direct conversational reply (no MCP)."""
     system_prompt = _load_prompt()
+    if (reply_language or "").strip().lower() in {"hinglish", "hindi"}:
+        # Voice turns: force romanized Hinglish so the reply matches the
+        # spoken persona even when the incoming intent is machine English.
+        system_prompt += (
+            "\n\nIMPORTANT: Reply in natural romanized Hinglish (conversational "
+            "Hindi in the Roman/Latin alphabet, never Devanagari), regardless of "
+            "the language the user's message appears in."
+        )
     messages = _conversation_messages(
         user_message=user_message,
         conversation_history=conversation_history,
