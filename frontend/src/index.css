@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Fontshare (Indian Type Foundry) — Clash Display (wide, confident display)
+   + Satoshi (clean modern body). Distinctly modern-Indian, not generic. */
+@import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
@@ -6,167 +9,229 @@
   color-scheme: light;
 }
 
-/* Companion — new "glass + sunrise" theme based on the redesign. The
-   canvas is a soft amber/sky/lavender gradient blended over a cream
-   base; primary copy is slate-900, accents are indigo + emerald. The
-   tokens below double as fallbacks so any straggler `bg-surface` /
-   `bg-accent` classes from the previous design keep rendering. */
+/* ===========================================================================
+   Companion — "Toran / Gateway" theme (issue #12).
+   Sarvam-inspired continuous BLUE → VIOLET → ORANGE powdery spectrum: soft,
+   grainy radial washes (never flat fills), concentric-mandala geometry as
+   structural accents, gateway-arch framing, wide Clash Display headings.
+   Class names below match the previous design's so existing components keep
+   rendering — only the visual values change.
+   =========================================================================== */
 @theme {
-  --color-background: #f6f1ea;
+  /* Neutral base — warm paper + deep indigo "ink" (not pure black). */
+  --color-background: #f6f3ee;
   --color-surface: #ffffff;
   --color-surface-elevated: #ffffffcc;
-  --color-border: #e2e8f0;
-  --color-border-strong: #cbd5e1;
-  --color-accent: #0f172a;
-  --color-accent-hover: #1e293b;
-  --color-accent-soft: rgba(15, 23, 42, 0.08);
+  --color-border: #e8e2d9;
+  --color-border-strong: #d8d0c4;
+  --color-ink: #1a1626;
+  --color-muted: #6d6680;
 
-  --color-brand-from: #fef3c7;
-  --color-brand-via: #fde68a;
-  --color-brand-to: #fbbf24;
+  /* Primary action ink — deep indigo from the blue end of the spectrum. */
+  --color-accent: #2a2150;
+  --color-accent-hover: #1c1638;
+  --color-accent-soft: rgba(63, 73, 230, 0.10);
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
+  /* The blue→orange spectrum ramp (the core brand language). */
+  --color-spectrum-blue: #3a5bef;
+  --color-spectrum-azure: #5b8def;
+  --color-spectrum-violet: #8b5cf6;
+  --color-spectrum-magenta: #d9479b;
+  --color-spectrum-coral: #ff6a3d;
+  --color-spectrum-amber: #ff9a3c;
+
+  /* Legacy brand-* token names kept (some cards reference them) — retuned. */
+  --color-brand-from: #3a5bef;
+  --color-brand-via: #8b5cf6;
+  --color-brand-to: #ff6a3d;
+
+  --font-sans: "Satoshi", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Clash Display", "Satoshi", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  --animate-orb-glow: orb-glow 8s ease-in-out infinite alternate;
-  --animate-orb-spin: orb-spin 20s linear infinite;
-  --animate-pulse-slow: pulse-slow 3s ease-in-out infinite;
+  /* Motion language — one fluid easing used everywhere. */
+  --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-orb-glow: orb-glow 9s ease-in-out infinite alternate;
+  --animate-orb-spin: orb-spin 24s linear infinite;
+  --animate-pulse-slow: pulse-slow 3.4s ease-in-out infinite;
+  --animate-spectrum-drift: spectrum-drift 18s ease-in-out infinite alternate;
 }
 
+/* --- The brand gradient: a continuous blue→violet→orange smudge ---------- */
 .brand-gradient {
   background-image: linear-gradient(
-    135deg,
-    #0f172a 0%,
-    #1e293b 60%,
-    #334155 100%
+    110deg,
+    #3a5bef 0%,
+    #6f5cf2 32%,
+    #b14fc4 58%,
+    #ff6a3d 100%
   );
 }
-
 .brand-gradient-text {
   background-image: linear-gradient(
-    135deg,
-    #0f172a 0%,
-    #1e293b 60%,
-    #334155 100%
+    110deg,
+    #3a5bef 0%,
+    #8b5cf6 45%,
+    #ff6a3d 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
+/* Soft "powdery" gradient pill/border for cards + CTAs. */
+.spectrum-ring {
+  position: relative;
+  background:
+    linear-gradient(var(--color-surface), var(--color-surface)) padding-box,
+    linear-gradient(110deg, #3a5bef, #8b5cf6, #ff6a3d) border-box;
+  border: 1px solid transparent;
+}
+
+/* Primary CTA — gradient fill with a gentle lift. */
+.btn-spectrum {
+  background-image: linear-gradient(110deg, #3a5bef 0%, #6f5cf2 45%, #ff6a3d 100%);
+  color: #fff;
+  transition: transform 0.35s var(--ease-fluid), box-shadow 0.35s var(--ease-fluid), filter 0.35s var(--ease-fluid);
+  box-shadow: 0 8px 24px -10px rgba(58, 91, 239, 0.55);
+}
+.btn-spectrum:hover {
+  transform: translateY(-1px);
+  filter: saturate(1.08);
+  box-shadow: 0 14px 34px -12px rgba(255, 106, 61, 0.5);
+}
+.btn-spectrum:active { transform: translateY(0); }
+
 body {
   margin: 0;
   font-family: var(--font-sans);
-  color: #0f172a;
-  /* Soft cream canvas with a faint peach/rose bloom in the upper-right
-     and a cooler lavender wash drifting through the centre — mirrors
-     the painterly background in the redesign comps. */
-  background-color: #f6f1ea;
+  color: var(--color-ink);
+  /* Powdery aurora: large, soft, low-opacity radial washes — blue drifting
+     top-left, violet through the centre, coral blooming bottom-right — over
+     warm paper. Diffuse, never hard-edged. */
+  background-color: #f6f3ee;
   background-image:
-    radial-gradient(ellipse 60% 50% at 85% 0%, rgba(251, 191, 36, 0.18) 0%, transparent 70%),
-    radial-gradient(ellipse 80% 60% at 15% 100%, rgba(244, 114, 182, 0.14) 0%, transparent 70%),
-    radial-gradient(ellipse 100% 70% at 50% 40%, rgba(196, 181, 253, 0.18) 0%, transparent 75%),
-    linear-gradient(180deg, #f8f1ea 0%, #f3ece4 100%);
+    radial-gradient(60% 55% at 12% 6%, rgba(58, 91, 239, 0.16) 0%, transparent 70%),
+    radial-gradient(55% 50% at 88% 14%, rgba(255, 106, 61, 0.14) 0%, transparent 70%),
+    radial-gradient(70% 60% at 50% 96%, rgba(139, 92, 246, 0.14) 0%, transparent 72%),
+    radial-gradient(90% 70% at 50% 45%, rgba(217, 71, 155, 0.05) 0%, transparent 78%),
+    linear-gradient(180deg, #f7f4ef 0%, #f2ede5 100%);
   background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* Fine grain overlay — gives the gradients a "powdery" film instead of a
+   plastic flat wash. Sits above the canvas, below all content. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.4;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
 }
 
+/* --- Mandala / gateway structural motifs (used sparingly as accents) ----- */
+/* Faint concentric-ring mandala — drop behind hero/empty states. */
+.mandala-accent {
+  position: relative;
+}
+.mandala-accent::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    repeating-radial-gradient(circle at 50% 50%, rgba(58,91,239,0.05) 0 1px, transparent 1px 26px),
+    conic-gradient(from 0deg at 50% 50%, rgba(255,106,61,0.05), rgba(58,91,239,0.05), rgba(139,92,246,0.05), rgba(255,106,61,0.05));
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 68%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 68%);
+}
+/* Gateway arch — round the top of a framed element into a toran/arch. */
+.gateway-arch {
+  border-top-left-radius: 9999px;
+  border-top-right-radius: 9999px;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(15, 23, 42, 0.18);
+  background-image: linear-gradient(180deg, rgba(58,91,239,0.35), rgba(255,106,61,0.35));
   border-radius: 9999px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(15, 23, 42, 0.32);
+  background-image: linear-gradient(180deg, rgba(58,91,239,0.55), rgba(255,106,61,0.55));
 }
+
+::selection { background: rgba(255, 106, 61, 0.22); color: var(--color-ink); }
 
 body > #root {
   background: transparent;
   min-height: 100vh;
+  position: relative;
+  z-index: 1;
 }
 
-/* Slow-spin used for the rail clock + brand emblem. */
-@keyframes spin-slow {
-  to { transform: rotate(360deg); }
-}
-.animate-spin-slow {
-  animation: spin-slow 6s linear infinite;
+/* Fluid transitions on interactive chrome by default — smooth, never janky. */
+button, a, [role="button"], input, textarea, select {
+  transition:
+    color 0.3s var(--ease-fluid),
+    background-color 0.3s var(--ease-fluid),
+    border-color 0.3s var(--ease-fluid),
+    box-shadow 0.3s var(--ease-fluid),
+    transform 0.3s var(--ease-fluid),
+    opacity 0.3s var(--ease-fluid);
 }
 
-/* Gentle entrance used by the quick-action popover on restaurant cards
-   and the cart-summary card so they don't pop in jarringly when
-   they appear under an assistant bubble or after an item click. */
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: spin-slow 6s linear infinite; }
+
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-in {
-  animation: fade-in 0.28s ease-out both;
-}
+.animate-fade-in { animation: fade-in 0.4s var(--ease-fluid) both; }
 
-/* Hide the horizontal scrollbar on the quick-action chip row while
-   still allowing the row itself to scroll on overflow. */
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
+/* Staggered entrance for hero/cards — pair with inline animation-delay. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.scrollbar-none {
-  scrollbar-width: none;
-}
+.animate-rise-in { animation: rise-in 0.6s var(--ease-fluid) both; }
 
-/* New UI helper — used by the redesign's horizontal prompt ribbon,
-   sidebar lists, and the chat scroller so they overflow cleanly
-   without showing scrollbars. */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Animations pulled in from the new UI for the brand orb in the
-   left sidebar header and the hero idle states. */
+/* Brand orb — now drifts across the blue→orange spectrum. */
 @keyframes orb-glow {
-  0% {
-    transform: scale(1) translate(0px, 0px) rotate(0deg);
-    filter: hue-rotate(0deg) blur(20px);
-  }
-  33% {
-    transform: scale(1.08) translate(5px, -10px) rotate(120deg);
-    filter: hue-rotate(40deg) blur(30px);
-  }
-  66% {
-    transform: scale(0.95) translate(-10px, 8px) rotate(240deg);
-    filter: hue-rotate(85deg) blur(25px);
-  }
-  100% {
-    transform: scale(1.05) translate(2px, -3px) rotate(360deg);
-    filter: hue-rotate(120deg) blur(20px);
-  }
+  0%   { transform: scale(1) translate(0,0) rotate(0deg);     filter: hue-rotate(0deg) blur(22px); }
+  33%  { transform: scale(1.08) translate(6px,-10px) rotate(120deg); filter: hue-rotate(28deg) blur(30px); }
+  66%  { transform: scale(0.95) translate(-10px,8px) rotate(240deg); filter: hue-rotate(-18deg) blur(26px); }
+  100% { transform: scale(1.05) translate(2px,-3px) rotate(360deg);  filter: hue-rotate(12deg) blur(22px); }
 }
-
-@keyframes orb-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-
+@keyframes orb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes pulse-slow {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.9;
-  }
-  50% {
-    transform: scale(1.03);
-    opacity: 1;
-    box-shadow: 0 0 40px rgba(139, 92, 246, 0.3);
-  }
+  0%, 100% { transform: scale(1); opacity: 0.92; }
+  50% { transform: scale(1.03); opacity: 1; box-shadow: 0 0 44px rgba(139, 92, 246, 0.32); }
+}
+/* Slowly drift the brand gradient's hue/position so it feels "alive". */
+@keyframes spectrum-drift {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+.spectrum-animated {
+  background-size: 200% 200%;
+  animation: var(--animate-spectrum-drift);
 }
