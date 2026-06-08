@@ -1576,6 +1576,14 @@ def _companion_agent_turn(
     payload: FoodQueryRequest | AgentQueryRequest,
     user: str,
 ) -> dict[str, Any]:
+    # Shadow / cutover bridge: when CORE_PIPELINE is enabled, run the new core
+    # pipeline instead of the legacy one. Off by default — the live path below is
+    # untouched. core_shadow is imported lazily so it has zero effect when off.
+    if os.getenv("CORE_PIPELINE", "").strip().lower() in ("1", "true", "yes"):
+        from companion_api.core_shadow import run_core_turn_sync
+
+        return run_core_turn_sync(payload, user)
+
     provider_override = (payload.provider or "").strip()
     llm_cfg, err = resolve_llm_from_env(
         provider_override or secret_or_env("FOOD_ROUTER_PROVIDER")
