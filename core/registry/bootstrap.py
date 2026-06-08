@@ -32,9 +32,20 @@ def build_registry() -> ProviderRegistry:
     tools.register_all(builtin_tools())
     registry = ProviderRegistry(tools=tools)
 
+    from core.providers.plugins.calendar import CalendarProvider
+    from core.providers.plugins.maps import MapsProvider
     from core.providers.plugins.twilio import TwilioProvider
+    from core.providers.plugins.uber import UberProvider
+    from core.providers.plugins.whatsapp import WhatsAppProvider
 
-    _register(registry, TwilioProvider())
+    for plugin in (
+        TwilioProvider(),
+        MapsProvider(),
+        CalendarProvider(),
+        UberProvider(),
+        WhatsAppProvider(),
+    ):
+        _register(registry, plugin)
     return registry
 
 
