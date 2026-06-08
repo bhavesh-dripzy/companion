@@ -1,0 +1,149 @@
+{
+ "tool": "search_movies",
+ "arguments": {
+  "location": {
+   "latitude": 28.6139,
+   "longitude": 77.209
+  }
+ },
+ "result": {
+  "is_error": false,
+  "data": {
+   "status": null,
+   "movies": [
+    {
+     "movie_id": "187151",
+     "movie_name": "The Odyssey",
+     "actor": [
+      "Matt Damon",
+      "Tom Holland",
+      "Anne Hathaway",
+      "Robert Pattinson",
+      "Lupita Nyong'o",
+      "Charlize Theron",
+      "Jon Bernthal",
+      "Zendaya",
+      " Christopher Nolan"
+     ],
+     "director": "",
+     "genre": [
+      "Action",
+      "Adventure",
+      "Drama",
+      "Fantasy"
+     ],
+     "description": "The story follows Odysseus on his epic journey home after the Trojan War, highlighting his encounters with Polyphemus, the Sirens, and Circe, culminating in a heartfelt reunion with his wife, Penelope.",
+     "duration_minutes": 0,
+     "release_date": "2026-07-17",
+     "cbfc_certification": "A",
+     "web_url": "https://www.district.in/movies/the-odyssey-movie-tickets-MV187151",
+     "image_url": "https://cdn.district.in/movies-assets/images/cinema/THe-odyssey-poster-f81c2bf0-4852-11f1-ae93-11b250c87b8a.jpg",
+     "spotlight_thumbnail_url": "https://b.zmtcdn.com/data/edition_assets/17670236624935.png",
+     "spotlight_video_url": "https://cdn.district.in/movies-assets/videos/The%20odyssey.mp4english%20%20(1)-8bedf080-491a-11f1-9c02-7f58b613afc5.mp4"
+    },
+    {
+     "movie_id": "222961",
+     "movie_name": "BTS World Tour Arirang In Busan: Live Viewing",
+     "actor": [
+      "J-hope",
+      "Suga",
+      "Jimin",
+      "Jung Kook",
+      "Taehyun",
+      "Nam Joon Kim"
+     ],
+     "director": "",
+     "genre": [
+      "Musical"
+     ],
+     "description": "BTS returns to Busan Asiad Main Stadium for a grand homecoming concert during their record-breaking ARIRANG world tour. Held on the group\u2019s debut anniversary, the show celebrates BTS\u2019s journey, legacy, and future through an immersive 360-degree stage experience. Fans across the world can witness this unforgettable celebration live on the big screen.",
+     "duration_minutes": 195,
+     "release_date": "2026-06-13",
+     "cbfc_certification": "UA13+",
+     "web_url": "https://www.district.in/movies/bts-world-tour-arirang-in-busan-live-viewing-movie-tickets-MV222961",
+     "image_url": "https://cdn.district.in/movies-assets/images/cinema/Live-Viewing-FROM-BUSAN-poster-4374fa20-5800-11f1-9206-63f34336a044.jpg",
+     "spotlight_thumbnail_url": "https://cdn.district.in/movies-assets/images/cinema/BTS%20World%20Tour%20Arirang%20In%20Busan-%20Re-Broadcast-18daf240-5e51-11f1-98c3-4f7283f481c9.png",
+     "spotlight_video_url": "https://b.zmtcdn.com/data/edition_assets/17805669119946914.mp4"
+    },
+    {
+     "movie_id": "222962",
+     "movie_name": "BTS World Tour Arirang In Busan: Re-Broadcast",
+     "actor": [
+      "Nam Joon Kim",
+      "J-hope",
+      "Jimin",
+      "Suga",
+      "Jung Kook",
+      "Taehyun"
+     ],
+     "director": "",
+     "genre": [
+      "Musical"
+     ],
+     "description": "Broadcast live from Busan Asiad Main Stadium, BTS\u2019s ARIRANG concert marks the group\u2019s emotional return to the venue after 3 years and 8 months. Taking place on their debut anniversary, the performance brings together music, emotion, and spectacular stage production in a global live cinema event. Broadcast timings in select territories may vary due to local time zones.",
+     "duration_minutes": 195,
+     "release_date": "2026-06-13",
+     "cbfc_certification": "UA13+",
+     "web_url": "https://www.district.in/movies/bts-world-tour-arirang-in-busan-re-broadcast-movie-tickets-MV222962",
+     "image_url": "https://b.zmtcdn.com/data/edition_assets/17799531616126625.jpeg",
+     "spotlight_thumbnail_url": "https://cdn.district.in/movies-assets/images/cinema/BTS%20World%20Tour%20Arirang%20In%20Busan-%20Re-Broadcast-047bcc20-5e51-11f1-98c3-4f7283f481c9.png",
+     "spotlight_video_url": "https://cdn.district.in/movies-assets/videos/BTS%20WORLD%20TOUR%20ARIRANG%20IN%20BUSAN%20korean.mp4-30a06800-5fc9-11f1-9e3e-b31b8570434a.mp4"
+    },
+    {
+     "movie_id": "203409",
+     "movie_name": "Hai Jawani Toh Ishq Hona Hai",
+     "actor": [
+      "Varun Dhawan",
+      "Mrunal Thakur",
+      "Pooja Hegde",
+      "Jimmy Sheirgill",
+      "Maniesh Paul",
+      "Chunky Panday",
+      "Kubbra Sait",
+      "Mouni Roy",
+      "Ali Asgar",
+      "Rakesh Bedi",
+      "David Dhawan"
+     ],
+     "director": "",
+     "genre": [
+      "Drama",
+      "Romance",
+      "Comedy"
+     ],
+     "description": "Jass and Bani\u2019s five-year marriage begins to unravel as conflicting priorities around family and career push them toward separation. As their lives diverge, a series of unexpected situations complicates their choices, including a new relationship that emerges during Jass\u2019s time abroad. When unforeseen revelations come to light, he is forced to navigate shifting emotions, responsibilities, and relationships.",
+     "duration_minutes": 136,
+     "release_date": "2026-06-05",
+     "cbfc_certification": "UA16+",
+     "web_url": "https://www.district.in/movies/hai-jawani-toh-ishq-hona-hai-movie-tickets-MV203409",
+     "image_url": "https://cdn.district.in/movies-assets/images/cinema/Hai-Jawani-Toh-Ishq-Hona-Hai_Poster-b20447c0-4d0b-11f1-ab00-2bad8ba2a996.jpg",
+     "spotlight_thumbnail_url": "https://cdn.district.in/movies-assets/images/cinema/Hai-Jawani-Toh-Ishq-Hona-Hai_Spotlight_Poster-d621bbb0-4d0b-11f1-ab00-2bad8ba2a996.png",
+     "spotlight_video_url": "https://cdn.district.in/movies-assets/videos/yeh%20jawani%20-3775d6d0-37f9-11f1-840e-63804c65ce25.mp4"
+    },
+    {
+     "movie_id": "212841",
+     "movie_name": "Obsession",
+     "actor": [
+      "Michael Johnston",
+      "Inde Navarrette",
+      "Cooper Tomlinson",
+      "Megan Lawless",
+      "Curry Barker"
+     ],
+     "director": "",
+     "genre": [
+      "Horror"
+     ],
+     "description": "An intense fixation begins to dominate a person\u2019s thoughts and actions. As boundaries erode, attachment turns destructive. The need to possess overtakes judgment, leading to irreversible consequences.",
+     "duration_minutes": 110,
+     "release_date": "2026-05-29",
+     "cbfc_certification": "A",
+     "web_url": "https://www.district.in/movies/obsession-movie-tickets-MV212841",
+     "image_url": "https://cdn.district.in/movies-assets/images/cinema/_OBSESSION--74087e00-1dd1-11f1-9e7f-9f2aa613799a.jpg",
+     "spotlight_thumbnail_url": "https://cdn.district.in/movies-assets/images/cinema/Obsession-091a1d30-38d2-11f1-840e-63804c65ce25.png",
+     "spotlight_video_url": "https://cdn.district.in/movies-assets/videos/Obsession%20english.mp4-6c76e7f0-3968-11f1-840e-63804c65ce25.mp4"
+    }
+   ]
+  }
+ }
+}
