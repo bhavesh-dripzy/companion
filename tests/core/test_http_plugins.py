@@ -1,4 +1,4 @@
-"""Tests for the HTTP provider plugins (maps, calendar, uber, whatsapp)."""
+"""Tests for the HTTP provider plugins (maps, calendar, whatsapp)."""
 
 import asyncio
 
@@ -9,7 +9,6 @@ from core.contracts.tool_result import ErrorCode
 from core.providers.base import ExecCtx
 from core.providers.plugins.calendar import CalendarProvider
 from core.providers.plugins.maps import MapsProvider
-from core.providers.plugins.uber import UberProvider
 from core.providers.plugins.whatsapp import WhatsAppProvider
 from core.registry.bootstrap import build_registry
 
@@ -22,10 +21,9 @@ def _run(provider, call):
 
 def test_registry_wires_all_http_providers():
     registry = build_registry()
-    for pid in ("twilio", "maps", "calendar", "uber", "whatsapp"):
+    for pid in ("twilio", "maps", "calendar", "whatsapp"):
         assert registry.get(pid) is not None
     assert registry.tools.get("get_directions", provider="maps") is not None
-    assert registry.tools.get("book_cab", provider="uber").mutating
 
 
 def test_maps_happy_path(monkeypatch):
@@ -75,25 +73,6 @@ def test_calendar_missing_text_is_invalid():
         CalendarProvider().run([ToolCall(tool="create_calendar_reminder", arguments={})], ExecCtx())
     )
     assert result.results[0].error is ErrorCode.INVALID_ARGS
-
-
-def test_uber_adapter(monkeypatch):
-    import app.services.uber.executor as ube
-
-    monkeypatch.setattr(
-        ube,
-        "execute_uber_cab",
-        lambda **kw: {
-            "ok": True,
-            "deep_link": "https://m.uber.com/ul/?x=1",
-            "action": kw["plan"]["action"],
-        },
-    )
-    result = _run(
-        UberProvider(), ToolCall(tool="estimate_cab", arguments={"destination_text": "Airport"})
-    )
-    assert result.ok and result.results[0].data["action"] == "estimate"
-    assert any(a.kind == "cab_card" for a in UberProvider().build_attachments(result))
 
 
 def test_whatsapp_adapter(monkeypatch):

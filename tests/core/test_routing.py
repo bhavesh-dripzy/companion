@@ -29,7 +29,7 @@ def test_parse_routing_unknown_task_defaults_to_food():
 
 
 def test_parse_routing_sole_provider_tasks():
-    assert parse_routing({"task_type": "cab_booking"}, None).providers == ["uber"]
+    assert parse_routing({"task_type": "cab_booking"}, None).providers == []  # uber removed
     assert parse_routing({"task_type": "phone_call"}, None).providers == ["twilio"]
     assert parse_routing({"task_type": "maps_query"}, None).providers == ["maps"]
     assert parse_routing({"task_type": "normal_query"}, None).providers == []
@@ -50,7 +50,7 @@ def test_extract_previous_provider():
 
 def test_message_names_provider():
     assert message_names_provider("order from zomato")
-    assert message_names_provider("book an uber")
+    assert message_names_provider("get it on swiggy")
     assert not message_names_provider("order biryani")
 
 

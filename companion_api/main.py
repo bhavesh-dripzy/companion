@@ -77,11 +77,6 @@ from companion_api.google_maps import (
     compute_route,
     google_maps_configured,
 )
-from app.services.uber.client import (
-    complete_uber_oauth,
-    start_uber_oauth,
-    uber_status,
-)
 from app.services.whatsapp.handler import handle_whatsapp_webhook_event
 
 logger = logging.getLogger(__name__)
@@ -1313,68 +1308,6 @@ def google_calendar_oauth_callback(
         )
 
 
-# ---------------------------------------------------------------------------
-# Uber OAuth / status — cab booking for India via Uber Rider APIs
-# ---------------------------------------------------------------------------
-
-
-@app.get("/api/uber/status/")
-def uber_connection_status(user: str = Depends(get_current_user)) -> dict[str, Any]:
-    return uber_status(user)
-
-
-@app.get("/api/uber/oauth/start")
-def uber_oauth_start(
-    request: Request,
-    user: str = Depends(get_current_user),
-) -> dict[str, str]:
-    try:
-        return start_uber_oauth(
-            user_id=user,
-            redirect_uri=_public_url(request, "/api/uber/oauth/callback"),
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-@app.get("/api/uber/oauth/callback", response_class=HTMLResponse)
-def uber_oauth_callback(
-    code: str | None = Query(default=None),
-    state: str | None = Query(default=None),
-    error: str | None = Query(default=None),
-    error_description: str | None = Query(default=None),
-):
-    if error:
-        detail = error_description or error
-        return _oauth_result_page(
-            "Uber connection failed",
-            f"Uber returned OAuth error {error}: {detail}",
-            ok=False,
-        )
-    if not code or not state:
-        return _oauth_result_page(
-            "Uber connection failed",
-            "Uber did not return the expected authorization code.",
-            ok=False,
-        )
-    try:
-        complete_uber_oauth(code=code, state=state)
-        return _oauth_result_page(
-            "Uber connected",
-            "Companion can now estimate and request Uber rides where Uber has approved the required scopes.",
-            ok=True,
-        )
-    except Exception as exc:
-        return _oauth_result_page(
-            "Uber connection failed",
-            f"{type(exc).__name__}: {exc}",
-            ok=False,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Google Maps (Routes API) — distance + ETA from current location
-# ---------------------------------------------------------------------------
 
 
 

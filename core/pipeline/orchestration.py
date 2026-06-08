@@ -17,9 +17,8 @@ KNOWN_FOOD = frozenset({"zomato", "swiggy_food", "swiggy_instamart", "zepto", "d
 KNOWN_FINANCE = frozenset({"kite", "groww"})
 KNOWN_HEALTH = frozenset({"daily_calorie_tracker"})
 KNOWN_PROVIDER_IDS = KNOWN_FOOD | KNOWN_FINANCE | KNOWN_HEALTH
-# Tasks served by exactly one (HTTP) provider.
+# Tasks served by exactly one (HTTP) provider. (cab_booking/uber removed — not live.)
 _SOLE_PROVIDER = {
-    "cab_booking": "uber",
     "phone_call": "twilio",
     "maps_query": "maps",
     "reminder_calendar": "calendar",
@@ -88,9 +87,8 @@ def fallback_routing(previous_provider: str | None) -> RoutingDecision:
         return _decision("finance_investing", [previous_provider], reason, previous_provider)
     if previous_provider in KNOWN_HEALTH:
         return _decision("health_nutrition", [previous_provider], reason, previous_provider)
-    if previous_provider in ("uber", "twilio"):
-        task = "cab_booking" if previous_provider == "uber" else "phone_call"
-        return _decision(task, [previous_provider], reason, previous_provider)
+    if previous_provider == "twilio":
+        return _decision("phone_call", ["twilio"], reason, previous_provider)
     return _decision("food_delivery", ["zomato"], reason, previous_provider)
 
 
@@ -106,7 +104,6 @@ _PROVIDER_NAME_HINTS = (
     "district",
     "kite",
     "zerodha",
-    "uber",
 )
 
 

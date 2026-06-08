@@ -35,14 +35,12 @@ def build_registry() -> ProviderRegistry:
     from core.providers.plugins.calendar import CalendarProvider
     from core.providers.plugins.maps import MapsProvider
     from core.providers.plugins.twilio import TwilioProvider
-    from core.providers.plugins.uber import UberProvider
     from core.providers.plugins.whatsapp import WhatsAppProvider
 
     for plugin in (
         TwilioProvider(),
         MapsProvider(),
         CalendarProvider(),
-        UberProvider(),
         WhatsAppProvider(),
     ):
         _register(registry, plugin)
