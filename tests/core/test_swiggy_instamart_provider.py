@@ -49,6 +49,35 @@ def test_builds_per_variant_product_cards_from_real_data():
     assert amul["query"] == "milk"
 
 
+def test_builds_cart_card_and_session_cart():
+    # get_cart is mutating-state to populate; drive a representative envelope.
+    env = {
+        "is_error": False,
+        "data": {
+            "items": [
+                {
+                    "spinId": "S8PF9T8YLG",
+                    "displayName": "Amul Gold Milk 1 Ltr",
+                    "quantity": 2,
+                    "price": {"mrp": 72, "offerPrice": 72},
+                    "imageUrl": "https://x/milk.jpg",
+                    "quantityDescription": "1 L",
+                }
+            ],
+            "grandTotalPaise": 14400,
+        },
+    }
+    tr = ToolResult(tool="get_cart", provider="swiggy_instamart", ok=True, data=env)
+    provider = SwiggyInstamartProvider()
+    result = ProviderResult(provider="swiggy_instamart", results=[tr])
+    cards = [c for c in provider.build_attachments(result) if c.kind == "instamart_cart_card"]
+    assert len(cards) == 1
+    cart = cards[0].to_wire()["instamart_cart"]
+    assert cart["items"][0]["name"] == "Amul Gold Milk 1 Ltr" and cart["items"][0]["quantity"] == 2
+    assert cart["grand_total_paise"] == 14400
+    assert provider.merge({}, result)["session_instamart_cart"]["items"]
+
+
 def test_session_products_lru_keyed_by_spin_id():
     merged = SwiggyInstamartProvider().merge({}, _result())
     products = merged.get("session_instamart_products") or []

@@ -26,7 +26,10 @@ from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.swiggy_instamart.cards import build_product_cards
+from core.providers.plugins.swiggy_instamart.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.swiggy_instamart.session import SwiggyInstamartSession, merge_products
+
+_CART_TOOLS = {"get_cart", "update_cart", "clear_cart"}
 
 _DEFAULT_URL = "https://mcp.swiggy.com/im"
 
@@ -42,13 +45,18 @@ class SwiggyInstamartProvider(McpProvider):
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
-        return build_product_cards(result.results)
+        return [*build_product_cards(result.results), *build_cart_cards(result.results)]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)
         products = merge_products(slice_.get("session_instamart_products"), result.results)
         if products:
             merged["session_instamart_products"] = products
+        for tr in result.results:
+            if tr.tool in _CART_TOOLS and tr.ok:
+                snap = cart_snapshot(tr.data if isinstance(tr.data, dict) else {})
+                if snap:
+                    merged["session_instamart_cart"] = snap
         return merged
 
     async def plan(self, ctx: Any) -> Any:

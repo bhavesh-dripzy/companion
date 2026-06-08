@@ -61,6 +61,34 @@ def test_text_only_reply_yields_no_cards():
     assert ZeptoProvider().build_attachments(err) == []
 
 
+def test_builds_cart_card_and_session_cart():
+    env = {
+        "is_error": False,
+        "data": {
+            "items": [
+                {
+                    "productVariantId": _PVID,
+                    "storeProductId": "sp1",
+                    "name": "Frubon HiLo Milk",
+                    "quantity": 2,
+                    "price": 5800,
+                    "packSize": "500 ml X 2",
+                }
+            ],
+            "isEmpty": False,
+        },
+    }
+    tr = ToolResult(tool="view_cart", provider="zepto", ok=True, data=env)
+    provider = ZeptoProvider()
+    result = ProviderResult(provider="zepto", results=[tr])
+    cards = [c for c in provider.build_attachments(result) if c.kind == "zepto_cart_card"]
+    assert len(cards) == 1
+    cart = cards[0].to_wire()["zepto_cart"]
+    assert cart["items"][0]["name"] == "Frubon HiLo Milk" and cart["items"][0]["price_inr"] == 58.0
+    assert cart["grand_total_paise"] == 11600  # 5800 paise x 2
+    assert provider.merge({}, result)["session_zepto_cart"]["items"]
+
+
 def test_session_products_lru_keyed_by_variant_id():
     merged = ZeptoProvider().merge({}, _result())
     products = merged.get("session_zepto_products") or []
