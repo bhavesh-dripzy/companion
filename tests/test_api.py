@@ -87,7 +87,7 @@ def test_login_uses_cognito_when_enabled(monkeypatch):
             }
             return {"AuthenticationResult": {"AccessToken": "cognito-token"}}
 
-    monkeypatch.setattr(api_main, "cognito_enabled", lambda: True)
+    monkeypatch.setattr("companion_api.routers.auth.cognito_enabled", lambda: True)
     monkeypatch.setenv("COGNITO_CLIENT_ID", "client-1")
     monkeypatch.setattr(api_main.boto3, "client", lambda *_args, **_kwargs: FakeCognitoClient())
 
