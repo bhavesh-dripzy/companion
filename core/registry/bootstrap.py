@@ -14,14 +14,27 @@ from core.registry.seed import builtin_tools
 from core.registry.tool_registry import ToolRegistry
 
 
+def _register(registry: ProviderRegistry, provider: object) -> None:
+    """Register a plugin and, for HTTP plugins, its declared tools (real schemas
+    replace the seed entries). MCP plugins discover their tools at runtime."""
+    registry.register(provider)  # type: ignore[arg-type]
+    declared = getattr(provider, "declared_tools", None)
+    if callable(declared):
+        registry.tools.register_all(declared())
+
+
 def build_registry() -> ProviderRegistry:
-    """Construct a fresh registry with the builtin tool catalog loaded."""
+    """Construct a fresh registry: the builtin catalog plus every plugin.
+
+    Adding a provider is one line here — see CONTRIBUTING.md ("Adding a provider").
+    """
     tools = ToolRegistry()
     tools.register_all(builtin_tools())
     registry = ProviderRegistry(tools=tools)
-    # Plugin registration lands here in Phase 4, e.g.:
-    #   from core.providers.plugins.zomato import ZomatoProvider
-    #   registry.register(ZomatoProvider())
+
+    from core.providers.plugins.twilio import TwilioProvider
+
+    _register(registry, TwilioProvider())
     return registry
 
 
