@@ -14,7 +14,9 @@ from core.registry.bootstrap import build_registry
 pytestmark = pytest.mark.unit
 
 
-def test_registry_wires_all_mcp_providers_as_adapters():
+def test_registry_wires_not_yet_cutover_providers_as_adapters(monkeypatch):
+    # Force the no-cutover baseline (CLEAN_MCP="" -> every MCP provider on the adapter).
+    monkeypatch.setenv("CLEAN_MCP", "")
     registry = build_registry()
     for pid in ("zomato", "swiggy_food", "swiggy_instamart", "zepto", "district", "kite"):
         assert isinstance(registry.get(pid), LegacyMcpAdapter)

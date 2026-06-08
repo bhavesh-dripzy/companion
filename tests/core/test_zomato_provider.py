@@ -83,6 +83,37 @@ def test_clean_provider_builds_menu_cards_from_real_data():
     assert first["veg_kind"] == "veg" and first["image_url"].startswith("https://")
 
 
+def test_clean_provider_builds_session_menu_for_cart_by_name():
+    # session_menu lets the planner pick a variant_id on a follow-up create_cart.
+    menu_tr = ToolResult(
+        tool="get_menu_items_listing",
+        provider="zomato",
+        ok=True,
+        data=_MENU["result"],
+    )
+    merged = ZomatoProvider().merge({}, ProviderResult(provider="zomato", results=[menu_tr]))
+    session_menu = merged.get("session_menu") or []
+    garlic = next((e for e in session_menu if e["variant_id"] == "v_1048395714"), None)
+    assert garlic is not None, "the real menu item should be cached for cart-by-name"
+    assert garlic["item_name"] == "Classic Stuffed Garlic Bread" and garlic["price"] == 159
+    assert garlic["res_id"] == "22676334" and garlic["item_id"] == "ctl_785568411"
+
+
+def test_clean_provider_session_menu_includes_keyword_featured_items():
+    # Featured items[] from a keyword search also feed session_menu, res_id-stamped.
+    kw_tr = ToolResult(
+        tool="get_restaurants_for_keyword",
+        provider="zomato",
+        ok=True,
+        data=_FIXTURE["steps"][1]["result"],
+    )
+    merged = ZomatoProvider().merge({}, ProviderResult(provider="zomato", results=[kw_tr]))
+    session_menu = merged.get("session_menu") or []
+    assert session_menu, "keyword featured items should populate session_menu"
+    # Every entry is stamped with the restaurant it belongs to (parity trap).
+    assert all(e.get("res_id") for e in session_menu)
+
+
 def test_clean_provider_session_lru_dedupes_and_caps():
     prior = [{"res_id": "20324557", "name": "Old Domino's"}, {"res_id": "999", "name": "Other"}]
     merged = ZomatoProvider().merge({"session_restaurants": prior}, _provider_result())

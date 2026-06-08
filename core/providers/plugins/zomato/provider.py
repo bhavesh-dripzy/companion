@@ -32,6 +32,7 @@ from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.zomato.cards import build_restaurant_cards
 from core.providers.plugins.zomato.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.zomato.menu_cards import build_menu_cards
+from core.providers.plugins.zomato.menu_index import merge_menu
 from core.providers.plugins.zomato.payment_cards import build_payment_cards
 from core.providers.plugins.zomato.session import ZomatoSession, merge_restaurants
 
@@ -63,6 +64,11 @@ class ZomatoProvider(McpProvider):
         restaurants = merge_restaurants(slice_.get("session_restaurants"), result.results)
         if restaurants:
             merged["session_restaurants"] = restaurants
+        # session_menu: the variant→item index the planner reuses to create_cart
+        # by item name on a follow-up turn (from menu + keyword-search envelopes).
+        menu = merge_menu(slice_.get("session_menu"), result.results)
+        if menu:
+            merged["session_menu"] = menu
         # Zomato carts are single-restaurant replacement state: the latest
         # create_cart this turn overwrites session_cart whole.
         for tr in result.results:
