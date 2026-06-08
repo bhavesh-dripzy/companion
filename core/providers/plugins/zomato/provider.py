@@ -4,15 +4,15 @@ The base (`McpProvider`) drives the session/placeholder/execute loop; this plugi
 supplies only what is Zomato-specific:
 
   * `stdio_spec`  — the mcp-remote launch for `mcp-server.zomato.com` (tokens hydrated).
-  * `build_attachments` — restaurant cards from real `ToolResult`s (cards.py, golden-tested).
+  * `build_attachments` — menu + restaurant cards from real `ToolResult`s (golden-tested).
   * `merge` — fold this turn's restaurants into the session LRU.
   * `plan` — delegate to the tuned legacy domain agent (parity bridge, Phase-8-removed).
 
-Scope: restaurant *search* (read-only) is ported + validated against real data here.
-Cart/menu/payment cards still come from the proven legacy executor path (they need
-order-flow enrichment — cart-snapshot extraction, QR decode — and fixtures that
-can't be captured without mutating real orders); the bootstrap swap is gated on
-those landing so `dev` never regresses. See plugins/zomato/__init__ for status.
+Scope: restaurant + menu *search* (read-only) are ported + validated against real
+data here. Cart/payment cards still come from the proven legacy executor path
+(they need order-flow enrichment — cart-snapshot extraction, QR decode — and
+fixtures that can't be captured without mutating real orders); the bootstrap swap
+is gated on those landing so `dev` never regresses. See zomato/__init__ for status.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.zomato.cards import build_restaurant_cards
+from core.providers.plugins.zomato.menu_cards import build_menu_cards
 from core.providers.plugins.zomato.session import ZomatoSession, merge_restaurants
 
 _DEFAULT_URL = "https://mcp-server.zomato.com/mcp"
@@ -46,8 +47,12 @@ class ZomatoProvider(McpProvider):
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         # Provider-internal render order: payment -> menu -> restaurant -> cart.
-        # Restaurant is ported clean; the others stay on the executor path (see module docstring).
-        return build_restaurant_cards(result.results)
+        # Menu + restaurant are ported clean; payment/cart stay on the executor
+        # path (need order-flow enrichment + fixtures — see module docstring).
+        return [
+            *build_menu_cards(result.results),
+            *build_restaurant_cards(result.results),
+        ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)
