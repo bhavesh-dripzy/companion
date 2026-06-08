@@ -21,38 +21,12 @@ from core.contracts.tool import AuthMode, Tool
 from core.contracts.tool_call import ToolCall
 from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
 from core.providers.base import ExecCtx
+from core.providers.mcp.legacy_planner import legacy_plan
 
 
 def _resolve(path: str) -> Callable[..., Any]:
     module_name, attr = path.split(":")
     return getattr(importlib.import_module(module_name), attr)
-
-
-# session_* kwargs accepted by the legacy `_format_routing_message` context builder.
-_FORMAT_SESSION_KEYS = frozenset(
-    {
-        "session_restaurants",
-        "session_addresses",
-        "session_menu",
-        "session_movies",
-        "session_theatres",
-        "session_events",
-        "session_venues",
-        "session_artists",
-        "session_reservation",
-        "session_zepto_products",
-        "session_zepto_addresses",
-        "session_zepto_cart",
-        "session_instamart_products",
-        "session_instamart_addresses",
-        "session_instamart_cart",
-        "session_kite_instruments",
-        "session_kite_holdings",
-        "session_kite_positions",
-        "session_kite_open_orders",
-        "session_kite_order_ticket",
-    }
-)
 
 
 @dataclass
@@ -157,35 +131,9 @@ class LegacyMcpAdapter:
         return merged
 
     async def plan(self, ctx: Any) -> Any:
-        """Delegate planning to the provider's tuned legacy planner + context builder.
+        """Delegate planning to the provider's tuned legacy domain agent (parity bridge).
 
-        Reuses `_format_routing_message` (session context) and `_plan_for_provider`
-        (the provider's domain agent) so plan quality matches the legacy exactly.
-        Returns a ToolPlan normalized against the registry, or None to fall back.
-        """
-        raw = await asyncio.to_thread(self._plan_sync, ctx)
-        if not isinstance(raw, dict):
-            return None
-        from core.middleware.validator import normalize_plan
-
-        plan, _dropped = normalize_plan(raw, provider=self.id, tools=ctx.deps.registry.tools)
-        return plan
-
-    def _plan_sync(self, ctx: Any) -> dict[str, Any] | None:
-        from app.services.agents.pipeline import _format_routing_message, _plan_for_provider
-
-        session = ctx.session
-        profile = ctx.profile.model_dump() if ctx.profile else None
-        bag = {k: v for k, v in (session.legacy or {}).items() if k in _FORMAT_SESSION_KEYS}
-        routing_message = _format_routing_message(
-            ctx.request.message,
-            ctx.request.history,
-            session_state_keys=list(session.placeholders.keys()),
-            selected_address_id=session.selected_address_id,
-            pending_variant_choice=session.pending_variant_choice or None,
-            user_profile=profile,
-            **bag,
-        )
-        return _plan_for_provider(
-            self.id, routing_message=routing_message, llm=ctx.llm, user_id=ctx.request.user_id or ""
-        )
+        Shared with the clean McpProvider via `legacy_planner.legacy_plan` so the two
+        migration paths can't drift while both exist. Returns a normalized ToolPlan or
+        None to fall back to the generated-prompt planner."""
+        return await legacy_plan(self.id, ctx)
