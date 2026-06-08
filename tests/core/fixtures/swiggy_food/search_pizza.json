@@ -1,0 +1,130 @@
+{
+ "tool": "search_restaurants",
+ "arguments": {
+  "query": "pizza"
+ },
+ "result": {
+  "is_error": false,
+  "data": {
+   "restaurants": [
+    {
+     "id": "760631",
+     "name": "Olio - The Wood Fired Pizzeria (Ad)",
+     "cuisines": [
+      "Pizzas",
+      "Pastas",
+      "Italian",
+      "Fast Food",
+      "Snacks",
+      "Beverages",
+      "Desserts"
+     ],
+     "avgRating": 4.4,
+     "totalRatings": "3.3K+",
+     "costForTwo": "\u20b9300 for two",
+     "areaName": "SANT NAGAR",
+     "distanceKm": 6.1,
+     "deliveryTimeMinutes": 40,
+     "deliveryTimeRange": "35-40 MINS",
+     "offer": "65% OFF UPTO \u20b9130",
+     "imageUrl": "https://media-assets.swiggy.com/swiggy/image/upload/FOOD_CATALOG/IMAGES/CMS/2025/11/20/caabd642-425b-473d-9d96-92dacee73f21_0da09838-125a-4bab-8d9f-62f401549657.png",
+     "availabilityStatus": "OPEN"
+    },
+    {
+     "id": "425303",
+     "name": "La Pino'z Pizza (Ad)",
+     "cuisines": [
+      "Pizzas",
+      "Pastas",
+      "Italian",
+      "Fast Food"
+     ],
+     "avgRating": 4.1,
+     "totalRatings": "10K+",
+     "costForTwo": "\u20b9300 for two",
+     "areaName": "Kalkaji",
+     "distanceKm": 3.6,
+     "deliveryTimeMinutes": 33,
+     "deliveryTimeRange": "30-40 MINS",
+     "offer": "50% OFF",
+     "imageUrl": "https://media-assets.swiggy.com/swiggy/image/upload/xqtymlvxlpsfj9nbq2j2",
+     "availabilityStatus": "OPEN"
+    },
+    {
+     "id": "213268",
+     "name": "Zeba FC Halal (Ad)",
+     "cuisines": [
+      "Italian",
+      "Pizzas"
+     ],
+     "avgRating": 4.4,
+     "totalRatings": "1.5K+",
+     "costForTwo": "\u20b9200 for two",
+     "areaName": "Jasola",
+     "distanceKm": 4.9,
+     "deliveryTimeMinutes": 51,
+     "deliveryTimeRange": "50-60 MINS",
+     "offer": "ITEMS AT \u20b9139",
+     "imageUrl": "https://media-assets.swiggy.com/swiggy/image/upload/857a39f9d93b5be2aeb538c75463d839",
+     "availabilityStatus": "OPEN"
+    },
+    {
+     "id": "53788",
+     "name": "Pizza Hut (Ad)",
+     "cuisines": [
+      "Pizzas"
+     ],
+     "avgRating": 4.3,
+     "totalRatings": "10K+",
+     "costForTwo": "\u20b9350 for two",
+     "areaName": "Kalkaji",
+     "distanceKm": 3,
+     "deliveryTimeMinutes": 30,
+     "deliveryTimeRange": "30-35 MINS",
+     "offer": "60% OFF UPTO \u20b9110",
+     "imageUrl": "https://media-assets.swiggy.com/swiggy/image/upload/FOOD_CATALOG/IMAGES/CMS/2025/5/7/e4a3d9a3-9997-4b73-accc-b029abeb1cc9_83eb91d8-7d3d-4463-8e7e-9188ba95bcf7.jpg_compressed",
+     "availabilityStatus": "OPEN"
+    },
+    {
+     "id": "864780",
+     "name": "Paparizza - Woodfired Pizzas (Ad)",
+     "cuisines": [
+      "Italian",
+      "Pizzas",
+      "Pastas"
+     ],
+     "avgRating": 4.4,
+     "totalRatings": "1.0K+",
+     "costForTwo": "\u20b9400 for two",
+     "areaName": "Greater Kailash - 1",
+     "distanceKm": 5,
+     "deliveryTimeMinutes": 44,
+     "deliveryTimeRange": "40-45 MINS",
+     "offer": "50% OFF",
+     "imageUrl": "https://media-assets.swiggy.com/swiggy/image/upload/FOOD_CATALOG/IMAGES/CMS/2024/10/25/1609547c-6a4d-4d0c-a84e-93e9d2b253f8_8c478765-8012-4ce1-b768-70d871dc7dff.jpg",
+     "availabilityStatus": "OPEN"
+    },
+    {
+     "id": "324371",
+     "name": "Tossin Pizza (Ad)",
+     "cuisines": [
+      "Pizzas",
+      "Italian"
+     ],
+     "avgRating": 4.6,
+     "totalRatings": "2.6K+",
+     "costForTwo": "\u20b9600 for two",
+     "areaName": "Greater Kailash - 2",
+     "distanceKm": 4.6,
+     "deliveryTimeMinutes": 30,
+     "deliveryTimeRange": "25-35 MINS",
+     "offer": "50% OFF UPTO \u20b9100",
+     "imageUrl": "https://media-assets.swiggy.com/swiggy/image/upload/228f63a22597cc846f042d103360fde7",
+     "availabilityStatus": "OPEN"
+    }
+   ],
+   "total": 10,
+   "query": "pizza"
+  }
+ }
+}
