@@ -29,7 +29,9 @@ def test_builtin_catalog_reproduces_providers():
         "twilio",
     } <= providers
     assert len(reg.tools.for_provider("zomato")) == 11
-    assert len(builtin_tools()) == len(reg.tools)
+    # HTTP plugins (maps/calendar/uber/whatsapp) add their tools on top of the seed.
+    assert len(reg.tools) >= len(builtin_tools())
+    assert {"maps", "calendar", "uber", "whatsapp"} <= providers
 
 
 def test_tool_lookup_scoped_by_provider():
