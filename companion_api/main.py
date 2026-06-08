@@ -1089,61 +1089,6 @@ def mcp_tokens_status(
     return token_status
 
 
-@app.get("/api/tools/providers/")
-def tool_providers(user: str = Depends(get_current_user)):
-    return {"providers": list_tool_providers(user_id=user)}
-
-
-@app.post("/api/tools/providers/custom/")
-def create_custom_tool_provider(
-    payload: CustomMcpProviderRequest,
-    user: str = Depends(get_current_user),
-):
-    try:
-        provider = save_custom_tool_provider(
-            label=payload.label,
-            mcp_url=payload.mcp_url,
-            tools=payload.tools,
-            user_id=user,
-        )
-        return {"status": "success", "provider": provider}
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@app.post("/api/tools/providers/zapier/")
-def save_zapier_tool_provider(
-    payload: ZapierMcpProviderRequest,
-    user: str = Depends(get_current_user),
-):
-    try:
-        provider = save_custom_tool_provider(
-            label="Zapier MCP",
-            mcp_url=payload.mcp_url,
-            tools=payload.tools,
-            auth_mode="url",
-            provider_id="zapier_mcp",
-            user_id=user,
-        )
-        return {"status": "success", "provider": provider}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@app.delete("/api/tools/providers/custom/{provider_id}")
-def remove_custom_tool_provider(
-    provider_id: str,
-    user: str = Depends(get_current_user),
-):
-    provider = get_tool_provider(provider_id, user_id=user)
-    if not provider or not provider.custom:
-        raise HTTPException(status_code=404, detail="Custom MCP provider not found.")
-    deleted = delete_custom_tool_provider(provider_id, user_id=user)
-    return {"status": "success" if deleted else "missing", "provider_id": provider_id}
-
-
 @app.get("/api/mcp/tools/")
 def mcp_tools(
     provider: str = Query(default="zomato"),
@@ -1928,6 +1873,7 @@ from companion_api.routers.chats import router as chats_router  # noqa: E402
 from companion_api.routers.maps import router as maps_router  # noqa: E402
 from companion_api.routers.profile import router as profile_router  # noqa: E402
 from companion_api.routers.reminders import router as reminders_router  # noqa: E402
+from companion_api.routers.tools import router as tools_router  # noqa: E402
 from companion_api.routers.whatsapp import router as whatsapp_router  # noqa: E402
 
 app.include_router(chats_router)
@@ -1936,6 +1882,7 @@ app.include_router(profile_router)
 app.include_router(maps_router)
 app.include_router(whatsapp_router)
 app.include_router(calendar_router)
+app.include_router(tools_router)
 
 
 handler = Mangum(app, lifespan="off")
