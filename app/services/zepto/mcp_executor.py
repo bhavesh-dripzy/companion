@@ -799,27 +799,15 @@ def _resolve_coords(
 ) -> tuple[float, float] | None:
     """Choose lat/lng for ``__USER_LAT__`` / ``__USER_LNG__``.
 
-    Preference order: explicit ``user_geo`` from the request, then
-    geocoded ``location_text``, then anything already in
-    ``placeholder_values`` (carried from a previous turn).
+    Precedence:
+      1. **Planner-detected typed location wins** — if ``location_text`` is set
+         the user named a place (e.g. "near Saket"), so we geocode that and
+         ignore live GPS. Otherwise "near Saket" while at home in Koramangala
+         would silently search Koramangala.
+      2. Live GPS (``user_geo``) — used when no place was named.
+      3. Carry-over placeholder coords from a prior turn — last-resort fallback
+         so a follow-up turn without fresh GPS still works.
     """
-    if isinstance(user_geo, dict):
-        try:
-            lat = float(user_geo.get("latitude"))  # type: ignore[arg-type]
-            lng = float(user_geo.get("longitude"))  # type: ignore[arg-type]
-            return lat, lng
-        except (TypeError, ValueError):
-            pass
-
-    # Carried-forward placeholder coords from prior turn take precedence
-    # over geocoding (geocoding's noisier and re-runs would slowly drift).
-    try:
-        lat = float(placeholder_values.get("__USER_LAT__", ""))
-        lng = float(placeholder_values.get("__USER_LNG__", ""))
-        return lat, lng
-    except (TypeError, ValueError):
-        pass
-
     text = (location_text or "").strip()
     if text:
         try:
@@ -829,9 +817,24 @@ def _resolve_coords(
             if isinstance(point, GeoPoint):
                 return point.latitude, point.longitude
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "Zepto geocode failed for %r", text, exc_info=True
-            )
+            logger.warning("Zepto geocode failed for %r", text, exc_info=True)
+        # Geocode failed (no key / ZERO_RESULTS) — fall back to GPS rather
+        # than ignore the user's typed location AND their current coords.
+
+    if isinstance(user_geo, dict):
+        try:
+            lat = float(user_geo.get("latitude"))  # type: ignore[arg-type]
+            lng = float(user_geo.get("longitude"))  # type: ignore[arg-type]
+            return lat, lng
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        lat = float(placeholder_values.get("__USER_LAT__", ""))
+        lng = float(placeholder_values.get("__USER_LNG__", ""))
+        return lat, lng
+    except (TypeError, ValueError):
+        pass
 
     return None
 
