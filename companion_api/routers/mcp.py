@@ -6,21 +6,20 @@ the 12 /api/mcp/* routes, and /api/food/saved-addresses/ (which is MCP-backed).
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import uuid
 from typing import Any
 from urllib.parse import quote
 
-import boto3
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from app.services.food_response_builder import saved_address_label_from_mcp_item
-from app.services.tool_runtime import get_tool_provider
-from companion_api import settings
+from app.services.tool_runtime import (
+    get_tool_provider,
+    list_tool_providers,
+    update_tool_provider_tools,
+)
 from companion_api.auth import get_current_user
 from companion_api.secrets import secret_or_env
 from companion_api.web_utils import oauth_result_page as _oauth_result_page
@@ -539,9 +538,9 @@ def mcp_pairing_script(request: Request, code: str = Query(...)):
     version = "0.1.38"
     try:
         from app.services.zomato_mcp_executor import (
+            _mcp_remote_version,
             find_pairing_session_info,
             repo_root_from_settings,
-            _mcp_remote_version,
         )
 
         version = _mcp_remote_version(repo_root_from_settings()) or version
@@ -689,8 +688,8 @@ def mcp_test(
     from app.services.zomato_mcp_executor import (
         get_mcp_token_status,
         list_mcp_tools_sync,
-        restore_mcp_auth_tokens,
         repo_root_from_settings,
+        restore_mcp_auth_tokens,
         run_tool_plan_sync,
     )
 
