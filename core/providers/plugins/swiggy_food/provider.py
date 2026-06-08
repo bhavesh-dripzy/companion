@@ -29,8 +29,15 @@ from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.swiggy_food.cards import build_restaurant_cards
+from core.providers.plugins.swiggy_food.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.swiggy_food.menu_cards import build_menu_cards
-from core.providers.plugins.swiggy_food.session import SwiggyFoodSession, merge_restaurants
+from core.providers.plugins.swiggy_food.session import (
+    SwiggyFoodSession,
+    merge_menu,
+    merge_restaurants,
+)
+
+_CART_TOOLS = {"get_food_cart", "update_food_cart"}
 
 _DEFAULT_URL = "https://mcp.swiggy.com/food"
 
@@ -46,10 +53,11 @@ class SwiggyFoodProvider(McpProvider):
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
-        # Internal render order: menu -> restaurant (cart stays on the executor path).
+        # Internal render order: menu -> restaurant -> cart.
         return [
             *build_menu_cards(result.results),
             *build_restaurant_cards(result.results),
+            *build_cart_cards(result.results),
         ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
@@ -57,6 +65,17 @@ class SwiggyFoodProvider(McpProvider):
         restaurants = merge_restaurants(slice_.get("session_restaurants"), result.results)
         if restaurants:
             merged["session_restaurants"] = restaurants
+        menu = merge_menu(slice_.get("session_menu"), result.results)
+        if menu:
+            merged["session_menu"] = menu
+        # Single-restaurant replacement cart: the latest cart envelope wins.
+        for tr in result.results:
+            if tr.tool in _CART_TOOLS and tr.ok:
+                snap = cart_snapshot(
+                    tr.data if isinstance(tr.data, dict) else {}, args=tr.arguments
+                )
+                if snap:
+                    merged["session_cart"] = snap
         return merged
 
     async def plan(self, ctx: Any) -> Any:

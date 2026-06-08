@@ -115,6 +115,30 @@ def _menu_attachment(tr: ToolResult) -> Attachment | None:
     return Attachment(**payload)
 
 
+def menu_entries(envelope: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lean session_menu rows (variant_id→item_name/price, res_id-stamped) for the planner."""
+    data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
+    rest = data.get("restaurant") if isinstance(data.get("restaurant"), dict) else {}
+    res_id = rest.get("id") or rest.get("restaurant_id")
+    res_id = str(res_id).strip() if res_id not in (None, "") else None
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in _iter_menu_items(envelope):
+        card = _menu_card(raw)
+        if card is None or card["variant_id"] in seen:
+            continue
+        seen.add(card["variant_id"])
+        entry = {
+            "variant_id": card["variant_id"],
+            "item_name": card["name"],
+            "price": card.get("price"),
+        }
+        if res_id:
+            entry["res_id"] = res_id
+        out.append(entry)
+    return out
+
+
 def build_menu_cards(results: list[ToolResult]) -> list[Attachment]:
     out: list[Attachment] = []
     for tr in results:

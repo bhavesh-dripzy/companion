@@ -62,6 +62,69 @@ def test_clean_provider_builds_menu_and_restaurant_cards_from_real_data():
     assert "760631" in blob, "the real restaurant id from the live capture should appear"
 
 
+def test_clean_provider_builds_session_menu_from_real_menu():
+    menu_tr = ToolResult(
+        tool=_MENU["tool"],
+        provider="swiggy_food",
+        ok=not (_MENU["result"] or {}).get("is_error"),
+        data=_MENU["result"],
+    )
+    merged = SwiggyFoodProvider().merge(
+        {}, ProviderResult(provider="swiggy_food", results=[menu_tr])
+    )
+    session_menu = merged.get("session_menu") or []
+    assert session_menu, "menu items should be cached for cart-by-name"
+    first = session_menu[0]
+    assert first["item_name"] == "Fiery Jalapeno & Paprika Royal Pizza Slice"
+    assert first["res_id"] == "760631" and first["price"] == 199
+
+
+def test_clean_provider_builds_cart_card_and_session_cart():
+    # get_food_cart / update_food_cart are mutating to reach; drive a representative
+    # envelope shaped as _extract_swiggy_cart_snapshot reads it.
+    env = {
+        "is_error": False,
+        "data": {
+            "data": {
+                "cart_id": 99,
+                "restaurantId": "760631",
+                "items": [
+                    {
+                        "menu_item_id": "i1",
+                        "name": "Margherita",
+                        "quantity": 2,
+                        "subtotal": 296,
+                        "final_price": 159,
+                        "is_veg": 1,
+                    }
+                ],
+                "pricing": {"item_total": 296, "delivery_charge": 30, "to_pay": 209},
+                "offers": {"coupon_applied": "TRYNEW", "coupon_discount": 50},
+                "restaurant": {"deliverySubtitle": "35-40 mins to Home"},
+            },
+            "availablePaymentMethods": ["Cash on Delivery"],
+        },
+    }
+    tr = ToolResult(
+        tool="update_food_cart",
+        provider="swiggy_food",
+        ok=True,
+        arguments={"restaurantName": "Olio"},
+        data=env,
+    )
+    provider = SwiggyFoodProvider()
+    result = ProviderResult(provider="swiggy_food", results=[tr])
+    cards = [c for c in provider.build_attachments(result) if c.kind == "cart_card"]
+    assert len(cards) == 1
+    cart = cards[0].to_wire()
+    assert cart["provider"] == "swiggy" and cart["cart"]["restaurant_name"] == "Olio"
+    assert (
+        cart["cart"]["items"][0]["discounted_price"] == 159
+        and cart["cart"]["promo_code"] == "TRYNEW"
+    )
+    assert provider.merge({}, result)["session_cart"]["cart_id"] == "99"
+
+
 def test_clean_provider_session_restaurants_round_trip():
     merged = SwiggyFoodProvider().merge({}, _result())
     restaurants = merged.get("session_restaurants") or []
