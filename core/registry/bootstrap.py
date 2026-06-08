@@ -19,7 +19,9 @@ from core.registry.tool_registry import ToolRegistry
 # LegacyMcpAdapter until their mutating-flow cards land (swiggy/instamart/zepto
 # cart, district reservation, kite order-ticket). Override with CLEAN_MCP (an
 # explicit comma list, empty = none); LEGACY_PIPELINE=1 reverts the whole pipeline.
-_DEFAULT_CLEAN_MCP = frozenset({"zomato", "swiggy_food", "swiggy_instamart", "zepto"})
+_DEFAULT_CLEAN_MCP = frozenset(
+    {"zomato", "swiggy_food", "swiggy_instamart", "zepto", "district"}
+)
 
 
 def _clean_mcp_ids() -> frozenset[str]:

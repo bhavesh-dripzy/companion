@@ -26,7 +26,13 @@ from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.district.cards import build_attachments as build_district_cards
+from core.providers.plugins.district.reservation import (
+    build_reservation_cards,
+    reservation_snapshot,
+)
 from core.providers.plugins.district.session import merge as merge_district_session
+
+_BOOKING_TOOLS = {"create_table_reservation_booking", "get_booking_details"}
 
 _DEFAULT_URL = "https://mcp-server.district.in/mcp"
 
@@ -42,10 +48,21 @@ class DistrictProvider(McpProvider):
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
-        return build_district_cards(result.results)
+        return [
+            *build_district_cards(result.results),
+            *build_reservation_cards(result.results),
+        ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
-        return merge_district_session(slice_, result.results)
+        merged = merge_district_session(slice_, result.results)
+        for tr in result.results:
+            if tr.tool in _BOOKING_TOOLS and tr.ok:
+                snap = reservation_snapshot(
+                    tr.data if isinstance(tr.data, dict) else {}, args=tr.arguments
+                )
+                if snap:
+                    merged["session_reservation"] = snap
+        return merged
 
     async def plan(self, ctx: Any) -> Any:
         return await legacy_plan(self.id, ctx)

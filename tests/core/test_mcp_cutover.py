@@ -51,8 +51,8 @@ def test_default_cutover_runs_zomato_clean_rest_adapter(monkeypatch):
     monkeypatch.delenv("CLEAN_MCP", raising=False)
     reg = build_registry()
     assert isinstance(reg.get("zomato"), ZomatoProvider), "zomato is cut over by default"
-    # not-yet-cut-over providers stay on the proven adapter.
-    assert isinstance(reg.get("district"), LegacyMcpAdapter)
+    # kite is the last provider still on the proven adapter (order-ticket round-trip).
+    assert isinstance(reg.get("kite"), LegacyMcpAdapter)
 
 
 def test_shadow_parity_clean_vs_adapter_on_real_capture(monkeypatch):
