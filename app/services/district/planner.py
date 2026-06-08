@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,32 @@ from app.services.food_llm_router import complete_json_object, finalize_tool_pla
 from app.services.llm_config import ResolvedLlm
 
 _PROMPTS = Path(__file__).resolve().parent / "prompts"
+# Date math for "today" / "tomorrow" / "this weekend" must happen against IST,
+# since District operates in India and the LLM has no clock of its own.
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _date_context_for_planner() -> str:
+    """Compact today/tomorrow/weekend hint prepended to the user message.
+
+    The system prompt tells the planner to resolve relative dates itself, but
+    the LLM has no real clock — without this hint it picks a date from its
+    training distribution, which silently breaks `search_shows` / `search_events`
+    (District returns 0 results for dates with no listings).
+    """
+    today = datetime.now(_IST).date()
+    tomorrow = today + timedelta(days=1)
+    # Next Saturday + Sunday for "this weekend".
+    days_to_sat = (5 - today.weekday()) % 7
+    sat = today + timedelta(days=days_to_sat or 7 if today.weekday() > 5 else days_to_sat)
+    sun = sat + timedelta(days=1)
+    return (
+        f"[Date context — Asia/Kolkata]\n"
+        f"today = {today.isoformat()} ({today.strftime('%A')})\n"
+        f"tomorrow = {tomorrow.isoformat()} ({tomorrow.strftime('%A')})\n"
+        f"this_weekend = {sat.isoformat()} to {sun.isoformat()}\n"
+        f"Use these when resolving 'today', 'tomorrow', 'this weekend', etc.\n"
+    )
 
 _DISTRICT_TOOLS = frozenset(
     {
@@ -45,8 +72,9 @@ def plan_district(
     user_message: str,
     llm: ResolvedLlm,
 ) -> dict[str, Any]:
+    framed_user_message = f"{_date_context_for_planner()}\n{user_message}"
     data = complete_json_object(
-        user_message=user_message,
+        user_message=framed_user_message,
         system_prompt=_load_prompt(),
         api_key=llm.api_key,
         model=llm.model,

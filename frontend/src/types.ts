@@ -914,6 +914,10 @@ export interface VoiceToolCallRequest {
   history: Array<{ role: string; content: string }>;
   session_state?: Record<string, string>;
   chat_id?: string | null;
+  // Live GPS from navigator.geolocation. The backend uses this when the user
+  // did NOT name a place in their intent; when they did ("near Saket"), the
+  // planner geocodes the named place and ignores this field.
+  geo?: { latitude: number; longitude: number; accuracy_meters?: number };
   session_restaurants?: SessionRestaurant[];
   session_addresses?: SessionAddress[];
   session_cart?: SessionCart | null;

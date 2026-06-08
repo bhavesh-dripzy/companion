@@ -895,6 +895,7 @@ function App() {
     sessionAddresses,
     sessionCart,
     sessionMenu,
+    userLocation,
   });
   voiceCtxRef.current = {
     messages,
@@ -904,6 +905,7 @@ function App() {
     sessionAddresses,
     sessionCart,
     sessionMenu,
+    userLocation,
   };
 
   const handleVoiceTurn = (userText: string, assistantText: string) => {
@@ -967,6 +969,7 @@ function App() {
       sessionAddresses: liveSessionAddresses,
       sessionCart: liveSessionCart,
       sessionMenu: liveSessionMenu,
+      userLocation: liveUserLocation,
     } = voiceCtxRef.current;
     const body: VoiceToolCallRequest = {
       intent,
@@ -976,6 +979,20 @@ function App() {
       })),
       session_state: Object.keys(liveSessionState).length > 0 ? liveSessionState : undefined,
       chat_id: liveChatId,
+      // Live GPS so the backend can default location-aware queries to the
+      // user's current spot. Planner-detected places ("near Saket") still
+      // win — see _resolve_coords precedence on the backend.
+      ...(liveUserLocation
+        ? {
+            geo: {
+              latitude: liveUserLocation.latitude,
+              longitude: liveUserLocation.longitude,
+              ...(liveUserLocation.accuracyMeters !== undefined
+                ? { accuracy_meters: liveUserLocation.accuracyMeters }
+                : {}),
+            },
+          }
+        : {}),
       ...(liveSessionRestaurants.length > 0 ? { session_restaurants: liveSessionRestaurants } : {}),
       ...(liveSessionAddresses.length > 0 ? { session_addresses: liveSessionAddresses } : {}),
       ...(liveSessionCart ? { session_cart: liveSessionCart } : {}),

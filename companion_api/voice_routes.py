@@ -103,6 +103,12 @@ class VoiceToolExecuteRequest(BaseModel):
     history: list[dict] = []
     session_state: dict = {}
     chat_id: str | None = None
+    # Live GPS captured by the browser. The executor uses this when the user
+    # did NOT name a place ("find me restaurants near me"). When the user does
+    # name a place ("near Saket"), the planner emits requested_location_text
+    # and the executor geocodes that instead, ignoring this field — same
+    # precedence as the text-chat path.
+    geo: dict | None = None
     session_restaurants: list[dict] | None = None
     session_addresses: list[dict] | None = None
     session_cart: dict | None = None
@@ -229,6 +235,29 @@ def _sanitise_session_menu(raw: list[dict] | None) -> list[dict[str, Any]] | Non
     return cleaned or None
 
 
+def _sanitise_user_geo(raw: dict | None) -> dict[str, Any] | None:
+    """Validate the browser-supplied lat/lng before forwarding to executors."""
+    if not isinstance(raw, dict):
+        return None
+    lat = raw.get("latitude", raw.get("lat"))
+    lng = raw.get("longitude", raw.get("lng"))
+    try:
+        lat_f = float(lat)
+        lng_f = float(lng)
+    except (TypeError, ValueError):
+        return None
+    if not (-90.0 <= lat_f <= 90.0) or not (-180.0 <= lng_f <= 180.0):
+        return None
+    out: dict[str, Any] = {"latitude": lat_f, "longitude": lng_f}
+    acc = raw.get("accuracy_meters", raw.get("accuracyMeters"))
+    if acc is not None:
+        try:
+            out["accuracy_meters"] = float(acc)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
 def _sanitise_session_reservation(raw: dict | None) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -277,6 +306,7 @@ def voice_tool_execute_endpoint(
         session_venues = _clean_session_index(request.session_venues, id_key="venue_id")
         session_artists = _clean_session_index(request.session_artists, id_key="artist_id")
         session_reservation = _sanitise_session_reservation(request.session_reservation)
+        user_geo = _sanitise_user_geo(request.geo)
 
         # Voice shares the same pipeline as text chat. The redesigned core
         # pipeline is the default; LEGACY_PIPELINE=1 falls back to the monolith.
@@ -290,6 +320,10 @@ def voice_tool_execute_endpoint(
                     "history": recent_history,
                     "chat_id": request.chat_id,
                     "execute_tools": True,
+                    # Live browser GPS — the executor uses this when the user
+                    # didn't name a place; named places ("near Saket") are
+                    # geocoded and override this. See _resolve_coords precedence.
+                    "user_geo": user_geo,
                     "session_state": session_state,
                     "session_restaurants": session_restaurants,
                     "session_addresses": session_addresses,
@@ -313,7 +347,7 @@ def voice_tool_execute_endpoint(
                 user_id=user,
                 llm=llm_cfg,
                 conversation_history=recent_history,
-                user_geo=None,
+                user_geo=user_geo,
                 session_state=session_state,
                 session_restaurants=session_restaurants,
                 session_addresses=session_addresses,
@@ -326,6 +360,9 @@ def voice_tool_execute_endpoint(
                 session_menu=session_menu,
                 session_cart=session_cart,
                 pending_variant_choice=None,
+                # Voice persona speaks romanized Hinglish; the ``intent`` we pass as
+                # the user message is machine-generated English, so force the reply
+                # language explicitly or the responder would answer in English.
                 reply_language="hinglish",
             )
 

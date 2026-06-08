@@ -525,21 +525,43 @@ def _resolve_coords(
     placeholder_values: dict[str, str],
     location_text: str | None,
     user_geo: dict[str, Any] | None,
-) -> tuple[float, float] | None:
+) -> tuple[tuple[float, float] | None, str | None]:
+    """Resolve the lat/lng to seed into ``__USER_LAT__`` / ``__USER_LNG__``.
+
+    Precedence:
+      1. **Planner-detected typed location wins** — if ``location_text`` is set
+         the user explicitly named a place ("near Saket", "in Bandra"), so we
+         geocode that and ignore live GPS. Without this, asking for restaurants
+         in another city while at home would silently search the user's current
+         neighbourhood.
+      2. Live GPS (``user_geo``) — used when the user gave no location hint.
+      3. Carry-over from prior turns' session_state — used when neither of the
+         above is available (e.g. a follow-up turn with no fresh GPS).
+
+    Returns ``(coords, source)`` so callers can log which path won.
+    """
+    text = (location_text or "").strip()
+    if text:
+        geocoded = _geocode_via_google(text)
+        if geocoded:
+            return geocoded, "geocoded_text"
+        # Geocoding failed (no key, ZERO_RESULTS, network blip). Fall back
+        # to GPS rather than search a stale prior coord set — at least the
+        # user's actual area beats sticking with last-turn's location.
+
     geo = _coords_from_user_geo(user_geo)
     if geo:
-        return geo
+        return geo, "user_geo"
+
     lat = placeholder_values.get("__USER_LAT__")
     lng = placeholder_values.get("__USER_LNG__")
     if lat and lng:
         try:
-            return float(lat), float(lng)
+            return (float(lat), float(lng)), "session_carry"
         except ValueError:
             pass
-    text = (location_text or "").strip()
-    if text:
-        return _geocode_via_google(text)
-    return None
+
+    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -659,7 +681,7 @@ async def _run_district_session_inner(
     # have to think about coords any more than they think about address
     # IDs. The planner just emits the placeholder; we substitute the
     # current value the same way.
-    coords = _resolve_coords(
+    coords, coords_source = _resolve_coords(
         placeholder_values=placeholder_values,
         location_text=location_text,
         user_geo=user_geo,
@@ -667,7 +689,11 @@ async def _run_district_session_inner(
     if coords:
         placeholder_values["__USER_LAT__"] = str(coords[0])
         placeholder_values["__USER_LNG__"] = str(coords[1])
-        diagnostics["resolved_location"] = {"latitude": coords[0], "longitude": coords[1]}
+        diagnostics["resolved_location"] = {
+            "latitude": coords[0],
+            "longitude": coords[1],
+            "source": coords_source,  # "geocoded_text" | "user_geo" | "session_carry"
+        }
     elif location_text:
         diagnostics["location_resolution"] = "failed"
         diagnostics["location_hint"] = (
