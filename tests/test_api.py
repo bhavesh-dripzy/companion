@@ -1096,7 +1096,7 @@ def test_chat_messages_endpoint_returns_persisted_history(monkeypatch):
                 },
             ]
 
-    monkeypatch.setattr(api_main, "MessageRepository", FakeMessageRepository)
+    monkeypatch.setattr("companion_api.routers.chats.MessageRepository", FakeMessageRepository)
 
     response = client.get(
         "/api/chats/chat-xyz/messages/?limit=2", headers=auth_headers()
@@ -1137,7 +1137,7 @@ def test_list_chats_endpoint_returns_sidebar_summary(monkeypatch):
                 },
             ]
 
-    monkeypatch.setattr(api_main, "ChatRepository", FakeChatRepository)
+    monkeypatch.setattr("companion_api.routers.chats.ChatRepository", FakeChatRepository)
 
     response = client.get("/api/chats/", headers=auth_headers())
 
@@ -1163,8 +1163,8 @@ def test_delete_chat_endpoint_drops_messages_and_metadata(monkeypatch):
             calls["chat"] = (member_id, chat_id)
             return True
 
-    monkeypatch.setattr(api_main, "MessageRepository", FakeMessageRepository)
-    monkeypatch.setattr(api_main, "ChatRepository", FakeChatRepository)
+    monkeypatch.setattr("companion_api.routers.chats.MessageRepository", FakeMessageRepository)
+    monkeypatch.setattr("companion_api.routers.chats.ChatRepository", FakeChatRepository)
 
     response = client.delete(
         "/api/chats/chat-xyz/", headers=auth_headers()
