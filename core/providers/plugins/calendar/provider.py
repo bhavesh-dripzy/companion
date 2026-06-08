@@ -13,7 +13,7 @@ from typing import Any
 from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode, Tool
 from core.contracts.tool_call import ToolCall
-from core.contracts.tool_result import ErrorCode, ToolResult
+from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
 from core.middleware.errors import InvalidArgsError
 from core.providers.base import ExecCtx
 from core.providers.http.http_base import HttpProvider
@@ -119,10 +119,10 @@ class CalendarProvider(HttpProvider):
             error_detail=None if ok else str(result.get("error") or ""),
         )
 
-    def build_attachments(self, results: list[ToolResult]) -> list[Attachment]:
+    def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         cards = []
-        for result in results:
-            event = (result.data or {}).get("calendar_event") if result.ok else None
+        for tr in result.results:
+            event = (tr.data or {}).get("calendar_event") if tr.ok else None
             if event:
                 cards.append(Attachment(kind="calendar_event_card", **event))
         return cards

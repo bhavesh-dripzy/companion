@@ -14,7 +14,7 @@ from core.contracts.attachment import Attachment
 from core.contracts.session import ProviderSessionState
 from core.contracts.tool import AuthMode, Tool
 from core.contracts.tool_call import ToolCall
-from core.contracts.tool_result import ProviderResult, ToolResult
+from core.contracts.tool_result import ProviderResult
 from core.llm.config import ResolvedLlm
 
 
@@ -53,10 +53,10 @@ class Provider(Protocol):
         """
         ...
 
-    def build_attachments(self, results: list[ToolResult]) -> list[Attachment]:
-        """Lift renderable cards out of this provider's results."""
+    def build_attachments(self, result: ProviderResult) -> list[Attachment]:
+        """Lift renderable cards out of this provider's result (results + diagnostics)."""
         ...
 
-    def merge(self, slice_: dict[str, Any], results: list[ToolResult]) -> dict[str, Any]:
-        """Fold a turn's results into the provider's next session slice."""
+    def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
+        """Fold a turn's result into the provider's next session slice."""
         ...

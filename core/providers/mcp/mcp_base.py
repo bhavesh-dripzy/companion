@@ -83,8 +83,8 @@ class McpProvider(ABC):
 
             return await run_calls(execute_one, calls=calls, provider_id=self.id, ctx=ctx)
 
-    def build_attachments(self, results: list[ToolResult]) -> list[Attachment]:
+    def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         return []
 
-    def merge(self, slice_: dict[str, Any], results: list[ToolResult]) -> dict[str, Any]:
+    def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         return slice_

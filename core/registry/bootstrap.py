@@ -46,6 +46,13 @@ def build_registry() -> ProviderRegistry:
         WhatsAppProvider(),
     ):
         _register(registry, plugin)
+
+    # MCP providers run via their proven legacy executors during migration; their
+    # tools come from the seed catalog until live-fixture-validated clean ports.
+    from core.providers.legacy import MCP_CONFIGS, LegacyMcpAdapter
+
+    for cfg in MCP_CONFIGS:
+        _register(registry, LegacyMcpAdapter(cfg))
     return registry
 
 

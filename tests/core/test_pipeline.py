@@ -41,11 +41,11 @@ class _FakeZomato:
 
         return await run_calls(execute_one, calls=calls, provider_id="zomato", ctx=ctx)
 
-    def build_attachments(self, results):
-        return [Attachment(kind="restaurant_card", tool=r.tool) for r in results if r.ok]
+    def build_attachments(self, result):
+        return [Attachment(kind="restaurant_card", tool=r.tool) for r in result.results if r.ok]
 
-    def merge(self, slice_, results):
-        return {**slice_, "last_tools": [r.tool for r in results]}
+    def merge(self, slice_, result):
+        return {**slice_, "last_tools": [r.tool for r in result.results]}
 
 
 def _fake_complete_json(reply="Here are some options."):

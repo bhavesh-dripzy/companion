@@ -41,7 +41,7 @@ def test_maps_happy_path(monkeypatch):
         MapsProvider(), ToolCall(tool="get_directions", arguments={"destination": "Whitefield"})
     )
     assert result.ok
-    assert any(a.kind == "route_card" for a in MapsProvider().build_attachments(result.results))
+    assert any(a.kind == "route_card" for a in MapsProvider().build_attachments(result))
 
 
 def test_maps_not_configured(monkeypatch):
@@ -93,7 +93,7 @@ def test_uber_adapter(monkeypatch):
         UberProvider(), ToolCall(tool="estimate_cab", arguments={"destination_text": "Airport"})
     )
     assert result.ok and result.results[0].data["action"] == "estimate"
-    assert any(a.kind == "cab_card" for a in UberProvider().build_attachments(result.results))
+    assert any(a.kind == "cab_card" for a in UberProvider().build_attachments(result))
 
 
 def test_whatsapp_adapter(monkeypatch):

@@ -36,5 +36,5 @@ class Collect:
             provider = ctx.deps.registry.get(result.provider)
             if provider is None:
                 continue
-            ctx.attachments.extend(provider.build_attachments(result.results))
+            ctx.attachments.extend(provider.build_attachments(result))
         ctx.tracer.event("collect", attachments=len(ctx.attachments))

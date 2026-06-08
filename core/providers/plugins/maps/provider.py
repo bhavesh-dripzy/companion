@@ -12,7 +12,7 @@ from typing import Any
 from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode, Tool
 from core.contracts.tool_call import ToolCall
-from core.contracts.tool_result import ErrorCode, ToolResult
+from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
 from core.middleware.errors import InvalidArgsError
 from core.providers.base import ExecCtx
 from core.providers.http.http_base import HttpProvider
@@ -104,14 +104,12 @@ class MapsProvider(HttpProvider):
             error_detail=None if ok else str(result.get("error") or ""),
         )
 
-    def build_attachments(self, results: list[ToolResult]) -> list[Attachment]:
+    def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         cards = []
-        for result in results:
-            route = (result.data or {}).get("route") if result.ok else None
+        for tr in result.results:
+            route = (tr.data or {}).get("route") if tr.ok else None
             if route:
                 cards.append(
-                    Attachment(
-                        kind="route_card", destination=result.data.get("destination"), **route
-                    )
+                    Attachment(kind="route_card", destination=tr.data.get("destination"), **route)
                 )
         return cards

@@ -13,7 +13,7 @@ from typing import Any
 from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode, ConfirmPolicy, Tool
 from core.contracts.tool_call import ToolCall
-from core.contracts.tool_result import ErrorCode, ToolResult
+from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
 from core.middleware.errors import InvalidArgsError
 from core.providers.base import ExecCtx
 from core.providers.http.http_base import HttpProvider
@@ -110,10 +110,10 @@ class UberProvider(HttpProvider):
 
         return execute_uber_cab(plan=plan, user_id=user_id or "", user_geo=user_geo)
 
-    def build_attachments(self, results: list[ToolResult]) -> list[Attachment]:
+    def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         cards = []
-        for result in results:
-            data = result.data or {}
+        for tr in result.results:
+            data = tr.data or {}
             if data.get("deep_link") or data.get("estimate"):
                 cards.append(
                     Attachment(

@@ -27,7 +27,7 @@ class Persist:
             provider = ctx.deps.registry.get(result.provider)
             if provider is not None:
                 ctx.session.providers[result.provider] = provider.merge(
-                    ctx.session.slice_for(result.provider), result.results
+                    ctx.session.slice_for(result.provider), result
                 )
             for tool_result in result.results:
                 ctx.session.placeholders.update(tool_result.learned_placeholders)
