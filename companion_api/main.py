@@ -179,49 +179,8 @@ if _FRONTEND_DIST.exists():
     app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIST)), name="static")
 
 
-def _public_url(request: Request, path: str) -> str:
-    configured_base_url = secret_or_env("PUBLIC_BASE_URL", "").strip().rstrip("/")
-    if configured_base_url:
-        return f"{configured_base_url}{path}"
-
-    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-    host = (
-        request.headers.get("x-forwarded-host")
-        or request.headers.get("host")
-        or request.url.netloc
-    )
-    return f"{proto}://{host}{path}"
-
-
-def _oauth_result_page(title: str, detail: str, *, ok: bool) -> str:
-    safe_title = escape(title)
-    safe_detail = escape(detail)
-    color = "#047857" if ok else "#b91c1c"
-    badge = "Connected" if ok else "Needs attention"
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{safe_title}</title>
-  <style>
-    body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:#f6f7f9; color:#111827; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }}
-    main {{ width:min(520px, calc(100% - 32px)); background:white; border:1px solid #e5e7eb; border-radius:12px; padding:28px; box-shadow:0 18px 50px rgba(15,23,42,.08); }}
-    .badge {{ display:inline-flex; padding:5px 10px; border-radius:999px; color:{color}; background:#f9fafb; border:1px solid #e5e7eb; font-size:12px; font-weight:800; text-transform:uppercase; }}
-    h1 {{ margin:16px 0 8px; font-size:24px; }}
-    p {{ color:#4b5563; line-height:1.55; }}
-    a {{ display:inline-flex; margin-top:14px; padding:10px 14px; border-radius:8px; background:#2563eb; color:white; text-decoration:none; font-weight:700; }}
-  </style>
-</head>
-<body>
-  <main>
-    <span class="badge">{badge}</span>
-    <h1>{safe_title}</h1>
-    <p>{safe_detail}</p>
-    <a href="/">Back to Companion</a>
-  </main>
-</body>
-</html>"""
+from companion_api.web_utils import oauth_result_page as _oauth_result_page  # noqa: E402
+from companion_api.web_utils import public_url as _public_url  # noqa: E402
 
 
 def _pairing_script(*, base_url: str, code: str, mcp_url: str, mcp_remote_version: str) -> str:
@@ -1228,53 +1187,6 @@ def mcp_tools(
     return result
 
 
-@app.get("/api/google-calendar/status/")
-def google_calendar_connection_status(user: str = Depends(get_current_user)) -> dict[str, Any]:
-    return google_calendar_status(user)
-
-
-@app.get("/api/google-calendar/oauth/start")
-def google_calendar_oauth_start(
-    request: Request,
-    user: str = Depends(get_current_user),
-) -> dict[str, str]:
-    try:
-        return start_google_calendar_oauth(
-            user_id=user,
-            redirect_uri=_public_url(request, "/api/google-calendar/oauth/callback"),
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-@app.get("/api/google-calendar/oauth/callback", response_class=HTMLResponse)
-def google_calendar_oauth_callback(
-    code: str | None = Query(default=None),
-    state: str | None = Query(default=None),
-):
-    if not code or not state:
-        return _oauth_result_page(
-            "Google Calendar connection failed",
-            "Google did not return the expected authorization code.",
-            ok=False,
-        )
-    try:
-        complete_google_calendar_oauth(code=code, state=state)
-        return _oauth_result_page(
-            "Google Calendar connected",
-            "Companion can now create calendar events with email reminders.",
-            ok=True,
-        )
-    except Exception as exc:
-        return _oauth_result_page(
-            "Google Calendar connection failed",
-            f"{type(exc).__name__}: {exc}",
-            ok=False,
-        )
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -2011,6 +1923,7 @@ app.post("/api/voice/gemini-token/")(voice_gemini_token_endpoint)
 app.post("/api/voice/log-turn/")(voice_log_turn_endpoint)
 
 # Routers extracted from this module (#29 — main.py decomposition).
+from companion_api.routers.calendar import router as calendar_router  # noqa: E402
 from companion_api.routers.chats import router as chats_router  # noqa: E402
 from companion_api.routers.maps import router as maps_router  # noqa: E402
 from companion_api.routers.profile import router as profile_router  # noqa: E402
@@ -2022,6 +1935,7 @@ app.include_router(reminders_router)
 app.include_router(profile_router)
 app.include_router(maps_router)
 app.include_router(whatsapp_router)
+app.include_router(calendar_router)
 
 
 handler = Mangum(app, lifespan="off")

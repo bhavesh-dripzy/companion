@@ -371,11 +371,12 @@ def test_mcp_oauth_start_returns_pairing_command(monkeypatch):
         }
 
     monkeypatch.setattr(mcp_exec, "create_pairing_session", fake_create_pairing_session)
-    monkeypatch.setattr(
-        api_main,
-        "secret_or_env",
-        lambda key, default="": "https://companion.example" if key == "PUBLIC_BASE_URL" else default,
+    _fake_secret = (
+        lambda key, default="": "https://companion.example" if key == "PUBLIC_BASE_URL" else default
     )
+    monkeypatch.setattr(api_main, "secret_or_env", _fake_secret)
+    # public_url() now lives in companion_api.web_utils and reads secret_or_env there.
+    monkeypatch.setattr("companion_api.web_utils.secret_or_env", _fake_secret)
 
     response = client.get(
         "/api/mcp/oauth/start?provider=zomato",
