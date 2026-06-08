@@ -2127,83 +2127,6 @@ def food_agent_full(
     if not payload.address_id.strip() and _message_requires_delivery_address(payload.message):
         raise HTTPException(status_code=422, detail="address_id is required for delivery requests")
     return _companion_agent_turn(payload, user)
-@app.post("/api/reminders/")
-def create_reminder(
-    payload: ReminderCreateRequest,
-    _user: str = Depends(get_current_user),
-) -> dict[str, Any]:
-    scheduler = ReminderScheduler()
-    reminder = scheduler.create_reminder(
-        {
-            **payload.model_dump(),
-            "member_id": payload.member_id,
-            "next_trigger": payload.next_trigger.isoformat(),
-        }
-    )
-    return {"status": "success", "reminder": reminder}
-
-
-@app.post("/api/reminders/google-calendar/")
-def create_google_calendar_reminder(
-    payload: GoogleCalendarReminderRequest,
-    user: str = Depends(get_current_user),
-) -> dict[str, Any]:
-    result = execute_reminder_calendar(
-        user_message=payload.message,
-        user_id=user,
-        timezone_name=payload.timezone,
-        calendar_id=payload.calendar_id,
-        email_reminder_minutes=payload.email_reminder_minutes,
-        popup_reminder_minutes=payload.popup_reminder_minutes,
-        store_reminder=payload.store_reminder,
-    )
-    if not result.get("ok"):
-        code = str(result.get("error_code") or "")
-        detail = str(result.get("error") or "Calendar request failed.")
-        if code in ("parse_error", "invalid_input", "not_connected", "not_configured"):
-            raise HTTPException(status_code=400, detail=detail)
-        raise HTTPException(status_code=502, detail=detail)
-    return {
-        "status": "success",
-        "parsed": result.get("parsed"),
-        "calendar_event": result.get("calendar_event"),
-        "reminder": result.get("reminder"),
-    }
-
-
-@app.get("/api/reminders/pending/")
-def pending_reminders(
-    member_id: str = Query(min_length=1),
-    _user: str = Depends(get_current_user),
-) -> list[dict[str, Any]]:
-    reminders = ReminderRepository().list_pending(member_id)
-    return [
-        {
-            "id": r["reminder_id"],
-            "reminder_id": r["reminder_id"],
-            "member_id": r["member_id"],
-            "message": r.get("title", ""),
-            "description": r.get("description", ""),
-            "next_trigger": r.get("next_trigger"),
-        }
-        for r in reminders
-    ]
-
-
-@app.post("/api/reminders/respond/")
-def respond_reminder(
-    payload: ReminderResponseRequest,
-    _user: str = Depends(get_current_user),
-) -> dict[str, Any]:
-    try:
-        reminder = ReminderScheduler().respond(
-            member_id=payload.member_id,
-            reminder_id=payload.reminder_id,
-            response=payload.response,
-        )
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return {"status": "success", "reminder_id": reminder["reminder_id"]}
 
 
 def scheduled_reminder_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
@@ -2487,8 +2410,10 @@ app.post("/api/voice/log-turn/")(voice_log_turn_endpoint)
 
 # Routers extracted from this module (#29 — main.py decomposition).
 from companion_api.routers.chats import router as chats_router  # noqa: E402
+from companion_api.routers.reminders import router as reminders_router  # noqa: E402
 
 app.include_router(chats_router)
+app.include_router(reminders_router)
 
 
 handler = Mangum(app, lifespan="off")
