@@ -14,7 +14,7 @@ from core.contracts.attachment import Attachment
 from core.contracts.session import ProviderSessionState
 from core.contracts.tool import AuthMode, Tool
 from core.contracts.tool_call import ToolCall
-from core.contracts.tool_result import ToolResult
+from core.contracts.tool_result import ProviderResult, ToolResult
 from core.llm.config import ResolvedLlm
 
 
@@ -43,8 +43,14 @@ class Provider(Protocol):
         """Return the provider's tools (MCP: from list_tools; HTTP: declared)."""
         ...
 
-    async def execute(self, call: ToolCall, ctx: ExecCtx) -> ToolResult:
-        """Run one tool call and return a normalized result."""
+    async def run(self, calls: list[ToolCall], ctx: ExecCtx) -> ProviderResult:
+        """Run this provider's calls for the turn and return a normalized result.
+
+        MCP providers open ONE session for the whole group (re-spawning the
+        mcp-remote proxy per call would be prohibitively slow). The shared
+        `run_calls` helper provides the per-call loop, placeholder flow, and
+        error isolation so concrete plugins only implement a per-call closure.
+        """
         ...
 
     def build_attachments(self, results: list[ToolResult]) -> list[Attachment]:
