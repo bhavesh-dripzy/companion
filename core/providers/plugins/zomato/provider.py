@@ -4,15 +4,16 @@ The base (`McpProvider`) drives the session/placeholder/execute loop; this plugi
 supplies only what is Zomato-specific:
 
   * `stdio_spec`  — the mcp-remote launch for `mcp-server.zomato.com` (tokens hydrated).
-  * `build_attachments` — menu + restaurant cards from real `ToolResult`s (golden-tested).
-  * `merge` — fold this turn's restaurants into the session LRU.
+  * `build_attachments` — payment + menu + restaurant + cart cards from real `ToolResult`s.
+  * `merge` — fold this turn's restaurants (LRU) + cart (replacement) into the session.
   * `plan` — delegate to the tuned legacy domain agent (parity bridge, Phase-8-removed).
 
-Scope: restaurant + menu *search* (read-only) are ported + validated against real
-data here. Cart/payment cards still come from the proven legacy executor path
-(they need order-flow enrichment — cart-snapshot extraction, QR decode — and
-fixtures that can't be captured without mutating real orders); the bootstrap swap
-is gated on those landing so `dev` never regresses. See zomato/__init__ for status.
+Scope: the full RENDERING layer (restaurant/menu search cards + cart/payment cards)
+is ported clean. Cart-snapshot extraction + QR decode are pure functions of the
+respective envelopes, so those cards build without the executor. The bootstrap swap
+LegacyMcpAdapter→ZomatoProvider remains gated on the SESSION layer — `session_menu`
+(the executor's menu_index: variant→price/variants/addon schema the planner needs to
+create_cart by item name on follow-ups). Until that lands, dev keeps the adapter.
 """
 
 from __future__ import annotations
@@ -29,7 +30,9 @@ from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.zomato.cards import build_restaurant_cards
+from core.providers.plugins.zomato.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.zomato.menu_cards import build_menu_cards
+from core.providers.plugins.zomato.payment_cards import build_payment_cards
 from core.providers.plugins.zomato.session import ZomatoSession, merge_restaurants
 
 _DEFAULT_URL = "https://mcp-server.zomato.com/mcp"
@@ -46,12 +49,13 @@ class ZomatoProvider(McpProvider):
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
-        # Provider-internal render order: payment -> menu -> restaurant -> cart.
-        # Menu + restaurant are ported clean; payment/cart stay on the executor
-        # path (need order-flow enrichment + fixtures — see module docstring).
+        # Provider-internal render order (parity with the legacy hoist):
+        #   payment -> menu -> restaurant -> cart.
         return [
+            *build_payment_cards(result.results),
             *build_menu_cards(result.results),
             *build_restaurant_cards(result.results),
+            *build_cart_cards(result.results),
         ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
@@ -59,6 +63,13 @@ class ZomatoProvider(McpProvider):
         restaurants = merge_restaurants(slice_.get("session_restaurants"), result.results)
         if restaurants:
             merged["session_restaurants"] = restaurants
+        # Zomato carts are single-restaurant replacement state: the latest
+        # create_cart this turn overwrites session_cart whole.
+        for tr in result.results:
+            if tr.tool == "create_cart" and tr.ok:
+                snap = cart_snapshot(tr.data if isinstance(tr.data, dict) else {})
+                if snap:
+                    merged["session_cart"] = snap
         return merged
 
     async def plan(self, ctx: Any) -> Any:

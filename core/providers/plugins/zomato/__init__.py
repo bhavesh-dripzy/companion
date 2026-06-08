@@ -1,12 +1,13 @@
 """Zomato plugin (clean McpProvider).
 
-Status (migration): restaurant + menu *search* — connection, execution,
-card-building, and session LRU — are ported clean and validated against real
-Zomato data (tests/core/test_zomato_provider.py + live read-only searches). Cart /
-payment cards still run through the proven legacy executor via the
-LegacyMcpAdapter (registered in bootstrap); swapping ZomatoProvider in there is
-gated on porting the order-flow enrichment those cards need + fixtures that can't
-be captured without mutating real orders.
+Status (migration): the full RENDERING layer is ported clean — restaurant + menu
+search cards (validated against real Zomato: golden fixtures + live read-only
+runs) and cart + payment cards (built from pure functions of the create_cart /
+checkout_cart envelopes; contract-tested against the executor's documented
+shapes). The bootstrap swap LegacyMcpAdapter→ZomatoProvider is gated on the
+SESSION layer — `session_menu` (the menu_index: variant→price/variants/addon
+schema the planner needs to create_cart by item name on follow-ups). Until that
+lands, bootstrap keeps the adapter so dev never regresses.
 """
 
 from core.providers.plugins.zomato.provider import ZomatoProvider
