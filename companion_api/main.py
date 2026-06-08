@@ -453,41 +453,6 @@ def cognito_config() -> CognitoConfigOut:
     )
 
 
-# ---------------------------------------------------------------------------
-# WhatsApp Webhook
-# ---------------------------------------------------------------------------
-
-
-@app.get("/api/whatsapp/webhook")
-def whatsapp_webhook_verify(
-    request: Request,
-    mode: str = Query(None, alias="hub.mode"),
-    token: str = Query(None, alias="hub.verify_token"),
-    challenge: str = Query(None, alias="hub.challenge"),
-):
-    """Verify the WhatsApp webhook with Meta."""
-    expected_token = secret_or_env("WHATSAPP_VERIFY_TOKEN", settings.WHATSAPP_VERIFY_TOKEN)
-    if mode == "subscribe" and token == expected_token:
-        logger.info("WhatsApp webhook verified successfully.")
-        return HTMLResponse(content=challenge, status_code=200)
-    logger.warning("WhatsApp webhook verification failed. mode=%s, token=%s", mode, token)
-    raise HTTPException(status_code=403, detail="Verification failed")
-
-
-@app.post("/api/whatsapp/webhook")
-async def whatsapp_webhook_post(request: Request):
-    """Receive incoming WhatsApp messages and events."""
-    payload = await request.json()
-    # Execute background processing to return 200 OK to Meta quickly (within 3s)
-    # Since this is a Lambda, we might want to use a separate task or just process if it's fast.
-    # For now, we process it directly.
-    try:
-        handle_whatsapp_webhook_event(payload)
-    except Exception:
-        logger.exception("Error handling WhatsApp webhook")
-    return {"status": "ok"}
-
-
 def _provider_mcp_url(provider_id: str, user_id: str | None = None) -> tuple[Any, str]:
     tool_provider = get_tool_provider(provider_id, user_id=user_id) or get_tool_provider("zomato", user_id=user_id)
     if tool_provider and tool_provider.stdio_command:
@@ -2050,11 +2015,13 @@ from companion_api.routers.chats import router as chats_router  # noqa: E402
 from companion_api.routers.maps import router as maps_router  # noqa: E402
 from companion_api.routers.profile import router as profile_router  # noqa: E402
 from companion_api.routers.reminders import router as reminders_router  # noqa: E402
+from companion_api.routers.whatsapp import router as whatsapp_router  # noqa: E402
 
 app.include_router(chats_router)
 app.include_router(reminders_router)
 app.include_router(profile_router)
 app.include_router(maps_router)
+app.include_router(whatsapp_router)
 
 
 handler = Mangum(app, lifespan="off")
