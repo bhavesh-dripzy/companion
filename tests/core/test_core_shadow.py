@@ -11,7 +11,9 @@ pytestmark = pytest.mark.unit
 
 
 def test_shadow_adapts_request_and_envelope(monkeypatch):
-    monkeypatch.setattr(cs, "resolve_llm_from_env", lambda _x: (ResolvedLlm("deepseek", "k", "m"), None))
+    monkeypatch.setattr(
+        cs, "resolve_llm_from_env", lambda _x: (ResolvedLlm("deepseek", "k", "m"), None)
+    )
 
     class _FakeRunner:
         async def run(self, request, llm):

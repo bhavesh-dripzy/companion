@@ -26,9 +26,9 @@ class Persist:
         for result in ctx.provider_results:
             provider = ctx.deps.registry.get(result.provider)
             if provider is not None:
-                ctx.session.providers[result.provider] = provider.merge(
-                    ctx.session.slice_for(result.provider), result
-                )
+                # Adapters fold their session_* into the flat legacy bag; each
+                # provider only touches its own keys, so chaining is safe.
+                ctx.session.legacy = provider.merge(ctx.session.legacy, result)
             for tool_result in result.results:
                 ctx.session.placeholders.update(tool_result.learned_placeholders)
 

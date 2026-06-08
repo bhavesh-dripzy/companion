@@ -28,6 +28,33 @@ def _resolve(path: str) -> Callable[..., Any]:
     return getattr(importlib.import_module(module_name), attr)
 
 
+# session_* kwargs accepted by the legacy `_format_routing_message` context builder.
+_FORMAT_SESSION_KEYS = frozenset(
+    {
+        "session_restaurants",
+        "session_addresses",
+        "session_menu",
+        "session_movies",
+        "session_theatres",
+        "session_events",
+        "session_venues",
+        "session_artists",
+        "session_reservation",
+        "session_zepto_products",
+        "session_zepto_addresses",
+        "session_zepto_cart",
+        "session_instamart_products",
+        "session_instamart_addresses",
+        "session_instamart_cart",
+        "session_kite_instruments",
+        "session_kite_holdings",
+        "session_kite_positions",
+        "session_kite_open_orders",
+        "session_kite_order_ticket",
+    }
+)
+
+
 @dataclass
 class LegacyMcpConfig:
     id: str
@@ -96,8 +123,9 @@ class LegacyMcpAdapter:
             kwargs["address_id"] = ctx.address_id
         if cfg.pass_location:
             kwargs.update(location_text=None, user_geo=ctx.user_geo)
-        for legacy_kwarg, slice_key in cfg.session_map.items():
-            kwargs[legacy_kwarg] = (ctx.session or {}).get(slice_key)
+        # ctx.session is the flat legacy bag, keyed by the executor's session_* names.
+        for legacy_kwarg in cfg.session_map:
+            kwargs[legacy_kwarg] = (ctx.session or {}).get(legacy_kwarg)
         out = run_fn(tool_plan, **kwargs)
         return (
             out
@@ -117,15 +145,47 @@ class LegacyMcpAdapter:
         return cards
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
-        diagnostics = result.diagnostics or {}
+        """Write the executor's new session_* (from diagnostics) into the flat bag."""
+        raw = result.diagnostics or {}
+        inner = raw.get("diagnostics") if isinstance(raw.get("diagnostics"), dict) else {}
         merged = dict(slice_)
-        for legacy_kwarg, slice_key in self.config.session_map.items():
-            value = (
-                diagnostics.get("diagnostics", {}).get(legacy_kwarg)
-                if isinstance(diagnostics.get("diagnostics"), dict)
-                else None
-            )
-            value = value if value is not None else diagnostics.get(legacy_kwarg)
+        for legacy_kwarg in self.config.session_map:
+            value = inner.get(legacy_kwarg)
+            value = value if value is not None else raw.get(legacy_kwarg)
             if value is not None:
-                merged[slice_key] = value
+                merged[legacy_kwarg] = value
         return merged
+
+    async def plan(self, ctx: Any) -> Any:
+        """Delegate planning to the provider's tuned legacy planner + context builder.
+
+        Reuses `_format_routing_message` (session context) and `_plan_for_provider`
+        (the provider's domain agent) so plan quality matches the legacy exactly.
+        Returns a ToolPlan normalized against the registry, or None to fall back.
+        """
+        raw = await asyncio.to_thread(self._plan_sync, ctx)
+        if not isinstance(raw, dict):
+            return None
+        from core.middleware.validator import normalize_plan
+
+        plan, _dropped = normalize_plan(raw, provider=self.id, tools=ctx.deps.registry.tools)
+        return plan
+
+    def _plan_sync(self, ctx: Any) -> dict[str, Any] | None:
+        from app.services.agents.pipeline import _format_routing_message, _plan_for_provider
+
+        session = ctx.session
+        profile = ctx.profile.model_dump() if ctx.profile else None
+        bag = {k: v for k, v in (session.legacy or {}).items() if k in _FORMAT_SESSION_KEYS}
+        routing_message = _format_routing_message(
+            ctx.request.message,
+            ctx.request.history,
+            session_state_keys=list(session.placeholders.keys()),
+            selected_address_id=session.selected_address_id,
+            pending_variant_choice=session.pending_variant_choice or None,
+            user_profile=profile,
+            **bag,
+        )
+        return _plan_for_provider(
+            self.id, routing_message=routing_message, llm=ctx.llm, user_id=ctx.request.user_id or ""
+        )

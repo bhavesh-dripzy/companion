@@ -26,6 +26,31 @@ except Exception:  # pragma: no cover
         return (os.getenv(name) or default).strip()
 
 
+# Flat legacy session_* keys round-tripped between the frontend and the pipeline.
+_SESSION_KEYS = (
+    "session_restaurants",
+    "session_addresses",
+    "session_menu",
+    "session_cart",
+    "session_movies",
+    "session_theatres",
+    "session_events",
+    "session_venues",
+    "session_artists",
+    "session_reservation",
+    "session_zepto_products",
+    "session_zepto_addresses",
+    "session_zepto_cart",
+    "session_instamart_products",
+    "session_instamart_addresses",
+    "session_instamart_cart",
+    "session_kite_instruments",
+    "session_kite_holdings",
+    "session_kite_positions",
+    "session_kite_open_orders",
+    "session_kite_order_ticket",
+)
+
 _runner = None
 
 
@@ -44,7 +69,8 @@ def _payload_dict(payload: Any) -> dict[str, Any]:
 
 def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> TurnRequest:
     history = data.get("history") if isinstance(data.get("history"), list) else []
-    session = SessionState(placeholders=data.get("session_state") or {})
+    legacy = {k: data[k] for k in _SESSION_KEYS if data.get(k) is not None}
+    session = SessionState(placeholders=data.get("session_state") or {}, legacy=legacy)
     return TurnRequest(
         message=str(data.get("message") or ""),
         user_id=user,
@@ -60,13 +86,16 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
 
 
 def _to_envelope(response: TurnResponse, chat_id: str | None) -> dict[str, Any]:
+    session = response.session
     return {
         "status": response.status,
         "assistant_message": response.assistant_message,
         "task_type": response.task_type,
         "routed_provider": response.routed_provider,
         "attachments": [a.to_wire() for a in response.attachments],
-        "session": response.session.model_dump(),
+        # Flat session_* + session_state round-tripped to the frontend verbatim.
+        "session_state": session.placeholders,
+        **session.legacy,
         "observable_trace": response.observable_trace,
         "chat_id": chat_id,
         "pipeline": "core",

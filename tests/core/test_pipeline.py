@@ -96,7 +96,7 @@ def test_full_turn_routes_plans_executes_collects_narrates_publishes():
     assert response.routed_provider == "zomato"
     assert response.assistant_message == "Here are some options."
     assert any(a.kind == "restaurant_card" for a in response.attachments)
-    assert response.session.providers["zomato"]["last_tools"] == ["search_restaurants"]
+    assert response.session.legacy["last_tools"] == ["search_restaurants"]
     assert publisher.published and publisher.published[0].user_id == "u1"
     # observable trace records every stage
     events = {e["event"] for e in response.observable_trace}
@@ -119,7 +119,7 @@ def test_confirmation_gate_blocks_then_allows_checkout():
     # Unconfirmed: planner emits checkout_cart but the gate holds it back.
     runner = _runner()
     blocked = asyncio.run(runner.run(TurnRequest(message="checkout my cart", user_id="u1"), _LLM))
-    assert not blocked.session.providers.get("zomato")  # nothing ran
+    assert not blocked.session.legacy.get("last_tools")  # nothing ran
     assert "confirm" in blocked.assistant_message.lower()
 
     # Confirmed: the same checkout runs.
@@ -127,4 +127,4 @@ def test_confirmation_gate_blocks_then_allows_checkout():
     done = asyncio.run(
         runner2.run(TurnRequest(message="confirm checkout my cart", user_id="u1"), _LLM)
     )
-    assert done.session.providers["zomato"]["last_tools"] == ["checkout_cart"]
+    assert done.session.legacy["last_tools"] == ["checkout_cart"]

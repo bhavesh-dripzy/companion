@@ -45,22 +45,41 @@ class Plan:
             return
         framed = _format_input(ctx)
         for provider_id in ctx.routing.providers:
-            tools = ctx.deps.registry.tools.for_provider(provider_id)
             provider = ctx.deps.registry.get(provider_id)
-            preamble = getattr(provider, "planner_preamble", None) or _GENERIC_PREAMBLE
-            system = build_planner_prompt(preamble, tools)
-            try:
-                raw = await ctx.deps.complete_json(
-                    user_message=framed, system_prompt=system, llm=ctx.llm
-                )
-            except Exception:
-                raw = {}
-            plan, dropped = normalize_plan(raw, provider=provider_id, tools=ctx.deps.registry.tools)
+            # A provider may supply its own tuned planner (the MCP adapters delegate
+            # to the legacy domain agents); otherwise use the generated-prompt planner.
+            plan = await self._delegated_plan(provider, ctx)
+            if plan is None:
+                plan = await self._generic_plan(provider, provider_id, framed, ctx)
             ctx.plans[provider_id] = plan
-            ctx.tracer.event("plan", provider=provider_id, tools=len(plan.calls), dropped=dropped)
+            ctx.tracer.event("plan", provider=provider_id, tools=len(plan.calls))
 
         ctx.calls = [
             call.model_copy(update={"provider": call.provider or provider_id})
             for provider_id, plan in ctx.plans.items()
             for call in plan.calls
         ]
+
+    @staticmethod
+    async def _delegated_plan(provider, ctx):
+        planner = getattr(provider, "plan", None)
+        if not callable(planner):
+            return None
+        try:
+            return await planner(ctx)
+        except Exception:
+            return None
+
+    @staticmethod
+    async def _generic_plan(provider, provider_id, framed, ctx):
+        tools = ctx.deps.registry.tools.for_provider(provider_id)
+        preamble = getattr(provider, "planner_preamble", None) or _GENERIC_PREAMBLE
+        system = build_planner_prompt(preamble, tools)
+        try:
+            raw = await ctx.deps.complete_json(
+                user_message=framed, system_prompt=system, llm=ctx.llm
+            )
+        except Exception:
+            raw = {}
+        plan, _dropped = normalize_plan(raw, provider=provider_id, tools=ctx.deps.registry.tools)
+        return plan

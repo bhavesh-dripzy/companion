@@ -5,6 +5,9 @@ import time
 
 os.environ["LEGACY_ADMIN_USERNAME"] = "local_admin"
 os.environ["LEGACY_ADMIN_PASSWORD"] = "test_password_123"
+# These tests validate the legacy pipeline (now the LEGACY_PIPELINE=1 fallback);
+# the redesigned core pipeline is exercised by tests/core/ + the live-fixture run.
+os.environ["LEGACY_PIPELINE"] = "1"
 
 from fastapi.testclient import TestClient
 

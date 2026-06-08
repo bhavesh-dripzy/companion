@@ -19,7 +19,7 @@ def _exec_ctx_for(ctx: PipelineContext, provider_id: str) -> ExecCtx:
         address_id=ctx.session.selected_address_id,
         user_geo=ctx.request.user_geo,
         placeholders=dict(ctx.session.placeholders),
-        session=dict(ctx.session.slice_for(provider_id)),
+        session=dict(ctx.session.legacy),  # the flat legacy bag the adapters read
         llm=ctx.llm,
     )
 

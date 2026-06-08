@@ -33,8 +33,11 @@ class SessionState(BaseModel):
 
     # Cross-provider opaque IDs learned during the session (__CART_ID__, ...).
     placeholders: dict[str, str] = Field(default_factory=dict)
-    # provider id -> its raw namespaced slice (parsed by the plugin's session_cls).
+    # provider id -> its raw namespaced slice (clean-provider target, post-cutover).
     providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # Flat legacy session bag (session_restaurants / session_menu / session_cart / ...)
+    # used by the migration adapters and round-tripped to the frontend verbatim.
+    legacy: dict[str, Any] = Field(default_factory=dict)
     pending_variant_choice: list[dict[str, Any]] = Field(default_factory=list)
     selected_address_id: str | None = None
 

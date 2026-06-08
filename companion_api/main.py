@@ -1576,10 +1576,10 @@ def _companion_agent_turn(
     payload: FoodQueryRequest | AgentQueryRequest,
     user: str,
 ) -> dict[str, Any]:
-    # Shadow / cutover bridge: when CORE_PIPELINE is enabled, run the new core
-    # pipeline instead of the legacy one. Off by default — the live path below is
-    # untouched. core_shadow is imported lazily so it has zero effect when off.
-    if os.getenv("CORE_PIPELINE", "").strip().lower() in ("1", "true", "yes"):
+    # The redesigned core pipeline is the default path. Set LEGACY_PIPELINE=1 to
+    # fall back to the legacy monolith below (kept as a safety hatch until the
+    # core path is validated end-to-end and the legacy code is removed at cutover).
+    if os.getenv("LEGACY_PIPELINE", "").strip().lower() not in ("1", "true", "yes"):
         from companion_api.core_shadow import run_core_turn_sync
 
         return run_core_turn_sync(payload, user)

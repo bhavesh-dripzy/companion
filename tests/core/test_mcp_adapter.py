@@ -54,7 +54,7 @@ def test_adapter_passes_session_and_merges_diagnostics():
     ctx = ExecCtx(
         user_id="u1",
         address_id="A1",
-        session={"menu": [{"variant_id": "old"}]},
+        session={"session_menu": [{"variant_id": "old"}]},  # flat legacy bag
         placeholders={"__X__": "1"},
     )
     result = asyncio.run(adapter.run([ToolCall(tool="create_cart", arguments={})], ctx))
@@ -63,10 +63,10 @@ def test_adapter_passes_session_and_merges_diagnostics():
     assert result.results[0].data["data"]["cart_id"] == "C1"
     assert captured["address_id"] == "A1"
     assert captured["session_placeholders"] == {"__X__": "1"}
-    assert captured["session_menu"] == [{"variant_id": "old"}]  # slice fed into the executor
-    # merge writes the executor's new session_menu (from diagnostics) back to the slice
+    assert captured["session_menu"] == [{"variant_id": "old"}]  # bag fed into the executor
+    # merge writes the executor's new session_menu (from diagnostics) back to the bag
     merged = adapter.merge(ctx.session, result)
-    assert merged["menu"] == [{"variant_id": "v1"}]
+    assert merged["session_menu"] == [{"variant_id": "v1"}]
 
 
 def test_adapter_build_attachments_calls_legacy_collectors(monkeypatch):
