@@ -47,12 +47,13 @@ def test_clean_mcp_flag_swaps_the_registered_provider(monkeypatch):
     assert isinstance(build_registry().get("zomato"), LegacyMcpAdapter)
 
 
-def test_default_cutover_runs_zomato_clean_rest_adapter(monkeypatch):
+def test_default_cutover_runs_all_mcp_providers_clean(monkeypatch):
     monkeypatch.delenv("CLEAN_MCP", raising=False)
     reg = build_registry()
     assert isinstance(reg.get("zomato"), ZomatoProvider), "zomato is cut over by default"
-    # kite is the last provider still on the proven adapter (order-ticket round-trip).
-    assert isinstance(reg.get("kite"), LegacyMcpAdapter)
+    # All six MCP providers now run the clean McpProvider by default (none on the adapter).
+    for pid in ("zomato", "swiggy_food", "swiggy_instamart", "zepto", "district", "kite"):
+        assert not isinstance(reg.get(pid), LegacyMcpAdapter), f"{pid} should be clean by default"
 
 
 def test_shadow_parity_clean_vs_adapter_on_real_capture(monkeypatch):

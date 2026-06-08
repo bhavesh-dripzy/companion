@@ -71,3 +71,14 @@ def test_merge_builds_instruments_lru_from_quotes():
     )
     syms = {r["tradingsymbol"] for r in merged.get("session_kite_instruments", [])}
     assert {"RELIANCE", "TCS"} <= syms
+
+
+def test_merge_round_trips_pending_order_ticket_verbatim():
+    # The two-step order ticket is round-tripped unchanged (the planner owns it);
+    # merge must never drop it so a pending confirmation survives to the next turn.
+    ticket = {"tradingsymbol": "RELIANCE", "transaction_type": "BUY", "quantity": 10}
+    merged = KiteProvider().merge(
+        {"session_kite_order_ticket": ticket},
+        ProviderResult(provider="kite", results=[_tr("quotes", "get_quotes")]),
+    )
+    assert merged["session_kite_order_ticket"] == ticket

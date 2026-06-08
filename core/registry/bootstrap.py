@@ -20,7 +20,7 @@ from core.registry.tool_registry import ToolRegistry
 # cart, district reservation, kite order-ticket). Override with CLEAN_MCP (an
 # explicit comma list, empty = none); LEGACY_PIPELINE=1 reverts the whole pipeline.
 _DEFAULT_CLEAN_MCP = frozenset(
-    {"zomato", "swiggy_food", "swiggy_instamart", "zepto", "district"}
+    {"zomato", "swiggy_food", "swiggy_instamart", "zepto", "district", "kite"}
 )
 
 
