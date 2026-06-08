@@ -94,6 +94,49 @@ def fallback_routing(previous_provider: str | None) -> RoutingDecision:
     return _decision("food_delivery", ["zomato"], reason, previous_provider)
 
 
+# Delivery food providers fanned out to when the user names no specific app (#14).
+# (District is dining-out, not delivery, so it is excluded from delivery fan-out.)
+_DELIVERY_FOOD = ("zomato", "swiggy_food", "swiggy_instamart", "zepto")
+_PROVIDER_NAME_HINTS = (
+    "zomato",
+    "swiggy",
+    "instamart",
+    "zepto",
+    "blinkit",
+    "district",
+    "kite",
+    "zerodha",
+    "uber",
+)
+
+
+def message_names_provider(message: str) -> bool:
+    """True if the user explicitly named a provider/app in their message."""
+    low = (message or "").lower()
+    return any(hint in low for hint in _PROVIDER_NAME_HINTS)
+
+
+def expand_agnostic(
+    decision: RoutingDecision, message: str, *, enabled: bool, allowed: list[str] | None = None
+) -> RoutingDecision:
+    """Issue #14: name an app -> that app; name none -> fan out to all relevant apps.
+
+    Only applies to food delivery; gated by `enabled`. `allowed` (the client's
+    enabled providers) intersects the fan-out when provided.
+    """
+    if not enabled or decision.task_type != "food_delivery" or message_names_provider(message):
+        return decision
+    providers = [p for p in _DELIVERY_FOOD if not allowed or p in allowed]
+    if not providers:
+        return decision
+    return _decision(
+        decision.task_type,
+        providers,
+        f"{decision.reasoning} (agnostic fan-out)",
+        decision.previous_provider,
+    )
+
+
 def parse_routing(raw: dict[str, Any], previous_provider: str | None) -> RoutingDecision:
     """Validate the orchestrator response into a single task + provider list."""
     task = str(raw.get("task_type") or "food_delivery").strip()
