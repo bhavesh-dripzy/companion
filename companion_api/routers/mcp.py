@@ -166,13 +166,12 @@ def _provider_mcp_url(provider_id: str, user_id: str | None = None) -> tuple[Any
     return tool_provider, mcp_url
 
 
-def _extract_saved_addresses_from_mcp_step(step: dict[str, Any]) -> list[dict[str, str]]:
-    """Normalize saved-address rows from an MCP tools/call step (Zomato, Swiggy, etc.)."""
+def _extract_saved_addresses_from_envelope(envelope: dict[str, Any]) -> list[dict[str, str]]:
+    """Normalize saved-address rows from a tool-result envelope (Zomato, Swiggy, etc.)."""
     rows: list[dict[str, str]] = []
-    res = step.get("result") if isinstance(step, dict) else None
-    if not isinstance(res, dict) or res.get("is_error"):
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
         return rows
-    payload = res.get("data")
+    payload = envelope.get("data")
     candidates: list[Any] = []
     if isinstance(payload, dict):
         if isinstance(payload.get("addresses"), list):
@@ -204,12 +203,9 @@ def _compute_mcp_status(provider: str, user: str) -> dict[str, Any]:
     a browser hard-refresh so the UI can show "Connected" the moment the
     user opens Settings, instead of momentarily flashing "ready_pending".
     """
-    from app.services.zomato_mcp_executor import (
-        diagnose_mcp_environment,
-        get_mcp_token_status,
-        repo_root_from_settings,
-        restore_mcp_auth_tokens,
-    )
+    from core.providers.mcp.diagnostics import diagnose_mcp_environment
+    from core.providers.mcp.remote import repo_root
+    from core.providers.mcp.token_store import get_mcp_token_status, restore_mcp_auth_tokens
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if tool_provider and not tool_provider.available:
@@ -228,9 +224,7 @@ def _compute_mcp_status(provider: str, user: str) -> dict[str, Any]:
     node_binary = secret_or_env("NODE_BINARY", "node")
     if tool_provider and tool_provider.stdio_command:
         command_path = (
-            repo_root_from_settings() / tool_provider.stdio_args[0]
-            if tool_provider.stdio_args
-            else None
+            repo_root() / tool_provider.stdio_args[0] if tool_provider.stdio_args else None
         )
         installed = bool(command_path and command_path.is_file())
         return {
@@ -256,7 +250,7 @@ def _compute_mcp_status(provider: str, user: str) -> dict[str, Any]:
         }
     url_set = bool(mcp_url.strip())
 
-    root = repo_root_from_settings()
+    root = repo_root()
     token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
     has_local = token_status["has_local_tokens"]
     has_secret = token_status["has_secret_tokens"]
@@ -348,12 +342,11 @@ def mcp_disconnect(
     the user has paired (Zomato, Swiggy, District, ...) keep their tokens
     — disconnecting one MUST NOT log them out of the others.
     """
-    from app.services.zomato_mcp_executor import (
-        _mcp_remote_config_dir,
-        _mcp_token_secret,
-        _merge_mcp_token_secret,
-        _server_url_hash,
-        repo_root_from_settings,
+    from core.providers.mcp.remote import config_dir, repo_root
+    from core.providers.mcp.token_store import (
+        mcp_token_secret,
+        merge_mcp_token_secret,
+        server_url_hash,
     )
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
@@ -365,13 +358,13 @@ def mcp_disconnect(
             detail=f"{tool_provider.label} has no MCP URL configured; nothing to disconnect.",
         )
 
-    url_hash = _server_url_hash(mcp_url)
-    root = repo_root_from_settings()
+    url_hash = server_url_hash(mcp_url)
+    root = repo_root()
 
     # 1. Strip the provider's files from the durable Secrets Manager copy.
     #    mcp-remote names files `<md5(mcp_url)>_<kind>` so filtering by the
     #    hash leaves every other provider's tokens untouched.
-    secret = _mcp_token_secret(user)
+    secret = mcp_token_secret(user)
     files = secret.get("files") if isinstance(secret, dict) else None
     removed_secret: list[str] = []
     if isinstance(files, dict) and files:
@@ -382,10 +375,10 @@ def mcp_disconnect(
             else:
                 kept[str(key)] = value
         if removed_secret:
-            _merge_mcp_token_secret(user, files=kept)
+            merge_mcp_token_secret(user, files=kept)
 
     # 2. Delete the same files from the live Lambda /tmp (or local dev dir).
-    cfg_dir = _mcp_remote_config_dir(root, user_id=user)
+    cfg_dir = config_dir(user, root)
     removed_local: list[str] = []
     if cfg_dir.is_dir():
         for path in cfg_dir.rglob("*"):
@@ -456,10 +449,7 @@ def mcp_initiate_oauth(
     Lambda/API Gateway. The callback stores mcp-remote-compatible token files in
     Secrets Manager and /tmp for the current warm Lambda instance.
     """
-    from app.services.zomato_mcp_executor import (
-        repo_root_from_settings,
-        start_web_oauth,
-    )
+    from core.providers.mcp.oauth import start_web_oauth
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider or not tool_provider.available:
@@ -477,7 +467,6 @@ def mcp_initiate_oauth(
     callback_url = _public_url(request, "/api/mcp/oauth/callback")
     try:
         result = start_web_oauth(
-            repo_root=repo_root_from_settings(),
             mcp_url=mcp_url,
             callback_url=callback_url,
             user_id=user,
@@ -500,7 +489,7 @@ def mcp_pairing(
     provider: str = Query(default="zomato"),
     user: str = Depends(get_current_user),
 ):
-    from app.services.zomato_mcp_executor import create_pairing_session, repo_root_from_settings
+    from core.providers.mcp.pairing import create_pairing_session
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if tool_provider and not tool_provider.available:
@@ -516,9 +505,7 @@ def mcp_pairing(
             "mcp_url": mcp_url or None,
         }
     base_url = _public_url(request, "").rstrip("/")
-    session = create_pairing_session(
-        repo_root=repo_root_from_settings(), mcp_url=mcp_url, user_id=user
-    )
+    session = create_pairing_session(mcp_url=mcp_url, user_id=user)
     script_url = f"{base_url}/api/mcp/pairing/script?code={quote(session['code'])}"
     return {
         "status": "pairing_ready",
@@ -537,13 +524,10 @@ def mcp_pairing_script(request: Request, code: str = Query(...)):
     base_url = _public_url(request, "").rstrip("/")
     version = "0.1.38"
     try:
-        from app.services.zomato_mcp_executor import (
-            _mcp_remote_version,
-            find_pairing_session_info,
-            repo_root_from_settings,
-        )
+        from core.providers.mcp.pairing import find_pairing_session_info
+        from core.providers.mcp.remote import remote_version, repo_root
 
-        version = _mcp_remote_version(repo_root_from_settings()) or version
+        version = remote_version(repo_root()) or version
         session = find_pairing_session_info(code)
         if not session:
             return "# Pairing code expired. Generate a new Connect command from Companion.\n"
@@ -558,17 +542,14 @@ def mcp_pairing_script(request: Request, code: str = Query(...)):
 
 @router.post("/api/mcp/pairing/complete")
 def mcp_pairing_complete(payload: McpPairingComplete):
-    from app.services.zomato_mcp_executor import complete_pairing_session, repo_root_from_settings
+    from core.providers.mcp.pairing import complete_pairing_session, find_pairing_session_info
 
     try:
         session = None
         try:
-            from app.services.zomato_mcp_executor import find_pairing_session_info
-
             session = find_pairing_session_info(payload.code)
             if session:
                 return complete_pairing_session(
-                    repo_root=repo_root_from_settings(),
                     code=payload.code,
                     files=payload.files,
                     user_id=session.get("user_id"),
@@ -576,7 +557,6 @@ def mcp_pairing_complete(payload: McpPairingComplete):
         except Exception:
             pass
         return complete_pairing_session(
-            repo_root=repo_root_from_settings(),
             code=payload.code,
             files=payload.files,
         )
@@ -592,7 +572,7 @@ def mcp_oauth_callback(
     error_description: str | None = Query(default=None),
     provider: str = Query(default="zomato"),
 ):
-    from app.services.zomato_mcp_executor import complete_web_oauth, repo_root_from_settings
+    from core.providers.mcp.oauth import complete_web_oauth
 
     if error:
         return _oauth_result_page(
@@ -607,9 +587,7 @@ def mcp_oauth_callback(
             ok=False,
         )
     try:
-        result = complete_web_oauth(
-            repo_root=repo_root_from_settings(), state=state, code=code, provider=provider
-        )
+        result = complete_web_oauth(state=state, code=code, provider=provider)
         provider_label = result.get("provider_label") or provider.replace("_", " ").title()
         return _oauth_result_page(f"{provider_label} connected", result["detail"], ok=True)
     except Exception as e:
@@ -625,7 +603,7 @@ def mcp_oauth_start(
     user: str = Depends(get_current_user),
 ):
     """Return the browser-local mcp-remote pairing command for an MCP provider."""
-    from app.services.zomato_mcp_executor import create_pairing_session, repo_root_from_settings
+    from core.providers.mcp.pairing import create_pairing_session
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider or not tool_provider.available:
@@ -660,9 +638,7 @@ def mcp_oauth_start(
         }
 
     base_url = _public_url(request, "").rstrip("/")
-    session = create_pairing_session(
-        repo_root=repo_root_from_settings(), mcp_url=mcp_url, user_id=user
-    )
+    session = create_pairing_session(mcp_url=mcp_url, user_id=user)
     script_url = f"{base_url}/api/mcp/pairing/script?code={quote(session['code'])}"
     return {
         "status": "pairing_ready",
@@ -684,16 +660,11 @@ def mcp_test(
     user: str = Depends(get_current_user),
 ):
     """Auto-restore tokens from Secrets Manager, then test connection."""
-    from app.services.swiggy_mcp_executor import run_swiggy_tool_plan_sync
-    from app.services.zomato_mcp_executor import (
-        get_mcp_token_status,
-        list_mcp_tools_sync,
-        repo_root_from_settings,
-        restore_mcp_auth_tokens,
-        run_tool_plan_sync,
-    )
+    from companion_api.mcp_probe import list_remote_tools, list_stdio_tools, run_remote_tool
+    from core.providers.mcp.remote import repo_root
+    from core.providers.mcp.token_store import get_mcp_token_status, restore_mcp_auth_tokens
 
-    root = repo_root_from_settings()
+    root = repo_root()
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if tool_provider and not tool_provider.available:
         return {
@@ -726,8 +697,6 @@ def mcp_test(
             }
         token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
 
-    node_binary = secret_or_env("NODE_BINARY", "node")
-
     if (
         not url_authenticated
         and not token_status["has_local_tokens"]
@@ -745,13 +714,11 @@ def mcp_test(
     # Try connection
     try:
         if tool_provider and tool_provider.stdio_command:
-            from app.services.stdio_mcp_executor import list_stdio_mcp_tools_sync
-
-            tools_result = list_stdio_mcp_tools_sync(
-                command=tool_provider.stdio_command,
-                args=list(tool_provider.stdio_args),
-                repo_root=root,
+            tools_result = list_stdio_tools(
+                tool_provider.stdio_command,
+                list(tool_provider.stdio_args),
                 user_id=user,
+                root=root,
             )
             if tools_result.get("ok"):
                 return {
@@ -767,12 +734,7 @@ def mcp_test(
                 "tools": [],
             }
         if tool_provider and (tool_provider.custom or tool_provider.name in {"groww", "kite"}):
-            tools_result = list_mcp_tools_sync(
-                mcp_url=mcp_url,
-                node_binary=node_binary,
-                repo_root=root,
-                user_id=user,
-            )
+            tools_result = list_remote_tools(mcp_url, user_id=user, root=root)
             if tools_result.get("ok"):
                 tool_names = [
                     str(tool.get("name") or "").strip()
@@ -807,22 +769,7 @@ def mcp_test(
         test_args = (
             {"query": "milk"} if test_tool in ("search_products", "search_restaurants") else {}
         )
-        if provider in ("swiggy_food", "swiggy_instamart"):
-            result = run_swiggy_tool_plan_sync(
-                [{"tool": test_tool, "arguments": test_args}],
-                mcp_url=mcp_url,
-                node_binary=node_binary,
-                repo_root=root,
-                user_id=user,
-            )
-        else:
-            result = run_tool_plan_sync(
-                [{"tool": test_tool, "arguments": test_args}],
-                mcp_url=mcp_url,
-                node_binary=node_binary,
-                repo_root=root,
-                user_id=user,
-            )
+        result = run_remote_tool(mcp_url, test_tool, test_args, user_id=user, root=root)
         if result.get("ok"):
             return {
                 "status": "connected",
@@ -847,10 +794,11 @@ def mcp_tokens_status(
     provider: str = Query(default="zomato"),
     user: str = Depends(get_current_user),
 ):
-    from app.services.zomato_mcp_executor import get_mcp_token_status, repo_root_from_settings
+    from core.providers.mcp.remote import repo_root
+    from core.providers.mcp.token_store import get_mcp_token_status
 
     _, mcp_url = _provider_mcp_url(provider, user)
-    token_status = get_mcp_token_status(repo_root_from_settings(), mcp_url=mcp_url, user_id=user)
+    token_status = get_mcp_token_status(repo_root(), mcp_url=mcp_url, user_id=user)
     token_status["provider"] = provider
     return token_status
 
@@ -860,29 +808,21 @@ def mcp_tools(
     provider: str = Query(default="zomato"),
     user: str = Depends(get_current_user),
 ):
-    from app.services.zomato_mcp_executor import list_mcp_tools_sync, repo_root_from_settings
+    from companion_api.mcp_probe import list_remote_tools, list_stdio_tools
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider:
         raise HTTPException(status_code=404, detail="MCP provider not found.")
     if tool_provider.stdio_command:
-        from app.services.stdio_mcp_executor import list_stdio_mcp_tools_sync
-
-        result = list_stdio_mcp_tools_sync(
-            repo_root=repo_root_from_settings(),
-            command=tool_provider.stdio_command,
-            args=list(tool_provider.stdio_args),
+        result = list_stdio_tools(
+            tool_provider.stdio_command,
+            list(tool_provider.stdio_args),
             user_id=user,
         )
         result["provider"] = tool_provider.name
         result["provider_label"] = tool_provider.label
         return result
-    result = list_mcp_tools_sync(
-        repo_root=repo_root_from_settings(),
-        mcp_url=mcp_url,
-        node_binary=secret_or_env("NODE_BINARY", "node"),
-        user_id=user,
-    )
+    result = list_remote_tools(mcp_url, user_id=user)
     if result.get("ok"):
         update_tool_provider_tools(
             tool_provider.name,
@@ -904,15 +844,11 @@ def food_saved_addresses(
     user: str = Depends(get_current_user),
 ) -> dict[str, Any]:
     """List saved delivery addresses for the authenticated user via the selected MCP provider."""
-    from app.services.swiggy_mcp_executor import run_swiggy_tool_plan_sync
-    from app.services.zomato_mcp_executor import (
-        get_mcp_token_status,
-        repo_root_from_settings,
-        restore_mcp_auth_tokens,
-        run_tool_plan_sync,
-    )
+    from companion_api.mcp_probe import run_remote_tool
+    from core.providers.mcp.remote import repo_root
+    from core.providers.mcp.token_store import get_mcp_token_status, restore_mcp_auth_tokens
 
-    root = repo_root_from_settings()
+    root = repo_root()
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider or not tool_provider.available:
         raise HTTPException(
@@ -943,33 +879,13 @@ def food_saved_addresses(
             detail="No OAuth tokens for this provider. Connect MCP (pairing or OAuth) first.",
         )
 
-    node_binary = secret_or_env("NODE_BINARY", "node")
-    if tool_name in ("get_user_addresses", "get_addresses"):
-        result = run_swiggy_tool_plan_sync(
-            [{"tool": tool_name, "arguments": {}}],
-            mcp_url=mcp_url,
-            node_binary=node_binary,
-            repo_root=root,
-            user_id=user,
-        )
-    else:
-        result = run_tool_plan_sync(
-            [{"tool": tool_name, "arguments": {}}],
-            mcp_url=mcp_url,
-            node_binary=node_binary,
-            repo_root=root,
-            user_id=user,
-        )
+    result = run_remote_tool(mcp_url, tool_name, {}, user_id=user, root=root)
     if not result.get("ok"):
         raise HTTPException(
             status_code=502,
             detail=str(result.get("error_detail") or "MCP address fetch failed"),
         )
-    steps = result.get("steps") if isinstance(result.get("steps"), list) else []
-    rows: list[dict[str, str]] = []
-    for step in steps:
-        if isinstance(step, dict):
-            rows.extend(_extract_saved_addresses_from_mcp_step(step))
+    rows = _extract_saved_addresses_from_envelope(result.get("data"))
     return {
         "status": "success",
         "provider": tool_provider.name,
