@@ -27,7 +27,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("twilio_voice")
 
-MODEL = "gemini-2.5-flash-native-audio-latest"
+MODEL = "gemini-3.1-flash-live-preview"
 DEFAULT_VOICE = "Puck"
 DEFAULT_SYSTEM_PROMPT = (
     "You are Companion, a warm and helpful AI voice assistant for users in India. "

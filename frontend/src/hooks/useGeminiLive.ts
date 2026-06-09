@@ -221,7 +221,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       const tokenData = await api.post('/api/voice/gemini-token/');
       const token = tokenData.token;
       if (!token) throw new Error(tokenData.error || 'Failed to get Gemini token');
-      const model = tokenData.model || 'gemini-2.5-flash-native-audio-latest';
+      const model = tokenData.model || 'gemini-3.1-flash-live-preview';
 
       const ws = new WebSocket(`${WS_HOST}?access_token=${encodeURIComponent(token)}`);
       ws.binaryType = 'arraybuffer';

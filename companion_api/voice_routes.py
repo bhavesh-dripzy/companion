@@ -481,7 +481,7 @@ async def voice_token_endpoint(
 # silently never fires.
 # ---------------------------------------------------------------------------
 
-GEMINI_LIVE_MODEL_DEFAULT = "gemini-2.5-flash-native-audio-latest"
+GEMINI_LIVE_MODEL_DEFAULT = "gemini-3.1-flash-live-preview"
 
 GEMINI_LIVE_SYSTEM_INSTRUCTION = (
     "You are Companion, a warm, funny voice assistant for users in India. "
