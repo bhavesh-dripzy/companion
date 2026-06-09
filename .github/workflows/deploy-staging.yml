@@ -1,0 +1,101 @@
+name: Deploy (staging)
+
+# Deploys the isolated `staging` environment: stacks companion-staging-graph /
+# companion-staging-serverless, prefixed resources, no custom domain, no EC2.
+# Prereqs: the secret `companion-staging/app` and the same GitHubActionsDeployRole.
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: companion-deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      AWS_ACCOUNT_ID: "616551057455"
+      AWS_REGION: ap-south-1
+      AWS_DEPLOY_ROLE_ARN: "arn:aws:iam::616551057455:role/GitHubActionsDeployRole"
+      COMPANION_ENV: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS target account
+        run: |
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$ACCOUNT_ID" != "$AWS_ACCOUNT_ID" ]; then
+            echo "Refusing to deploy to AWS account $ACCOUNT_ID; expected $AWS_ACCOUNT_ID."
+            exit 1
+          fi
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g aws-cdk
+
+      - name: Clean stale CDK output
+        run: rm -rf infra/cdk.out
+
+      - name: CDK diff (review changes)
+        working-directory: infra
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ env.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
+          DEPLOY_EC2: "false"
+        run: cdk diff --all -c environmentName=staging || true
+
+      - name: CDK deploy (staging)
+        working-directory: infra
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ env.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEPLOY_EC2: "false"
+        run: cdk deploy --all --require-approval never -c environmentName=staging
+
+      - name: Populate staging app secret
+        env:
+          APP_SECRETS_JSON: ${{ secrets.APP_SECRETS_JSON }}
+        run: |
+          if [ -z "$APP_SECRETS_JSON" ]; then
+            echo "No APP_SECRETS_JSON configured for staging — skipping."
+            exit 0
+          fi
+          aws secretsmanager put-secret-value \
+            --secret-id companion-staging/app \
+            --secret-string "$APP_SECRETS_JSON" \
+            --region "$AWS_REGION"
+          echo "Secret companion-staging/app updated."
+
+      - name: Smoke test
+        run: |
+          API_URL="$(aws cloudformation describe-stacks \
+            --stack-name companion-staging-serverless \
+            --query "Stacks[0].Outputs[?OutputKey=='HttpApiEndpoint'].OutputValue" \
+            --output text)"
+          curl -fsS "$API_URL/api/"

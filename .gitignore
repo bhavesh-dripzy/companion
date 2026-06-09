@@ -54,3 +54,15 @@ test_parse.py
 
 # Sisyphus planning artifacts
 .sisyphus/credentials.txt
+
+# Build artifacts & tool caches (never commit)
+cdk.out/
+infra/cdk.out/
+.ruff_cache/
+.pytest_cache/
+.pycache_tmp/
+db.sqlite3
+
+# Local IDE / assistant scratch dirs
+.antigravitycli/
+.deepseek/

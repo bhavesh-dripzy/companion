@@ -28,6 +28,8 @@ class CompanionStack(Stack):
         construct_id: str,
         *,
         project_name: str,
+        domain_name: str = "houzzat.in",
+        enable_custom_domain: bool = True,
         profile_cache: dynamodb.ITable = None,
         turns_queue: sqs.IQueue = None,
         lead_cache: dynamodb.ITable = None,
@@ -105,7 +107,7 @@ class CompanionStack(Stack):
                 ],
                 callback_urls=[
                     "http://localhost:8000/api/auth/callback",
-                    "https://houzzat.in/api/auth/callback",
+                    f"https://{domain_name}/api/auth/callback",
                 ],
             ),
             prevent_user_existence_errors=True,
@@ -257,7 +259,7 @@ class CompanionStack(Stack):
         if turns_queue:
             turns_queue.grant_send_messages(api_function)
             api_function.add_environment("LEADGEN_QUEUE_URL", turns_queue.queue_url)
-        api_function.add_environment("GRAPH_SERVICE_URL", "https://graph.houzzat.in")
+        api_function.add_environment("GRAPH_SERVICE_URL", f"https://graph.{domain_name}")
         api_function.add_environment("GRAPH_SERVICE_TOKEN_SECRET", f"{project_name}/graph-service-token")
         app_secret.grant_read(api_function)
         api_function.add_to_role_policy(
@@ -295,34 +297,7 @@ class CompanionStack(Stack):
             )
         )
 
-        # ── Domain & DNS ───────────────────────────────────────────────
-
-        domain_name = "houzzat.in"
-        zone = route53.PublicHostedZone.from_lookup(
-            self,
-            "HostedZone",
-            domain_name=domain_name,
-        )
-
-        certificate = acm.Certificate(
-            self,
-            "Certificate",
-            domain_name=domain_name,
-            subject_alternative_names=[f"*.{domain_name}"],
-            validation=acm.CertificateValidation.from_dns(zone),
-        )
-
-        api_domain = apigwv2.CfnDomainName(
-            self,
-            "ApiCustomDomain",
-            domain_name=domain_name,
-            domain_name_configurations=[
-                apigwv2.CfnDomainName.DomainNameConfigurationProperty(
-                    certificate_arn=certificate.certificate_arn,
-                    endpoint_type="REGIONAL",
-                )
-            ],
-        )
+        # ── HTTP API ───────────────────────────────────────────────────
 
         api = apigwv2.CfnApi(
             self,
@@ -334,26 +309,6 @@ class CompanionStack(Stack):
                 allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                 allow_origins=["*"],
                 max_age=3600,
-            ),
-        )
-
-        apigwv2.CfnApiMapping(
-            self,
-            "ApiMapping",
-            api_id=api.ref,
-            domain_name=domain_name,
-            stage="$default",
-        ).add_dependency(api_domain)
-
-        route53.ARecord(
-            self,
-            "ApiAliasRecord",
-            zone=zone,
-            target=route53.RecordTarget.from_alias(
-                targets.ApiGatewayv2DomainProperties(
-                    regional_domain_name=api_domain.attr_regional_domain_name,
-                    regional_hosted_zone_id=api_domain.attr_regional_hosted_zone_id,
-                )
             ),
         )
 
@@ -390,6 +345,58 @@ class CompanionStack(Stack):
                 f"{cdk.Aws.ACCOUNT_ID}:{api.ref}/*/*"
             ),
         )
+
+        # ── Custom domain & DNS (prod; opt-in per environment) ─────────
+        # Guarded so dev/staging can deploy against the raw API Gateway URL
+        # without Route53/ACM. prod (enable_custom_domain=True, the default)
+        # creates the same constructs as before, so its template is unchanged.
+
+        if enable_custom_domain:
+            zone = route53.PublicHostedZone.from_lookup(
+                self,
+                "HostedZone",
+                domain_name=domain_name,
+            )
+
+            certificate = acm.Certificate(
+                self,
+                "Certificate",
+                domain_name=domain_name,
+                subject_alternative_names=[f"*.{domain_name}"],
+                validation=acm.CertificateValidation.from_dns(zone),
+            )
+
+            api_domain = apigwv2.CfnDomainName(
+                self,
+                "ApiCustomDomain",
+                domain_name=domain_name,
+                domain_name_configurations=[
+                    apigwv2.CfnDomainName.DomainNameConfigurationProperty(
+                        certificate_arn=certificate.certificate_arn,
+                        endpoint_type="REGIONAL",
+                    )
+                ],
+            )
+
+            apigwv2.CfnApiMapping(
+                self,
+                "ApiMapping",
+                api_id=api.ref,
+                domain_name=domain_name,
+                stage="$default",
+            ).add_dependency(api_domain)
+
+            route53.ARecord(
+                self,
+                "ApiAliasRecord",
+                zone=zone,
+                target=route53.RecordTarget.from_alias(
+                    targets.ApiGatewayv2DomainProperties(
+                        regional_domain_name=api_domain.attr_regional_domain_name,
+                        regional_hosted_zone_id=api_domain.attr_regional_hosted_zone_id,
+                    )
+                ),
+            )
 
         # ── Outputs ────────────────────────────────────────────────────
 

@@ -1,185 +1,288 @@
-# Companion — Serverless Food & Reminder Assistant
+# Companion — multi-provider food / q-commerce / going-out / finance assistant
 
-Companion is a multi-provider food-ordering and reminder-management API running on AWS as a fully serverless application, now integrated with a state-of-the-art **User Knowledge Graph** and **Automated Lead Generation Engine**.
+Companion is a conversational + voice assistant. A user message (or voice turn) is routed to a
+domain, one or more **provider plugins** plan and run tool calls (mostly over **MCP**), and the
+assistant narrates the result with rich attachments — restaurant/menu/cart cards, payment QR,
+product grids, movie/event cards, stock quotes. A separate **knowledge-graph / leadgen** subsystem
+learns from each turn asynchronously and personalizes future ones.
+
+It runs **serverless**: FastAPI on AWS Lambda (via Mangum) behind an HTTP API Gateway, in account
+`616551057455` / `ap-south-1`.
+
+> **This repo is mid-migration (strangler pattern).** A fresh, pluggable `core/` package has replaced
+> the old monolith and is the **default on `dev`**. The legacy code under `app/services/` still
+> exists as the fallback and is still load-bearing for two things (planner prompts + MCP token vault).
+> If you're an AI agent or new contributor, **read [§2 Mental model](#2-mental-model-read-this-first)
+> first** so you know which tree is live.
 
 ---
 
-## 1. Architecture
+## Table of contents
+
+1. [TL;DR for agents](#1-tldr-for-agents)
+2. [Mental model (read this first)](#2-mental-model-read-this-first)
+3. [Repo map — where everything lives](#3-repo-map--where-everything-lives)
+4. [The request lifecycle (the pipeline)](#4-the-request-lifecycle-the-pipeline)
+5. [Providers (the plugin model)](#5-providers-the-plugin-model)
+6. [Knowledge graph & leadgen](#6-knowledge-graph--leadgen)
+7. [Config & feature flags](#7-config--feature-flags)
+8. [Local dev, test, lint](#8-local-dev-test-lint)
+9. [Branches, CI, environments, deploy](#9-branches-ci-environments-deploy)
+10. ["Where do I look if I want to…"](#10-where-do-i-look-if-i-want-to)
+11. [Deeper docs & links](#11-deeper-docs--links)
+
+---
+
+## 1. TL;DR for agents
+
+- **Live code path:** `companion_api/main.py` (FastAPI routes) → `companion_api/core_shadow.py`
+  (`run_core_turn_sync`) → **`core/` pipeline** (`core/pipeline/runner.py`). Set `LEGACY_PIPELINE=1`
+  to fall back to the old `app/services/agents/pipeline.py`.
+- **The architecture you should build on is `core/`.** Every file is **≤250 lines** (CI-enforced).
+- **Adding a provider = a plugin + one line in `core/registry/bootstrap.py`.** No pipeline edits.
+  See [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-provider-the-pluggable-path).
+- **Design doc:** [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) +
+  [ADRs](docs/architecture/adr/). **Branch/env rules:** [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Lint/test gates:** `ruff check core`, `python scripts/check_file_size.py core`, `pytest tests/core`.
+- **Don't** grow `app/services/` (it's being deleted) or add `asyncio.run` (the pipeline is async-first).
+
+---
+
+## 2. Mental model (read this first)
+
+Two trees coexist during the migration:
+
+| Tree | What it is | Status |
+|------|-----------|--------|
+| **`core/`** | The clean, pluggable rewrite — contracts, registry, 7-stage pipeline, provider plugins. | **The default.** Build here. |
+| **`app/services/`** | The original monolith (`agents/pipeline.py` ~4k lines, per-provider `*_mcp_executor.py`). | **Legacy fallback.** Being torn down (Phase 8). |
+
+**Why the legacy tree still matters (it's not dead yet):**
+1. **Planning** — each clean provider's `plan()` currently delegates to the tuned legacy domain
+   agents via `core/providers/mcp/legacy_planner.py` (a parity bridge). Removing it needs the planner
+   prompts ported to the generated-prompt path first.
+2. **MCP token vault** — `core/providers/mcp/remote.py` hydrates OAuth tokens by calling
+   `app.services.zomato.mcp_executor.ensure_mcp_tokens_on_disk`. The vault must be ported to `core/`
+   before the executor is deleted.
+
+So `dev` is a **complete working app on the new architecture**, with the legacy tree as a safety net
+behind `LEGACY_PIPELINE=1` and as a still-referenced dependency for the two items above.
+
+The migration plan and per-phase status live in the team's notes; the design rationale is in the
+[ADRs](docs/architecture/adr/).
+
+---
+
+## 3. Repo map — where everything lives
 
 ```
-                                  ┌──────────────────────┐
-                                  │   API Gateway (HTTP)  │
-                                  └──────────┬───────────┘
-                                             │
-                                  ┌──────────▼───────────┐
-                                  │   Lambda (FastAPI)    │
-                                  │   Python 3.12 / Node  │
-                                  └──┬───────┬───────┬───┘
-                                     │       │       │
-                        ┌────────────▼┐  ┌──▼──┐  ┌─▼──────────┐
-                        │  DynamoDB    │  │Cognito│ │Secrets Mgr │
-                        │  (6 tables)  │  │(auth) │ │(LLM keys)  │
-                        └──────┬──────┘  └──────┘  └────────────┘
-                               │
-                        ┌──────▼───────────────┐
-                        │   SQS Event Queue    │
-                        └──────┬───────────────┘
-                               │
-                        ┌──────▼───────────────┐
-                        │   EC2 Graph Worker   │
-                        └──────┬───────────────┘
-                               │
-                        ┌──────▼───────────────┐
-                        │   Neo4j (EC2 Graph)  │
-                        └──────────────────────┘
+core/                              # ★ the clean architecture (build here)
+  contracts/                       # pure Pydantic: Tool, ToolCall/ToolPlan, ToolResult,
+                                   #   SessionState, Attachment, TurnRequest/Response, RoutingDecision
+  llm/                             # async LLM client, robust JSON parser, fn-calling schema
+  registry/                        # ProviderRegistry + ToolRegistry + bootstrap.py (the ONE
+                                   #   registration point; CLEAN_MCP flag lives here)
+  middleware/                      # planner_prompt (generated), validator, dispatcher, confirmation, errors
+  pipeline/                        # runner.py + stages/{personalize,route,plan,execute,collect,narrate,persist}.py
+  providers/
+    base.py                        # the Provider Protocol (the plugin interface)
+    mcp/                           # shared MCP base: connection.py, remote.py (mcp-remote launch +
+                                   #   token hydration), placeholders.py, result_parse.py,
+                                   #   mcp_base.py (McpProvider), food_session.py, lru.py, legacy_planner.py
+    http/                          # shared HTTP provider base (statically-declared tools)
+    legacy/                        # LegacyMcpAdapter + MCP_CONFIGS (migration bridge; deleted at cutover)
+    plugins/                       # ★ one folder per provider — see §5
+  boundaries/                      # KG/leadgen seam (TurnEventPublisher, ProfileReadService protocols)
+  app_factory.py                   # wires registry + boundaries + llm into a PipelineRunner
+
+companion_api/                     # the web layer (FastAPI)
+  main.py                          # app + router includes; _companion_agent_turn entrypoint
+  core_shadow.py                   # adapts a web request → core TurnRequest → runner → legacy-shaped envelope
+  routers/                         # auth, mcp, chats, reminders, profile, maps, whatsapp, calendar, tools
+  voice_routes.py                  # realtime voice (OpenAI Realtime / Gemini Live)
+  secrets.py, settings.py          # secret + env resolution
+  *_repo.py / profile_cache.py     # DynamoDB repositories
+
+app/services/                      # LEGACY (fallback + still-referenced). Being deleted (Phase 8).
+  agents/pipeline.py               # the old monolithic turn pipeline (source of parity behavior)
+  <provider>/mcp_executor.py       # per-provider executors (zomato/swiggy/instamart/zepto/district/kite)
+  leadgen/                         # KG extraction schema, Neo4j client, parser
+
+infra/                             # AWS CDK (Python)
+  app.py                           # env selector: COMPANION_ENV=dev|staging|prod → stack names/domain
+  companion_stack.py               # Lambda + API GW + Cognito + DynamoDB + Secrets + EventBridge
+  graph_stack.py                   # SQS + cache tables (+ EC2/Neo4j only when DEPLOY_EC2=true)
+
+deploy/graph-ec2/                  # the graph-worker box: graph_service.py (FastAPI) + worker.py (SQS consumer)
+frontend/                          # React SPA (Vite) — chat UI, admin graph dashboard
+tests/                             # tests/core/ = the new suite; root tests/ = legacy
+docs/architecture/                 # ARCHITECTURE.md + adr/*.md  ← the design of record
+scripts/check_file_size.py         # the ≤250-line gate
+.github/workflows/                 # ci.yml, deploy.yml (main), deploy-staging.yml (staging)
 ```
 
-- **API Gateway HTTP API** — Public HTTP endpoint with CORS, routing all traffic to the Lambda function.
-- **Lambda (Serverless API)** — Runs the FastAPI app wrapped with Mangum. Handles chat sessions, prompt personalization, reminder generation, and MCP pairings.
-- **DynamoDB tables** —
-  - `families`, `members`, `messages`, `reminders` — Primary serverless transactional data.
-  - `companion-profile-cache` — Stores user knowledge graph projections (facts, interests, active locations) for low-latency context injection.
-  - `companion-lead-cache` — Holds commercial leads generated from user conversations, indexed via GSIs for high-throughput queries by merchant systems.
-- **EventBridge Scheduler** — Invokes `scheduled_reminder_handler` to trigger reminders.
-- **SQS Lead Generation Queue** — Asynchronously ingests conversational turn events containing messages, geo coordinates, and session metadata from WhatsApp and Web client turns.
-- **EC2 Graph Stack (`t4g.small`)** — Hosts the **Neo4j graph database** and two key daemon processes:
-  - **FastAPI Graph Service** — Serves DNS `graph.houzzat.in` over SSL (via Caddy proxy), exposing secure profile and query endpoints.
-  - **SQS Background Worker** — Long-polls SQS, executes LLM extraction on new turns to identify facts/interests/leads, updates Neo4j, and writes projection updates to the DynamoDB caches.
+---
+
+## 4. The request lifecycle (the pipeline)
+
+Chat **and** voice run the **same** 7-stage async pipeline (`core/pipeline/runner.py`):
+
+```
+TurnRequest → Personalize → Route → Plan → Execute → Collect → Narrate → Persist → TurnResponse
+```
+
+| Stage | File | Responsibility |
+|-------|------|----------------|
+| Personalize | `stages/personalize.py` | Profile read (KG seam, fail-open) + home/office address resolution. |
+| Route | `stages/route.py` | Orchestrator LLM → `RoutingDecision{task_type, providers[]}` (+ stickiness). Name an app → that app; name none → all relevant providers (issue #14). |
+| Plan | `stages/plan.py` | Per-provider planner → validated `ToolPlan`. Delegates to `legacy_planner` during migration. |
+| Execute | `stages/execute.py` | Provider fan-out (`asyncio.gather`), partial-failure tolerant → `ToolResult`s. |
+| Collect | `stages/collect.py` | `provider.build_attachments(result)` in a fixed render-priority order. |
+| Narrate | `stages/narrate.py` | Response LLM → `assistant_message` + LLM-driven card/cart filtering. |
+| Persist | `stages/persist.py` | Per-provider `merge()` of session state + non-blocking side-channels (leadgen, message store). |
+
+Full design + the parity traps to preserve: [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md).
+Async-first rationale: [ADR-0003](docs/architecture/adr/0003-async-first-pipeline.md).
 
 ---
 
-## 2. Knowledge Graph & Leadgen Engine
+## 5. Providers (the plugin model)
 
-The Knowledge Graph acts as the centralized user memory vault, enabling hyper-personalized assistant behavior.
+A provider is a plugin implementing the `Provider` protocol (`core/providers/base.py`):
+`discover_tools()`, `run(calls, ctx)`, `build_attachments(result)`, `merge(slice_, result)`, and
+(during migration) `plan(ctx)`. `McpProvider` / `HttpProvider` supply most of it so a concrete
+plugin stays ~small.
 
-### A. Graph Schema (Neo4j)
-- **Nodes**:
-  - `(u:User {id: user_id, name, age, city, language, phone})` — Central identity.
-  - `(p:Place {id: place_id, address_line, lat, lng, kind})` — Locations (home/office).
-  - `(c:Category {name: category_name})` — Intent classifications (food, electronics, salon, etc.).
-  - `(i:Interest {id: interest_id, detail, category})` — Specific user preferences.
-  - `(l:Lead {id: lead_id, product, budget_signal, intent_score, confidence, status, consent_status})` — Commercial leads.
-- **Relationships**:
-  - `(u)-[:LIVES_AT | WORKS_AT]->(p)` (with validity timestamps)
-  - `(u)-[:INTERESTED_IN {weight}]->(c)`
-  - `(u)-[:LIKES {weight}]->(i)`
-  - `(u)-[:GENERATED]->(l)`
+**MCP providers** (`core/providers/plugins/`) — all six are clean-ported + live-validated and run
+clean by default on `dev`:
 
-### B. Personalization Pipeline
-At the start of every chat turn, the Lambda API fetches the user profile cache from `companion-profile-cache`.
-- **Prompt Injection**: Injects user facts, preferred items, and active leads into the routing and planning LLM context.
-- **Address Seeding**: Merges graph locations stickily into the session state so Zomato/Swiggy execution works out-of-the-box.
-- **Home/Office Auto-Resolution**: Intercepts requests matching home/office keywords (e.g. "Order burger to office") and automatically overrides coordinates without manual pin selection.
+| id | folder | surfaces | cards |
+|----|--------|----------|-------|
+| `zomato` | `zomato/` | restaurant/menu search, cart, checkout | restaurant, menu, cart, payment QR |
+| `swiggy_food` | `swiggy_food/` | restaurant/menu search, cart | restaurant, menu, cart |
+| `swiggy_instamart` | `swiggy_instamart/` | grocery search, cart | product grid, cart |
+| `zepto` | `zepto/` | grocery search, cart | product grid, cart |
+| `district` | `district/` | dining/movies/theatres/events/venues/artists, table booking | typed discovery + reservation |
+| `kite` | `kite/` | quotes/holdings/positions/orders/margin (Zerodha); two-step order confirm | instrument/holdings/positions/margin |
+
+**HTTP providers** (statically-declared tools): `twilio`, `maps`, `calendar`, `whatsapp`.
+
+**How MCP connection works:** `core/providers/mcp/remote.py` launches the `mcp-remote` stdio proxy
+(`node_modules/mcp-remote/dist/proxy.js`) against the provider URL; OAuth tokens are vaulted in
+Secrets Manager `companion/mcp-tokens` (shared across all envs — hardcoded). Kite uses **TOOL auth**
+(a `login` tool returns a Zerodha URL the user visits; session-scoped).
+
+**Add a provider:** see [CONTRIBUTING.md → Adding a provider](CONTRIBUTING.md#adding-a-provider-the-pluggable-path).
+You create `core/providers/plugins/<id>/` and add one line to `core/registry/bootstrap.py`.
 
 ---
 
-## 3. Quickstart
+## 6. Knowledge graph & leadgen
+
+A decoupled, async subsystem (issue #28) behind two protocols in `core/boundaries/`
+(`TurnEventPublisher`, `ProfileReadService`) — the pipeline imports neither the queue nor the graph
+client directly.
+
+- **Write path:** `Persist` fire-and-forget enqueues a turn event to **SQS**; the EC2 graph worker
+  (`deploy/graph-ec2/worker.py`) long-polls, runs LLM extraction (facts/interests/leads), updates
+  **Neo4j**, and writes projections to the DynamoDB caches (`companion-graph-ProfileCache…` /
+  `…LeadCache…`).
+- **Read path:** `Personalize` reads the profile cache (fail-open) to inject facts + resolve
+  home/office addresses.
+- The Neo4j/graph EC2 box only exists when `DEPLOY_EC2=true` (prod). Dev/staging run with the KG
+  seam stubbed/fail-open.
+
+Decouple rationale: [ADR-0004](docs/architecture/adr/0004-decouple-kg-leadgen.md).
+
+---
+
+## 7. Config & feature flags
+
+| Flag / env | Default | Effect |
+|------------|---------|--------|
+| `LEGACY_PIPELINE` | unset | `=1` routes turns through the old `app/services/agents/pipeline.py` instead of `core/`. Global escape hatch. |
+| `CLEAN_MCP` | unset → all 6 clean | Comma list selecting which MCP providers use the clean `McpProvider` vs the `LegacyMcpAdapter`. `CLEAN_MCP=""` reverts all to the adapter. Defined in `core/registry/bootstrap.py`. |
+| `COMPANION_ENV` | `prod` | CDK env selector (`dev`/`staging`/`prod`) → stack names, resource prefix, domain. |
+| `DEPLOY_EC2` | `false` | `=true` provisions the Neo4j/graph EC2 box (prod only). |
+| `APP_SECRET_ID` | per-env | Secrets Manager id for LLM/API keys (`companion[-env]/app`). |
+| `NODE_BINARY` | `node` | node used to spawn the mcp-remote proxy. |
+
+Secrets (Secrets Manager): `companion/app` (LLM keys), `companion/mcp-tokens` (OAuth vault, shared),
+plus `*/neo4j-key`, `*/graph-service-token`. App config resolves via `companion_api/secrets.py`.
+
+---
+
+## 8. Local dev, test, lint
 
 ```bash
-# 1. Clone and install dependencies
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-npm install
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && npm install        # npm: mcp-remote proxy
 
-# 2. Configure environment
-cp .env.example .env
-# Edit .env — add at least one LLM key (GEMINI_API_KEY recommended)
+cp .env.example .env                                   # add at least one LLM key
+uvicorn companion_api.main:app --reload --port 8000    # run the API
 
-# 3. Run locally
-uvicorn companion_api.main:app --reload --port 8000
-
-# 4. Run tests
-pytest
+# gates (what CI runs on core/)
+ruff check core && ruff format --check core
+python scripts/check_file_size.py core                 # ≤250 lines
+pytest tests/core -q                                   # the new suite
 ```
+
+Test markers (`pyproject.toml`): `unit` (fast, no I/O), `integration` (mocked external),
+`component` (per-provider vs recorded fixtures), `live` (real services — never in CI).
+Run e.g. `pytest -m "component and not live"`.
+
+> Note: `tests/test_district_mcp_executor.py` is a known pre-existing-broken legacy test (stale
+> import); run with `--ignore=tests/test_district_mcp_executor.py` for the full suite.
 
 ---
 
-## 4. API Reference
+## 9. Branches, CI, environments, deploy
 
-All authenticated endpoints require `Authorization: Bearer <token>`.
+Promotion is one-directional (full rules in [CONTRIBUTING.md](CONTRIBUTING.md)):
 
-### Auth & Health
+```
+feature/* ──PR──> dev ──promote──> staging ──promote──> main
+                  (integration)    (pre-prod mirror)    (prod)
+```
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/` | No | Health check |
-| GET | `/` or `/food/` | No | Food-agent SPA (HTML) |
-| POST | `/api/login/` | No | Legacy admin login |
-| GET | `/api/auth/status/` | Yes | Returns authenticated user details |
+- **CI** (`.github/workflows/ci.yml`) on PRs into dev/staging/main: ruff + 250-line gate + pytest + frontend build.
+- **Deploy** is CDK via GitHub Actions: `deploy.yml` (push to `main` → prod), `deploy-staging.yml`
+  (push to `staging` → `companion-staging-*`). Each env is isolated (prefixed stacks/tables); only
+  prod has a custom domain + EC2. DynamoDB is `PAY_PER_REQUEST` (on-demand), so non-prod envs idle ≈ $0.
+- **Manual CDK:** `cd infra && cdk deploy --all` (uses `COMPANION_ENV` to pick the env).
 
-### User Profile & Leads
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/profile/me/` | Yes | Retrieves profile facts/interests projection |
-| GET | `/api/leads/` | Yes | Query leads by status or category |
-
-### Admin Dashboard (Database & Graph)
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/admin/users/` | Yes (Admin) | List all registered users in the graph directory |
-| GET | `/api/admin/profile-graph/{user_id}/` | Yes (Admin) | Fetch nodes and edges representing a user subgraph |
-
-*To access the Admin Dashboard from the Web Client, log in with username `local_admin` (in local mode) and click the **Database (Database)** icon on the left sidebar rail.*
+Env parameterization: [ADR-0005](docs/architecture/adr/0005-branching-ci-environments.md).
 
 ---
 
-## 5. Deployment
+## 10. "Where do I look if I want to…"
 
-Deployment is managed fully through the AWS Cloud Development Kit (CDK).
-
-```bash
-cd infra
-pip install -r requirements.txt
-cdk synth
-cdk deploy --all
-```
-
-### Stacks
-- **`GraphStack`** (`infra/graph_stack.py`) — Provisions SQS queue + DLQ, Neo4j secrets, Route 53 DNS records, the EC2 instance, Caddy proxy configuration, and the DynamoDB cache tables.
-- **`CompanionStack`** (`infra/companion_stack.py`) — Provisions the serverless REST API Lambda, Cognito User Pool, DynamoDB transactional tables, and EventBridge Scheduler.
-
----
-
-## 6. Project Structure
-
-```
-├── app/                      # Django business logic
-│   ├── models/               # Family, Member, Message, Reminder models
-│   ├── services/             # LLM router, response builders, tool runtimes
-│   │   └── leadgen/          # Extraction schema, Neo4j client, parser
-│   │       ├── extractor.py
-│   │       ├── graph_client.py
-│   │       └── schema.py
-├── companion_api/            # FastAPI REST Endpoint
-│   ├── lead_cache_repo.py    # Repository for DynamoDB commercial lead cache
-│   ├── messages_repo.py      # Repository for message history logs
-│   ├── profile_cache.py      # Repository for DynamoDB profile cache projection
-│   ├── main.py               # REST API paths (including admin profile-graph endpoints)
-│   ├── settings.py           # Environment config (adds LEAD_CACHE_TABLE)
-├── deploy/graph-ec2/         # EC2 deployment scripts
-│   ├── graph_service.py      # Secure FastAPI service for Neo4j querying
-│   └── worker.py             # SQS turn events consumer (write-through cache loader)
-├── frontend/                 # React SPA Workspace
-│   ├── src/
-│   │   ├── AdminDashboard.tsx # 2D Canvas force graph visualizer & leads table
-│   │   ├── App.tsx           # Main shell (integrates SidebarRail toggles)
-│   │   ├── SidebarRail.tsx   # Admin dashboard trigger button
-├── infra/                    # AWS CDK Code
-│   ├── graph_stack.py        # Graph stack definitions (EC2, SQS, caches)
-│   └── companion_stack.py    # Primary serverless APIs and permissions
-├── tests/                    # Test suites
-│   ├── test_leadgen.py       # Fact extraction, caching, and personalization tests
-```
+| I want to… | Look at |
+|------------|---------|
+| Add a new provider | `core/providers/plugins/<id>/` + `core/registry/bootstrap.py`; [CONTRIBUTING](CONTRIBUTING.md#adding-a-provider-the-pluggable-path) |
+| Change how a card renders | that provider's `cards.py` / `*_cards.py` in its plugin folder |
+| Change routing / which provider handles a task | `core/pipeline/stages/route.py` |
+| Change the planner prompt | `core/middleware/planner_prompt.py` (clean path) or `app/services/<provider>/prompts/` (legacy, while delegated) |
+| Touch session state (cart/menu/restaurant memory) | the provider's `session.py` / `merge()` |
+| Add/modify an HTTP route | `companion_api/routers/*.py` |
+| Work on voice | `companion_api/voice_routes.py` |
+| Change MCP connection / token handling | `core/providers/mcp/remote.py`, `connection.py` |
+| Change infra (tables, Lambda, domain) | `infra/companion_stack.py`, `infra/graph_stack.py`, `infra/app.py` |
+| Understand the KG/leadgen flow | `core/boundaries/`, `deploy/graph-ec2/`, [ADR-0004](docs/architecture/adr/0004-decouple-kg-leadgen.md) |
+| Roll back the whole pipeline | set `LEGACY_PIPELINE=1` |
+| Roll back one provider | add its id to `CLEAN_MCP`'s complement (or `CLEAN_MCP=""` for all) |
 
 ---
 
-## 7. Testing
+## 11. Deeper docs & links
 
-To run the full test suite (covering MCP executors, EventBridge triggers, profile caches, and lead generation GSI repositories):
-
-```bash
-pytest
-```
+- **Architecture (design of record):** [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md)
+- **ADRs:** [strangler rewrite](docs/architecture/adr/0001-strangler-rewrite-on-dev.md) ·
+  [unified tool schema + registry](docs/architecture/adr/0002-unified-tool-schema-and-registry.md) ·
+  [async-first pipeline](docs/architecture/adr/0003-async-first-pipeline.md) ·
+  [decouple KG/leadgen](docs/architecture/adr/0004-decouple-kg-leadgen.md) ·
+  [branching + CI + environments](docs/architecture/adr/0005-branching-ci-environments.md)
+- **Contributing (branches, conventions, adding a provider):** [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- **Infra:** [`infra/README.md`](infra/README.md)
+- **Umbrella issue:** #26 (architecture rewrite). Related: #27 (unified schema), #28 (KG decouple),
+  #29 (web decomposition), #24 (branching/CI), #14 (provider-agnostic routing).

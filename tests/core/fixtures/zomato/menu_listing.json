@@ -1,0 +1,503 @@
+{
+  "tool": "get_menu_items_listing",
+  "arguments": {
+    "res_id": "22676334"
+  },
+  "result": {
+    "is_error": false,
+    "data": {
+      "result": {
+        "data": {
+          "res_id": 22676334,
+          "restaurant_name": "Domino's Pizza",
+          "item_mappings": [
+            {
+              "item_name": "Classic Stuffed Garlic Bread",
+              "categories": [
+                "Your Orders and Collections",
+                "Garlic Breads & Dips",
+                "Recommended for you"
+              ],
+              "variant_id": "v_1048395714",
+              "has_more_variants": false
+            },
+            {
+              "item_name": "Paneer, Onion & Capsicum with Desi Makhani Sauce",
+              "categories": [
+                "Pizza Mania",
+                "Your Orders and Collections",
+                "Recommended for you"
+              ],
+              "variant_id": "v_1048395476",
+              "has_more_variants": true
+            },
+            {
+              "item_name": "Paneer Maxxx Makhani Fusion",
+              "categories": [
+                "Paneer Maxxx",
+                "Newly Launched"
+              ],
+              "variant_id": "v_1058965982",
+              "has_more_variants": true
+            },
+            {
+              "item_name": "Paneer Maxxx Tandoori Twist",
+              "categories": [
+                "Paneer Maxxx",
+                "Newly Launched"
+              ],
+              "variant_id": "v_1058965984",
+              "has_more_variants": true
+            },
+            {
+              "item_name": "Paneer Maxxx Garlic Ranch",
+              "categories": [
+                "Paneer Maxxx",
+                "Newly Launched"
+              ],
+              "variant_id": "v_1058965986",
+              "has_more_variants": true
+            },
+            {
+              "item_name": "Big Big 6in1 Pizza - Non Veg",
+              "categories": [
+                "Big Big Pizza",
+                "Items up to 55% off"
+              ],
+              "variant_id": "v_1048395506",
+              "has_more_variants": true
+            },
+            {
+              "item_name": "Big Big 6in1 Cheeseburst - Non Veg",
+              "categories": [
+                "Big Big Pizza",
+                "Items up to 55% off"
+              ],
+              "variant_id": "v_1048395304",
+              "has_more_variants": true
+            },
+            {
+              "item_name": "Big Big 6in1 Cheeseburst - Veg",
+              "categories": [
+                "Big Big Pizza",
+                "Recommended for you",
+                "Items up to 55% off"
+              ],
+              "variant_id": "v_1048395797",
+              "has_more_variants": true
+            }
+          ],
+          "partial_menu": [
+            {
+              "item_id": "ctl_785568411",
+              "name": "Classic Stuffed Garlic Bread",
+              "price": 159,
+              "description": "Freshly baked garlic bread with cheese, juicy corn & tangy jalapeno",
+              "variants": null,
+              "item_tags": [
+                "veg",
+                "baked",
+                "services",
+                "sf-not-vegan",
+                "delivery-enabled"
+              ],
+              "categories": [
+                "Your Orders and Collections",
+                "Garlic Breads & Dips",
+                "Recommended for you"
+              ],
+              "sub_categories": [],
+              "rating": 0,
+              "reviews": 0,
+              "parent_id": "ctg_59714874",
+              "meta_data": "{\"v\":1048395714,\"s_ctg\":85621108,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"classic-stuffed-garlic-bread\"}",
+              "available_add_ons": null,
+              "health_info": null,
+              "discounted_price": 159,
+              "variant_id": "v_1048395714",
+              "image_url": "https://b.zmtcdn.com/data/dish_photos/3a5/c96b9aa0a141d88ede49e13551aa33a5.jpeg?output-format=webp"
+            },
+            {
+              "item_id": "ctl_785568353",
+              "name": "Paneer, Onion & Capsicum with Desi Makhani Sauce",
+              "price": 129,
+              "description": "Authentic Indian Flavor of Makhani Sauce loaded with juicy Paneer, crisp Capsicum and crunchy Onion.",
+              "variants": [
+                {
+                  "variant_item_id": "pv_250440461",
+                  "variant_id": "v_1048395476",
+                  "parent_id": "p_97160585",
+                  "property_values": {
+                    "Size": "Regular",
+                    "Crust": "Classic Hand Tossed"
+                  },
+                  "price": 129,
+                  "item_metadata": "{\"v\":1048395476,\"s_ctg\":85621097,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-onion-capsicum-with-desi-makhani-sauce\"}",
+                  "available_add_ons": null,
+                  "discounted_price": null,
+                  "variant_hierarchy": [
+                    {
+                      "item_id": "pv_250440460",
+                      "name": "Classic Hand Tossed",
+                      "parent_id": "p_97160584",
+                      "item_metadata": "{\"v\":0,\"s_ctg\":85621097,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-onion-capsicum-with-desi-makhani-sauce\"}",
+                      "parent_name": "Crust"
+                    },
+                    {
+                      "item_id": "pv_250440461",
+                      "name": "Regular",
+                      "parent_id": "p_97160585",
+                      "item_metadata": "{\"v\":1048395476,\"s_ctg\":85621097,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-onion-capsicum-with-desi-makhani-sauce\"}",
+                      "parent_name": "Size"
+                    }
+                  ]
+                },
+                {
+                  "variant_item_id": "pv_250440461",
+                  "variant_id": "v_1048395477",
+                  "parent_id": "p_97160585",
+                  "property_values": {
+                    "Size": "Regular",
+                    "Crust": "Fresh Pan Pizza"
+                  },
+                  "price": 174,
+                  "item_metadata": "{\"v\":1048395477,\"s_ctg\":85621097,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-onion-capsicum-with-desi-makhani-sauce\"}",
+                  "available_add_ons": null,
+                  "discounted_price": null,
+                  "variant_hierarchy": [
+                    {
+                      "item_id": "pv_250440459",
+                      "name": "Fresh Pan Pizza",
+                      "parent_id": "p_97160584",
+                      "item_metadata": "{\"v\":0,\"s_ctg\":85621097,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-onion-capsicum-with-desi-makhani-sauce\"}",
+                      "parent_name": "Crust"
+                    },
+                    {
+                      "item_id": "pv_250440461",
+                      "name": "Regular",
+                      "parent_id": "p_97160585",
+                      "item_metadata": "{\"v\":1048395477,\"s_ctg\":85621097,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-onion-capsicum-with-desi-makhani-sauce\"}",
+                      "parent_name": "Size"
+                    }
+                  ]
+                }
+              ],
+              "item_tags": [
+                "veg",
+                "baked",
+                "services",
+                "sf-kid-friendly",
+                "sf-not-vegan",
+                "delivery-enabled"
+              ],
+              "categories": [
+                "Pizza Mania",
+                "Your Orders and Collections",
+                "Recommended for you"
+              ],
+              "sub_categories": [],
+              "rating": 0,
+              "reviews": 0,
+              "parent_id": "ctg_59714863",
+              "meta_data": "{\"v\":0,\"s_ctg\":85621097,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-onion-capsicum-with-desi-makhani-sauce\"}",
+              "available_add_ons": null,
+              "health_info": null,
+              "discounted_price": null,
+              "variant_id": "v_1048395476",
+              "image_url": "https://b.zmtcdn.com/data/dish_photos/33e/1307ee14b286085026a142895704533e.jpeg?output-format=webp"
+            },
+            {
+              "item_id": "ctl_793720667",
+              "name": "Paneer Maxxx Makhani Fusion",
+              "price": 319,
+              "description": "Loaded with 2x Paneer with fusion of sweet and spicy Makhani sauce along with crust stuffed with mesmerizing veg kebab.",
+              "variants": [
+                {
+                  "variant_item_id": "pv_253812584",
+                  "variant_id": "v_1058965982",
+                  "parent_id": "p_98767674",
+                  "property_values": {
+                    "Size": "Regular",
+                    "Crust": "New Hand Tossed"
+                  },
+                  "price": 319,
+                  "item_metadata": "{\"v\":1058965982,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-makhani-fusion\"}",
+                  "available_add_ons": [
+                    "mg_133749664",
+                    "mg_133749663"
+                  ],
+                  "discounted_price": null,
+                  "variant_hierarchy": [
+                    {
+                      "item_id": "pv_253812583",
+                      "name": "New Hand Tossed",
+                      "parent_id": "p_98767673",
+                      "item_metadata": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-makhani-fusion\"}",
+                      "parent_name": "Crust"
+                    },
+                    {
+                      "item_id": "pv_253812584",
+                      "name": "Regular",
+                      "parent_id": "p_98767674",
+                      "item_metadata": "{\"v\":1058965982,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-makhani-fusion\"}",
+                      "parent_name": "Size"
+                    }
+                  ]
+                },
+                {
+                  "variant_item_id": "pv_253812585",
+                  "variant_id": "v_1058965981",
+                  "parent_id": "p_98767674",
+                  "property_values": {
+                    "Size": "Medium",
+                    "Crust": "New Hand Tossed"
+                  },
+                  "price": 569,
+                  "item_metadata": "{\"v\":1058965981,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-makhani-fusion\"}",
+                  "available_add_ons": [
+                    "mg_133749657",
+                    "mg_133749668",
+                    "mg_133749666"
+                  ],
+                  "discounted_price": null,
+                  "variant_hierarchy": [
+                    {
+                      "item_id": "pv_253812583",
+                      "name": "New Hand Tossed",
+                      "parent_id": "p_98767673",
+                      "item_metadata": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-makhani-fusion\"}",
+                      "parent_name": "Crust"
+                    },
+                    {
+                      "item_id": "pv_253812585",
+                      "name": "Medium",
+                      "parent_id": "p_98767674",
+                      "item_metadata": "{\"v\":1058965981,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-makhani-fusion\"}",
+                      "parent_name": "Size"
+                    }
+                  ]
+                }
+              ],
+              "item_tags": [
+                "veg",
+                "baked",
+                "services",
+                "new-launch",
+                "sf-not-vegan",
+                "delivery-enabled",
+                "spicy-1"
+              ],
+              "categories": [
+                "Paneer Maxxx",
+                "Newly Launched"
+              ],
+              "sub_categories": [],
+              "rating": 0,
+              "reviews": 0,
+              "parent_id": "ctg_60442353",
+              "meta_data": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-makhani-fusion\"}",
+              "available_add_ons": null,
+              "health_info": null,
+              "discounted_price": null,
+              "variant_id": "v_1058965982",
+              "image_url": "https://b.zmtcdn.com/data/dish_photos/9ca/ef33afecf8dd68bcdf28ab3eed8fc9ca.jpeg?output-format=webp"
+            },
+            {
+              "item_id": "ctl_793720668",
+              "name": "Paneer Maxxx Tandoori Twist",
+              "price": 319,
+              "description": "Loaded with 2x Paneer and a minty twist of Tandoori sauce along with crust stuffed with mesmerizing veg kebab.",
+              "variants": [
+                {
+                  "variant_item_id": "pv_253812587",
+                  "variant_id": "v_1058965984",
+                  "parent_id": "p_98767676",
+                  "property_values": {
+                    "Size": "Regular",
+                    "Crust": "New Hand Tossed"
+                  },
+                  "price": 319,
+                  "item_metadata": "{\"v\":1058965984,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-tandoori-twist\"}",
+                  "available_add_ons": [
+                    "mg_133749664",
+                    "mg_133749663"
+                  ],
+                  "discounted_price": null,
+                  "variant_hierarchy": [
+                    {
+                      "item_id": "pv_253812586",
+                      "name": "New Hand Tossed",
+                      "parent_id": "p_98767675",
+                      "item_metadata": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-tandoori-twist\"}",
+                      "parent_name": "Crust"
+                    },
+                    {
+                      "item_id": "pv_253812587",
+                      "name": "Regular",
+                      "parent_id": "p_98767676",
+                      "item_metadata": "{\"v\":1058965984,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-tandoori-twist\"}",
+                      "parent_name": "Size"
+                    }
+                  ]
+                },
+                {
+                  "variant_item_id": "pv_253812588",
+                  "variant_id": "v_1058965983",
+                  "parent_id": "p_98767676",
+                  "property_values": {
+                    "Size": "Medium",
+                    "Crust": "New Hand Tossed"
+                  },
+                  "price": 569,
+                  "item_metadata": "{\"v\":1058965983,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-tandoori-twist\"}",
+                  "available_add_ons": [
+                    "mg_133749657",
+                    "mg_133749668",
+                    "mg_133749666"
+                  ],
+                  "discounted_price": null,
+                  "variant_hierarchy": [
+                    {
+                      "item_id": "pv_253812586",
+                      "name": "New Hand Tossed",
+                      "parent_id": "p_98767675",
+                      "item_metadata": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-tandoori-twist\"}",
+                      "parent_name": "Crust"
+                    },
+                    {
+                      "item_id": "pv_253812588",
+                      "name": "Medium",
+                      "parent_id": "p_98767676",
+                      "item_metadata": "{\"v\":1058965983,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-tandoori-twist\"}",
+                      "parent_name": "Size"
+                    }
+                  ]
+                }
+              ],
+              "item_tags": [
+                "veg",
+                "baked",
+                "services",
+                "new-launch",
+                "sf-not-vegan",
+                "delivery-enabled"
+              ],
+              "categories": [
+                "Paneer Maxxx",
+                "Newly Launched"
+              ],
+              "sub_categories": [],
+              "rating": 0,
+              "reviews": 0,
+              "parent_id": "ctg_60442353",
+              "meta_data": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-tandoori-twist\"}",
+              "available_add_ons": null,
+              "health_info": null,
+              "discounted_price": null,
+              "variant_id": "v_1058965984",
+              "image_url": "https://b.zmtcdn.com/data/dish_photos/203/5e7eadfeb71c085fa025425cf6831203.jpeg?output-format=webp"
+            },
+            {
+              "item_id": "ctl_793720669",
+              "name": "Paneer Maxxx Garlic Ranch",
+              "price": 319,
+              "description": "Loaded with 2x Paneer and drizzled with bold Garlic Ranch sauce along with crust stuffed with mesmerizing veg kebab.",
+              "variants": [
+                {
+                  "variant_item_id": "pv_253812590",
+                  "variant_id": "v_1058965986",
+                  "parent_id": "p_98767678",
+                  "property_values": {
+                    "Size": "Regular",
+                    "Crust": "New Hand Tossed"
+                  },
+                  "price": 319,
+                  "item_metadata": "{\"v\":1058965986,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-garlic-ranch\"}",
+                  "available_add_ons": [
+                    "mg_133749664",
+                    "mg_133749663"
+                  ],
+                  "discounted_price": null,
+                  "variant_hierarchy": [
+                    {
+                      "item_id": "pv_253812589",
+                      "name": "New Hand Tossed",
+                      "parent_id": "p_98767677",
+                      "item_metadata": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-garlic-ranch\"}",
+                      "parent_name": "Crust"
+                    },
+                    {
+                      "item_id": "pv_253812590",
+                      "name": "Regular",
+                      "parent_id": "p_98767678",
+                      "item_metadata": "{\"v\":1058965986,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-garlic-ranch\"}",
+                      "parent_name": "Size"
+                    }
+                  ]
+                },
+                {
+                  "variant_item_id": "pv_253812591",
+                  "variant_id": "v_1058965985",
+                  "parent_id": "p_98767678",
+                  "property_values": {
+                    "Size": "Medium",
+                    "Crust": "New Hand Tossed"
+                  },
+                  "price": 569,
+                  "item_metadata": "{\"v\":1058965985,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-garlic-ranch\"}",
+                  "available_add_ons": [
+                    "mg_133749657",
+                    "mg_133749668",
+                    "mg_133749666"
+                  ],
+                  "discounted_price": null,
+                  "variant_hierarchy": [
+                    {
+                      "item_id": "pv_253812589",
+                      "name": "New Hand Tossed",
+                      "parent_id": "p_98767677",
+                      "item_metadata": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-garlic-ranch\"}",
+                      "parent_name": "Crust"
+                    },
+                    {
+                      "item_id": "pv_253812591",
+                      "name": "Medium",
+                      "parent_id": "p_98767678",
+                      "item_metadata": "{\"v\":1058965985,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-garlic-ranch\"}",
+                      "parent_name": "Size"
+                    }
+                  ]
+                }
+              ],
+              "item_tags": [
+                "veg",
+                "baked",
+                "services",
+                "new-launch",
+                "sf-not-vegan",
+                "delivery-enabled"
+              ],
+              "categories": [
+                "Paneer Maxxx",
+                "Newly Launched"
+              ],
+              "sub_categories": [],
+              "rating": 0,
+              "reviews": 0,
+              "parent_id": "ctg_60442353",
+              "meta_data": "{\"v\":0,\"s_ctg\":86563905,\"cmb_sel\":0,\"cmb\":0,\"ff\":false,\"ctl_n\":\"paneer-maxxx-garlic-ranch\"}",
+              "available_add_ons": null,
+              "health_info": null,
+              "discounted_price": null,
+              "variant_id": "v_1058965986",
+              "image_url": "https://b.zmtcdn.com/data/dish_photos/38e/8b4a42a3910e63c94d5cbbb1e92e238e.jpeg?output-format=webp"
+            }
+          ]
+        },
+        "success": true,
+        "message": "",
+        "res_meta": {}
+      }
+    }
+  }
+}

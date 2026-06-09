@@ -2,9 +2,29 @@ name: CI
 
 on:
   pull_request:
+    branches: [dev, staging, main]
   push:
+    branches: [dev, staging, main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.6.9
+      # Lint + format are enforced on the rewrite (`core/`) and tooling first,
+      # then widened as legacy modules are ported (see CONTRIBUTING.md).
+      - name: Ruff lint
+        run: ruff check core scripts/check_file_size.py
+      - name: Ruff format check
+        run: ruff format --check core scripts/check_file_size.py
+      - name: File-size gate (<=250 lines)
+        run: python scripts/check_file_size.py core
+
   backend-tests:
     runs-on: ubuntu-latest
     env:
@@ -34,7 +54,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Python tests
-        run: pytest --ignore=tests/test_district_mcp_executor.py
+        run: pytest -m "not live" --ignore=tests/test_district_mcp_executor.py
 
   frontend-build:
     runs-on: ubuntu-latest

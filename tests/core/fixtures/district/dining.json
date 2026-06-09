@@ -1,0 +1,120 @@
+{
+ "tool": "search_dining_restaurants",
+ "arguments": {
+  "user_location": {
+   "latitude": 28.6139,
+   "longitude": 77.209
+  }
+ },
+ "result": {
+  "is_error": false,
+  "data": {
+   "status": {
+    "status": "success",
+    "message": null
+   },
+   "restaurants": [
+    {
+     "res_id": 21844770,
+     "res_name": "Ivoryy Fusion Bar",
+     "res_location": "Connaught Place, New Delhi",
+     "city": "New Delhi",
+     "sub_zone": "Connaught Place",
+     "poi_name": null,
+     "latitude": 28.6308612,
+     "longitude": 77.2198321,
+     "image_url": "https://b.zmtcdn.com/data/pictures/0/21844770/e89aff547fbcc15129b7003e57d16bb9.jpg",
+     "is_table_reservation_available": true,
+     "booking_url": "https://www.district.in/dining/ncr/ivoryy-fusion-bar-connaught-place-new-delhi/book",
+     "res_page_url": "https://www.district.in/dining/ncr/ivoryy-fusion-bar-connaught-place-new-delhi",
+     "best_offer": "55% OFF",
+     "rating": 4.2,
+     "cost_for_two": 3000,
+     "cuisine": "North Indian",
+     "usp_text": "Enjoy Asian, European, Mediterranean, and Indian fusion cuisine with Instagram-worthy interiors and live DJ nights.",
+     "timings": "Monday -> 12:00:00 AM to 01:00:00 AM, Tuesday -> 12:00:00 AM to 01:00:00 AM, Wednesday -> 12:00:00 AM to 01:00:00 AM, Thursday -> 12:00:00 AM to 01:00:00 AM, Friday -> 12:00:00 AM to 01:00:00 AM, Saturday -> 12:00:00 AM to 01:00:00 AM"
+    },
+    {
+     "res_id": 20529116,
+     "res_name": "Hard Rock Cafe",
+     "res_location": "Connaught Place, New Delhi",
+     "city": "New Delhi",
+     "sub_zone": "Connaught Place",
+     "poi_name": null,
+     "latitude": 28.6291314769,
+     "longitude": 77.219754446,
+     "image_url": "https://b.zmtcdn.com/data/pictures/6/20529116/e490f3f36511b032662db78bd5d26b94_featured_v3.jpg",
+     "is_table_reservation_available": true,
+     "booking_url": "https://www.district.in/dining/ncr/hard-rock-cafe-connaught-place-new-delhi/book",
+     "res_page_url": "https://www.district.in/dining/ncr/hard-rock-cafe-connaught-place-new-delhi",
+     "best_offer": "50% OFF",
+     "rating": 4.1,
+     "cost_for_two": 1500,
+     "cuisine": "American",
+     "usp_text": "Dine with rock and roll history, enjoy live music, and explore the Rock Shop for unique music-inspired merchandise.",
+     "timings": "Monday -> 12:00:00 PM to 11:59:59 PM, Tuesday -> 12:00:00 PM to 11:59:59 PM, Wednesday -> 12:00:00 PM to 11:59:59 PM, Thursday -> 12:00:00 PM to 11:59:59 PM, Friday -> 12:00:00 PM to 11:59:59 PM, Saturday -> 12:00:00 PM to 11:59:59 PM"
+    },
+    {
+     "res_id": 3246,
+     "res_name": "XO & MI\u00a0@ Le Belvedere - Le Meridien",
+     "res_location": "Le Meridien New Delhi, Janpath",
+     "city": "New Delhi",
+     "sub_zone": "Janpath",
+     "poi_name": null,
+     "latitude": 28.6184429,
+     "longitude": 77.21811921,
+     "image_url": "https://b.zmtcdn.com/data/pictures/6/3246/d346a4df1642a5948f0487b650682e75_featured_v3.jpg",
+     "is_table_reservation_available": true,
+     "booking_url": "https://www.district.in/dining/ncr/xo-mi-@-le-belvedere-le-meridien-janpath-new-delhi/book",
+     "res_page_url": "https://www.district.in/dining/ncr/xo-mi-@-le-belvedere-le-meridien-janpath-new-delhi",
+     "best_offer": "30% OFF",
+     "rating": 4.3,
+     "cost_for_two": 6500,
+     "cuisine": "Chinese",
+     "usp_text": "Dine at the city's highest rooftop with stunning views and live music while enjoying gourmet dishes and desserts.",
+     "timings": "Monday -> 12:30:00 PM to 02:30:00 PM, Tuesday -> 12:30:00 PM to 02:30:00 PM, Wednesday -> 12:30:00 PM to 02:30:00 PM, Thursday -> 12:30:00 PM to 02:30:00 PM, Friday -> 12:30:00 PM to 02:30:00 PM, Saturday -> 12:30:00 PM to 02:30:00 PM"
+    },
+    {
+     "res_id": 21099175,
+     "res_name": "Eau De Monsoon",
+     "res_location": "Le Meridien New Delhi, Janpath",
+     "city": "New Delhi",
+     "sub_zone": "Janpath",
+     "poi_name": null,
+     "latitude": 28.61886215,
+     "longitude": 77.21826132,
+     "image_url": "https://b.zmtcdn.com/data/pictures/5/21099175/38698c6e4108eef10128adf452237248_featured_v3.jpg",
+     "is_table_reservation_available": true,
+     "booking_url": "https://www.district.in/dining/ncr/eau-de-monsoon-janpath-new-delhi/book",
+     "res_page_url": "https://www.district.in/dining/ncr/eau-de-monsoon-janpath-new-delhi",
+     "best_offer": "30% OFF",
+     "rating": 4.6,
+     "cost_for_two": 6000,
+     "cuisine": "North Indian",
+     "usp_text": "",
+     "timings": "Monday -> 12:30:00 PM to 02:30:00 PM, Tuesday -> 12:30:00 PM to 02:30:00 PM, Wednesday -> 12:30:00 PM to 02:30:00 PM, Thursday -> 12:30:00 PM to 02:30:00 PM, Friday -> 12:30:00 PM to 02:30:00 PM, Saturday -> 12:30:00 PM to 02:30:00 PM"
+    },
+    {
+     "res_id": 18277024,
+     "res_name": "Shang Palace - Shangri-La Eros New Delhi",
+     "res_location": "Shangri-La Eros",
+     "city": "New Delhi",
+     "sub_zone": "Connaught Place",
+     "poi_name": null,
+     "latitude": 28.62080747,
+     "longitude": 77.21822491,
+     "image_url": "https://b.zmtcdn.com/data/pictures/4/18277024/d6f5ae59a0654175dfd8380852ba941d.jpg",
+     "is_table_reservation_available": true,
+     "booking_url": "https://www.district.in/dining/ncr/shang-palace-shangri-la-eros-new-delhi-connaught-place-new-delhi/book",
+     "res_page_url": "https://www.district.in/dining/ncr/shang-palace-shangri-la-eros-new-delhi-connaught-place-new-delhi",
+     "best_offer": "25% OFF",
+     "rating": 4.6,
+     "cost_for_two": 4000,
+     "cuisine": "Chinese",
+     "usp_text": "Explore authentic Cantonese dishes with Sichuan, Yunnan flavors, and tableside Beijing Roasted Duck.",
+     "timings": "Monday -> 12:30:00 PM to 03:30:00 PM, Tuesday -> 12:30:00 PM to 03:30:00 PM, Wednesday -> 12:30:00 PM to 03:30:00 PM, Thursday -> 12:30:00 PM to 03:30:00 PM, Friday -> 12:30:00 PM to 03:30:00 PM, Saturday -> 12:30:00 PM to 03:30:00 PM"
+    }
+   ]
+  }
+ }
+}

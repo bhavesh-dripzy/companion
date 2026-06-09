@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from fastapi import Depends
@@ -307,31 +308,63 @@ def voice_tool_execute_endpoint(
         session_reservation = _sanitise_session_reservation(request.session_reservation)
         user_geo = _sanitise_user_geo(request.geo)
 
-        result = run_agent_turn(
-            user_message=request.intent.strip(),
-            address_id="",
-            execute_tools=True,
-            user_id=user,
-            llm=llm_cfg,
-            conversation_history=recent_history,
-            user_geo=user_geo,
-            session_state=session_state,
-            session_restaurants=session_restaurants,
-            session_addresses=session_addresses,
-            session_movies=session_movies,
-            session_theatres=session_theatres,
-            session_events=session_events,
-            session_venues=session_venues,
-            session_artists=session_artists,
-            session_reservation=session_reservation,
-            session_menu=session_menu,
-            session_cart=session_cart,
-            pending_variant_choice=None,
-            # Voice persona speaks romanized Hinglish; the ``intent`` we pass as
-            # the user message is machine-generated English, so force the reply
-            # language explicitly or the responder would answer in English.
-            reply_language="hinglish",
-        )
+        # Voice shares the same pipeline as text chat. The redesigned core
+        # pipeline is the default; LEGACY_PIPELINE=1 falls back to the monolith.
+        # Voice persona speaks romanized Hinglish, so force reply_language.
+        if os.getenv("LEGACY_PIPELINE", "").strip().lower() not in ("1", "true", "yes"):
+            from companion_api.core_shadow import run_core_turn_sync
+
+            result = run_core_turn_sync(
+                {
+                    "message": request.intent.strip(),
+                    "history": recent_history,
+                    "chat_id": request.chat_id,
+                    "execute_tools": True,
+                    # Live browser GPS — the executor uses this when the user
+                    # didn't name a place; named places ("near Saket") are
+                    # geocoded and override this. See _resolve_coords precedence.
+                    "user_geo": user_geo,
+                    "session_state": session_state,
+                    "session_restaurants": session_restaurants,
+                    "session_addresses": session_addresses,
+                    "session_cart": session_cart,
+                    "session_menu": session_menu,
+                    "session_movies": session_movies,
+                    "session_theatres": session_theatres,
+                    "session_events": session_events,
+                    "session_venues": session_venues,
+                    "session_artists": session_artists,
+                    "session_reservation": session_reservation,
+                },
+                user,
+                reply_language="hinglish",
+            )
+        else:
+            result = run_agent_turn(
+                user_message=request.intent.strip(),
+                address_id="",
+                execute_tools=True,
+                user_id=user,
+                llm=llm_cfg,
+                conversation_history=recent_history,
+                user_geo=user_geo,
+                session_state=session_state,
+                session_restaurants=session_restaurants,
+                session_addresses=session_addresses,
+                session_movies=session_movies,
+                session_theatres=session_theatres,
+                session_events=session_events,
+                session_venues=session_venues,
+                session_artists=session_artists,
+                session_reservation=session_reservation,
+                session_menu=session_menu,
+                session_cart=session_cart,
+                pending_variant_choice=None,
+                # Voice persona speaks romanized Hinglish; the ``intent`` we pass as
+                # the user message is machine-generated English, so force the reply
+                # language explicitly or the responder would answer in English.
+                reply_language="hinglish",
+            )
 
         assistant_text = result.get("assistant_message", "")
         task_type = (

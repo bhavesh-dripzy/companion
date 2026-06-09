@@ -24,6 +24,8 @@ class GraphStack(Stack):
         construct_id: str,
         *,
         project_name: str,
+        domain_name: str = "houzzat.in",
+        enable_custom_domain: bool = True,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -146,7 +148,7 @@ class GraphStack(Stack):
         zone = route53.PublicHostedZone.from_lookup(
             self,
             "HostedZone",
-            domain_name="houzzat.in",
+            domain_name=domain_name,
         )
 
         sg = ec2.SecurityGroup(
@@ -338,10 +340,10 @@ class GraphStack(Stack):
             
             # Caddyfile setup
             "cat <<EOF > /etc/caddy/Caddyfile\n"
-            "graph.houzzat.in {\n"
+            f"graph.{domain_name} {{\n"
             "    reverse_proxy 127.0.0.1:8000\n"
             "}\n"
-            "voice.houzzat.in {\n"
+            f"voice.{domain_name} {{\n"
             "    reverse_proxy 127.0.0.1:8001\n"
             "}\n"
             "EOF",

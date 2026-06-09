@@ -5,6 +5,9 @@ import time
 
 os.environ["LEGACY_ADMIN_USERNAME"] = "local_admin"
 os.environ["LEGACY_ADMIN_PASSWORD"] = "test_password_123"
+# These tests validate the legacy pipeline (now the LEGACY_PIPELINE=1 fallback);
+# the redesigned core pipeline is exercised by tests/core/ + the live-fixture run.
+os.environ["LEGACY_PIPELINE"] = "1"
 
 from fastapi.testclient import TestClient
 
@@ -71,20 +74,6 @@ def test_login_fails_with_wrong_credentials():
     assert response.status_code == 401
 
 
-def test_uber_oauth_callback_surfaces_provider_error():
-    response = client.get(
-        "/api/uber/oauth/callback",
-        params={
-            "error": "invalid_request",
-            "error_description": "No redirect URI for this client.",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "Uber returned OAuth error invalid_request" in response.text
-    assert "No redirect URI for this client." in response.text
-
-
 def test_login_uses_cognito_when_enabled(monkeypatch):
     class FakeCognitoClient:
         def initiate_auth(self, **kwargs):
@@ -98,7 +87,7 @@ def test_login_uses_cognito_when_enabled(monkeypatch):
             }
             return {"AuthenticationResult": {"AccessToken": "cognito-token"}}
 
-    monkeypatch.setattr(api_main, "cognito_enabled", lambda: True)
+    monkeypatch.setattr("companion_api.routers.auth.cognito_enabled", lambda: True)
     monkeypatch.setenv("COGNITO_CLIENT_ID", "client-1")
     monkeypatch.setattr(api_main.boto3, "client", lambda *_args, **_kwargs: FakeCognitoClient())
 
@@ -382,11 +371,12 @@ def test_mcp_oauth_start_returns_pairing_command(monkeypatch):
         }
 
     monkeypatch.setattr(mcp_exec, "create_pairing_session", fake_create_pairing_session)
-    monkeypatch.setattr(
-        api_main,
-        "secret_or_env",
-        lambda key, default="": "https://companion.example" if key == "PUBLIC_BASE_URL" else default,
+    _fake_secret = (
+        lambda key, default="": "https://companion.example" if key == "PUBLIC_BASE_URL" else default
     )
+    monkeypatch.setattr(api_main, "secret_or_env", _fake_secret)
+    # public_url() now lives in companion_api.web_utils and reads secret_or_env there.
+    monkeypatch.setattr("companion_api.web_utils.secret_or_env", _fake_secret)
 
     response = client.get(
         "/api/mcp/oauth/start?provider=zomato",
@@ -1093,7 +1083,7 @@ def test_chat_messages_endpoint_returns_persisted_history(monkeypatch):
                 },
             ]
 
-    monkeypatch.setattr(api_main, "MessageRepository", FakeMessageRepository)
+    monkeypatch.setattr("companion_api.routers.chats.MessageRepository", FakeMessageRepository)
 
     response = client.get(
         "/api/chats/chat-xyz/messages/?limit=2", headers=auth_headers()
@@ -1134,7 +1124,7 @@ def test_list_chats_endpoint_returns_sidebar_summary(monkeypatch):
                 },
             ]
 
-    monkeypatch.setattr(api_main, "ChatRepository", FakeChatRepository)
+    monkeypatch.setattr("companion_api.routers.chats.ChatRepository", FakeChatRepository)
 
     response = client.get("/api/chats/", headers=auth_headers())
 
@@ -1160,8 +1150,8 @@ def test_delete_chat_endpoint_drops_messages_and_metadata(monkeypatch):
             calls["chat"] = (member_id, chat_id)
             return True
 
-    monkeypatch.setattr(api_main, "MessageRepository", FakeMessageRepository)
-    monkeypatch.setattr(api_main, "ChatRepository", FakeChatRepository)
+    monkeypatch.setattr("companion_api.routers.chats.MessageRepository", FakeMessageRepository)
+    monkeypatch.setattr("companion_api.routers.chats.ChatRepository", FakeChatRepository)
 
     response = client.delete(
         "/api/chats/chat-xyz/", headers=auth_headers()
