@@ -48,14 +48,25 @@ class DistrictProvider(McpProvider):
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
-        """Seed __USER_LAT__/__USER_LNG__ from GPS; search tools require coordinates.
+        """Seed __USER_LAT__/__USER_LNG__ for search tools, from GPS or geocoding.
 
-        The planner emits these as placeholder strings (planner.md); substituted
-        as floats here, else the tool receives the literal placeholder text."""
+        The planner emits these as placeholder strings (planner.md); resolved to
+        floats here from ctx.user_geo, else by geocoding the locality the user
+        named. Unresolved placeholders make the District server reject the call."""
+        import asyncio
+
+        from companion_api.google_maps import geocode_address
+
         await super().before_run(session, ctx)
         geo = ctx.user_geo if isinstance(ctx.user_geo, dict) else {}
         lat = geo.get("latitude", geo.get("lat"))
         lng = geo.get("longitude", geo.get("lng"))
+        if (lat is None or lng is None) and ctx.requested_location_text:
+            point = await asyncio.to_thread(
+                geocode_address, ctx.requested_location_text, region="in"
+            )
+            if point is not None:
+                lat, lng = point.latitude, point.longitude
         if lat is None or lng is None:
             return
         try:

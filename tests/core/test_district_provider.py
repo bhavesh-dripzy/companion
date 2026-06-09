@@ -40,6 +40,17 @@ def test_district_without_geo_leaves_coordinates_unseeded():
     assert "__USER_LAT__" not in ctx.placeholders
 
 
+def test_district_geocodes_typed_location_when_no_gps(monkeypatch):
+    """No GPS but the user typed a locality (e.g. a zip) — geocode it to coordinates."""
+    import companion_api.google_maps as gm
+
+    monkeypatch.setattr(gm, "geocode_address", lambda text, region=None: gm.GeoPoint(28.54, 77.25))
+    ctx = ExecCtx(requested_location_text="110019")
+    asyncio.run(DistrictProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__USER_LAT__"] == 28.54
+    assert ctx.placeholders["__USER_LNG__"] == 77.25
+
+
 def _tr(name: str) -> ToolResult:
     fix = json.loads((_DIR / f"{name}.json").read_text())
     return ToolResult(

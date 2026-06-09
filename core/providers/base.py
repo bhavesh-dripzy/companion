@@ -30,6 +30,7 @@ class ExecCtx:
     # The provider's own raw session slice.
     session: dict[str, Any] = field(default_factory=dict)
     llm: ResolvedLlm | None = None
+    requested_location_text: str | None = None
 
 
 @runtime_checkable

@@ -14,6 +14,7 @@ from core.providers.base import ExecCtx
 
 
 def _exec_ctx_for(ctx: PipelineContext, provider_id: str) -> ExecCtx:
+    plan = ctx.plans.get(provider_id)
     return ExecCtx(
         user_id=ctx.request.user_id,
         address_id=ctx.session.selected_address_id,
@@ -21,6 +22,7 @@ def _exec_ctx_for(ctx: PipelineContext, provider_id: str) -> ExecCtx:
         placeholders=dict(ctx.session.placeholders),
         session=dict(ctx.session.legacy),  # the flat legacy bag the adapters read
         llm=ctx.llm,
+        requested_location_text=plan.constraints.requested_location_text if plan else None,
     )
 
 
