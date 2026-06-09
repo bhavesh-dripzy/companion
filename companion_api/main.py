@@ -4,7 +4,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,9 +12,6 @@ from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 from starlette.responses import Response as StarletteResponse
 
-from app.services.food_llm_router import route_food_query
-from app.services.llm_config import resolve_llm_from_env
-from companion_api import settings
 from companion_api.auth import (
     get_current_user,
 )
@@ -24,10 +20,8 @@ from companion_api.models import (
     AgentQueryRequest,
     FoodQueryRequest,
     ReminderEvent,
-    SendMessageRequest,
 )
 from companion_api.reminders import ReminderScheduler
-from companion_api.secrets import secret_or_env
 from companion_api.voice_routes import (
     voice_gemini_token_endpoint,
     voice_log_turn_endpoint,
@@ -148,54 +142,6 @@ if _FRONTEND_DIST.exists():
 # ---------------------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------------------
-
-
-@app.post("/api/send-message/")
-def send_whatsapp_message(
-    payload: SendMessageRequest,
-    _user: str = Depends(get_current_user),
-) -> dict[str, Any]:
-    message = payload.message.strip()
-    whatsapp_url = f"https://wa.me/{settings.COMPANION_WHATSAPP_CC_NUMBER}?text={quote(message)}"
-
-    llm_cfg, err_detail = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
-    if err_detail:
-        llm_payload: dict[str, Any] = {
-            "status": "skipped" if payload.llm_optional else "error",
-            "reason": err_detail,
-        }
-    elif not llm_cfg:
-        llm_payload = {
-            "status": "skipped" if payload.llm_optional else "error",
-            "reason": "Could not select an LLM provider.",
-        }
-    else:
-        try:
-            llm_payload = {
-                "status": "success",
-                "provider": llm_cfg.provider,
-                "food_routing_plan": route_food_query(
-                    user_message=message,
-                    api_key=llm_cfg.api_key,
-                    model=llm_cfg.model,
-                    provider=llm_cfg.provider,
-                    base_url=llm_cfg.base_url,
-                ),
-            }
-        except ValueError as e:
-            llm_payload = {"status": "error", "reason": str(e)}
-        except Exception as e:
-            llm_payload = {"status": "error", "reason": f"{type(e).__name__}: {e}"}
-
-    if llm_payload["status"] != "success" and not payload.llm_optional:
-        status = "partial"
-    else:
-        status = "success"
-
-    response: dict[str, Any] = {"status": status, "llm": llm_payload}
-    if payload.include_whatsapp_link:
-        response["whatsapp_url"] = whatsapp_url
-    return response
 
 
 def _companion_agent_turn(
