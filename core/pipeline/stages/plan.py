@@ -75,9 +75,14 @@ class Plan:
         tools = ctx.deps.registry.tools.for_provider(provider_id)
         preamble = getattr(provider, "planner_preamble", None) or _GENERIC_PREAMBLE
         system = build_planner_prompt(preamble, tools)
+        # A plugin may prepend its own session brief (cached restaurants/cart/etc.)
+        # so the planner reuses ids instead of re-searching.
+        context_fn = getattr(provider, "planner_context", None)
+        brief = context_fn(ctx) if callable(context_fn) else ""
+        user_message = f"{brief}\n\n{framed}" if brief else framed
         try:
             raw = await ctx.deps.complete_json(
-                user_message=framed, system_prompt=system, llm=ctx.llm
+                user_message=user_message, system_prompt=system, llm=ctx.llm
             )
         except Exception:
             raw = {}

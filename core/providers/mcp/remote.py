@@ -44,6 +44,13 @@ def config_dir(user_id: str | None = None, root: Path | None = None) -> Path:
     return (base / "users" / safe).resolve() if safe else base
 
 
+def effective_config_dir(user_id: str | None = None, root: Path | None = None) -> Path:
+    """The dir mcp-remote actually reads tokens from: <config_dir>/mcp-remote-<version>."""
+    base = config_dir(user_id, root)
+    version = remote_version(root)
+    return base / f"mcp-remote-{version}" if version else base
+
+
 def remote_version(root: Path | None = None) -> str | None:
     """The version mcp-remote uses to namespace its config dir (from the bundle)."""
     root = root or repo_root()
@@ -72,12 +79,13 @@ def stdio_env(user_id: str | None = None, root: Path | None = None) -> dict[str,
 
 
 def hydrate_tokens(mcp_url: str, user_id: str | None = None, root: Path | None = None) -> None:
-    """Restore OAuth tokens to disk before mcp-remote spawns (migration shim).
+    """Restore OAuth tokens to disk before mcp-remote spawns.
 
-    Delegates to the proven legacy vault hydration; the vault is provider-agnostic
-    and porting it cleanly is a separate, focused task."""
+    Delegates to the core token vault (Secrets Manager -> on-disk + proactive PKCE
+    refresh). Imported lazily to avoid a circular import (token_vault imports this
+    module's config-dir primitives)."""
     with contextlib.suppress(Exception):
-        from app.services.zomato.mcp_executor import ensure_mcp_tokens_on_disk
+        from core.providers.mcp.token_vault import ensure_mcp_tokens_on_disk
 
         ensure_mcp_tokens_on_disk(root or repo_root(), mcp_url=mcp_url, user_id=user_id)
 
