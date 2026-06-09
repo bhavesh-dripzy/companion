@@ -44,10 +44,7 @@ class McpProvider(ABC):
     auth_mode: AuthMode = AuthMode.OAUTH
     session_cls: type[ProviderSessionState] | None = None
     resolver: PlaceholderResolver = PlaceholderResolver()
-    # MCP tool that lists saved delivery addresses; set to enable __ADDRESS_ID__
-    # auto-resolution. None for providers without a delivery address.
     saved_addresses_tool: str | None = None
-    # Flat session_* key the saved addresses round-trip under.
     saved_addresses_session_key: str = "session_addresses"
 
     @property

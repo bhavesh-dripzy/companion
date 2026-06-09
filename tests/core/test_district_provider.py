@@ -27,8 +27,6 @@ def test_district_seeds_user_coordinates_for_search():
     asyncio.run(DistrictProvider().before_run(session=None, ctx=ctx))
     assert ctx.placeholders["__USER_LAT__"] == 28.6139
     assert ctx.placeholders["__USER_LNG__"] == 77.209
-    # The planner's placeholder strings now substitute to real floats (not the
-    # literal "__USER_LAT__" the District server would otherwise reject).
     args = PlaceholderResolver().substitute(
         {"location": {"latitude": "__USER_LAT__", "longitude": "__USER_LNG__"}},
         ctx.placeholders,

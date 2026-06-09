@@ -82,7 +82,6 @@ def test_clean_provider_builds_session_menu_from_real_menu():
 
 
 def test_saved_addresses_tool_enables_auto_resolution():
-    # Opting in to the base __ADDRESS_ID__ auto-resolution (frontend sends '').
     assert SwiggyFoodProvider.saved_addresses_tool == "get_addresses"
 
 

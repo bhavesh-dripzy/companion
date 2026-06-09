@@ -48,7 +48,6 @@ class SwiggyFoodProvider(McpProvider):
     label = "Swiggy Food MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = SwiggyFoodSession
-    # Enables base __ADDRESS_ID__ auto-resolution.
     saved_addresses_tool = "get_addresses"
 
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:

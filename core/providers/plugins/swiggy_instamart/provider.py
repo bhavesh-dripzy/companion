@@ -40,7 +40,6 @@ class SwiggyInstamartProvider(McpProvider):
     label = "Swiggy Instamart MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = SwiggyInstamartSession
-    # search_products requires __ADDRESS_ID__; addresses use the Instamart key.
     saved_addresses_tool = "get_addresses"
     saved_addresses_session_key = "session_instamart_addresses"
 

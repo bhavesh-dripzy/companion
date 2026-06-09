@@ -19,8 +19,6 @@ pytestmark = pytest.mark.component
 
 
 def test_instamart_address_auto_resolution_configured():
-    # search_products REQUIRES __ADDRESS_ID__; opt in to base auto-resolution
-    # under the Instamart-specific session namespace.
     assert SwiggyInstamartProvider.saved_addresses_tool == "get_addresses"
     assert SwiggyInstamartProvider.saved_addresses_session_key == "session_instamart_addresses"
 
@@ -37,7 +35,7 @@ def test_instamart_merge_surfaces_instamart_addresses():
     )
     rows = merged.get("session_instamart_addresses") or []
     assert rows and rows[0]["address_id"] == "IM1"
-    assert "session_addresses" not in merged  # must use the Instamart namespace
+    assert "session_addresses" not in merged
 
 
 def test_instamart_before_run_resolves_from_carried_instamart_addresses():
@@ -47,8 +45,7 @@ def test_instamart_before_run_resolves_from_carried_instamart_addresses():
 
 
 def test_instamart_before_run_auto_fetch_resolves_id_only_rows(monkeypatch):
-    # Regression: real Instamart address rows key on `id` (not address_id/addressId),
-    # which resolver.learn misses — the auto-fetch must use extract_address_rows.
+    """Instamart rows key on `id`; the auto-fetch must resolve __ADDRESS_ID__ from it."""
     envelope = {"data": {"addresses": [{"id": "363294542", "addressTag": "Home"}]}}
 
     async def fake_call_tool(session, name, arguments=None):

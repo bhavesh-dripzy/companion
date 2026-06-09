@@ -35,5 +35,4 @@ def test_normalizes_natural_language_modes(value, expected):
 
 @pytest.mark.parametrize("value", ["flying", "teleport", "", None, 5])
 def test_unknown_or_non_string_returns_none(value):
-    # None lets the Routes API default (DRIVE) apply rather than erroring.
     assert _normalize_travel_mode(value) is None

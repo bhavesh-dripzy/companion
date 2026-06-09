@@ -37,9 +37,7 @@ class TurnResponse(BaseModel):
     assistant_message: str = ""
     task_type: str | None = None
     routed_provider: str | None = None
-    # Providers selected this turn (routed_provider is providers[0]).
     selected_tool_providers: list[str] = Field(default_factory=list)
-    # Per-provider outcomes, used by the web bridge to build tool_execution.
     provider_results: list[ProviderResult] = Field(default_factory=list)
     session: SessionState = Field(default_factory=SessionState)
     attachments: list[Attachment] = Field(default_factory=list)

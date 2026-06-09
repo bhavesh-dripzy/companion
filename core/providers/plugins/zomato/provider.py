@@ -43,7 +43,6 @@ class ZomatoProvider(McpProvider):
     label = "Zomato MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = ZomatoSession
-    # Enables base __ADDRESS_ID__ auto-resolution.
     saved_addresses_tool = "get_saved_addresses_for_user"
 
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:

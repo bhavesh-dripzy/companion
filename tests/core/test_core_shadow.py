@@ -37,8 +37,6 @@ def test_shadow_adapts_request_and_envelope(monkeypatch):
     assert env["task_type"] == "food_delivery"
     assert env["chat_id"] == "c1"
     assert env["attachments"][0]["kind"] == "restaurant_card"
-    # Contract the frontend hard-requires on EVERY turn (App.tsx spreads the
-    # list and reads tool_execution.ok); their absence crashes the client.
     assert env["selected_tool_providers"] == []
     assert env["tool_execution"] == {"ok": True}
 
@@ -75,8 +73,6 @@ def test_shadow_envelope_surfaces_providers_and_tool_error(monkeypatch):
     monkeypatch.setattr(cs, "_get_runner", lambda: _FakeRunner())
     env = cs.run_core_turn_sync({"message": "directions home"}, "u1")
     assert env["selected_tool_providers"] == ["maps"]
-    # Granular provider code wins over the coarse ErrorCode enum so the
-    # frontend's geolocation retry (errorCode === 'needs_location') fires.
     assert env["tool_execution"]["ok"] is False
     assert env["tool_execution"]["error_code"] == "needs_location"
     assert env["tool_execution"]["error"] == "I need your current location."

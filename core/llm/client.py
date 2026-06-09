@@ -23,7 +23,6 @@ async def _openai_compatible_call(
     kwargs: dict[str, Any] = {"api_key": llm.api_key, "timeout": _TIMEOUT_SECONDS}
     if llm.provider == "deepseek" and llm.base_url:
         kwargs["base_url"] = llm.base_url
-    # Close within this loop; the caller runs under asyncio.run() per request.
     async with AsyncOpenAI(**kwargs) as client:
         completion = await client.chat.completions.create(
             model=llm.model,

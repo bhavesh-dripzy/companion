@@ -131,8 +131,6 @@ def test_clean_provider_session_lru_dedupes_and_caps():
 
 
 def test_clean_provider_surfaces_session_addresses_from_real_data():
-    # Regression: the saved-address result must reach session_addresses so the
-    # frontend can show it AND the next turn can resolve __ADDRESS_ID__ from [0].
     merged = ZomatoProvider().merge({}, _provider_result())
     addresses = merged.get("session_addresses") or []
     assert addresses, "expected saved addresses surfaced from the real capture"
@@ -169,7 +167,6 @@ def test_before_run_auto_fetch_failure_is_safe(monkeypatch):
 
     monkeypatch.setattr(f"{_BASE}.call_tool", boom)
     ctx = ExecCtx()
-    # Must not raise; just leaves __ADDRESS_ID__ unresolved (no worse than before).
     asyncio.run(ZomatoProvider().before_run(session=object(), ctx=ctx))
     assert "__ADDRESS_ID__" not in ctx.placeholders
 
