@@ -6,17 +6,40 @@ its own typed attachment + feeds the matching session LRU, reflecting the real
 entities the live turns surfaced.
 """
 
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 
 from core.contracts.tool_result import ProviderResult, ToolResult
+from core.providers.base import ExecCtx
+from core.providers.mcp.placeholders import PlaceholderResolver
 from core.providers.plugins.district import DistrictProvider
 
 pytestmark = pytest.mark.component
 
 _DIR = Path(__file__).parent / "fixtures/district"
+
+
+def test_district_seeds_user_coordinates_for_search():
+    ctx = ExecCtx(user_geo={"latitude": 28.6139, "longitude": 77.209})
+    asyncio.run(DistrictProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__USER_LAT__"] == 28.6139
+    assert ctx.placeholders["__USER_LNG__"] == 77.209
+    # The planner's placeholder strings now substitute to real floats (not the
+    # literal "__USER_LAT__" the District server would otherwise reject).
+    args = PlaceholderResolver().substitute(
+        {"location": {"latitude": "__USER_LAT__", "longitude": "__USER_LNG__"}},
+        ctx.placeholders,
+    )
+    assert args == {"location": {"latitude": 28.6139, "longitude": 77.209}}
+
+
+def test_district_without_geo_leaves_coordinates_unseeded():
+    ctx = ExecCtx()
+    asyncio.run(DistrictProvider().before_run(session=None, ctx=ctx))
+    assert "__USER_LAT__" not in ctx.placeholders
 
 
 def _tr(name: str) -> ToolResult:

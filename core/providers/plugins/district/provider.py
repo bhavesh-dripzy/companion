@@ -47,6 +47,23 @@ class DistrictProvider(McpProvider):
         url = os.getenv("DISTRICT_MCP_URL", _DEFAULT_URL)
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
+    async def before_run(self, session: Any, ctx: ExecCtx) -> None:
+        """Seed __USER_LAT__/__USER_LNG__ from GPS; search tools require coordinates.
+
+        The planner emits these as placeholder strings (planner.md); substituted
+        as floats here, else the tool receives the literal placeholder text."""
+        await super().before_run(session, ctx)
+        geo = ctx.user_geo if isinstance(ctx.user_geo, dict) else {}
+        lat = geo.get("latitude", geo.get("lat"))
+        lng = geo.get("longitude", geo.get("lng"))
+        if lat is None or lng is None:
+            return
+        try:
+            ctx.placeholders["__USER_LAT__"] = float(lat)
+            ctx.placeholders["__USER_LNG__"] = float(lng)
+        except (TypeError, ValueError):
+            return
+
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         return [
             *build_district_cards(result.results),
