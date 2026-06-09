@@ -56,3 +56,16 @@ def first_address_id(payload: dict[str, Any]) -> str | None:
     """The first usable saved-address id, or None."""
     rows = extract_address_rows(payload)
     return rows[0]["address_id"] if rows else None
+
+
+def merge_saved_addresses(merged: dict[str, Any], results: Any) -> None:
+    """Surface saved-address rows into ``merged['session_addresses']`` (in place).
+
+    Called from a food provider's `merge` so a `get_addresses` /
+    `get_saved_addresses_for_user` result reaches the frontend's address picker
+    and the next turn can resolve `__ADDRESS_ID__` from `session_addresses[0]`."""
+    for tr in results:
+        if getattr(tr, "ok", False) and "address" in getattr(tr, "tool", "").lower():
+            rows = extract_address_rows(tr.data if isinstance(tr.data, dict) else {})
+            if rows:
+                merged["session_addresses"] = rows

@@ -24,6 +24,7 @@ from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
+from core.providers.mcp.address import merge_saved_addresses
 from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
@@ -47,6 +48,8 @@ class SwiggyFoodProvider(McpProvider):
     label = "Swiggy Food MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = SwiggyFoodSession
+    # Enables base __ADDRESS_ID__ auto-resolution (carried → one-shot auto-fetch).
+    saved_addresses_tool = "get_addresses"
 
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         url = os.getenv("SWIGGY_FOOD_MCP_URL", _DEFAULT_URL)
@@ -62,6 +65,8 @@ class SwiggyFoodProvider(McpProvider):
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)
+        # Surface saved delivery addresses (frontend picker + next-turn __ADDRESS_ID__).
+        merge_saved_addresses(merged, result.results)
         restaurants = merge_restaurants(slice_.get("session_restaurants"), result.results)
         if restaurants:
             merged["session_restaurants"] = restaurants

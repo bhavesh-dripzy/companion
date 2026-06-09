@@ -43,6 +43,10 @@ class McpProvider(ABC):
     auth_mode: AuthMode = AuthMode.OAUTH
     session_cls: type[ProviderSessionState] | None = None
     resolver: PlaceholderResolver = PlaceholderResolver()
+    # Address-taking providers (Zomato/Swiggy) set this to their "list saved
+    # addresses" tool to enable __ADDRESS_ID__ auto-resolution in before_run.
+    # Left None for providers that don't take a delivery address (Kite, Maps, …).
+    saved_addresses_tool: str | None = None
 
     @property
     def planner_preamble(self) -> str | None:
@@ -65,10 +69,32 @@ class McpProvider(ABC):
         """Build the stdio launch spec (mcp-remote command + token env) for this turn."""
 
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
-        """Hook run once after connect, before the first call. Seeds the address id;
-        plugins may override to prefetch saved addresses, etc."""
+        """Resolve `__ADDRESS_ID__` once, before the first call, for address-taking
+        providers. Restores the legacy resolution order (planner.md): request
+        address_id → carried `__ADDRESS_ID__` → `session_addresses[0]` → one-shot
+        auto-fetch. Without it, every food turn emits an unresolved placeholder
+        (the frontend sends `address_id:''`) and the user sees "I need your location".
+        No-op for providers that leave ``saved_addresses_tool`` None."""
         if ctx.address_id and "__ADDRESS_ID__" not in ctx.placeholders:
             ctx.placeholders["__ADDRESS_ID__"] = ctx.address_id
+        if not self.saved_addresses_tool or "__ADDRESS_ID__" in ctx.placeholders:
+            return
+        # Carried saved addresses from a prior turn (the frontend echoes them back).
+        carried = ctx.session.get("session_addresses") if isinstance(ctx.session, dict) else None
+        if isinstance(carried, list) and carried:
+            aid = str((carried[0] or {}).get("address_id") or "").strip()
+            if aid:
+                ctx.placeholders["__ADDRESS_ID__"] = aid
+                return
+        # One-shot auto-fetch. Best-effort: any failure leaves __ADDRESS_ID__
+        # unresolved (same as before), so this can never make a turn worse. learn()
+        # harvests address_id/addressId into ctx.placeholders for the next (sequential)
+        # call to substitute.
+        try:
+            raw = await call_tool(session, self.saved_addresses_tool, {})
+            self.resolver.learn(ctx.placeholders, tool_result_payload(raw))
+        except Exception:
+            return
 
     async def discover_tools(self) -> list[Tool]:
         async with mcp_session(self.stdio_spec(ExecCtx())) as session:

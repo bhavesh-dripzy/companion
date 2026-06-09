@@ -6,12 +6,14 @@ admin_bhavesh tokens), asserting the menu + restaurant cards + session LRU refle
 the real restaurant the live turn surfaced (Olio, id 760631).
 """
 
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 
 from core.contracts.tool_result import ProviderResult, ToolResult
+from core.providers.base import ExecCtx
 from core.providers.plugins.swiggy_food import SwiggyFoodProvider
 
 pytestmark = pytest.mark.component
@@ -77,6 +79,29 @@ def test_clean_provider_builds_session_menu_from_real_menu():
     first = session_menu[0]
     assert first["item_name"] == "Fiery Jalapeno & Paprika Royal Pizza Slice"
     assert first["res_id"] == "760631" and first["price"] == 199
+
+
+def test_saved_addresses_tool_enables_auto_resolution():
+    # Opting in to the base __ADDRESS_ID__ auto-resolution (frontend sends '').
+    assert SwiggyFoodProvider.saved_addresses_tool == "get_addresses"
+
+
+def test_merge_surfaces_session_addresses():
+    addr = ToolResult(
+        tool="get_addresses",
+        provider="swiggy_food",
+        ok=True,
+        data={"data": {"addresses": [{"addressId": "SW1", "addressTag": "Home"}]}},
+    )
+    merged = SwiggyFoodProvider().merge({}, ProviderResult(provider="swiggy_food", results=[addr]))
+    rows = merged.get("session_addresses") or []
+    assert rows and rows[0]["address_id"] == "SW1"
+
+
+def test_before_run_resolves_address_from_carried_session():
+    ctx = ExecCtx(session={"session_addresses": [{"address_id": "SW9", "label": "Home"}]})
+    asyncio.run(SwiggyFoodProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__ADDRESS_ID__"] == "SW9"
 
 
 def test_clean_provider_builds_cart_card_and_session_cart():

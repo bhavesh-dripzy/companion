@@ -6,18 +6,25 @@ real restaurant the live turn surfaced (Domino's, res_id 20324557). This validat
 the clean execution-result -> card / session path against real provider responses.
 """
 
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 
 from core.contracts.tool_result import ProviderResult, ToolResult
+from core.providers.base import ExecCtx
 from core.providers.plugins.zomato import ZomatoProvider
+
+_BASE = "core.providers.mcp.mcp_base"  # before_run resolution lives in the shared base
 
 pytestmark = pytest.mark.component
 
 _FIXTURE = json.loads((Path(__file__).parent / "fixtures/zomato/search_pizza.json").read_text())
 _MENU = json.loads((Path(__file__).parent / "fixtures/zomato/menu_listing.json").read_text())
+_ADDR_ENVELOPE = next(
+    s["result"] for s in _FIXTURE["steps"] if s["tool"] == "get_saved_addresses_for_user"
+)
 
 
 def _provider_result() -> ProviderResult:
@@ -121,6 +128,50 @@ def test_clean_provider_session_lru_dedupes_and_caps():
     assert ids[0] == "20324557" and ids.count("20324557") == 1, "fresh hit dedupes the stale dup"
     assert restaurants[0]["name"] != "Old Domino's", "fresh entry overwrites the stale one"
     assert len(restaurants) == 8, "the LRU is capped at the remembered-restaurants limit"
+
+
+def test_clean_provider_surfaces_session_addresses_from_real_data():
+    # Regression: the saved-address result must reach session_addresses so the
+    # frontend can show it AND the next turn can resolve __ADDRESS_ID__ from [0].
+    merged = ZomatoProvider().merge({}, _provider_result())
+    addresses = merged.get("session_addresses") or []
+    assert addresses, "expected saved addresses surfaced from the real capture"
+    assert all(a["address_id"] and a["label"] for a in addresses)
+
+
+def test_before_run_prefers_request_address_id():
+    ctx = ExecCtx(address_id="REQ123")
+    asyncio.run(ZomatoProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__ADDRESS_ID__"] == "REQ123"
+
+
+def test_before_run_resolves_from_carried_session_addresses():
+    ctx = ExecCtx(session={"session_addresses": [{"address_id": "CARR1", "label": "Home"}]})
+    asyncio.run(ZomatoProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__ADDRESS_ID__"] == "CARR1"
+
+
+def test_before_run_auto_fetches_address_when_none_known(monkeypatch):
+    async def fake_call_tool(session, name, arguments=None):
+        assert name == "get_saved_addresses_for_user"
+        return "RAW_MCP_RESULT"
+
+    monkeypatch.setattr(f"{_BASE}.call_tool", fake_call_tool)
+    monkeypatch.setattr(f"{_BASE}.tool_result_payload", lambda raw: _ADDR_ENVELOPE)
+    ctx = ExecCtx()  # no request id, no carried addresses
+    asyncio.run(ZomatoProvider().before_run(session=object(), ctx=ctx))
+    assert ctx.placeholders.get("__ADDRESS_ID__"), "auto-fetch should learn an address id"
+
+
+def test_before_run_auto_fetch_failure_is_safe(monkeypatch):
+    async def boom(session, name, arguments=None):
+        raise RuntimeError("mcp connection aborted")
+
+    monkeypatch.setattr(f"{_BASE}.call_tool", boom)
+    ctx = ExecCtx()
+    # Must not raise; just leaves __ADDRESS_ID__ unresolved (no worse than before).
+    asyncio.run(ZomatoProvider().before_run(session=object(), ctx=ctx))
+    assert "__ADDRESS_ID__" not in ctx.placeholders
 
 
 def test_clean_provider_session_lru_retains_prior_tail_under_cap():
