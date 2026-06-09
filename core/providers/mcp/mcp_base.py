@@ -22,6 +22,7 @@ from core.contracts.tool_call import ToolCall
 from core.contracts.tool_result import ProviderResult, ToolResult
 from core.middleware.errors import UnresolvedPlaceholderError
 from core.providers.base import ExecCtx
+from core.providers.mcp.address import extract_address_rows
 from core.providers.mcp.connection import StdioSpec, call_tool, list_tools, mcp_session
 from core.providers.mcp.placeholders import PlaceholderResolver
 from core.providers.mcp.result_parse import tool_result_payload
@@ -91,14 +92,19 @@ class McpProvider(ABC):
                 ctx.placeholders["__ADDRESS_ID__"] = aid
                 return
         # One-shot auto-fetch. Best-effort: any failure leaves __ADDRESS_ID__
-        # unresolved (same as before), so this can never make a turn worse. learn()
-        # harvests address_id/addressId into ctx.placeholders for the next (sequential)
-        # call to substitute.
+        # unresolved (same as before), so this can never make a turn worse.
+        # extract_address_rows is dual-key + `id`-aware (Instamart rows key on
+        # `id`, which resolver.learn would miss) and gives the first SAVED address.
         try:
-            raw = await call_tool(session, self.saved_addresses_tool, {})
-            self.resolver.learn(ctx.placeholders, tool_result_payload(raw))
+            rows = extract_address_rows(tool_result_payload(await call_tool(
+                session, self.saved_addresses_tool, {}
+            )))
         except Exception:
             return
+        if rows:
+            aid = str(rows[0].get("address_id") or "").strip()
+            if aid:
+                ctx.placeholders["__ADDRESS_ID__"] = aid
 
     async def discover_tools(self) -> list[Tool]:
         async with mcp_session(self.stdio_spec(ExecCtx())) as session:

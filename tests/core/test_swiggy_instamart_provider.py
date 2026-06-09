@@ -45,6 +45,22 @@ def test_instamart_before_run_resolves_from_carried_instamart_addresses():
     asyncio.run(SwiggyInstamartProvider().before_run(session=None, ctx=ctx))
     assert ctx.placeholders["__ADDRESS_ID__"] == "IM9"
 
+
+def test_instamart_before_run_auto_fetch_resolves_id_only_rows(monkeypatch):
+    # Regression: real Instamart address rows key on `id` (not address_id/addressId),
+    # which resolver.learn misses — the auto-fetch must use extract_address_rows.
+    envelope = {"data": {"addresses": [{"id": "363294542", "addressTag": "Home"}]}}
+
+    async def fake_call_tool(session, name, arguments=None):
+        assert name == "get_addresses"
+        return "RAW"
+
+    monkeypatch.setattr("core.providers.mcp.mcp_base.call_tool", fake_call_tool)
+    monkeypatch.setattr("core.providers.mcp.mcp_base.tool_result_payload", lambda raw: envelope)
+    ctx = ExecCtx()
+    asyncio.run(SwiggyInstamartProvider().before_run(session=object(), ctx=ctx))
+    assert ctx.placeholders.get("__ADDRESS_ID__") == "363294542"
+
 _FIX = json.loads(
     (Path(__file__).parent / "fixtures/swiggy_instamart/search_milk.json").read_text()
 )
