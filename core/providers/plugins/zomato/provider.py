@@ -26,7 +26,6 @@ from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec
-from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.zomato.cards import build_restaurant_cards
@@ -34,6 +33,7 @@ from core.providers.plugins.zomato.cart_cards import build_cart_cards, cart_snap
 from core.providers.plugins.zomato.menu_cards import build_menu_cards
 from core.providers.plugins.zomato.menu_index import merge_menu
 from core.providers.plugins.zomato.payment_cards import build_payment_cards
+from core.providers.plugins.zomato.planner_context import build_context
 from core.providers.plugins.zomato.session import ZomatoSession, merge_restaurants
 
 _DEFAULT_URL = "https://mcp-server.zomato.com/mcp"
@@ -78,5 +78,5 @@ class ZomatoProvider(McpProvider):
                     merged["session_cart"] = snap
         return merged
 
-    async def plan(self, ctx: Any) -> Any:
-        return await legacy_plan(self.id, ctx)
+    def planner_context(self, ctx: Any) -> str:
+        return build_context(ctx)
