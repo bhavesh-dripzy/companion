@@ -7,28 +7,11 @@ populates the registry — no other file changes when a provider is added (ADR-0
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
 from core.registry.provider_registry import ProviderRegistry
 from core.registry.seed import builtin_tools
 from core.registry.tool_registry import ToolRegistry
-
-# Providers cut over to their clean `McpProvider` by default (full card parity +
-# session parity, live-validated). The rest still run via the proven
-# LegacyMcpAdapter until their mutating-flow cards land (swiggy/instamart/zepto
-# cart, district reservation, kite order-ticket). Override with CLEAN_MCP (an
-# explicit comma list, empty = none); LEGACY_PIPELINE=1 reverts the whole pipeline.
-_DEFAULT_CLEAN_MCP = frozenset(
-    {"zomato", "swiggy_food", "swiggy_instamart", "zepto", "district", "kite"}
-)
-
-
-def _clean_mcp_ids() -> frozenset[str]:
-    raw = os.getenv("CLEAN_MCP")
-    if raw is None:
-        return _DEFAULT_CLEAN_MCP
-    return frozenset(x.strip() for x in raw.split(",") if x.strip())
 
 
 def _register(registry: ProviderRegistry, provider: object) -> None:
@@ -62,18 +45,10 @@ def build_registry() -> ProviderRegistry:
     ):
         _register(registry, plugin)
 
-    # MCP providers: clean McpProvider for the cut-over ids, else the migration
-    # LegacyMcpAdapter (proven executor). Tools come from the seed catalog either way.
-    from core.providers.legacy import MCP_CONFIGS, LegacyMcpAdapter
-
-    clean_ids = _clean_mcp_ids()
-    clean_classes = _clean_provider_classes()
-    for cfg in MCP_CONFIGS:
-        clean_cls = clean_classes.get(cfg.id)
-        if clean_cls is not None and cfg.id in clean_ids:
-            _register(registry, clean_cls())
-        else:
-            _register(registry, LegacyMcpAdapter(cfg))
+    # MCP providers: each clean McpProvider discovers its tools at runtime; the
+    # seed catalog supplies their tool entries until discovery runs.
+    for provider_cls in _clean_provider_classes().values():
+        _register(registry, provider_cls())
     return registry
 
 

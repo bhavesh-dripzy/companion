@@ -13,7 +13,7 @@ from pydantic import BaseModel
 # Add repo root to sys.path
 sys.path.append("/var/www/companion")
 
-from app.services.leadgen.graph_client import GraphClient
+from leadgen.graph_client import GraphClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("graph_service")

@@ -11,9 +11,9 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app.services.whatsapp.handler import handle_whatsapp_webhook_event
 from companion_api import settings
 from companion_api.secrets import secret_or_env
+from companion_api.whatsapp_handler import handle_whatsapp_webhook_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

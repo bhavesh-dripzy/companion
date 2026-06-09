@@ -11,12 +11,6 @@ class ErrorResponse(BaseModel):
     message: str
 
 
-class SendMessageRequest(BaseModel):
-    message: str = Field(min_length=1)
-    include_whatsapp_link: bool = True
-    llm_optional: bool = False
-
-
 class UserGeoLocation(BaseModel):
     """User's current geographic location, captured by the frontend.
 

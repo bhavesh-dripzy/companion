@@ -14,8 +14,8 @@ from companion_api.dynamodb import utc_now_iso
 from companion_api.messages_repo import MessageRepository
 from companion_api.profile_cache import ProfileCacheRepository
 from companion_api.lead_cache_repo import LeadCacheRepository
-from app.services.leadgen.graph_client import GraphClient
-from app.services.leadgen.extractor import extract_from_conversation
+from leadgen.graph_client import GraphClient
+from leadgen.extractor import extract_from_conversation
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("leadgen_worker")

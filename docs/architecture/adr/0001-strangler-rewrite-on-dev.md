@@ -1,6 +1,6 @@
 # ADR-0001: Rewrite as a fresh `core/` package using the strangler pattern
 
-- Status: accepted
+- Status: accepted — **completed 2026-06-09** (cutover + teardown done; `app/services/` deleted, `core/` is the only pipeline)
 - Date: 2026-06-08
 
 ## Context
@@ -21,3 +21,11 @@ then delete the old code at cutover. `main` and `staging` stay shippable through
 - Each increment is small, testable, and independently mergeable into `dev`.
 - Both pipelines coexist briefly (shadow mode) — a temporary cost paid for safety.
 - The legacy `app/services/agents/` and `tool_runtime.py` are deleted only in the final phase.
+
+## Outcome (2026-06-09)
+
+The strangler migration is complete. The `CORE_PIPELINE` cutover flag and the `LEGACY_PIPELINE` /
+`CLEAN_MCP` escape hatches are gone; `core/` runs every turn. `app/services/` has been deleted in
+full — its web-layer pieces relocated into `companion_api/`, its MCP setup/OAuth/pairing into
+`core/providers/mcp/`, and the knowledge-graph extractor into a top-level `leadgen/` package (the
+graph EC2 worker's dependency).

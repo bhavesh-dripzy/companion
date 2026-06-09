@@ -76,7 +76,7 @@ def test_calendar_missing_text_is_invalid():
 
 
 def test_whatsapp_adapter(monkeypatch):
-    import app.services.whatsapp.client as wac
+    import companion_api.whatsapp_client as wac
 
     class _Client:
         def send_text_message(self, to, text):

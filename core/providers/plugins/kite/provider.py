@@ -23,10 +23,10 @@ from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec
-from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.kite.cards import build_attachments as build_kite_cards
+from core.providers.plugins.kite.planner_context import build_context
 from core.providers.plugins.kite.session import merge as merge_kite_session
 
 _DEFAULT_URL = "https://mcp.kite.trade/mcp"
@@ -48,5 +48,5 @@ class KiteProvider(McpProvider):
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         return merge_kite_session(slice_, result.results)
 
-    async def plan(self, ctx: Any) -> Any:
-        return await legacy_plan(self.id, ctx)
+    def planner_context(self, ctx: Any) -> str:
+        return build_context(ctx)

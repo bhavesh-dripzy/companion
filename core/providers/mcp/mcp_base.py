@@ -9,7 +9,10 @@ call the tool, parse the envelope, and learn new placeholders. A concrete plugin
 
 from __future__ import annotations
 
+import inspect
 from abc import ABC, abstractmethod
+from functools import cache
+from pathlib import Path
 from typing import Any
 
 from core.contracts.attachment import Attachment
@@ -25,12 +28,37 @@ from core.providers.mcp.result_parse import tool_result_payload
 from core.providers.runner import run_calls
 
 
+@cache
+def _load_planner_md(cls: type) -> str | None:
+    """Read the `planner.md` preamble colocated with a provider plugin (cached)."""
+    try:
+        return (Path(inspect.getfile(cls)).parent / "planner.md").read_text(encoding="utf-8")
+    except (OSError, TypeError):
+        return None
+
+
 class McpProvider(ABC):
     id: str = ""
     label: str = ""
     auth_mode: AuthMode = AuthMode.OAUTH
     session_cls: type[ProviderSessionState] | None = None
     resolver: PlaceholderResolver = PlaceholderResolver()
+
+    @property
+    def planner_preamble(self) -> str | None:
+        """The provider's tuned planner preamble (prompt-as-data: `<plugin>/planner.md`).
+
+        Drop a `planner.md` next to the plugin and the generated planner uses it — no
+        wiring. Falls back to the generic preamble when absent."""
+        return _load_planner_md(type(self))
+
+    def planner_context(self, ctx: Any) -> str:
+        """A per-provider session brief prepended to the planner input.
+
+        Default: none. Plugins override to surface their session_* state (restaurants,
+        cart, holdings, …) so the planner reuses cached ids instead of re-searching.
+        Compose from the shared renderers in `core.providers.mcp.planner_context`."""
+        return ""
 
     @abstractmethod
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:

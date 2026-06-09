@@ -22,11 +22,11 @@ from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec
-from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.swiggy_instamart.cards import build_product_cards
 from core.providers.plugins.swiggy_instamart.cart_cards import build_cart_cards, cart_snapshot
+from core.providers.plugins.swiggy_instamart.planner_context import build_context
 from core.providers.plugins.swiggy_instamart.session import SwiggyInstamartSession, merge_products
 
 _CART_TOOLS = {"get_cart", "update_cart", "clear_cart"}
@@ -59,5 +59,5 @@ class SwiggyInstamartProvider(McpProvider):
                     merged["session_instamart_cart"] = snap
         return merged
 
-    async def plan(self, ctx: Any) -> Any:
-        return await legacy_plan(self.id, ctx)
+    def planner_context(self, ctx: Any) -> str:
+        return build_context(ctx)

@@ -23,9 +23,8 @@ This protects already-working features while the rewrite is in flight.
 ## Conventions
 
 - **One responsibility per file, ≤250 lines.** Enforced by `scripts/check_file_size.py` (CI gate on
-  `core/`; widened as legacy is ported). Split modules rather than growing them.
-- **Lint + format:** `ruff check core scripts/check_file_size.py` and `ruff format core`. The lint
-  scope (`pyproject.toml` `extend-exclude`) shrinks as legacy trees move into `core/`.
+  `core/`). Split modules rather than growing them.
+- **Lint + format:** `ruff check core scripts/check_file_size.py` and `ruff format core`.
 - **Tests are per-component.** Mark them: `unit` (fast, no I/O), `integration` (mocked external),
   `component` (per-provider against recorded fixtures), `live` (real services — never in CI).
   Run `pytest -m unit`, `pytest -m "component and not live"`, etc.

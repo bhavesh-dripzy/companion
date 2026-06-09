@@ -22,10 +22,10 @@ from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec
-from core.providers.mcp.legacy_planner import legacy_plan
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.district.cards import build_attachments as build_district_cards
+from core.providers.plugins.district.planner_context import build_context
 from core.providers.plugins.district.reservation import (
     build_reservation_cards,
     reservation_snapshot,
@@ -64,5 +64,5 @@ class DistrictProvider(McpProvider):
                     merged["session_reservation"] = snap
         return merged
 
-    async def plan(self, ctx: Any) -> Any:
-        return await legacy_plan(self.id, ctx)
+    def planner_context(self, ctx: Any) -> str:
+        return build_context(ctx)

@@ -1,17 +1,13 @@
 # Tooling config for the Companion backend.
-# The rewrite lives under `core/`; lint + the file-size gate are enforced there
-# first and expanded outward as legacy modules are ported (see CONTRIBUTING.md).
+# `core/` is the architecture; lint + the file-size gate are enforced on it (see CONTRIBUTING.md).
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-# Legacy + generated trees are excluded while the strangler rewrite is in flight.
-# Each is removed from this list as it is ported into `core/`.
+# Generated + remaining non-core trees excluded from repo-wide ruff (CI gates `core/`).
 extend-exclude = [
-    "app",
     "POC",
     "src",
-    "config",
     "infra/cdk.out",
     "cdk.out",
     "node_modules",
@@ -30,7 +26,7 @@ ignore = [
 "**/__init__.py" = ["F401"]  # re-export modules
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "companion_api", "app"]
+known-first-party = ["core", "companion_api", "leadgen"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
