@@ -5,15 +5,45 @@ run on admin_bhavesh), asserting the per-variant product cards + spinId LRU refl
 the real product the live turn surfaced (Amul Gold Milk 1 Ltr, spinId S8PF9T8YLG).
 """
 
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 
 from core.contracts.tool_result import ProviderResult, ToolResult
+from core.providers.base import ExecCtx
 from core.providers.plugins.swiggy_instamart import SwiggyInstamartProvider
 
 pytestmark = pytest.mark.component
+
+
+def test_instamart_address_auto_resolution_configured():
+    # search_products REQUIRES __ADDRESS_ID__; opt in to base auto-resolution
+    # under the Instamart-specific session namespace.
+    assert SwiggyInstamartProvider.saved_addresses_tool == "get_addresses"
+    assert SwiggyInstamartProvider.saved_addresses_session_key == "session_instamart_addresses"
+
+
+def test_instamart_merge_surfaces_instamart_addresses():
+    addr = ToolResult(
+        tool="get_addresses",
+        provider="swiggy_instamart",
+        ok=True,
+        data={"data": {"addresses": [{"addressId": "IM1", "addressTag": "Home"}]}},
+    )
+    merged = SwiggyInstamartProvider().merge(
+        {}, ProviderResult(provider="swiggy_instamart", results=[addr])
+    )
+    rows = merged.get("session_instamart_addresses") or []
+    assert rows and rows[0]["address_id"] == "IM1"
+    assert "session_addresses" not in merged  # must use the Instamart namespace
+
+
+def test_instamart_before_run_resolves_from_carried_instamart_addresses():
+    ctx = ExecCtx(session={"session_instamart_addresses": [{"address_id": "IM9", "label": "Home"}]})
+    asyncio.run(SwiggyInstamartProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__ADDRESS_ID__"] == "IM9"
 
 _FIX = json.loads(
     (Path(__file__).parent / "fixtures/swiggy_instamart/search_milk.json").read_text()

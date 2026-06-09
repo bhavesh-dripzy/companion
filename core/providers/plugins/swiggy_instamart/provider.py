@@ -21,6 +21,7 @@ from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
+from core.providers.mcp.address import merge_saved_addresses
 from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
@@ -39,6 +40,11 @@ class SwiggyInstamartProvider(McpProvider):
     label = "Swiggy Instamart MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = SwiggyInstamartSession
+    # search_products REQUIRES addressId="__ADDRESS_ID__" (planner.md), so without
+    # auto-resolution every Instamart search fails. Addresses namespace under the
+    # Instamart-specific session key.
+    saved_addresses_tool = "get_addresses"
+    saved_addresses_session_key = "session_instamart_addresses"
 
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         url = os.getenv("SWIGGY_INSTAMART_MCP_URL", _DEFAULT_URL)
@@ -49,6 +55,7 @@ class SwiggyInstamartProvider(McpProvider):
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)
+        merge_saved_addresses(merged, result.results, key=self.saved_addresses_session_key)
         products = merge_products(slice_.get("session_instamart_products"), result.results)
         if products:
             merged["session_instamart_products"] = products

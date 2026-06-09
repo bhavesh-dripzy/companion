@@ -47,6 +47,9 @@ class McpProvider(ABC):
     # addresses" tool to enable __ADDRESS_ID__ auto-resolution in before_run.
     # Left None for providers that don't take a delivery address (Kite, Maps, …).
     saved_addresses_tool: str | None = None
+    # The flat session_* key this provider's saved addresses round-trip under
+    # (Instamart/Zepto namespace their own; food uses the shared one).
+    saved_addresses_session_key: str = "session_addresses"
 
     @property
     def planner_preamble(self) -> str | None:
@@ -80,7 +83,8 @@ class McpProvider(ABC):
         if not self.saved_addresses_tool or "__ADDRESS_ID__" in ctx.placeholders:
             return
         # Carried saved addresses from a prior turn (the frontend echoes them back).
-        carried = ctx.session.get("session_addresses") if isinstance(ctx.session, dict) else None
+        key = self.saved_addresses_session_key
+        carried = ctx.session.get(key) if isinstance(ctx.session, dict) else None
         if isinstance(carried, list) and carried:
             aid = str((carried[0] or {}).get("address_id") or "").strip()
             if aid:
