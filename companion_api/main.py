@@ -233,7 +233,7 @@ def scheduled_reminder_handler(event: dict[str, Any], _context: Any) -> dict[str
         # Fetch member to get phone number for WhatsApp notification
         member = MemberRepository().get(payload.member_id)
         if member and member.get("phone_number"):
-            from app.services.whatsapp.client import WhatsAppClient
+            from companion_api.whatsapp_client import WhatsAppClient
 
             title = reminder.get("title", "Reminder")
             description = reminder.get("description", "")

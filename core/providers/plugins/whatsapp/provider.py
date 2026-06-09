@@ -65,6 +65,6 @@ class WhatsAppProvider(HttpProvider):
 
     @staticmethod
     def _send(to: str, message: str) -> dict[str, Any]:
-        from app.services.whatsapp.client import WhatsAppClient
+        from companion_api.whatsapp_client import WhatsAppClient
 
         return WhatsAppClient().send_text_message(to, message)
