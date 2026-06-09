@@ -80,6 +80,44 @@ def test_resolve_llm_no_keys(monkeypatch):
     assert "No LLM key" in reason
 
 
+def test_openai_client_closed_within_call(monkeypatch):
+    """Regression: the AsyncOpenAI client must close inside its own coroutine/loop.
+
+    The web bridge runs the pipeline via asyncio.run() per request; a leaked
+    client is GC-finalized on a later invocation's loop -> 'Event loop is closed'."""
+    import asyncio
+    from types import SimpleNamespace
+
+    import openai
+
+    from core.llm.client import _openai_compatible_call
+    from core.llm.config import ResolvedLlm
+
+    closed = {"value": False}
+    resp = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"message": "hi"}'))]
+    )
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            async def _create(**_kw):
+                return resp
+
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            closed["value"] = True
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", _FakeAsyncOpenAI)
+    llm = ResolvedLlm(provider="deepseek", api_key="k", model="m", base_url="https://x")
+    out = asyncio.run(_openai_compatible_call(llm=llm, system_prompt="s", user_message="u"))
+    assert out == '{"message": "hi"}'
+    assert closed["value"] is True
+
+
 def test_function_calling_formats():
     tool = Tool(
         name="make_phone_call", provider="twilio", description="Call", params={"type": "object"}
