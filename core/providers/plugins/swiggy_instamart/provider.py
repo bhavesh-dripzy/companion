@@ -40,9 +40,7 @@ class SwiggyInstamartProvider(McpProvider):
     label = "Swiggy Instamart MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = SwiggyInstamartSession
-    # search_products REQUIRES addressId="__ADDRESS_ID__" (planner.md), so without
-    # auto-resolution every Instamart search fails. Addresses namespace under the
-    # Instamart-specific session key.
+    # search_products requires __ADDRESS_ID__; addresses use the Instamart key.
     saved_addresses_tool = "get_addresses"
     saved_addresses_session_key = "session_instamart_addresses"
 

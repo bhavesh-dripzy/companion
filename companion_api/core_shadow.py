@@ -87,14 +87,10 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
 
 
 def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
-    """Legacy-shaped ``{ok, error?, error_code?}`` the frontend reads off every turn.
+    """Legacy ``{ok, error?, error_code?}`` summary for the frontend.
 
-    App.tsx accesses ``tool_execution.ok`` / ``.error`` / ``.error_code``
-    unconditionally (and spreads ``selected_tool_providers``), so both keys MUST
-    always be present or the turn hard-crashes the client. ``error_code`` prefers
-    the provider's granular code (e.g. ``needs_location``, which drives the
-    frontend's geolocation retry) and falls back to the coarse ErrorCode enum.
-    """
+    error_code prefers a provider's granular code (e.g. ``needs_location``) and
+    falls back to the coarse ErrorCode enum."""
     failed = [r for r in results if not r.ok]
     if not failed:
         return {"ok": True}

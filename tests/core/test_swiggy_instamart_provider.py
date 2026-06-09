@@ -61,6 +61,7 @@ def test_instamart_before_run_auto_fetch_resolves_id_only_rows(monkeypatch):
     asyncio.run(SwiggyInstamartProvider().before_run(session=object(), ctx=ctx))
     assert ctx.placeholders.get("__ADDRESS_ID__") == "363294542"
 
+
 _FIX = json.loads(
     (Path(__file__).parent / "fixtures/swiggy_instamart/search_milk.json").read_text()
 )

@@ -44,12 +44,10 @@ class McpProvider(ABC):
     auth_mode: AuthMode = AuthMode.OAUTH
     session_cls: type[ProviderSessionState] | None = None
     resolver: PlaceholderResolver = PlaceholderResolver()
-    # Address-taking providers (Zomato/Swiggy) set this to their "list saved
-    # addresses" tool to enable __ADDRESS_ID__ auto-resolution in before_run.
-    # Left None for providers that don't take a delivery address (Kite, Maps, …).
+    # MCP tool that lists saved delivery addresses; set to enable __ADDRESS_ID__
+    # auto-resolution. None for providers without a delivery address.
     saved_addresses_tool: str | None = None
-    # The flat session_* key this provider's saved addresses round-trip under
-    # (Instamart/Zepto namespace their own; food uses the shared one).
+    # Flat session_* key the saved addresses round-trip under.
     saved_addresses_session_key: str = "session_addresses"
 
     @property
@@ -73,17 +71,14 @@ class McpProvider(ABC):
         """Build the stdio launch spec (mcp-remote command + token env) for this turn."""
 
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
-        """Resolve `__ADDRESS_ID__` once, before the first call, for address-taking
-        providers. Restores the legacy resolution order (planner.md): request
-        address_id → carried `__ADDRESS_ID__` → `session_addresses[0]` → one-shot
-        auto-fetch. Without it, every food turn emits an unresolved placeholder
-        (the frontend sends `address_id:''`) and the user sees "I need your location".
-        No-op for providers that leave ``saved_addresses_tool`` None."""
+        """Resolve __ADDRESS_ID__ before the first call (address-taking providers).
+
+        Order: request address_id, then carried session addresses[0], then a
+        one-shot fetch via ``saved_addresses_tool``. No-op when that attr is None."""
         if ctx.address_id and "__ADDRESS_ID__" not in ctx.placeholders:
             ctx.placeholders["__ADDRESS_ID__"] = ctx.address_id
         if not self.saved_addresses_tool or "__ADDRESS_ID__" in ctx.placeholders:
             return
-        # Carried saved addresses from a prior turn (the frontend echoes them back).
         key = self.saved_addresses_session_key
         carried = ctx.session.get(key) if isinstance(ctx.session, dict) else None
         if isinstance(carried, list) and carried:
@@ -91,14 +86,9 @@ class McpProvider(ABC):
             if aid:
                 ctx.placeholders["__ADDRESS_ID__"] = aid
                 return
-        # One-shot auto-fetch. Best-effort: any failure leaves __ADDRESS_ID__
-        # unresolved (same as before), so this can never make a turn worse.
-        # extract_address_rows is dual-key + `id`-aware (Instamart rows key on
-        # `id`, which resolver.learn would miss) and gives the first SAVED address.
         try:
-            rows = extract_address_rows(tool_result_payload(await call_tool(
-                session, self.saved_addresses_tool, {}
-            )))
+            raw = await call_tool(session, self.saved_addresses_tool, {})
+            rows = extract_address_rows(tool_result_payload(raw))
         except Exception:
             return
         if rows:

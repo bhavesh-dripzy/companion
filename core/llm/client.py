@@ -23,9 +23,7 @@ async def _openai_compatible_call(
     kwargs: dict[str, Any] = {"api_key": llm.api_key, "timeout": _TIMEOUT_SECONDS}
     if llm.provider == "deepseek" and llm.base_url:
         kwargs["base_url"] = llm.base_url
-    # MUST close within this coroutine's event loop. The web bridge drives the
-    # pipeline via asyncio.run() per request, so a leaked client is GC-finalized
-    # on a *later* invocation's loop -> "RuntimeError: Event loop is closed".
+    # Close within this loop; the caller runs under asyncio.run() per request.
     async with AsyncOpenAI(**kwargs) as client:
         completion = await client.chat.completions.create(
             model=llm.model,

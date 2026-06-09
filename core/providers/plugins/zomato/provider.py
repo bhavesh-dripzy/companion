@@ -43,7 +43,7 @@ class ZomatoProvider(McpProvider):
     label = "Zomato MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = ZomatoSession
-    # Enables base __ADDRESS_ID__ auto-resolution (carried → one-shot auto-fetch).
+    # Enables base __ADDRESS_ID__ auto-resolution.
     saved_addresses_tool = "get_saved_addresses_for_user"
 
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
@@ -62,8 +62,6 @@ class ZomatoProvider(McpProvider):
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)
-        # Surface saved delivery addresses so the frontend can show them for
-        # selection and the next turn can resolve __ADDRESS_ID__ from [0].
         merge_saved_addresses(merged, result.results)
         restaurants = merge_restaurants(slice_.get("session_restaurants"), result.results)
         if restaurants:

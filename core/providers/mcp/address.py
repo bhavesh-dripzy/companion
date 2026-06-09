@@ -63,10 +63,7 @@ def merge_saved_addresses(
 ) -> None:
     """Surface saved-address rows into ``merged[key]`` (in place).
 
-    Called from an address-taking provider's `merge` so a `get_addresses` /
-    `get_saved_addresses_for_user` result reaches the frontend's address picker
-    and the next turn can resolve `__ADDRESS_ID__` from the first row. ``key`` is
-    the provider's flat session_* namespace (Instamart uses its own)."""
+    ``key`` is the provider's flat session_* namespace for saved addresses."""
     for tr in results:
         if getattr(tr, "ok", False) and "address" in getattr(tr, "tool", "").lower():
             rows = extract_address_rows(tr.data if isinstance(tr.data, dict) else {})
