@@ -1,11 +1,13 @@
 from __future__ import annotations
+
+import hashlib
 import json
 import os
-import hashlib
-import uuid
 from typing import Any
+
 from neo4j import GraphDatabase
-from app.services.leadgen.schema import ProfileFact, Interest, Lead
+
+from leadgen.schema import Interest, Lead, ProfileFact
 
 
 class GraphClient:
@@ -69,20 +71,20 @@ class GraphClient:
     def upsert_profile_fact(self, user_id: str, fact: ProfileFact, source: str = "llm"):
         """Upserts a fact. Direct attributes are stored on User; addresses form Place nodes with active edges."""
         fact_type = fact.type.strip().lower()
-        
+
         # 1. Address facts: create Place node and handle active links
         if fact_type in ("work_address", "home_address"):
             address_str = fact.value.strip()
             if not address_str:
                 return
-                
+
             # Normalize key to dedup similar strings
             normalized_key = "".join(c for c in address_str.lower() if c.isalnum())
             place_id = hashlib.sha256(normalized_key.encode("utf-8")).hexdigest()
-            
+
             kind = "office" if fact_type == "work_address" else "home"
             rel_type = "WORKS_AT" if fact_type == "work_address" else "LIVES_AT"
-            
+
             # Step A: Merge the Place node
             place_cypher = """
             MERGE (p:Place {id: $place_id})
@@ -94,7 +96,7 @@ class GraphClient:
                 "address": address_str,
                 "kind": kind
             })
-            
+
             # Step B: Retire old relationships of the same type to different places
             retire_cypher = f"""
             MATCH (u:User {{id: $user_id}})-[r:{rel_type}]->(old_p:Place)
@@ -102,7 +104,7 @@ class GraphClient:
             SET r.valid_to = timestamp()
             """
             self.execute_query(retire_cypher, {"user_id": user_id, "place_id": place_id})
-            
+
             # Step C: Merge new relationship
             rel_cypher = f"""
             MATCH (u:User {{id: $user_id}}), (p:Place {{id: $place_id}})
@@ -116,7 +118,7 @@ class GraphClient:
                 "confidence": fact.confidence,
                 "source": source
             })
-            
+
         else:
             # 2. Regular attributes (age, name, city, language, etc.) on User node
             # Translate fact_type to safe property name
@@ -142,10 +144,10 @@ class GraphClient:
         detail_name = interest.detail.strip().lower()
         if not cat_name or not detail_name:
             return
-            
+
         # Unique ID for fine grained interest (e.g. food:ramen)
-        interest_id = hashlib.sha256(f"{cat_name}:{detail_name}".encode("utf-8")).hexdigest()
-        
+        interest_id = hashlib.sha256(f"{cat_name}:{detail_name}".encode()).hexdigest()
+
         # Step A: Merge Category and Interest nodes
         cypher_nodes = """
         MERGE (c:Category {name: $cat_name})
@@ -157,7 +159,7 @@ class GraphClient:
             "interest_id": interest_id,
             "detail": interest.detail
         })
-        
+
         # Step B: Link User to Category (INTERESTED_IN)
         cypher_cat_rel = """
         MATCH (u:User {id: $user_id}), (c:Category {name: $cat_name})
@@ -169,7 +171,7 @@ class GraphClient:
             "cat_name": cat_name,
             "weight": interest.weight
         })
-        
+
         # Step C: Link User to Interest node (LIKES)
         cypher_likes_rel = """
         MATCH (u:User {id: $user_id}), (i:Interest {id: $interest_id})
@@ -200,7 +202,7 @@ class GraphClient:
 
         # Generate a fingerprint/id for the lead based on user + product
         normalized_product = "".join(c for c in lead.product.lower() if c.isalnum())
-        lead_id = hashlib.sha256(f"{user_id}:{cat_name}:{normalized_product}".encode("utf-8")).hexdigest()
+        lead_id = hashlib.sha256(f"{user_id}:{cat_name}:{normalized_product}".encode()).hexdigest()
 
         attrs_json = json.dumps(lead.attrs)
 
@@ -272,18 +274,18 @@ class GraphClient:
             "open_leads": [],
             "consent_status": "implicit",
         }
-        
+
         # A. Query basic user properties
         u_records = self.execute_query("MATCH (u:User {id: $user_id}) RETURN u", {"user_id": user_id})
         if not u_records:
             return profile
-            
+
         u_node = u_records[0].get("u", {})
         profile["name"] = u_node.get("name")
         profile["age"] = u_node.get("age")
         profile["city"] = u_node.get("city")
         profile["language"] = u_node.get("language")
-        
+
         # B. Query active addresses
         addr_cypher = """
         MATCH (u:User {id: $user_id})-[r:WORKS_AT|LIVES_AT]->(p:Place)
@@ -332,7 +334,7 @@ class GraphClient:
         leads_records = self.execute_query(leads_cypher, {"user_id": user_id})
         for record in leads_records:
             l_node = record.get("l", {})
-            
+
             # Parse attributes
             attrs = {}
             if l_node.get("attrs"):
@@ -340,7 +342,7 @@ class GraphClient:
                     attrs = json.loads(l_node.get("attrs"))
                 except Exception:
                     pass
-                    
+
             profile["open_leads"].append({
                 "lead_id": l_node.get("id"),
                 "category": l_node.get("category"),
@@ -351,7 +353,7 @@ class GraphClient:
                 "intent_score": l_node.get("intent_score"),
                 "attrs": attrs
             })
-            
+
             # Use most recent lead consent status or fallback
             if l_node.get("consent_status"):
                 profile["consent_status"] = l_node.get("consent_status")

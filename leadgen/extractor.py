@@ -1,8 +1,11 @@
 from __future__ import annotations
+
+import asyncio
 import logging
-from app.services.llm_config import resolve_llm_from_env
-from app.services.food_llm_router import complete_json_object
-from app.services.leadgen.schema import ExtractionResult, ProfileFact, Interest, Lead
+
+from core.llm.client import complete_json_object
+from core.llm.config import resolve_llm_from_env
+from leadgen.schema import ExtractionResult, Interest, Lead, ProfileFact
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +76,7 @@ def extract_from_conversation(
     recent_history: list[dict[str, str]],
 ) -> ExtractionResult:
     """Invokes LLM with recent history and current turn message to extract profile facts, interests and leads."""
-    # Resolve LLM configuration from environment
+    # Resolve LLM configuration from environment (core's resolver — same order/defaults)
     llm_cfg, err = resolve_llm_from_env()
     if err or not llm_cfg:
         logger.error(f"Failed to resolve LLM configuration: {err}")
@@ -101,13 +104,12 @@ TRANSCRIPT:
 """
 
     try:
-        json_data = complete_json_object(
-            user_message=user_prompt,
-            system_prompt=SYSTEM_PROMPT,
-            api_key=llm_cfg.api_key,
-            model=llm_cfg.model,
-            provider=llm_cfg.provider,
-            base_url=llm_cfg.base_url,
+        json_data = asyncio.run(
+            complete_json_object(
+                user_message=user_prompt,
+                system_prompt=SYSTEM_PROMPT,
+                llm=llm_cfg,
+            )
         )
 
         # Parse into ExtractionResult

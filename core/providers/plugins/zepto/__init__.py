@@ -1,11 +1,10 @@
-"""Zepto plugin (clean McpProvider).
+"""Zepto plugin (clean McpProvider) — the sole Zepto path.
 
-Status (migration): product *search* — connection, execution, structured
-card-building, and the productVariantId LRU — is ported clean and validated
-against real Zepto data (tests/core/test_zepto_provider.py + a live read-only
-serviceability→search on admin_bhavesh tokens). Cart cards still run through the
-proven legacy executor via the LegacyMcpAdapter; the swap is gated on porting the
-cart snapshot + session parity.
+Product *search* — connection, execution, structured card-building, and the
+productVariantId LRU — is validated against real Zepto data
+(tests/core/test_zepto_provider.py + a live read-only serviceability→search on
+admin_bhavesh tokens). Mutating cart flows execute through the same generic
+`McpProvider.run`; a richer cart-snapshot card is a future enhancement.
 """
 
 from core.providers.plugins.zepto.provider import ZeptoProvider

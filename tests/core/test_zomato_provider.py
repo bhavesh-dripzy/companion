@@ -1,7 +1,6 @@
 """Golden test: the clean `ZomatoProvider` builds correct cards + session from REAL data.
 
-Drives `ZomatoProvider` directly (not via the registry — the registry still wires
-the LegacyMcpAdapter until the bootstrap swap) against the sanitized real capture
+Drives `ZomatoProvider` directly against the sanitized real capture
 `fixtures/zomato/search_pizza.json`, asserting the cards + session LRU reflect the
 real restaurant the live turn surfaced (Domino's, res_id 20324557). This validates
 the clean execution-result -> card / session path against real provider responses.

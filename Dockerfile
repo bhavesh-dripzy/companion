@@ -28,9 +28,6 @@ RUN cd frontend && \
   echo "" > .env && \
   npm run build && rm -rf node_modules .env
 
-COPY app/__init__.py ./app/__init__.py
-COPY app/services ./app/services
-COPY app/templates ./app/templates
 COPY companion_api ./companion_api
 # The clean pipeline package — MUST be bundled or companion_api.core_shadow's
 # `import core...` fails at runtime (ModuleNotFoundError: No module named 'core').

@@ -9,11 +9,9 @@ learns from each turn asynchronously and personalizes future ones.
 It runs **serverless**: FastAPI on AWS Lambda (via Mangum) behind an HTTP API Gateway, in account
 `616551057455` / `ap-south-1`.
 
-> **This repo is mid-migration (strangler pattern).** A fresh, pluggable `core/` package has replaced
-> the old monolith and is the **default on `dev`**. The legacy code under `app/services/` still
-> exists as the fallback and is still load-bearing for two things (planner prompts + MCP token vault).
-> If you're an AI agent or new contributor, **read [§2 Mental model](#2-mental-model-read-this-first)
-> first** so you know which tree is live.
+> **The clean, pluggable `core/` package is the only pipeline.** The strangler rewrite is complete —
+> the old `app/services/` monolith has been fully torn down. If you're an AI agent or new contributor,
+> **read [§2 Mental model](#2-mental-model-read-this-first) first.**
 
 ---
 
@@ -36,40 +34,31 @@ It runs **serverless**: FastAPI on AWS Lambda (via Mangum) behind an HTTP API Ga
 ## 1. TL;DR for agents
 
 - **Live code path:** `companion_api/main.py` (FastAPI routes) → `companion_api/core_shadow.py`
-  (`run_core_turn_sync`) → **`core/` pipeline** (`core/pipeline/runner.py`). Set `LEGACY_PIPELINE=1`
-  to fall back to the old `app/services/agents/pipeline.py`.
-- **The architecture you should build on is `core/`.** Every file is **≤250 lines** (CI-enforced).
+  (`run_core_turn_sync`) → **`core/` pipeline** (`core/pipeline/runner.py`). There is no other path.
+- **The architecture you build on is `core/`.** Every file is **≤250 lines** (CI-enforced).
 - **Adding a provider = a plugin + one line in `core/registry/bootstrap.py`.** No pipeline edits.
   See [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-provider-the-pluggable-path).
 - **Design doc:** [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) +
   [ADRs](docs/architecture/adr/). **Branch/env rules:** [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Lint/test gates:** `ruff check core`, `python scripts/check_file_size.py core`, `pytest tests/core`.
-- **Don't** grow `app/services/` (it's being deleted) or add `asyncio.run` (the pipeline is async-first).
+- **Don't** add `asyncio.run` inside the pipeline — it's async-first ([ADR-0003](docs/architecture/adr/0003-async-first-pipeline.md)).
 
 ---
 
 ## 2. Mental model (read this first)
 
-Two trees coexist during the migration:
+**`core/` is the only tree.** The original `app/services/` monolith — `agents/pipeline.py` (~4k
+lines), the per-provider `*_mcp_executor.py` files, `tool_runtime.py`'s if/elif dispatch — has been
+deleted. Everything runs through the clean, pluggable rewrite:
 
-| Tree | What it is | Status |
-|------|-----------|--------|
-| **`core/`** | The clean, pluggable rewrite — contracts, registry, 7-stage pipeline, provider plugins. | **The default.** Build here. |
-| **`app/services/`** | The original monolith (`agents/pipeline.py` ~4k lines, per-provider `*_mcp_executor.py`). | **Legacy fallback.** Being torn down (Phase 8). |
+- **contracts** (pure Pydantic), a **registry**, a **7-stage async pipeline**, and **provider plugins**.
+- Every file is **≤250 lines** (CI-enforced). The pipeline is **async-first** (no `asyncio.run` inside it).
+- Planning (generated planner + per-plugin `planner.md`/`planner_context`), the MCP token vault, and
+  the OAuth/pairing connect flows all live in `core/` now — there is no legacy fallback.
 
-**Why the legacy tree still matters (it's not dead yet):**
-1. **Planning** — each clean provider's `plan()` currently delegates to the tuned legacy domain
-   agents via `core/providers/mcp/legacy_planner.py` (a parity bridge). Removing it needs the planner
-   prompts ported to the generated-prompt path first.
-2. **MCP token vault** — `core/providers/mcp/remote.py` hydrates OAuth tokens by calling
-   `app.services.zomato.mcp_executor.ensure_mcp_tokens_on_disk`. The vault must be ported to `core/`
-   before the executor is deleted.
-
-So `dev` is a **complete working app on the new architecture**, with the legacy tree as a safety net
-behind `LEGACY_PIPELINE=1` and as a still-referenced dependency for the two items above.
-
-The migration plan and per-phase status live in the team's notes; the design rationale is in the
-[ADRs](docs/architecture/adr/).
+The web layer (`companion_api/`) holds FastAPI routes + DynamoDB repos and calls into `core/` via
+`core_shadow.run_core_turn_sync`. The knowledge-graph extraction package (`leadgen/`) runs on the
+separate graph EC2 worker. Design rationale is in the [ADRs](docs/architecture/adr/).
 
 ---
 
@@ -81,16 +70,16 @@ core/                              # ★ the clean architecture (build here)
                                    #   SessionState, Attachment, TurnRequest/Response, RoutingDecision
   llm/                             # async LLM client, robust JSON parser, fn-calling schema
   registry/                        # ProviderRegistry + ToolRegistry + bootstrap.py (the ONE
-                                   #   registration point; CLEAN_MCP flag lives here)
+                                   #   registration point — every provider registered in one line)
   middleware/                      # planner_prompt (generated), validator, dispatcher, confirmation, errors
   pipeline/                        # runner.py + stages/{personalize,route,plan,execute,collect,narrate,persist}.py
   providers/
     base.py                        # the Provider Protocol (the plugin interface)
-    mcp/                           # shared MCP base: connection.py, remote.py (mcp-remote launch +
-                                   #   token hydration), placeholders.py, result_parse.py,
-                                   #   mcp_base.py (McpProvider), food_session.py, lru.py, legacy_planner.py
+    mcp/                           # shared MCP base: connection.py, remote.py (mcp-remote launch),
+                                   #   token_store.py + token_vault.py (OAuth vault), oauth.py + pairing.py
+                                   #   (hosted connect flows), diagnostics.py, placeholders.py,
+                                   #   result_parse.py, mcp_base.py (McpProvider), food_session.py, lru.py
     http/                          # shared HTTP provider base (statically-declared tools)
-    legacy/                        # LegacyMcpAdapter + MCP_CONFIGS (migration bridge; deleted at cutover)
     plugins/                       # ★ one folder per provider — see §5
   boundaries/                      # KG/leadgen seam (TurnEventPublisher, ProfileReadService protocols)
   app_factory.py                   # wires registry + boundaries + llm into a PipelineRunner
@@ -103,10 +92,8 @@ companion_api/                     # the web layer (FastAPI)
   secrets.py, settings.py          # secret + env resolution
   *_repo.py / profile_cache.py     # DynamoDB repositories
 
-app/services/                      # LEGACY (fallback + still-referenced). Being deleted (Phase 8).
-  agents/pipeline.py               # the old monolithic turn pipeline (source of parity behavior)
-  <provider>/mcp_executor.py       # per-provider executors (zomato/swiggy/instamart/zepto/district/kite)
-  leadgen/                         # KG extraction schema, Neo4j client, parser
+leadgen/                           # KG extraction package (schema, Neo4j client, LLM extractor)
+                                   #   — runs on the graph EC2 worker; the Lambda only enqueues to SQS
 
 infra/                             # AWS CDK (Python)
   app.py                           # env selector: COMPANION_ENV=dev|staging|prod → stack names/domain
@@ -115,7 +102,7 @@ infra/                             # AWS CDK (Python)
 
 deploy/graph-ec2/                  # the graph-worker box: graph_service.py (FastAPI) + worker.py (SQS consumer)
 frontend/                          # React SPA (Vite) — chat UI, admin graph dashboard
-tests/                             # tests/core/ = the new suite; root tests/ = legacy
+tests/                             # tests/core/ = the suite; root tests/ = companion_api (web-layer) tests
 docs/architecture/                 # ARCHITECTURE.md + adr/*.md  ← the design of record
 scripts/check_file_size.py         # the ≤250-line gate
 .github/workflows/                 # ci.yml, deploy.yml (main), deploy-staging.yml (staging)
@@ -135,7 +122,7 @@ TurnRequest → Personalize → Route → Plan → Execute → Collect → Narra
 |-------|------|----------------|
 | Personalize | `stages/personalize.py` | Profile read (KG seam, fail-open) + home/office address resolution. |
 | Route | `stages/route.py` | Orchestrator LLM → `RoutingDecision{task_type, providers[]}` (+ stickiness). Name an app → that app; name none → all relevant providers (issue #14). |
-| Plan | `stages/plan.py` | Per-provider planner → validated `ToolPlan`. Delegates to `legacy_planner` during migration. |
+| Plan | `stages/plan.py` | Per-provider planner → validated `ToolPlan`. Prompt = generated preamble + each plugin's `planner.md`/`planner_context`. |
 | Execute | `stages/execute.py` | Provider fan-out (`asyncio.gather`), partial-failure tolerant → `ToolResult`s. |
 | Collect | `stages/collect.py` | `provider.build_attachments(result)` in a fixed render-priority order. |
 | Narrate | `stages/narrate.py` | Response LLM → `assistant_message` + LLM-driven card/cart filtering. |
@@ -149,12 +136,11 @@ Async-first rationale: [ADR-0003](docs/architecture/adr/0003-async-first-pipelin
 ## 5. Providers (the plugin model)
 
 A provider is a plugin implementing the `Provider` protocol (`core/providers/base.py`):
-`discover_tools()`, `run(calls, ctx)`, `build_attachments(result)`, `merge(slice_, result)`, and
-(during migration) `plan(ctx)`. `McpProvider` / `HttpProvider` supply most of it so a concrete
-plugin stays ~small.
+`discover_tools()`, `run(calls, ctx)`, `build_attachments(result)`, `merge(slice_, result)`.
+`McpProvider` / `HttpProvider` supply most of it so a concrete plugin stays ~small. Planning is the
+base's job (generated preamble + the plugin's `planner.md` + `planner_context`).
 
-**MCP providers** (`core/providers/plugins/`) — all six are clean-ported + live-validated and run
-clean by default on `dev`:
+**MCP providers** (`core/providers/plugins/`) — all six are clean `McpProvider`s, live-validated:
 
 | id | folder | surfaces | cards |
 |----|--------|----------|-------|
@@ -200,8 +186,6 @@ Decouple rationale: [ADR-0004](docs/architecture/adr/0004-decouple-kg-leadgen.md
 
 | Flag / env | Default | Effect |
 |------------|---------|--------|
-| `LEGACY_PIPELINE` | unset | `=1` routes turns through the old `app/services/agents/pipeline.py` instead of `core/`. Global escape hatch. |
-| `CLEAN_MCP` | unset → all 6 clean | Comma list selecting which MCP providers use the clean `McpProvider` vs the `LegacyMcpAdapter`. `CLEAN_MCP=""` reverts all to the adapter. Defined in `core/registry/bootstrap.py`. |
 | `COMPANION_ENV` | `prod` | CDK env selector (`dev`/`staging`/`prod`) → stack names, resource prefix, domain. |
 | `DEPLOY_EC2` | `false` | `=true` provisions the Neo4j/graph EC2 box (prod only). |
 | `APP_SECRET_ID` | per-env | Secrets Manager id for LLM/API keys (`companion[-env]/app`). |
@@ -231,9 +215,6 @@ Test markers (`pyproject.toml`): `unit` (fast, no I/O), `integration` (mocked ex
 `component` (per-provider vs recorded fixtures), `live` (real services — never in CI).
 Run e.g. `pytest -m "component and not live"`.
 
-> Note: `tests/test_district_mcp_executor.py` is a known pre-existing-broken legacy test (stale
-> import); run with `--ignore=tests/test_district_mcp_executor.py` for the full suite.
-
 ---
 
 ## 9. Branches, CI, environments, deploy
@@ -262,15 +243,13 @@ Env parameterization: [ADR-0005](docs/architecture/adr/0005-branching-ci-environ
 | Add a new provider | `core/providers/plugins/<id>/` + `core/registry/bootstrap.py`; [CONTRIBUTING](CONTRIBUTING.md#adding-a-provider-the-pluggable-path) |
 | Change how a card renders | that provider's `cards.py` / `*_cards.py` in its plugin folder |
 | Change routing / which provider handles a task | `core/pipeline/stages/route.py` |
-| Change the planner prompt | `core/middleware/planner_prompt.py` (clean path) or `app/services/<provider>/prompts/` (legacy, while delegated) |
+| Change the planner prompt | `core/middleware/planner_prompt.py` (generic preamble) or the plugin's `planner.md` / `planner_context.py` |
 | Touch session state (cart/menu/restaurant memory) | the provider's `session.py` / `merge()` |
 | Add/modify an HTTP route | `companion_api/routers/*.py` |
 | Work on voice | `companion_api/voice_routes.py` |
 | Change MCP connection / token handling | `core/providers/mcp/remote.py`, `connection.py` |
 | Change infra (tables, Lambda, domain) | `infra/companion_stack.py`, `infra/graph_stack.py`, `infra/app.py` |
-| Understand the KG/leadgen flow | `core/boundaries/`, `deploy/graph-ec2/`, [ADR-0004](docs/architecture/adr/0004-decouple-kg-leadgen.md) |
-| Roll back the whole pipeline | set `LEGACY_PIPELINE=1` |
-| Roll back one provider | add its id to `CLEAN_MCP`'s complement (or `CLEAN_MCP=""` for all) |
+| Understand the KG/leadgen flow | `core/boundaries/`, `leadgen/`, `deploy/graph-ec2/`, [ADR-0004](docs/architecture/adr/0004-decouple-kg-leadgen.md) |
 
 ---
 

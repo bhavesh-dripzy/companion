@@ -90,12 +90,6 @@ def food_ui():
     """
     index_path = _FRONTEND_DIST / "index.html"
     if not index_path.exists():
-        # Fallback to legacy UI if frontend isn't built
-        legacy_path = (
-            Path(__file__).resolve().parent.parent / "app" / "templates" / "app" / "food_ui.html"
-        )
-        if legacy_path.exists():
-            return HTMLResponse(legacy_path.read_text(), headers=_SPA_SHELL_HEADERS)
         return HTMLResponse(
             "Frontend not found. Run 'npm run build' in the frontend directory.",
             status_code=404,
