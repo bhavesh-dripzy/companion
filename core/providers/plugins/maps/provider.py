@@ -25,13 +25,49 @@ _TOOL = Tool(
         "type": "object",
         "properties": {
             "destination": {"type": "string", "description": "Place name or address"},
-            "travel_mode": {"type": "string", "enum": ["DRIVE", "WALK", "BICYCLE", "TRANSIT"]},
+            "travel_mode": {
+                "type": "string",
+                "enum": ["DRIVE", "WALK", "BICYCLE", "TRANSIT", "TWO_WHEELER"],
+            },
         },
         "required": ["destination"],
     },
     auth_mode=AuthMode.NONE,
     source="static",
 )
+
+
+_VALID_TRAVEL_MODES = {"DRIVE", "WALK", "BICYCLE", "TRANSIT", "TWO_WHEELER"}
+_TRAVEL_MODE_ALIASES = {
+    "DRIVING": "DRIVE",
+    "CAR": "DRIVE",
+    "WALKING": "WALK",
+    "FOOT": "WALK",
+    "ON FOOT": "WALK",
+    "CYCLING": "BICYCLE",
+    "BICYCLING": "BICYCLE",
+    "BIKE": "BICYCLE",
+    "CYCLE": "BICYCLE",
+    "PUBLIC": "TRANSIT",
+    "PUBLIC TRANSPORT": "TRANSIT",
+    "BUS": "TRANSIT",
+    "TRAIN": "TRANSIT",
+    "METRO": "TRANSIT",
+    "SCOOTER": "TWO_WHEELER",
+    "MOTORCYCLE": "TWO_WHEELER",
+    "TWO WHEELER": "TWO_WHEELER",
+}
+
+
+def _normalize_travel_mode(value: Any) -> str | None:
+    """Map an LLM-emitted travel mode (e.g. "driving") to the Routes API enum.
+
+    Returns None for unknown values so the API default applies."""
+    if not isinstance(value, str):
+        return None
+    mode = value.strip().upper()
+    mode = _TRAVEL_MODE_ALIASES.get(mode, mode)
+    return mode if mode in _VALID_TRAVEL_MODES else None
 
 
 def _compute(args: dict[str, Any], user_geo: dict[str, Any] | None) -> dict[str, Any]:
@@ -60,7 +96,7 @@ def _compute(args: dict[str, Any], user_geo: dict[str, Any] | None) -> dict[str,
     destination = str(args.get("destination") or "").strip()
     if not destination:
         return {"ok": False, "error": "No destination found.", "error_code": "missing_destination"}
-    travel_mode = args.get("travel_mode") if isinstance(args.get("travel_mode"), str) else None
+    travel_mode = _normalize_travel_mode(args.get("travel_mode"))
     try:
         route = compute_route(
             origin=GeoPoint(float(lat), float(lng)),
