@@ -10,7 +10,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.services.calendar import execute_reminder_calendar
 from companion_api.auth import get_current_user
 from companion_api.dynamodb import ReminderRepository
 from companion_api.models import (
@@ -18,6 +17,7 @@ from companion_api.models import (
     ReminderCreateRequest,
     ReminderResponseRequest,
 )
+from companion_api.reminder_calendar import execute_reminder_calendar
 from companion_api.reminders import ReminderScheduler
 
 router = APIRouter()
