@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.contracts.attachment import Attachment
 from core.contracts.session import SessionState
+from core.contracts.tool_result import ProviderResult
 
 
 class TurnRequest(BaseModel):
@@ -36,6 +37,13 @@ class TurnResponse(BaseModel):
     assistant_message: str = ""
     task_type: str | None = None
     routed_provider: str | None = None
+    # Every provider the orchestrator selected this turn (routed_provider is
+    # providers[0]). The web layer surfaces this to the frontend, which renders
+    # the names as meta chips — see companion_api.core_shadow._to_envelope.
+    selected_tool_providers: list[str] = Field(default_factory=list)
+    # Raw per-provider outcomes, kept so the bridge can build the legacy
+    # `tool_execution` envelope the frontend reads. Not serialized to the wire.
+    provider_results: list[ProviderResult] = Field(default_factory=list)
     session: SessionState = Field(default_factory=SessionState)
     attachments: list[Attachment] = Field(default_factory=list)
     status: str = "ok"

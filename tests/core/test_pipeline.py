@@ -103,6 +103,33 @@ def test_full_turn_routes_plans_executes_collects_narrates_publishes():
     assert {"personalize", "route", "plan", "execute", "collect", "narrate", "persist"} <= events
 
 
+def test_narrator_receives_conversation_history():
+    """Regression: the reply LLM must see prior turns, not just the latest message.
+
+    Without this, multi-turn context is lost (the bot 'forgets' the user's name /
+    preferences / what was just shown one turn later)."""
+    seen = {}
+
+    inner = _fake_complete_json()
+
+    async def complete(*, user_message, system_prompt, llm):
+        if "You are Companion" in system_prompt:  # narrator
+            seen["narrator_user"] = user_message
+        return await inner(user_message=user_message, system_prompt=system_prompt, llm=llm)
+
+    runner = _runner(complete=complete)
+    history = [
+        {"role": "user", "content": "My name is Aashish and I love biryani"},
+        {"role": "assistant", "content": "Got it, Aashish!"},
+    ]
+    asyncio.run(
+        runner.run(TurnRequest(message="what should I eat?", user_id="u1", history=history), _LLM)
+    )
+    assert "Aashish" in seen["narrator_user"]
+    assert "biryani" in seen["narrator_user"]
+    assert "what should I eat?" in seen["narrator_user"]
+
+
 def test_address_auto_resolves_office_from_profile():
     profile = Profile(
         user_id="u1",

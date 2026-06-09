@@ -14,6 +14,7 @@ from typing import Any
 
 from core.app_factory import build_runner
 from core.contracts.session import SessionState
+from core.contracts.tool_result import ProviderResult
 from core.contracts.turn import TurnRequest, TurnResponse
 from core.llm.config import resolve_llm_from_env
 
@@ -85,6 +86,33 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
     )
 
 
+def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
+    """Legacy-shaped ``{ok, error?, error_code?}`` the frontend reads off every turn.
+
+    App.tsx accesses ``tool_execution.ok`` / ``.error`` / ``.error_code``
+    unconditionally (and spreads ``selected_tool_providers``), so both keys MUST
+    always be present or the turn hard-crashes the client. ``error_code`` prefers
+    the provider's granular code (e.g. ``needs_location``, which drives the
+    frontend's geolocation retry) and falls back to the coarse ErrorCode enum.
+    """
+    failed = [r for r in results if not r.ok]
+    if not failed:
+        return {"ok": True}
+    first = failed[0]
+    error_code: str | None = None
+    error_msg = first.error_detail
+    for tr in first.results:
+        if tr.ok:
+            continue
+        if error_code is None and isinstance(tr.data, dict) and tr.data.get("error_code"):
+            error_code = str(tr.data["error_code"])
+        if error_msg is None and tr.error_detail:
+            error_msg = tr.error_detail
+    if error_code is None and first.error is not None:
+        error_code = first.error.value
+    return {"ok": False, "error": error_msg or "Tool execution failed.", "error_code": error_code}
+
+
 def _to_envelope(response: TurnResponse, chat_id: str | None) -> dict[str, Any]:
     session = response.session
     return {
@@ -92,6 +120,8 @@ def _to_envelope(response: TurnResponse, chat_id: str | None) -> dict[str, Any]:
         "assistant_message": response.assistant_message,
         "task_type": response.task_type,
         "routed_provider": response.routed_provider,
+        "selected_tool_providers": list(response.selected_tool_providers),
+        "tool_execution": _tool_execution(response.provider_results),
         "attachments": [a.to_wire() for a in response.attachments],
         # Flat session_* + session_state round-tripped to the frontend verbatim.
         "session_state": session.placeholders,

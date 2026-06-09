@@ -13,11 +13,29 @@ from core.pipeline.context import PipelineContext
 
 _RESPONSE_PROMPT = (
     "You are Companion, a concise, friendly assistant.\n"
-    "Given the user's message and any tool results, write a short, helpful reply.\n"
+    "Given the conversation so far and any tool results, write a short, helpful "
+    "reply to the latest user message. Use the earlier turns for context — names, "
+    "preferences, and what was already shown (e.g. items or restaurants) carry over; "
+    "do not claim the user never told you something they said earlier in the chat.\n"
     "Reply ONLY in this language/style: {language}.\n"
     "If tools were blocked pending confirmation, ask the user to confirm.\n"
     'Respond with ONLY a JSON object: {{"message": "<reply>"}}.'
 )
+
+
+def _conversation(ctx: PipelineContext) -> str:
+    """Recent turns + the current message, so the narrator has multi-turn context.
+
+    The LLM helper is single-turn, so history is folded into the prompt text —
+    the same shape the Plan stage uses (history[-8:] as ``role: content`` lines)."""
+    lines: list[str] = []
+    for turn in ctx.request.history[-8:]:
+        role = str(turn.get("role") or "user")
+        content = str(turn.get("content") or "").strip()
+        if content:
+            lines.append(f"{role}: {content}")
+    lines.append(f"user: {ctx.request.message}")
+    return "Conversation so far:\n" + "\n".join(lines)
 
 
 def _results_summary(ctx: PipelineContext) -> str:
@@ -47,7 +65,7 @@ class Narrate:
     async def run(self, ctx: PipelineContext) -> None:
         language = ctx.request.reply_language or "English"
         system = _RESPONSE_PROMPT.format(language=language)
-        user = f"User: {ctx.request.message}\n\nTool results:\n{_results_summary(ctx)}"
+        user = f"{_conversation(ctx)}\n\nTool results:\n{_results_summary(ctx)}"
         try:
             raw = await ctx.deps.complete_json(user_message=user, system_prompt=system, llm=ctx.llm)
             ctx.assistant_message = str(raw.get("message") or "").strip()

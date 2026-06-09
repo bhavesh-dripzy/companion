@@ -48,10 +48,13 @@ def _is_confirmation(request: TurnRequest) -> bool:
 
 def _build_response(ctx: PipelineContext) -> TurnResponse:
     routing = ctx.routing
+    providers = list(routing.providers) if routing and routing.providers else []
     return TurnResponse(
         assistant_message=ctx.assistant_message,
         task_type=routing.task_type if routing else None,
-        routed_provider=(routing.providers[0] if routing and routing.providers else None),
+        routed_provider=(providers[0] if providers else None),
+        selected_tool_providers=providers,
+        provider_results=ctx.provider_results,
         session=ctx.session,
         attachments=ctx.attachments,
         status="ok",

@@ -4,6 +4,7 @@ import pytest
 
 import companion_api.core_shadow as cs
 from core.contracts.attachment import Attachment
+from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
 from core.contracts.turn import TurnResponse
 from core.llm.config import ResolvedLlm
 
@@ -36,6 +37,49 @@ def test_shadow_adapts_request_and_envelope(monkeypatch):
     assert env["task_type"] == "food_delivery"
     assert env["chat_id"] == "c1"
     assert env["attachments"][0]["kind"] == "restaurant_card"
+    # Contract the frontend hard-requires on EVERY turn (App.tsx spreads the
+    # list and reads tool_execution.ok); their absence crashes the client.
+    assert env["selected_tool_providers"] == []
+    assert env["tool_execution"] == {"ok": True}
+
+
+def test_shadow_envelope_surfaces_providers_and_tool_error(monkeypatch):
+    monkeypatch.setattr(
+        cs, "resolve_llm_from_env", lambda _x: (ResolvedLlm("deepseek", "k", "m"), None)
+    )
+
+    class _FakeRunner:
+        async def run(self, request, llm):
+            return TurnResponse(
+                assistant_message="I need your location.",
+                routed_provider="maps",
+                selected_tool_providers=["maps"],
+                provider_results=[
+                    ProviderResult(
+                        provider="maps",
+                        ok=False,
+                        results=[
+                            ToolResult(
+                                tool="get_directions",
+                                provider="maps",
+                                ok=False,
+                                data={"ok": False, "error_code": "needs_location"},
+                                error=ErrorCode.UPSTREAM_ERROR,
+                                error_detail="I need your current location.",
+                            )
+                        ],
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(cs, "_get_runner", lambda: _FakeRunner())
+    env = cs.run_core_turn_sync({"message": "directions home"}, "u1")
+    assert env["selected_tool_providers"] == ["maps"]
+    # Granular provider code wins over the coarse ErrorCode enum so the
+    # frontend's geolocation retry (errorCode === 'needs_location') fires.
+    assert env["tool_execution"]["ok"] is False
+    assert env["tool_execution"]["error_code"] == "needs_location"
+    assert env["tool_execution"]["error"] == "I need your current location."
 
 
 def test_shadow_reports_missing_llm(monkeypatch):

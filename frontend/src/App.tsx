@@ -802,8 +802,8 @@ function App() {
         role: 'assistant',
         content: data.assistant_message,
         meta: [
-          ...data.selected_tool_providers,
-          data.tool_execution.ok ? 'tools ok' : data.tool_execution.error,
+          ...(Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : []),
+          data.tool_execution?.ok ? 'tools ok' : data.tool_execution?.error,
         ].filter(Boolean) as string[],
         trace: data.observable_trace,
         attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
