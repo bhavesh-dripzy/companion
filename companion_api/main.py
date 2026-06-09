@@ -166,7 +166,7 @@ def hero_greeting(user: str = Depends(get_current_user)) -> dict[str, Any]:
     by an LLM (DeepSeek with fallback). Best-effort: always returns a usable
     greeting — degrades to a static time-of-day line if anything is missing.
     """
-    from app.services.hero_greeting import build_hero_greeting
+    from companion_api.hero_greeting import build_hero_greeting
 
     try:
         return build_hero_greeting(user)
