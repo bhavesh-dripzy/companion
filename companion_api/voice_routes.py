@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
+import uuid
 from typing import Any
 
 from fastapi import Depends
 from pydantic import BaseModel
 
-import uuid
-
-from app.services.agents.pipeline import run_agent_turn
-from app.services.llm_config import resolve_llm_from_env
 from companion_api.auth import get_current_user
 from companion_api.leadgen_queue import send_turn_event
 from companion_api.messages_repo import (
@@ -21,6 +17,7 @@ from companion_api.messages_repo import (
     derive_chat_title,
 )
 from companion_api.secrets import secret_or_env
+from core.llm.config import resolve_llm_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +59,22 @@ def _persist_and_enqueue_voice_turn(
         msg_repo = MessageRepository()
         if user_text:
             msg_repo.create(
-                member_id=user, chat_id=resolved_chat_id, message_id=f"{turn_id}-user",
-                role="user", text=user_text, task_type=task_type, provider=routed_provider,
+                member_id=user,
+                chat_id=resolved_chat_id,
+                message_id=f"{turn_id}-user",
+                role="user",
+                text=user_text,
+                task_type=task_type,
+                provider=routed_provider,
             )
         msg_repo.create(
-            member_id=user, chat_id=resolved_chat_id, message_id=f"{turn_id}-assistant",
-            role="assistant", text=assistant_text, task_type=task_type, provider=routed_provider,
+            member_id=user,
+            chat_id=resolved_chat_id,
+            message_id=f"{turn_id}-assistant",
+            role="assistant",
+            text=assistant_text,
+            task_type=task_type,
+            provider=routed_provider,
         )
         chat_repo.touch(
             member_id=user,
@@ -146,9 +153,7 @@ class VoiceLogTurnResponse(BaseModel):
     chat_id: str | None = None
 
 
-def _clean_session_index(
-    raw: Any, *, id_key: str
-) -> list[dict[str, Any]] | None:
+def _clean_session_index(raw: Any, *, id_key: str) -> list[dict[str, Any]] | None:
     if not isinstance(raw, list) or not raw:
         return None
     cleaned: list[dict[str, Any]] = []
@@ -157,12 +162,7 @@ def _clean_session_index(
             continue
         ident = entry.get(id_key)
         name = entry.get("name")
-        if (
-            isinstance(ident, str)
-            and ident.strip()
-            and isinstance(name, str)
-            and name.strip()
-        ):
+        if isinstance(ident, str) and ident.strip() and isinstance(name, str) and name.strip():
             cleaned.append({**entry, id_key: ident.strip(), "name": name.strip()})
     return cleaned or None
 
@@ -170,11 +170,7 @@ def _clean_session_index(
 def _sanitise_session_state(raw: dict | None) -> dict[str, str] | None:
     if not isinstance(raw, dict) or not raw:
         return None
-    return {
-        k: str(v)
-        for k, v in raw.items()
-        if isinstance(k, str) and isinstance(v, (str, int))
-    }
+    return {k: str(v) for k, v in raw.items() if isinstance(k, str) and isinstance(v, (str, int))}
 
 
 def _sanitise_session_restaurants(raw: list[dict] | None) -> list[dict[str, Any]] | None:
@@ -308,68 +304,37 @@ def voice_tool_execute_endpoint(
         session_reservation = _sanitise_session_reservation(request.session_reservation)
         user_geo = _sanitise_user_geo(request.geo)
 
-        # Voice shares the same pipeline as text chat. The redesigned core
-        # pipeline is the default; LEGACY_PIPELINE=1 falls back to the monolith.
-        # Voice persona speaks romanized Hinglish, so force reply_language.
-        if os.getenv("LEGACY_PIPELINE", "").strip().lower() not in ("1", "true", "yes"):
-            from companion_api.core_shadow import run_core_turn_sync
+        # Voice shares the same core pipeline as text chat. Voice persona speaks
+        # romanized Hinglish, so force reply_language.
+        from companion_api.core_shadow import run_core_turn_sync
 
-            result = run_core_turn_sync(
-                {
-                    "message": request.intent.strip(),
-                    "history": recent_history,
-                    "chat_id": request.chat_id,
-                    "execute_tools": True,
-                    # Live browser GPS — the executor uses this when the user
-                    # didn't name a place; named places ("near Saket") are
-                    # geocoded and override this. See _resolve_coords precedence.
-                    "user_geo": user_geo,
-                    "session_state": session_state,
-                    "session_restaurants": session_restaurants,
-                    "session_addresses": session_addresses,
-                    "session_cart": session_cart,
-                    "session_menu": session_menu,
-                    "session_movies": session_movies,
-                    "session_theatres": session_theatres,
-                    "session_events": session_events,
-                    "session_venues": session_venues,
-                    "session_artists": session_artists,
-                    "session_reservation": session_reservation,
-                },
-                user,
-                reply_language="hinglish",
-            )
-        else:
-            result = run_agent_turn(
-                user_message=request.intent.strip(),
-                address_id="",
-                execute_tools=True,
-                user_id=user,
-                llm=llm_cfg,
-                conversation_history=recent_history,
-                user_geo=user_geo,
-                session_state=session_state,
-                session_restaurants=session_restaurants,
-                session_addresses=session_addresses,
-                session_movies=session_movies,
-                session_theatres=session_theatres,
-                session_events=session_events,
-                session_venues=session_venues,
-                session_artists=session_artists,
-                session_reservation=session_reservation,
-                session_menu=session_menu,
-                session_cart=session_cart,
-                pending_variant_choice=None,
-                # Voice persona speaks romanized Hinglish; the ``intent`` we pass as
-                # the user message is machine-generated English, so force the reply
-                # language explicitly or the responder would answer in English.
-                reply_language="hinglish",
-            )
+        result = run_core_turn_sync(
+            {
+                "message": request.intent.strip(),
+                "history": recent_history,
+                "chat_id": request.chat_id,
+                "execute_tools": True,
+                # Live browser GPS — used when the user didn't name a place;
+                # named places ("near Saket") are geocoded and override this.
+                "user_geo": user_geo,
+                "session_state": session_state,
+                "session_restaurants": session_restaurants,
+                "session_addresses": session_addresses,
+                "session_cart": session_cart,
+                "session_menu": session_menu,
+                "session_movies": session_movies,
+                "session_theatres": session_theatres,
+                "session_events": session_events,
+                "session_venues": session_venues,
+                "session_artists": session_artists,
+                "session_reservation": session_reservation,
+            },
+            user,
+            reply_language="hinglish",
+        )
 
         assistant_text = result.get("assistant_message", "")
-        task_type = (
-            result.get("intent_routing", {}).get("task_type") or result.get("task_type")
-        )
+        task_type = result.get("intent_routing", {}).get("task_type") or result.get("task_type")
         # Persist this turn + feed the leadgen pipeline, just like text chat.
         resolved_chat_id = _persist_and_enqueue_voice_turn(
             user=user,
@@ -453,25 +418,27 @@ async def voice_token_endpoint(
             },
             "output": {"voice": "alloy", "speed": 1.0},
         },
-        "tools": [{
-            "type": "function",
-            "name": "companion_execute",
-            "description": (
-                "Execute actions for the user: order food, book cabs, find events, "
-                "manage reminders, answer questions, and more. Call this when the user "
-                "wants to perform an action or needs information beyond conversational knowledge."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "intent": {
-                        "type": "string",
-                        "description": "The full natural language intent of what the user wants to accomplish. Include all relevant details.",
-                    }
+        "tools": [
+            {
+                "type": "function",
+                "name": "companion_execute",
+                "description": (
+                    "Execute actions for the user: order food, book cabs, find events, "
+                    "manage reminders, answer questions, and more. Call this when the user "
+                    "wants to perform an action or needs information beyond conversational knowledge."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "intent": {
+                            "type": "string",
+                            "description": "The full natural language intent of what the user wants to accomplish. Include all relevant details.",
+                        }
+                    },
+                    "required": ["intent"],
                 },
-                "required": ["intent"],
-            },
-        }],
+            }
+        ],
     }
 
     try:
@@ -577,7 +544,11 @@ def _voice_profile_summary(user_id: str) -> str:
 
     interests = profile.get("interests")
     if isinstance(interests, list) and interests:
-        cats = [str(i.get("category")) for i in interests[:5] if isinstance(i, dict) and i.get("category")]
+        cats = [
+            str(i.get("category"))
+            for i in interests[:5]
+            if isinstance(i, dict) and i.get("category")
+        ]
         if cats:
             lines.append("Interests: " + ", ".join(cats) + ".")
 
@@ -640,9 +611,7 @@ async def voice_gemini_token_endpoint(
         system_instruction = GEMINI_LIVE_SYSTEM_INSTRUCTION + _voice_profile_summary(user)
         live_config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
-            system_instruction=types.Content(
-                parts=[types.Part(text=system_instruction)]
-            ),
+            system_instruction=types.Content(parts=[types.Part(text=system_instruction)]),
             tools=[companion_tool],
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
