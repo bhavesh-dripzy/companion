@@ -7,14 +7,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.services.tool_runtime import (
+from companion_api.auth import get_current_user
+from companion_api.models import CustomMcpProviderRequest, ZapierMcpProviderRequest
+from companion_api.tool_runtime import (
     delete_custom_tool_provider,
     get_tool_provider,
     list_tool_providers,
     save_custom_tool_provider,
 )
-from companion_api.auth import get_current_user
-from companion_api.models import CustomMcpProviderRequest, ZapierMcpProviderRequest
 
 router = APIRouter()
 

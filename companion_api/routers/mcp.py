@@ -14,14 +14,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from app.services.food_response_builder import saved_address_label_from_mcp_item
-from app.services.tool_runtime import (
+from companion_api.auth import get_current_user
+from companion_api.mcp_address_utils import saved_address_label_from_mcp_item
+from companion_api.secrets import secret_or_env
+from companion_api.tool_runtime import (
     get_tool_provider,
     list_tool_providers,
     update_tool_provider_tools,
 )
-from companion_api.auth import get_current_user
-from companion_api.secrets import secret_or_env
 from companion_api.web_utils import oauth_result_page as _oauth_result_page
 from companion_api.web_utils import public_url as _public_url
 
