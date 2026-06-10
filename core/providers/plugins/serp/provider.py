@@ -16,122 +16,29 @@ from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode, Tool
 from core.contracts.tool_call import ToolCall
 from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
+from core.pipeline.clock import now_ist
 from core.providers.base import ExecCtx
 from core.providers.http.http_base import HttpProvider
 from core.providers.mcp.digest import lean_digest
 from core.providers.plugins.serp import engines
 from core.providers.plugins.serp.cards import build_attachments, flights_brief, merge_flights
 from core.providers.plugins.serp.client import SerpBudgetExceeded, search
+from core.providers.plugins.serp.tools import _INSTAGRAM_TOOL, _TOOLS
 
-_DATE = {"type": "string", "description": "YYYY-MM-DD"}
+_DATE_ARGS = ("outbound_date", "return_date", "check_in_date", "check_out_date")
 
-_TOOLS: list[Tool] = [
-    Tool(
-        name="search_flights",
-        provider="serp",
-        description=(
-            "Google Flights search: prices, airlines, durations, stops. One-way by "
-            "default; pass return_date for round trips. Round trip is TWO calls: the "
-            "first returns outbound options each carrying a departure_token — call "
-            "again with the chosen departure_token to get return legs. No booking."
-        ),
-        params={
-            "type": "object",
-            "properties": {
-                "departure_id": {"type": "string", "description": "IATA airport code, e.g. DEL"},
-                "arrival_id": {"type": "string", "description": "IATA airport code, e.g. BOM"},
-                "outbound_date": _DATE,
-                "return_date": _DATE,
-                "departure_token": {
-                    "type": "string",
-                    "description": "From a prior search_flights result; fetches return legs",
-                },
-                "adults": {"type": "integer"},
-            },
-            "required": ["departure_id", "arrival_id", "outbound_date"],
-        },
-        auth_mode=AuthMode.NONE,
-        source="static",
-    ),
-    Tool(
-        name="search_hotels",
-        provider="serp",
-        description=(
-            "Google Hotels search: nightly/total rates in INR, star class, ratings, "
-            "amenities. Query is free text ('hotels in Goa near Baga beach')."
-        ),
-        params={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "check_in_date": _DATE,
-                "check_out_date": _DATE,
-                "adults": {"type": "integer"},
-            },
-            "required": ["query", "check_in_date", "check_out_date"],
-        },
-        auth_mode=AuthMode.NONE,
-        source="static",
-    ),
-    Tool(
-        name="search_places",
-        provider="serp",
-        description=(
-            "Google Maps place search: businesses/landmarks with rating, address, "
-            "open-now state, phone. Uses the user's GPS when no location is named."
-        ),
-        params={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "location_text": {
-                    "type": "string",
-                    "description": "Named area ('Hauz Khas') ONLY when the user names one",
-                },
-            },
-            "required": ["query"],
-        },
-        auth_mode=AuthMode.NONE,
-        source="static",
-    ),
-    Tool(
-        name="search_products",
-        provider="serp",
-        description="Amazon.in product search: titles, prices, ratings, Prime flag, ASINs.",
-        params={
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
-        },
-        auth_mode=AuthMode.NONE,
-        source="static",
-    ),
-    Tool(
-        name="youtube_search",
-        provider="serp",
-        description="YouTube search: videos with channel, views, length, link.",
-        params={
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
-        },
-        auth_mode=AuthMode.NONE,
-        source="static",
-    ),
-]
 
-_INSTAGRAM_TOOL = Tool(
-    name="instagram_profile",
-    provider="serp",
-    description="Public Instagram profile lookup: followers, posts, bio. Public data only.",
-    params={
-        "type": "object",
-        "properties": {"username": {"type": "string", "description": "Handle, with or without @"}},
-        "required": ["username"],
-    },
-    auth_mode=AuthMode.NONE,
-    source="static",
-)
+def _past_dates(args: dict[str, Any]) -> str:
+    """Date args strictly before today (IST) — caught BEFORE the billed request;
+    SerpApi rejects past travel dates and the call would just burn a credit."""
+    today = now_ist().strftime("%Y-%m-%d")
+    stale = [
+        f"{name}={args[name]}"
+        for name in _DATE_ARGS
+        if isinstance(args.get(name), str) and args[name] < today
+    ]
+    return ", ".join(stale)
+
 
 _PREAMBLE = (
     "You are the data-lookup planning agent (SerpApi-backed; read-only, no booking "
@@ -177,6 +84,15 @@ class SerpProvider(HttpProvider):
                 call,
                 ErrorCode.INVALID_ARGS,
                 f"missing required arguments: {', '.join(missing)} — ask the user for them",
+            )
+        stale = _past_dates(args)
+        if stale:
+            today = now_ist().strftime("%Y-%m-%d")
+            return self._error(
+                call,
+                ErrorCode.INVALID_ARGS,
+                f"date(s) in the past: {stale} (today is {today}) — "
+                "re-resolve the user's dates against today and retry",
             )
         try:
             params, extract = self._route(call.tool, args, ctx)

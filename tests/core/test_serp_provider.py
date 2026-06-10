@@ -361,3 +361,46 @@ def test_flights_brief_carries_departure_tokens():
     assert "airline_logo" not in rows[0], "logos don't belong in the planner brief"
     brief = flights_brief(legacy)
     assert "departure_token=TOK123" in brief and "₹6228" in brief
+
+
+def test_past_dates_rejected_before_billing(monkeypatch):
+    async def _never(params):
+        raise AssertionError("billed request must not happen for past dates")
+
+    import core.providers.plugins.serp.provider as provider_mod
+
+    monkeypatch.setattr(provider_mod, "search", _never)
+    result = asyncio.run(
+        SerpProvider().run(
+            [
+                ToolCall(
+                    tool="search_hotels",
+                    arguments={
+                        "query": "Maha Arjaan Abu Dhabi",
+                        "check_in_date": "2024-06-20",
+                        "check_out_date": "2024-06-22",
+                    },
+                )
+            ],
+            ExecCtx(),
+        )
+    )
+    tr = result.results[0]
+    assert not tr.ok
+    assert "in the past" in (tr.error_detail or "") and "today is" in (tr.error_detail or "")
+
+
+def test_planner_input_carries_the_clock():
+    from types import SimpleNamespace
+
+    from core.contracts.session import SessionState
+    from core.pipeline.clock import now_ist
+    from core.pipeline.stages.plan import _format_input
+
+    ctx = SimpleNamespace(
+        request=SimpleNamespace(history=[], message="flights to Hyderabad tomorrow"),
+        session=SessionState(),
+    )
+    framed = _format_input(ctx)
+    assert f"today is {now_ist().strftime('%Y-%m-%d')}" in framed
+    assert framed.index("current date-time") < framed.index("flights to Hyderabad")

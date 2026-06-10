@@ -50,7 +50,9 @@ def _conversation(ctx: PipelineContext) -> str:
 
     The LLM helper is single-turn, so history is folded into the prompt text —
     the same shape the Plan stage uses (history[-8:] as ``role: content`` lines)."""
-    lines: list[str] = []
+    from core.pipeline.clock import clock_line
+
+    lines: list[str] = [clock_line()]
     for turn in ctx.request.history[-8:]:
         role = str(turn.get("role") or "user")
         content = str(turn.get("content") or "").strip()

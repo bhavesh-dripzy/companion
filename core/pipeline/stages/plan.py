@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from core.middleware.planner_prompt import build_planner_prompt
 from core.middleware.validator import normalize_plan
+from core.pipeline.clock import clock_line
 from core.pipeline.context import PipelineContext
 
 _GENERIC_PREAMBLE = (
@@ -25,7 +26,9 @@ _GENERIC_PREAMBLE = (
 
 
 def _format_input(ctx: PipelineContext) -> str:
-    lines: list[str] = []
+    # Every planner gets the clock — LLMs otherwise fill date arguments from
+    # their training-era prior and date-validated upstreams reject the call.
+    lines: list[str] = [clock_line()]
     for turn in ctx.request.history[-8:]:
         role = str(turn.get("role") or "user")
         content = str(turn.get("content") or "").strip()
