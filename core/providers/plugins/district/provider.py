@@ -25,6 +25,7 @@ from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.district.cards import build_attachments as build_district_cards
+from core.providers.plugins.district.placeholders import DistrictResolver
 from core.providers.plugins.district.planner_context import build_context
 from core.providers.plugins.district.reservation import (
     build_reservation_cards,
@@ -36,16 +37,55 @@ _BOOKING_TOOLS = {"create_table_reservation_booking", "get_booking_details"}
 
 _DEFAULT_URL = "https://mcp-server.district.in/mcp"
 
+# Tools whose ONLY top-level args are location + filters; every other key the
+# planner emits belongs inside filters=[{filter_name, filter_values}].
+_FILTERED_SEARCH_TOOLS = frozenset(
+    {
+        "search_movies",
+        "search_theatres",
+        "search_shows",
+        "search_events",
+        "search_event_venues",
+        "search_artists",
+    }
+)
+
+_FILTERED_TOP_LEVEL_KEYS = frozenset({"location", "filters"})
+
+
+def _filter_value(value: object) -> str:
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
 
 class DistrictProvider(McpProvider):
     id = "district"
     label = "District MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = None  # multiple entity lists; merge writes flat session_* keys
+    resolver = DistrictResolver()
 
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         url = os.getenv("DISTRICT_MCP_URL", _DEFAULT_URL)
         return remote_stdio_spec(url, user_id=ctx.user_id)
+
+    def normalize_args(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Re-nest stray top-level keys (movie_name, movie_id, show_date, …) into
+        the filters array — the server rejects unknown top-level keys outright."""
+        if tool not in _FILTERED_SEARCH_TOOLS or not isinstance(args, dict):
+            return args
+        stray = {k: v for k, v in args.items() if k not in _FILTERED_TOP_LEVEL_KEYS}
+        if not stray:
+            return args
+        out = {k: v for k, v in args.items() if k in _FILTERED_TOP_LEVEL_KEYS}
+        existing = out.get("filters")
+        filters = list(existing) if isinstance(existing, list) else []
+        for key, value in stray.items():
+            values = value if isinstance(value, list) else [value]
+            filters.append(
+                {"filter_name": key, "filter_values": [_filter_value(v) for v in values]}
+            )
+        out["filters"] = filters
+        return out
 
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
         """Seed __USER_LAT__/__USER_LNG__ for search tools, from GPS or geocoding.

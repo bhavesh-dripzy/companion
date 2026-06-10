@@ -127,3 +127,62 @@ def test_dining_cards_capped_and_deduped():
     dining = cards[0].to_wire()["dining_restaurants"]
     ids = [r["res_id"] for r in dining]
     assert len(ids) == len(set(ids)) and len(ids) <= 8
+
+
+def test_district_resolver_learns_and_chains_movie_id():
+    # Regression: "showtimes for The Odyssey" plans search_movies -> search_shows
+    # (__MOVIE_ID__); without District aliases nothing was ever learned and the
+    # literal "__MOVIE_ID__" string reached the server.
+    r = DistrictProvider.resolver
+    values: dict[str, str] = {}
+    learned = r.learn(values, {"data": {"movies": [{"movie_id": "MV42", "title": "The Odyssey"}]}})
+    assert values["__MOVIE_ID__"] == "MV42" and learned["__MOVIE_ID__"] == "MV42"
+    out = r.substitute({"filters": [{"filter_name": "movie_id", "filter_values": ["__MOVIE_ID__"]}]}, values)
+    assert out["filters"][0]["filter_values"] == ["MV42"]
+
+
+def test_district_resolver_search_reissues_stale_ids():
+    r = DistrictProvider.resolver
+    values = {"__MOVIE_ID__": "stale", "__RES_ID__": "keep"}
+    r.clear_stale(values, "search_movies")
+    assert "__MOVIE_ID__" not in values and values["__RES_ID__"] == "keep"
+
+
+def test_unresolved_flags_any_leftover_placeholder_token():
+    # Alias-independent: ids the resolver can't learn must still block the call.
+    r = PlaceholderResolver()
+    args = {"filters": [{"filter_name": "movie_id", "filter_values": ["__MOVIE_ID__"]}]}
+    assert r.unresolved(args) == ["__MOVIE_ID__"]
+    assert r.unresolved({"location": {"latitude": "__USER_LAT__"}}) == ["__USER_LAT__"]
+    assert r.unresolved({"ok": "resolved", "n": 3}) == []
+
+
+def test_normalize_args_renests_stray_keys_into_filters():
+    # Regression: the planner emitted movie_name / movie_id / show_date at top
+    # level; the server rejects unknown top-level keys on every search tool.
+    p = DistrictProvider()
+    out = p.normalize_args(
+        "search_movies",
+        {"location": {"latitude": 1.0, "longitude": 2.0}, "movie_name": "The Odyssey"},
+    )
+    assert out == {
+        "location": {"latitude": 1.0, "longitude": 2.0},
+        "filters": [{"filter_name": "movie_name", "filter_values": ["The Odyssey"]}],
+    }
+    out = p.normalize_args(
+        "search_shows",
+        {
+            "location": {"latitude": 1.0, "longitude": 2.0},
+            "movie_id": "MV42",
+            "show_date": "2026-06-10",
+            "filters": [{"filter_name": "language", "filter_values": ["Hindi"]}],
+        },
+    )
+    assert out["filters"] == [
+        {"filter_name": "language", "filter_values": ["Hindi"]},
+        {"filter_name": "movie_id", "filter_values": ["MV42"]},
+        {"filter_name": "show_date", "filter_values": ["2026-06-10"]},
+    ]
+    clean = {"location": {"latitude": 1.0, "longitude": 2.0}, "filters": []}
+    assert p.normalize_args("search_movies", dict(clean)) == clean
+    assert p.normalize_args("get_booking_details", {"booking_id": "B1"}) == {"booking_id": "B1"}

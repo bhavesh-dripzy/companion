@@ -8,7 +8,13 @@ values from a response, and clears stale values when a tool re-issues a resource
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+# Any surviving __TOKEN__ after substitution is an unresolved placeholder —
+# alias-independent, so ids the resolver can't learn still block the call
+# instead of leaking literal placeholder strings to the server.
+_PLACEHOLDER_TOKEN = re.compile(r"__[A-Z][A-Z0-9_]*__")
 
 # placeholder -> response field names that carry its value (dual-key aware).
 DEFAULT_ALIASES: dict[str, tuple[str, ...]] = {
@@ -60,7 +66,7 @@ class PlaceholderResolver:
 
     def unresolved(self, obj: Any) -> list[str]:
         found: list[str] = []
-        if isinstance(obj, str) and obj in self.aliases:
+        if isinstance(obj, str) and _PLACEHOLDER_TOKEN.fullmatch(obj):
             return [obj]
         if isinstance(obj, dict):
             for value in obj.values():
