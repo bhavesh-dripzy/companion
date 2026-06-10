@@ -7,9 +7,13 @@ real-money tools (`TWO_STEP`) and single-confirm purchases never run unconfirmed
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from core.contracts.tool import ConfirmPolicy
 from core.contracts.tool_call import ToolCall, ToolPlan
-from core.registry.tool_registry import ToolRegistry
+
+if TYPE_CHECKING:  # typing-only: a runtime import would cycle via the registry
+    from core.registry.tool_registry import ToolRegistry
 
 
 def policy_for(name: str, provider: str, tools: ToolRegistry) -> ConfirmPolicy:

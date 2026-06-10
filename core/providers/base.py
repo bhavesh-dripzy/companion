@@ -18,6 +18,13 @@ from core.contracts.tool_result import ProviderResult
 from core.llm.config import ResolvedLlm
 
 
+def _repair_budget() -> Any:
+    """Lazy factory: middleware imports this module, so import it only at call time."""
+    from core.middleware.repair import RepairBudget
+
+    return RepairBudget()
+
+
 @dataclass
 class ExecCtx:
     """Per-call execution context handed to `Provider.execute`."""
@@ -31,6 +38,14 @@ class ExecCtx:
     session: dict[str, Any] = field(default_factory=dict)
     llm: ResolvedLlm | None = None
     requested_location_text: str | None = None
+    # Self-repair seam (core.middleware.repair): the async JSON-completion
+    # callable, the provider's tool schemas, the plan's intent line, the shared
+    # per-turn repair budget, and which tools may retry after a timeout.
+    complete_json: Any = None
+    tool_schemas: dict[str, dict[str, Any]] = field(default_factory=dict)
+    intent_summary: str | None = None
+    repair_budget: Any = field(default_factory=_repair_budget)
+    idempotent_tools: frozenset[str] = frozenset()
 
 
 @runtime_checkable

@@ -9,6 +9,7 @@ call the tool, parse the envelope, and learn new placeholders. A concrete plugin
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from abc import ABC, abstractmethod
 from functools import cache
@@ -19,8 +20,14 @@ from core.contracts.attachment import Attachment
 from core.contracts.session import ProviderSessionState
 from core.contracts.tool import AuthMode, Tool
 from core.contracts.tool_call import ToolCall
-from core.contracts.tool_result import ProviderResult, ToolResult
-from core.middleware.errors import UnresolvedPlaceholderError
+from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
+from core.middleware.errors import ToolTimeoutError, UnresolvedPlaceholderError
+from core.middleware.repair import (
+    backoff_delay,
+    classify_envelope,
+    error_text,
+    repair_arguments,
+)
 from core.providers.base import ExecCtx
 from core.providers.mcp.address import extract_address_rows
 from core.providers.mcp.connection import StdioSpec, call_tool, list_tools, mcp_session
@@ -113,6 +120,47 @@ class McpProvider(ABC):
             for item in raw
         ]
 
+    async def _call_with_timeout_retry(
+        self, session: Any, tool: str, args: dict[str, Any], ctx: ExecCtx
+    ) -> Any:
+        """Tier-1 transient retry: one re-send after a timeout, read-only tools only
+        (a timed-out mutation may have landed server-side — never re-send those)."""
+        try:
+            return await call_tool(session, tool, args)
+        except TimeoutError as exc:
+            if tool not in ctx.idempotent_tools:
+                raise ToolTimeoutError(f"{tool} timed out") from exc
+            await asyncio.sleep(backoff_delay(1))
+            try:
+                return await call_tool(session, tool, args)
+            except TimeoutError as exc2:
+                raise ToolTimeoutError(f"{tool} timed out after retry") from exc2
+
+    async def _try_repair(
+        self, session: Any, call: ToolCall, args: dict[str, Any], envelope: dict, ctx: ExecCtx
+    ) -> tuple[dict[str, Any], dict]:
+        """Tier-2: one LLM pass to fix server-rejected arguments, budget-gated."""
+        if not (ctx.complete_json and ctx.llm and ctx.repair_budget.take()):
+            return args, envelope
+        repaired = await repair_arguments(
+            tool=call.tool,
+            schema=ctx.tool_schemas.get(call.tool),
+            failed_args=args,
+            server_error=error_text(envelope),
+            intent=ctx.intent_summary,
+            llm=ctx.llm,
+            complete_json=ctx.complete_json,
+        )
+        if repaired is None:
+            return args, envelope
+        new_args = self.normalize_args(
+            call.tool, self.resolver.substitute(repaired, ctx.placeholders)
+        )
+        if self.resolver.unresolved(new_args) or new_args == args:
+            return args, envelope
+        raw = await self._call_with_timeout_retry(session, call.tool, new_args, ctx)
+        return new_args, tool_result_payload(raw)
+
     async def run(self, calls: list[ToolCall], ctx: ExecCtx) -> ProviderResult:
         async with mcp_session(self.stdio_spec(ctx)) as session:
             await self.before_run(session, ctx)
@@ -127,15 +175,25 @@ class McpProvider(ABC):
                     raise UnresolvedPlaceholderError(
                         f"unresolved placeholders: {', '.join(unresolved)}"
                     )
-                raw = await call_tool(session, call.tool, args)
+                raw = await self._call_with_timeout_retry(session, call.tool, args, ctx)
                 envelope = tool_result_payload(raw)
+                error: ErrorCode | None = None
+                detail: str | None = None
+                if envelope.get("is_error"):
+                    if classify_envelope(envelope) is ErrorCode.INVALID_ARGS:
+                        args, envelope = await self._try_repair(session, call, args, envelope, ctx)
+                    if envelope.get("is_error"):
+                        error = classify_envelope(envelope)
+                        detail = error_text(envelope) or None
                 learned = self.resolver.learn(ctx.placeholders, envelope)
                 return ToolResult(
                     tool=call.tool,
                     provider=self.id,
-                    ok=not bool(envelope.get("is_error")),
+                    ok=error is None,
                     arguments=args,
                     data=envelope,
+                    error=error,
+                    error_detail=detail,
                     learned_placeholders=learned,
                 )
 

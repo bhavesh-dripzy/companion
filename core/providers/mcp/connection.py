@@ -29,17 +29,32 @@ class StdioSpec:
 
 @asynccontextmanager
 async def mcp_session(spec: StdioSpec, *, init_timeout: int = INIT_TIMEOUT_SECONDS):
-    """Open an initialized MCP `ClientSession` over stdio; close on exit."""
+    """Open an initialized MCP `ClientSession` over stdio; close on exit.
+
+    Spawn/handshake flakes get ONE respawn (fresh process — a dead session is
+    unrecoverable). Failures raised from the caller's body are never retried:
+    that would re-execute already-run tool calls."""
     from mcp import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
+    from core.middleware.repair import backoff_delay
+
     params = StdioServerParameters(command=spec.command, args=spec.args, cwd=spec.cwd, env=spec.env)
-    async with (
-        stdio_client(params) as (read, write),
-        ClientSession(read, write) as session,
-    ):
-        await asyncio.wait_for(session.initialize(), timeout=init_timeout)
-        yield session
+    for attempt in range(2):
+        entered = False
+        try:
+            async with (
+                stdio_client(params) as (read, write),
+                ClientSession(read, write) as session,
+            ):
+                await asyncio.wait_for(session.initialize(), timeout=init_timeout)
+                entered = True
+                yield session
+                return
+        except BaseException:
+            if entered or attempt >= 1:
+                raise
+            await asyncio.sleep(backoff_delay(attempt, base=1.0, cap=3.0))
 
 
 async def list_tools(session: Any, *, timeout: int = TOOL_TIMEOUT_SECONDS) -> list[dict[str, Any]]:

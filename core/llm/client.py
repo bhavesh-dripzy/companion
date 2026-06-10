@@ -20,7 +20,14 @@ async def _openai_compatible_call(
 ) -> str:
     from openai import AsyncOpenAI
 
-    kwargs: dict[str, Any] = {"api_key": llm.api_key, "timeout": _TIMEOUT_SECONDS}
+    # max_retries: SDK-native backoff for connection errors / 408 / 429 / 5xx.
+    # The ONLY transport-retry layer for LLM calls — no outer wrapper (it would
+    # multiply attempts).
+    kwargs: dict[str, Any] = {
+        "api_key": llm.api_key,
+        "timeout": _TIMEOUT_SECONDS,
+        "max_retries": 2,
+    }
     if llm.provider == "deepseek" and llm.base_url:
         kwargs["base_url"] = llm.base_url
     async with AsyncOpenAI(**kwargs) as client:
@@ -50,16 +57,30 @@ async def _gemini_call(*, llm: ResolvedLlm, system_prompt: str, user_message: st
     return response.text or "{}"
 
 
+async def _provider_call(*, llm: ResolvedLlm, system_prompt: str, user_message: str) -> str:
+    if llm.provider in ("openai", "deepseek"):
+        return await _openai_compatible_call(
+            llm=llm, system_prompt=system_prompt, user_message=user_message
+        )
+    return await _gemini_call(llm=llm, system_prompt=system_prompt, user_message=user_message)
+
+
 async def complete_json_object(
     *, user_message: str, system_prompt: str, llm: ResolvedLlm
 ) -> dict[str, Any]:
-    """Single-turn JSON object from the model (orchestrator + planners + narrator)."""
-    if llm.provider in ("openai", "deepseek"):
-        content = await _openai_compatible_call(
-            llm=llm, system_prompt=system_prompt, user_message=user_message
+    """Single-turn JSON object from the model (orchestrator + planners + narrator).
+
+    Transport retries live in the SDK (max_retries). Unparseable output gets ONE
+    re-ask with the parse error appended (Instructor pattern), then surfaces."""
+    content = await _provider_call(llm=llm, system_prompt=system_prompt, user_message=user_message)
+    try:
+        return parse_json_object(content)
+    except ValueError as exc:
+        retry_message = (
+            f"{user_message}\n\nYour previous reply was not valid JSON ({exc}). "
+            "Reply again with ONLY the JSON object."
         )
-    else:
-        content = await _gemini_call(
-            llm=llm, system_prompt=system_prompt, user_message=user_message
+        content = await _provider_call(
+            llm=llm, system_prompt=system_prompt, user_message=retry_message
         )
-    return parse_json_object(content)
+        return parse_json_object(content)
