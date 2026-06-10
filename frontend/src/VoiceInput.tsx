@@ -15,6 +15,9 @@ interface VoiceInputProps {
   onVoiceStateChange?: (state: VoiceSessionState) => void;
   onVoiceToolCall?: (intent: string) => Promise<string>;
   onVoiceError?: (message: string) => void;
+  // Live stage signals for the VoiceStage bar (phase + streaming captions).
+  onVoicePhase?: (phase: 'listening' | 'thinking' | 'speaking') => void;
+  onVoiceCaption?: (role: 'user' | 'assistant', fullText: string) => void;
   disabled?: boolean;
 }
 
@@ -24,6 +27,8 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
   onVoiceStateChange,
   onVoiceToolCall,
   onVoiceError,
+  onVoicePhase,
+  onVoiceCaption,
   disabled = false,
 }) => {
   const [state, setState] = useState<VoiceSessionState>('inactive');
@@ -41,6 +46,12 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
     },
     onAssistantTranscript: (text: string) => {
       assistantTranscriptRef.current += ' ' + text;
+    },
+    onPhase: (phase: 'listening' | 'thinking' | 'speaking') => {
+      onVoicePhase?.(phase);
+    },
+    onCaption: (role: 'user' | 'assistant', fullText: string) => {
+      onVoiceCaption?.(role, fullText);
     },
     onToolCall: async (name: string, args: Record<string, string>, callId: string) => {
       if (name === 'companion_execute' && onVoiceToolCall) {

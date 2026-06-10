@@ -7,6 +7,8 @@ import { LeftSidebar } from './components/LeftSidebar';
 import { ChatArea } from './components/ChatArea';
 import { RemindersPopup } from './components/RemindersPopup';
 import { OrdersPopup } from './components/OrdersPopup';
+import { CartDock } from './components/CartDock';
+import { VoiceStage } from './components/VoiceStage';
 import { api, clearToken, getToken } from './api';
 import type {
   Attachment,
@@ -340,7 +342,18 @@ function App() {
   const [sessionVenues, setSessionVenues] = useState<SessionVenue[]>([]);
   const [sessionArtists, setSessionArtists] = useState<SessionArtist[]>([]);
   const [sessionReservation, setSessionReservation] = useState<SessionReservation | null>(null);
-  const [_voiceSessionState, setVoiceSessionState] = useState<VoiceSessionState>('inactive');
+  const [voiceSessionState, setVoiceSessionState] = useState<VoiceSessionState>('inactive');
+  // Voice stage signals — phase + live captions + a status line while the
+  // backend tool call runs (so dead air has a face).
+  const [voicePhase, setVoicePhase] = useState<'listening' | 'thinking' | 'speaking'>('listening');
+  const [voiceUserCaption, setVoiceUserCaption] = useState('');
+  const [voiceAssistantCaption, setVoiceAssistantCaption] = useState('');
+  // Delivery address the user pinned via the AddressChip; threaded as
+  // address_id on every agent request and as the carried __ADDRESS_ID__.
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  // Provider of the turn that produced the live food cart (drives CartDock
+  // branding + the right checkout prompt).
+  const [foodCartProvider, setFoodCartProvider] = useState<string | null>(null);
   // Zepto session memory. Same echo contract as the other indexes —
   // round-trip on every /api/agent/query/ so the planner can re-use
   // literal pvid/spid ids and the chat surface keeps the cart in sync
@@ -721,7 +734,7 @@ function App() {
   const buildAgentBody = (content: string, geo?: GeoCoordinate | null) => {
     const body: Record<string, any> = {
       message: content,
-      address_id: '',
+      address_id: selectedAddressId || '',
       execute_tools: true,
       history: messages.map((m) => ({
         role: m.role,
@@ -801,10 +814,11 @@ function App() {
       const assistantMsg: Message = {
         role: 'assistant',
         content: data.assistant_message,
-        meta: [
-          ...(Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : []),
-          data.tool_execution?.ok ? 'tools ok' : data.tool_execution?.error,
-        ].filter(Boolean) as string[],
+        meta: (Array.isArray(data.selected_tool_providers)
+          ? data.selected_tool_providers
+          : []) as string[],
+        toolsOk: data.tool_execution?.ok !== false,
+        toolsError: data.tool_execution?.ok === false ? data.tool_execution?.error : undefined,
         trace: data.observable_trace,
         attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
         provider:
@@ -818,6 +832,10 @@ function App() {
       if ('session_cart' in data) {
         const c = (data as any).session_cart;
         setSessionCart(c && typeof c === 'object' && c.cart_id ? c : null);
+        if (c && typeof c === 'object' && c.cart_id
+            && (data.routed_provider === 'zomato' || data.routed_provider === 'swiggy_food')) {
+          setFoodCartProvider(data.routed_provider);
+        }
       }
       if (Array.isArray(data.session_movies)) setSessionMovies(data.session_movies);
       if (Array.isArray(data.session_theatres)) setSessionTheatres(data.session_theatres);
@@ -1224,6 +1242,41 @@ function App() {
             onVoiceToolCall={handleVoiceToolCall}
             onVoiceStateChange={handleVoiceStateChange}
             onVoiceError={handleVoiceError}
+            onVoicePhase={setVoicePhase}
+            onVoiceCaption={(role, text) => {
+              if (role === 'user') setVoiceUserCaption(text);
+              else setVoiceAssistantCaption(text);
+            }}
+            selectedAddressId={selectedAddressId ?? sessionState['__ADDRESS_ID__'] ?? null}
+            onPickAddress={(addr) => {
+              const id = String(addr.address_id || '').trim();
+              if (!id) return;
+              setSelectedAddressId(id);
+              setSessionState((prev) => ({ ...prev, __ADDRESS_ID__: id }));
+            }}
+          />
+        )}
+
+        {voiceSessionState !== 'inactive' && !isAdminOpen && (
+          <VoiceStage
+            phase={voicePhase}
+            userCaption={voiceUserCaption}
+            assistantCaption={voiceAssistantCaption}
+            statusLine="Kaam ho raha hai — ek second…"
+            connecting={voiceSessionState === 'connecting'}
+          />
+        )}
+
+        {!isAdminOpen && (
+          <CartDock
+            foodCart={sessionCart}
+            foodCartProvider={foodCartProvider}
+            zeptoCart={sessionZeptoCart}
+            instamartCart={sessionInstamartCart}
+            onQuickPrompt={(prompt) => {
+              if (!isThinking) handleSendMessage(prompt);
+            }}
+            disabled={isThinking}
           />
         )}
       </div>

@@ -14,6 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, Send, Paperclip, Car, Utensils, Calendar, Ticket, Bell, Search, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ChatMessageItem } from './ChatMessageItem';
+import { AddressChip } from './AddressChip';
 import { VoiceInput } from '../VoiceInput';
 import { INDIA_FACTS, nextFactIndex } from '../data/indiaFacts';
 import { Mandala } from './Mandala';
@@ -38,6 +39,11 @@ interface ChatAreaProps {
   onVoiceToolCall?: (intent: string) => Promise<string>;
   onVoiceStateChange?: (state: import('../types').VoiceSessionState) => void;
   onVoiceError?: (message: string) => void;
+  onVoicePhase?: (phase: 'listening' | 'thinking' | 'speaking') => void;
+  onVoiceCaption?: (role: 'user' | 'assistant', fullText: string) => void;
+  // Delivery address chip above the composer (food/grocery context).
+  selectedAddressId?: string | null;
+  onPickAddress?: (addr: SessionAddress) => void;
   /** Hero image shown on the empty state. Overridable so we don't
    *  hard-fail offline / blocked-CDN setups. */
   heroImageUrl?: string;
@@ -106,6 +112,10 @@ export function ChatArea({
   onVoiceToolCall,
   onVoiceStateChange,
   onVoiceError,
+  onVoicePhase,
+  onVoiceCaption,
+  selectedAddressId,
+  onPickAddress,
 }: ChatAreaProps) {
   const [inputValue, setInputValue] = useState('');
   // In-chat message search — preserved from the prior skin so users can
@@ -480,6 +490,17 @@ export function ChatArea({
 
           {/* Bottom composer */}
           <div className="p-4 bg-gradient-to-t from-[#f7f2ea]/95 via-[#f7f2ea]/30 to-transparent sticky bottom-0 left-0 right-0 z-20">
+            {/* Delivery address chip — visible + switchable BEFORE any
+                food/grocery search runs (no more wrong-house surprises). */}
+            {sessionAddresses.length > 0 && onPickAddress && (
+              <div className="mb-2">
+                <AddressChip
+                  addresses={sessionAddresses}
+                  selectedId={selectedAddressId}
+                  onSelect={onPickAddress}
+                />
+              </div>
+            )}
             {/* Prompt ribbon */}
             <div className="w-full flex items-center gap-2 overflow-x-auto pb-3 mb-1.5 no-scrollbar scroll-smooth">
               {PROMPT_OPTIONS.map((option) => {
@@ -536,6 +557,8 @@ export function ChatArea({
                   onVoiceStateChange={onVoiceStateChange}
                   onVoiceToolCall={onVoiceToolCall}
                   onVoiceError={onVoiceError}
+                  onVoicePhase={onVoicePhase}
+                  onVoiceCaption={onVoiceCaption}
                   disabled={isThinking}
                 />
               </div>

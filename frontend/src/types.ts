@@ -508,6 +508,9 @@ export interface Message {
   message_id?: string;
   meta?: string[];
   trace?: any[];
+  // Tool-execution outcome for the turn (drives the ActivityTrail pill).
+  toolsOk?: boolean;
+  toolsError?: string;
   attachments?: Attachment[];
   // Provider stickiness signal — the backend's `routed_provider` for the
   // turn that produced this assistant message. Echoed back on the `history`

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
+import { CompareStrip, buildCompareColumns } from './components/CompareStrip';
 import type {
   Attachment,
   CardProvider,
@@ -1394,6 +1395,11 @@ export const AttachmentList: React.FC<{
   onQuickPrompt?: (prompt: string) => void;
   quickPromptDisabled?: boolean;
 }> = ({ attachments, onQuickPrompt, quickPromptDisabled }) => {
+  // Cross-provider turns ("compare pizza on Zomato and Swiggy") get a unified
+  // head-to-head strip above the per-provider carousels.
+  const compareColumns = buildCompareColumns(
+    attachments.filter((att): att is Attachment => !!att && typeof att === 'object'),
+  );
   const cards = attachments
     .filter((att): att is Attachment => !!att && typeof att === 'object')
     .map((att, idx) => {
@@ -1648,8 +1654,19 @@ export const AttachmentList: React.FC<{
     })
     .filter(Boolean);
 
-  if (cards.length === 0) return null;
-  return <div className="flex flex-col gap-3 mt-1">{cards}</div>;
+  if (cards.length === 0 && compareColumns.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-3 mt-1">
+      {compareColumns.length >= 2 && (
+        <CompareStrip
+          columns={compareColumns}
+          onQuickPrompt={onQuickPrompt}
+          disabled={quickPromptDisabled}
+        />
+      )}
+      {cards}
+    </div>
+  );
 };
 
 const formatTimestamp = (): string => {
