@@ -168,11 +168,13 @@ def test_merge_saved_addresses_keeps_other_platform_rows():
 def test_narrate_card_lines_name_platform_and_entries():
     from types import SimpleNamespace
 
+    from core.contracts.session import SessionState
     from core.pipeline.stages.narrate import _results_summary
 
     ctx = SimpleNamespace(
         provider_results=[],
         blocked=[],
+        session=SessionState(),
         attachments=[
             Attachment(
                 kind="restaurant_cards",
@@ -289,3 +291,130 @@ def test_pipeline_fanout_keeps_placeholders_provider_scoped():
     asyncio.run(runner.run(follow_up, llm))
     assert seen["zomato"][-1]["__RESTAURANT_ID__"] == "zom-1"
     assert seen["swiggy_food"][-1]["__RESTAURANT_ID__"] == "swg-1"
+
+
+def test_zomato_search_digest_renders_every_restaurant_with_prices():
+    """Pizza regression: the raw 1500-char blob covered ~1/4 of the FIRST search
+    hit, so the narrator described La Pino'z and called Pizza Hut 'not found'
+    while its Margherita price sat in the same envelope."""
+    import json
+
+    from core.providers.plugins.zomato.digest import summarize
+
+    fixture = json.load(open("tests/core/fixtures/zomato/search_pizza.json"))
+    step = next(s for s in fixture["steps"] if s["tool"] == "get_restaurants_for_keyword")
+    digest = summarize("get_restaurants_for_keyword", step["result"])
+    assert digest is not None
+    for name in ("Domino's Pizza", "Pizza Hut", "La Pino'z Pizza", "Pizza Nostra"):
+        assert name in digest, f"digest must cover every result, missing {name}"
+    assert "₹" in digest, "preview item prices must be present"
+    assert len(digest) <= 2400
+
+
+def test_zomato_menu_dedup_collapses_reminted_variant_ids():
+    """Zomato mints fresh variant_ids per fetch (Margherita appeared twice as
+    v_989952872 and v_877257397, same ctl_649038477) — dedup on the stable
+    item_id, freshest variant wins so create_cart never gets the stale id."""
+    from types import SimpleNamespace
+
+    from core.providers.plugins.zomato.menu_index import merge_menu
+
+    prior = [
+        {
+            "variant_id": "v_989952872",
+            "item_name": "Margherita",
+            "price": 169,
+            "item_id": "ctl_649038477",
+            "res_id": "4857",
+            "provider": "zomato",
+        }
+    ]
+    envelope = {
+        "data": {
+            "result": {
+                "data": {
+                    "res_id": "4857",
+                    "menu_items": [
+                        {
+                            "variant_id": "v_877257397",
+                            "item_name": "Margherita",
+                            "price": 169,
+                            "item_id": "ctl_649038477",
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    tr = SimpleNamespace(tool="get_menu_items_listing", ok=True, data=envelope)
+    merged = merge_menu(prior, [tr])
+    rows = [r for r in merged if r["item_name"] == "Margherita"]
+    assert len(rows) == 1, "re-minted variant_id must not duplicate the item"
+    assert rows[0]["variant_id"] == "v_877257397", "freshest variant_id wins"
+
+
+def test_narrator_session_knowledge_lists_known_prices():
+    """The bot claimed 'Pizza Hut ke menu mein Margherita nahi dikh raha' while
+    ₹169 sat in session_menu — the narrator must see session-known prices."""
+    from types import SimpleNamespace
+
+    from core.contracts.session import SessionState
+    from core.pipeline.stages.narrate import _results_summary
+
+    session = SessionState(
+        legacy={
+            "session_restaurants": [{"res_id": "4857", "name": "Pizza Hut", "provider": "zomato"}],
+            "session_menu": [
+                {
+                    "variant_id": "v_1",
+                    "item_name": "Margherita",
+                    "price": 169,
+                    "res_id": "4857",
+                    "provider": "zomato",
+                }
+            ],
+        }
+    )
+    ctx = SimpleNamespace(provider_results=[], blocked=[], attachments=[], session=session)
+    summary = _results_summary(ctx)
+    assert "[zomato] Pizza Hut: Margherita ₹169" in summary
+
+
+def test_narrator_prefers_provider_digest_over_raw_blob():
+    from types import SimpleNamespace
+
+    from core.contracts.session import SessionState
+    from core.contracts.tool_result import ProviderResult, ToolResult
+    from core.pipeline.stages.narrate import _results_summary
+
+    class _Provider:
+        def summarize_result(self, tool_result):
+            return "Restaurants found (every result):\n- Pizza Hut [res_id=4857]"
+
+    class _Registry:
+        def get(self, pid):
+            return _Provider()
+
+    ctx = SimpleNamespace(
+        provider_results=[
+            ProviderResult(
+                provider="zomato",
+                ok=True,
+                results=[
+                    ToolResult(
+                        tool="get_restaurants_for_keyword",
+                        provider="zomato",
+                        ok=True,
+                        data={"huge": "x" * 5000},
+                    )
+                ],
+            )
+        ],
+        blocked=[],
+        attachments=[],
+        session=SessionState(),
+        deps=SimpleNamespace(registry=_Registry()),
+    )
+    summary = _results_summary(ctx)
+    assert "Pizza Hut [res_id=4857]" in summary
+    assert "xxxx" not in summary, "digest must replace the raw blob"

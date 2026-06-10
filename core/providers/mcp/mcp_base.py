@@ -206,3 +206,12 @@ class McpProvider(ABC):
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         return slice_
+
+    def summarize_result(self, tool_result: ToolResult) -> str | None:
+        """Hook: a compact, complete digest of one tool result for the narrator.
+
+        Large envelopes (a single Zomato search row is ~5KB of image URLs) are
+        useless under the narrator's raw-JSON truncation — whatever ranks first
+        becomes "the answer" and the rest reads as "not found". Plugins override
+        to render EVERY entry leanly (names, prices, offers). None = raw JSON."""
+        return None

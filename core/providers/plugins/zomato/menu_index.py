@@ -121,7 +121,13 @@ def _richer(prev: dict[str, Any] | None, new: dict[str, Any]) -> dict[str, Any]:
 
 
 def _key(entry: dict[str, Any]) -> str:
-    return f"{str(entry.get('res_id') or '').strip()}|{entry.get('variant_id')}".lower()
+    """Dedup on the stable item_id (ctl_*) when present — Zomato re-mints
+    variant_ids per fetch, so keying on variant_id keeps duplicate rows whose
+    stale variant_id Zomato then rejects at create_cart. Fresh-first merge order
+    means the row carrying the CURRENT variant_id wins."""
+    rid = str(entry.get("res_id") or "").strip()
+    item = str(entry.get("item_id") or "").strip()
+    return f"{rid}|{item or entry.get('variant_id')}".lower()
 
 
 def merge_menu(

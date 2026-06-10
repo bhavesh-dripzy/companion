@@ -34,6 +34,11 @@ _RESPONSE_PROMPT = (
     "An empty result list from a successful tool is valid data, not an error — say "
     "what it means using facts from the results (e.g. 'no showtimes today; it "
     "releases on 17 July'), and suggest the natural next step.\n"
+    "If an asked-about item is missing from this turn's results but appears in the "
+    "'already seen earlier this session' lines, use that known price (note it was "
+    "seen earlier) instead of claiming the item doesn't exist.\n"
+    "Address the user by the name THEY used for themselves in the conversation, "
+    "even if a different name appears in the task description or earlier turns.\n"
     "Reply ONLY in this language/style: {language}.\n"
     "If tools were blocked pending confirmation, ask the user to confirm.\n"
     'Respond with ONLY a JSON object: {{"message": "<reply>"}}.'
@@ -72,19 +77,68 @@ def _card_line(attachment: Any) -> str:
     return f"  - [{source}] {wire.get('kind')} ({len(entries)} entries){tail}"
 
 
+def _result_blob(ctx: PipelineContext, provider_id: str, tool_result: Any) -> str:
+    """Provider digest when available (lean but COMPLETE), else truncated raw JSON."""
+    provider = ctx.deps.registry.get(provider_id)
+    summarize = getattr(provider, "summarize_result", None)
+    if callable(summarize):
+        try:
+            digest = summarize(tool_result)
+            if digest:
+                return digest
+        except Exception:
+            pass
+    data = tool_result.data
+    return json.dumps(data)[:1500] if data is not None else ""
+
+
+def _session_knowledge(ctx: PipelineContext) -> list[str]:
+    """Menu prices already learned this session, platform-tagged and grouped by
+    restaurant — so the narrator never reports a known item as 'not found'."""
+    legacy = ctx.session.legacy if isinstance(ctx.session.legacy, dict) else {}
+    menu = legacy.get("session_menu")
+    if not isinstance(menu, list) or not menu:
+        return []
+    restaurants = legacy.get("session_restaurants")
+    names = {
+        str(r.get("res_id")): str(r.get("name"))
+        for r in (restaurants if isinstance(restaurants, list) else [])
+        if isinstance(r, dict) and r.get("res_id") and r.get("name")
+    }
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for row in menu[:48]:
+        if not isinstance(row, dict):
+            continue
+        item = str(row.get("item_name") or "").strip()
+        price = row.get("discounted_price") or row.get("price")
+        if not item or price in (None, "", 0):
+            continue
+        key = (str(row.get("provider") or "unknown"), str(row.get("res_id") or ""))
+        entry = f"{item} ₹{price}"
+        if entry not in grouped.setdefault(key, []):
+            grouped[key].append(entry)
+    if not grouped:
+        return []
+    lines = ["Item prices already seen earlier this session (may be stale; prefer fresh results):"]
+    for (provider, rid), items in grouped.items():
+        label = names.get(rid) or (f"res_id={rid}" if rid else "items")
+        lines.append(f"  - [{provider}] {label}: {'; '.join(items[:8])}")
+    return lines
+
+
 def _results_summary(ctx: PipelineContext) -> str:
     parts: list[str] = []
     for result in ctx.provider_results:
         for tool_result in result.results:
             status = "ok" if tool_result.ok else f"error:{tool_result.error}"
-            data = tool_result.data
-            blob = json.dumps(data)[:1500] if data is not None else ""
+            blob = _result_blob(ctx, result.provider, tool_result)
             parts.append(f"[{result.provider}.{tool_result.tool} {status}] {blob}")
     if ctx.blocked:
         parts.append("Blocked pending confirmation: " + ", ".join(c.tool for c in ctx.blocked))
     if ctx.attachments:
         parts.append("Cards rendered to the user this turn:")
         parts.extend(_card_line(a) for a in ctx.attachments)
+    parts.extend(_session_knowledge(ctx))
     return "\n".join(parts) or "(no tools ran)"
 
 

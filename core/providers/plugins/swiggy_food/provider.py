@@ -30,6 +30,7 @@ from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.swiggy_food.cards import build_restaurant_cards
 from core.providers.plugins.swiggy_food.cart_cards import build_cart_cards, cart_snapshot
+from core.providers.plugins.swiggy_food.digest import summarize
 from core.providers.plugins.swiggy_food.menu_cards import build_menu_cards
 from core.providers.plugins.swiggy_food.placeholders import SwiggyFoodResolver
 from core.providers.plugins.swiggy_food.planner_context import build_context
@@ -85,3 +86,7 @@ class SwiggyFoodProvider(McpProvider):
 
     def planner_context(self, ctx: Any) -> str:
         return build_context(ctx)
+
+    def summarize_result(self, tool_result: Any) -> str | None:
+        data = tool_result.data if isinstance(tool_result.data, dict) else {}
+        return summarize(tool_result.tool, data)

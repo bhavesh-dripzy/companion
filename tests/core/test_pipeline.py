@@ -162,17 +162,28 @@ def test_narrate_results_summary_lists_rendered_cards():
     # with the successful results instead of a blanket apology.
     from types import SimpleNamespace
 
+    from core.contracts.session import SessionState
     from core.contracts.tool_result import ProviderResult
     from core.pipeline.stages.narrate import _results_summary
 
+    class _NullRegistry:
+        def get(self, pid):
+            return None
+
     ctx = SimpleNamespace(
+        session=SessionState(),
+        deps=SimpleNamespace(registry=_NullRegistry()),
         provider_results=[
             ProviderResult(
                 provider="district",
                 ok=False,
                 results=[
-                    ToolResult(tool="search_movies", provider="district", ok=True, data={"movies": []}),
-                    ToolResult(tool="search_shows", provider="district", ok=False, data={"is_error": True}),
+                    ToolResult(
+                        tool="search_movies", provider="district", ok=True, data={"movies": []}
+                    ),
+                    ToolResult(
+                        tool="search_shows", provider="district", ok=False, data={"is_error": True}
+                    ),
                 ],
             )
         ],
