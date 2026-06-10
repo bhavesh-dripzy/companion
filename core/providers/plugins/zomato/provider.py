@@ -25,14 +25,11 @@ from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
 from core.providers.mcp.address import merge_saved_addresses
 from core.providers.mcp.connection import StdioSpec
+from core.providers.mcp.coupon_cards import build_coupon_cards
+from core.providers.mcp.info_cards import build_info_cards
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
-from core.providers.mcp.result_cards import (
-    build_coupon_cards,
-    build_info_cards,
-    build_order_cards,
-    build_tracking_card,
-)
+from core.providers.mcp.result_cards import build_order_cards, build_tracking_card
 from core.providers.plugins.zomato.cards import build_restaurant_cards
 from core.providers.plugins.zomato.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.zomato.digest import summarize

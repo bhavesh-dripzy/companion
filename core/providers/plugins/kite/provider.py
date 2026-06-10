@@ -24,9 +24,9 @@ from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec
+from core.providers.mcp.info_cards import build_info_cards
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
-from core.providers.mcp.result_cards import build_info_cards
 from core.providers.plugins.kite.cards import build_attachments as build_kite_cards
 from core.providers.plugins.kite.planner_context import build_context
 from core.providers.plugins.kite.session import merge as merge_kite_session

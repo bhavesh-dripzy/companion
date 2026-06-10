@@ -1,12 +1,11 @@
-"""Shared card builders for the long-tail read tools (orders, tracking,
-coupons) plus the generic `info_card` fallback.
+"""Shared order-history and live-tracking card builders.
 
 Every MCP exposes order-history/tracking/coupon tools whose envelopes differ
 only in field spelling (validated against real envelopes: Zomato
 `order_history_items[]`, Zepto `orders[]` with paise amounts, Instamart
 `orders[]`). One alias-walk extractor covers them all; provider wiring supplies
-the tool names, brand id, and currency quirk. `info_cards` guarantees ANY other
-successful result still renders a tile — new tools get one for free.
+the tool names, brand id, and currency quirk. Coupon and generic-info tiles
+live in `coupon_cards.py` / `info_cards.py` (same package).
 """
 
 from __future__ import annotations
@@ -18,9 +17,6 @@ from core.contracts.tool_result import ToolResult
 
 _MAX_ORDERS = 8
 _MAX_ITEMS_PER_ORDER = 4
-_MAX_COUPONS = 8
-_MAX_INFO_ROWS = 10
-_MAX_INFO_LINES = 8
 
 _ORDER_LIST_KEYS = ("order_history_items", "orders", "order_items", "past_orders")
 _ITEM_LIST_KEYS = ("catalogue_items", "productsNamesAndCounts", "items", "products")
@@ -191,131 +187,6 @@ def build_tracking_card(
                     provider=brand,
                     source=f"{provider_id}.{tr.tool}",
                     tracking=snap,
-                )
-            )
-    return out
-
-
-_COUPON_LIST_KEYS = ("coupons", "offers", "coupon_list", "available_coupons", "vouchers")
-_COUPON_CODE_KEYS = ("code", "coupon_code", "couponCode", "offer_code")
-_COUPON_TITLE_KEYS = ("title", "header", "name", "headline")
-_COUPON_DESC_KEYS = ("description", "subtitle", "details", "terms")
-_COUPON_SAVE_KEYS = ("savings_text", "discount_text", "savings", "discount", "offer_amount")
-
-
-def coupon_entries(envelope: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalized coupon rows from a coupons/offers envelope."""
-    if not isinstance(envelope, dict) or envelope.get("is_error"):
-        return []
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for obj in _walk(envelope.get("data")):
-        if not isinstance(obj, dict):
-            continue
-        for key in _COUPON_LIST_KEYS:
-            raw = obj.get(key)
-            if not isinstance(raw, list):
-                continue
-            for row in raw:
-                if not isinstance(row, dict) or len(out) >= _MAX_COUPONS:
-                    continue
-                code = _first(row, _COUPON_CODE_KEYS)
-                title = _first(row, _COUPON_TITLE_KEYS)
-                if code is None and title is None:
-                    continue
-                dedup = str(code or title)
-                if dedup in seen:
-                    continue
-                seen.add(dedup)
-                entry: dict[str, Any] = {}
-                if code:
-                    entry["code"] = str(code)
-                if title:
-                    entry["title"] = str(title)
-                desc = _first(row, _COUPON_DESC_KEYS)
-                if desc:
-                    entry["description"] = str(desc)[:140]
-                save = _first(row, _COUPON_SAVE_KEYS)
-                if save not in (None, ""):
-                    entry["savings_text"] = str(save)
-                out.append(entry)
-    return out
-
-
-def build_coupon_cards(
-    results: list[ToolResult], *, tools: set[str], provider_id: str, brand: str
-) -> list[Attachment]:
-    out: list[Attachment] = []
-    for tr in results:
-        if tr.tool not in tools or not tr.ok:
-            continue
-        entries = coupon_entries(tr.data if isinstance(tr.data, dict) else {})
-        if entries:
-            out.append(
-                Attachment(
-                    kind="coupon_cards",
-                    provider=brand,
-                    source=f"{provider_id}.{tr.tool}",
-                    coupons=entries,
-                )
-            )
-    return out
-
-
-def _prettify(name: str) -> str:
-    return name.replace("_", " ").strip().title()
-
-
-def info_card_payload(tool: str, envelope: dict[str, Any]) -> dict[str, Any] | None:
-    """Generic titled key-value tile from any envelope (the catch-all renderer)."""
-    from core.providers.mcp.digest import lean_digest
-
-    data = envelope.get("data") if isinstance(envelope, dict) else None
-    if not isinstance(data, dict) or envelope.get("is_error"):
-        return None
-    rows: list[dict[str, str]] = []
-    for key, value in data.items():
-        if isinstance(value, str | int | float | bool) and value not in ("", None):
-            text = str(value)
-            if text.startswith(("http://", "https://")) or len(text) > 160:
-                continue
-            rows.append({"label": _prettify(str(key)), "value": text})
-        if len(rows) >= _MAX_INFO_ROWS:
-            break
-    lines: list[str] = []
-    if not rows:
-        digest = lean_digest(envelope)
-        if digest:
-            lines = digest.splitlines()[:_MAX_INFO_LINES]
-    if not rows and not lines:
-        return None
-    payload: dict[str, Any] = {"title": _prettify(tool), "rows": rows}
-    if lines:
-        payload["lines"] = lines
-    return payload
-
-
-def build_info_cards(
-    results: list[ToolResult],
-    *,
-    exclude: set[str],
-    provider_id: str,
-    brand: str,
-) -> list[Attachment]:
-    """`info_card` for every ok result not already covered by a bespoke card —
-    the guarantee that no successful tool result is invisible in the UI."""
-    out: list[Attachment] = []
-    for tr in results:
-        if tr.tool in exclude or not tr.ok:
-            continue
-        payload = info_card_payload(tr.tool, tr.data if isinstance(tr.data, dict) else {})
-        if payload:
-            out.append(
-                Attachment(
-                    kind="info_card",
-                    provider=brand,
-                    source=f"{provider_id}.{tr.tool}",
-                    info=payload,
                 )
             )
     return out

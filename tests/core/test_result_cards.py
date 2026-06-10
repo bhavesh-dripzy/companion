@@ -12,11 +12,10 @@ from pathlib import Path
 import pytest
 
 from core.contracts.tool_result import ToolResult
+from core.providers.mcp.coupon_cards import coupon_entries
+from core.providers.mcp.info_cards import build_info_cards, info_card_payload
 from core.providers.mcp.result_cards import (
-    build_info_cards,
     build_order_cards,
-    coupon_entries,
-    info_card_payload,
     order_entries,
     tracking_snapshot,
 )
