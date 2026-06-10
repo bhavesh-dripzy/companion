@@ -922,7 +922,13 @@ function App() {
     hadToolCall: boolean,
   ) => {
     // Render this turn in the chat log, attaching any cards from the tool call.
-    const attachments = hadToolCall ? pendingVoiceAttachmentsRef.current ?? undefined : undefined;
+    // Consume the stash whenever it is non-null, NOT only when this turn made
+    // the tool call: Gemini often closes the spoken status-line segment before
+    // the tool returns, so the cards land between that turnComplete (which
+    // resets hadToolCall) and the answer's turnComplete. Gating on hadToolCall
+    // silently dropped the cards in exactly that (common) case — the "cards
+    // sometimes don't show in voice mode" bug.
+    const attachments = pendingVoiceAttachmentsRef.current ?? undefined;
     pendingVoiceAttachmentsRef.current = null;
     setMessages((prev) => {
       const next = [...prev];
@@ -1046,9 +1052,20 @@ function App() {
         if (Array.isArray(data.session_menu) && data.session_menu.length > 0) {
           setSessionMenu(data.session_menu);
         }
-        // Stash cards for handleVoiceTurnComplete to render on this turn.
+        // Stash cards for handleVoiceTurnComplete to render on this turn. If no
+        // turn-complete consumes them (Gemini already closed the turn and stays
+        // silent), flush them as a cards-only message so they are never lost.
         pendingVoiceAttachmentsRef.current =
           Array.isArray(data.attachments) && data.attachments.length > 0 ? data.attachments : null;
+        if (pendingVoiceAttachmentsRef.current) {
+          window.setTimeout(() => {
+            const orphaned = pendingVoiceAttachmentsRef.current;
+            if (orphaned && orphaned.length > 0) {
+              pendingVoiceAttachmentsRef.current = null;
+              setMessages((prev) => [...prev, { role: 'assistant', content: '', attachments: orphaned }]);
+            }
+          }, 6000);
+        }
         if (data.chat_id && data.chat_id !== chatId) {
           setChatId(data.chat_id);
           localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
