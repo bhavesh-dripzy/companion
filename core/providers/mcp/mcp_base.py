@@ -31,6 +31,7 @@ from core.middleware.repair import (
 from core.providers.base import ExecCtx
 from core.providers.mcp.address import extract_address_rows
 from core.providers.mcp.connection import StdioSpec, call_tool, list_tools, mcp_session
+from core.providers.mcp.digest import lean_digest
 from core.providers.mcp.placeholders import PlaceholderResolver
 from core.providers.mcp.planner_context import rows_for_provider
 from core.providers.mcp.result_parse import tool_result_payload
@@ -232,5 +233,7 @@ class McpProvider(ABC):
         Large envelopes (a single Zomato search row is ~5KB of image URLs) are
         useless under the narrator's raw-JSON truncation — whatever ranks first
         becomes "the answer" and the rest reads as "not found". Plugins override
-        to render EVERY entry leanly (names, prices, offers). None = raw JSON."""
-        return None
+        for their high-traffic envelopes; the default lean digest covers every
+        other tool (orders, tracking, coupons, slots, quotes…) generically."""
+        data = tool_result.data if isinstance(tool_result.data, dict) else None
+        return lean_digest(data) if data else None

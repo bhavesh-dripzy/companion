@@ -59,6 +59,11 @@ DEFAULT_ISSUERS: dict[str, tuple[str, ...]] = {
     "create_cart": ("__CART_ID__",),
     "checkout_cart": ("__ORDER_ID__",),
     "place_order": ("__ORDER_ID__",),
+    "checkout": ("__ORDER_ID__",),
+    "create_order": ("__ORDER_ID__",),
+    "create_online_payment_order": ("__ORDER_ID__",),
+    "create_wallet_order": ("__ORDER_ID__",),
+    "create_upi_reserve_pay_order": ("__ORDER_ID__",),
 }
 
 

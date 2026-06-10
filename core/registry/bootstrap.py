@@ -54,6 +54,7 @@ def build_registry() -> ProviderRegistry:
 
 def _clean_provider_classes() -> dict[str, type]:
     """The clean McpProvider class per MCP provider id (lazy import)."""
+    from core.providers.plugins.daily_calorie_tracker import DailyCalorieTrackerProvider
     from core.providers.plugins.district import DistrictProvider
     from core.providers.plugins.kite import KiteProvider
     from core.providers.plugins.swiggy_food import SwiggyFoodProvider
@@ -68,6 +69,7 @@ def _clean_provider_classes() -> dict[str, type]:
         "zepto": ZeptoProvider,
         "district": DistrictProvider,
         "kite": KiteProvider,
+        "daily_calorie_tracker": DailyCalorieTrackerProvider,
     }
 
 

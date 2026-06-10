@@ -121,4 +121,4 @@ class ZomatoProvider(McpProvider):
 
     def summarize_result(self, tool_result: Any) -> str | None:
         data = tool_result.data if isinstance(tool_result.data, dict) else {}
-        return summarize(tool_result.tool, data)
+        return summarize(tool_result.tool, data) or super().summarize_result(tool_result)

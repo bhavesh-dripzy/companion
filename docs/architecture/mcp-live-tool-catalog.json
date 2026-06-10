@@ -1,0 +1,1137 @@
+{
+ "zomato": {
+  "ok": true,
+  "tools": [
+   {
+    "name": "get_restaurants_for_keyword",
+    "description": "Main tool to do a general search for restaurants or to search restaurants based on a keyword.\nIf no keyword is provided, this tool returns nearby recommended restaurants.\nOnly get user's location using `get_saved_address",
+    "params": [
+     "address_id",
+     "filter",
+     "keyword",
+     "page_size",
+     "postback_params"
+    ],
+    "required": [
+     "address_id",
+     "keyword"
+    ]
+   },
+   {
+    "name": "get_restaurant_menu_by_categories",
+    "description": "Retrieves menu items for a specific restaurant, filtered by categories.\nUse this API to get dishes from a restaurant's menu for multiple categories.\nCall this tool to get detailed information about menu items including a",
+    "params": [
+     "address_id",
+     "categories",
+     "menu_filter",
+     "res_id"
+    ],
+    "required": [
+     "res_id",
+     "categories",
+     "address_id"
+    ]
+   },
+   {
+    "name": "get_menu_items_listing",
+    "description": "Returns a mapping of menu dish names to their categories for a given restaurant.\nUse this API to get the categories of a restaurant's menu first instead of fetching the entire menu to limit data.\n\nUse this tool to:\n- Sea",
+    "params": [
+     "address_id",
+     "menu_filter",
+     "res_id"
+    ],
+    "required": [
+     "res_id",
+     "address_id"
+    ]
+   },
+   {
+    "name": "get_saved_addresses_for_user",
+    "description": "Retrieves all delivery addresses that the user has previously saved in their Zomato profile.\nUser must be authenticated to access their addresses.",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "bind_user_number",
+    "description": "bind_user_number tool is used to bind a user's phone number.",
+    "params": [
+     "phone_number"
+    ],
+    "required": [
+     "phone_number"
+    ]
+   },
+   {
+    "name": "bind_user_number_verify_code",
+    "description": "bind_user_number_verify_code tool is used to verify the otp used for binding a user's phone number.\n\nReturns:\n    bool: True if the verification code was verified successfully, False otherwise.\n    str: An error message ",
+    "params": [
+     "auth_packet",
+     "code"
+    ],
+    "required": [
+     "auth_packet",
+     "code"
+    ]
+   },
+   {
+    "name": "create_cart",
+    "description": "Always ask the user for the payment method. DO NOT SELECT ANY DEFAULT ON YOUR OWN.\nUse this to create a cart for a user with the given items.\nThe menu items cannot be from multiple restaurants.\nThe provided menu items mu",
+    "params": [
+     "address_id",
+     "delivery_instruction",
+     "items",
+     "payment_type",
+     "promo_code",
+     "res_id"
+    ],
+    "required": [
+     "res_id",
+     "items",
+     "address_id",
+     "payment_type"
+    ]
+   },
+   {
+    "name": "checkout_cart",
+    "description": "Used to checkout a cart and place an order.\nThe cart must be created using the `create_cart` tool.\nAlways ask the user for confirmation before proceeding with the checkout.\n\nReturns:\n    str: A message indicating the sta",
+    "params": [
+     "cart_id"
+    ],
+    "required": [
+     "cart_id"
+    ]
+   },
+   {
+    "name": "get_order_history",
+    "description": "This api is responsible for returning a user's order history in a location. It also supports pagination and searching order history on basis of a search query.\nDo not ask the user for pagination or entering a search quer",
+    "params": [
+     "address_id",
+     "end_date",
+     "has_more",
+     "postback_params",
+     "request_type",
+     "search_query",
+     "start_date"
+    ],
+    "required": [
+     "address_id"
+    ]
+   },
+   {
+    "name": "get_order_tracking_info",
+    "description": "Tool to retrieve a list of active orders that the user has placed with their current statuses.\nIf rider info is not present in response then it means rider is not assigned yet.",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "get_cart_offers",
+    "description": "Retrieves a list of available as well as applicable promos\non a cart.\n\nReturns:\n    list[Promo] | str: A list of applicable promos or an error message.",
+    "params": [
+     "address_id",
+     "cart_id"
+    ],
+    "required": [
+     "cart_id",
+     "address_id"
+    ]
+   }
+  ]
+ },
+ "swiggy_food": {
+  "ok": true,
+  "tools": [
+   {
+    "name": "get_addresses",
+    "description": "Swiggy (Instamart/Food): Get all saved delivery addresses for the authenticated Swiggy user, sorted by last order date. This tool works for Swiggy Instamart and Food services. Addresses are returned WITHOUT coordinates (",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "search_restaurants",
+    "description": "Search and order food from restaurants for delivery. PRIMARY FOOD DELIVERY SERVICE - Use this when user wants to order food, get food delivered, or search restaurants for delivery. Swiggy Food delivery service. NOT for r",
+    "params": [
+     "addressId",
+     "offset",
+     "query"
+    ],
+    "required": [
+     "addressId",
+     "query"
+    ]
+   },
+   {
+    "name": "search_menu",
+    "description": "Search for dishes and menu items to order for food delivery. PRIMARY FOOD DELIVERY SERVICE - Use this when user wants to find specific dishes, browse menu items, see what a restaurant offers, or order food. Swiggy Food d",
+    "params": [
+     "addressId",
+     "offset",
+     "query",
+     "restaurantIdOfAddedItem",
+     "vegFilter"
+    ],
+    "required": [
+     "addressId",
+     "query"
+    ]
+   },
+   {
+    "name": "get_restaurant_menu",
+    "description": "Get the complete menu of a restaurant, paginated by category. Use this to BROWSE a restaurant menu and see what is available. This is the PRIMARY tool for showing MORE options \u2014 use page/pageSize to navigate categories w",
+    "params": [
+     "addressId",
+     "page",
+     "pageSize",
+     "restaurantId"
+    ],
+    "required": [
+     "addressId",
+     "restaurantId"
+    ]
+   },
+   {
+    "name": "get_food_cart",
+    "description": "Get current food delivery cart with all items. PRIMARY FOOD DELIVERY SERVICE - Use this to view cart contents when ordering food for delivery. Swiggy Food delivery. Response includes valid_addons field for each item whic",
+    "params": [
+     "addressId",
+     "restaurantName"
+    ],
+    "required": [
+     "addressId"
+    ]
+   },
+   {
+    "name": "update_food_cart",
+    "description": "Add items to food delivery cart or update cart contents. PRIMARY FOOD DELIVERY SERVICE - Use this when user wants to add food items, dishes, or meals to their delivery cart. Swiggy Food delivery. Supports variants, varia",
+    "params": [
+     "addressId",
+     "cartItems",
+     "restaurantId",
+     "restaurantName"
+    ],
+    "required": [
+     "restaurantId",
+     "cartItems",
+     "addressId"
+    ]
+   },
+   {
+    "name": "flush_food_cart",
+    "description": "Clear or empty the food delivery cart. PRIMARY FOOD DELIVERY SERVICE - Use this to remove all items from the food delivery cart. Swiggy Food delivery. NOT for groceries.",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "place_food_order",
+    "description": "Place food delivery order and confirm order placement. PRIMARY FOOD DELIVERY SERVICE - Use this when user wants to place order, confirm order, or complete food delivery order. Swiggy Food delivery. Requires delivery addr",
+    "params": [
+     "addressId",
+     "clientPlatform",
+     "generateUPIQR",
+     "intentApp",
+     "paymentMethod"
+    ],
+    "required": [
+     "addressId"
+    ]
+   },
+   {
+    "name": "fetch_food_coupons",
+    "description": "Get available coupons and offers for food delivery order. PRIMARY FOOD DELIVERY SERVICE - Use this to find discounts, coupons, or offers when ordering food for delivery. Swiggy Food delivery. IMPORTANT: Only recommend co",
+    "params": [
+     "addressId",
+     "couponCode",
+     "restaurantId"
+    ],
+    "required": [
+     "restaurantId",
+     "addressId"
+    ]
+   },
+   {
+    "name": "apply_food_coupon",
+    "description": "Apply coupon code or discount to food delivery order. PRIMARY FOOD DELIVERY SERVICE - Use this when user wants to apply a coupon, discount code, or offer to their food delivery order. Swiggy Food delivery. Returns the up",
+    "params": [
+     "addressId",
+     "cartId",
+     "couponCode"
+    ],
+    "required": [
+     "couponCode",
+     "addressId"
+    ]
+   },
+   {
+    "name": "get_food_orders",
+    "description": "Swiggy Food order history - Use this to fetch ORDER HISTORY, past orders, or active orders. PRIMARY FOOD DELIVERY SERVICE - Use this FIRST when user asks: \"show my food orders\", \"my food order history\", \"past food orders",
+    "params": [
+     "activeOnly",
+     "addressId"
+    ],
+    "required": [
+     "addressId"
+    ]
+   },
+   {
+    "name": "get_food_order_details",
+    "description": "Get detailed information about a specific food delivery order. PRIMARY FOOD DELIVERY SERVICE - Use this when user asks about order details, order information, or wants to see what they ordered. Swiggy Food delivery. Retu",
+    "params": [
+     "orderId"
+    ],
+    "required": [
+     "orderId"
+    ]
+   },
+   {
+    "name": "track_food_order",
+    "description": "Track food delivery order status and delivery progress. PRIMARY FOOD DELIVERY SERVICE - Use this when user asks to track order, check delivery status, or see where their food order is. Swiggy Food delivery. Returns curre",
+    "params": [
+     "orderId"
+    ],
+    "required": []
+   },
+   {
+    "name": "report_error",
+    "description": "Generate an error report to share with the Swiggy MCP team. Use this when the user encounters an error and wants to report it. Returns a pre-filled mailto: link and a human-readable summary. The user can click the link t",
+    "params": [
+     "domain",
+     "errorMessage",
+     "flowDescription",
+     "tool",
+     "toolContext",
+     "userNotes"
+    ],
+    "required": [
+     "tool",
+     "errorMessage"
+    ]
+   }
+  ]
+ },
+ "swiggy_instamart": {
+  "ok": true,
+  "tools": [
+   {
+    "name": "get_addresses",
+    "description": "Swiggy (Instamart/Food): Get all saved delivery addresses for the authenticated Swiggy user, sorted by last order date. This tool works for Swiggy Instamart and Food services. Addresses are returned WITHOUT coordinates (",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "search_products",
+    "description": "Search for products available at the selected address. Returns products with their variants (e.g., different pack sizes, quantities). When a user asks to add a product, ALWAYS search first to see available variants, then",
+    "params": [
+     "addressId",
+     "offset",
+     "query"
+    ],
+    "required": [
+     "addressId",
+     "query"
+    ]
+   },
+   {
+    "name": "your_go_to_items",
+    "description": "Fetch the user's Your Go To Items (frequently or recently ordered items) for the selected delivery address. Use addressId from get_addresses. Returns products with variants; use spinId from the chosen variant when adding",
+    "params": [
+     "addressId",
+     "offset"
+    ],
+    "required": [
+     "addressId"
+    ]
+   },
+   {
+    "name": "get_cart",
+    "description": "Swiggy Instamart (Grocery): Get current Swiggy Instamart grocery cart with all items and bill breakdown. Use this for Instamart grocery orders, NOT for Food delivery. Authentication is handled automatically.\n\n\ud83d\udcb3 PAYMENT M",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "update_cart",
+    "description": "Swiggy Instamart (Grocery): Update Swiggy Instamart grocery cart with items. Replaces entire cart with the provided items. Use this for Instamart grocery orders, NOT for Food delivery. Authentication is handled automatic",
+    "params": [
+     "items",
+     "selectedAddressId"
+    ],
+    "required": [
+     "selectedAddressId",
+     "items"
+    ]
+   },
+   {
+    "name": "clear_cart",
+    "description": "Clear (remove all items from) the Instamart cart. Authentication is handled automatically.",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "checkout",
+    "description": "Swiggy Instamart (Grocery): Place and confirm Swiggy Instamart grocery order. Creates order and confirms payment in a single operation. Use this for Instamart grocery orders, NOT for Food delivery.\n\n\ud83d\uded2 MULTI-STORE SUPPORT",
+    "params": [
+     "addressId",
+     "generateUPIQR",
+     "intentApp",
+     "paymentMethod"
+    ],
+    "required": [
+     "addressId"
+    ]
+   },
+   {
+    "name": "get_orders",
+    "description": "Swiggy Instamart order history - Use this to fetch ORDER HISTORY, past orders, or order preferences. Use this FIRST when user asks: \"show my orders\", \"get my orders\", \"my last order\", \"order history\", \"past orders\", \"rec",
+    "params": [
+     "activeOnly",
+     "count",
+     "orderType"
+    ],
+    "required": []
+   },
+   {
+    "name": "track_order",
+    "description": "Track Swiggy Instamart order status in real-time. PRIMARY TOOL for order tracking - Use this FIRST when user asks: \"where is my order\", \"track my order\", \"order status\", \"what's the status of my order\", \"when will my ord",
+    "params": [
+     "lat",
+     "lng",
+     "orderId"
+    ],
+    "required": [
+     "orderId",
+     "lat",
+     "lng"
+    ]
+   },
+   {
+    "name": "report_error",
+    "description": "Generate an error report to share with the Swiggy MCP team. Use this when the user encounters an error and wants to report it. Returns a pre-filled mailto: link and a human-readable summary. The user can click the link t",
+    "params": [
+     "domain",
+     "errorMessage",
+     "flowDescription",
+     "tool",
+     "toolContext",
+     "userNotes"
+    ],
+    "required": [
+     "tool",
+     "errorMessage"
+    ]
+   }
+  ]
+ },
+ "zepto": {
+  "ok": true,
+  "tools": [
+   {
+    "name": "zepto_shop",
+    "description": "Open Zepto shopping experience for groceries and essentials delivery in 10 minutes.\n\n\u26a0\ufe0f MULTIPLE PRODUCTS: When the user asks for more than one product (e.g. \"diet coke and chips\", \"milk, bread, eggs\"), do NOT call this ",
+    "params": [
+     "intent",
+     "quantity",
+     "query"
+    ],
+    "required": [
+     "intent"
+    ]
+   },
+   {
+    "name": "search_products",
+    "description": "Search for ONE concrete purchasable product in the Zepto catalog. Returns matching products with prices, availability, and details.\n\nIf the user's message lists multiple products (e.g. \"X and Y\", \"A, B, and C\"), use sear",
+    "params": [
+     "pageNumber",
+     "query"
+    ],
+    "required": [
+     "query"
+    ]
+   },
+   {
+    "name": "search_multiple_products",
+    "description": "Use this tool when the user asks for multiple items (e.g. \"diet coke and chips\", \"milk, bread, eggs\"). Search for MULTIPLE different products in parallel. ALWAYS use this tool when the user mentions more than one product",
+    "params": [
+     "pageNumber",
+     "queries"
+    ],
+    "required": [
+     "queries"
+    ]
+   },
+   {
+    "name": "get_product_details",
+    "description": "Get detailed information about a specific product. Returns comprehensive product details including pricing, availability, specifications, ratings, description, return policy, and seller information.\n\nUse this tool when:\n",
+    "params": [
+     "product_variant_id"
+    ],
+    "required": [
+     "product_variant_id"
+    ]
+   },
+   {
+    "name": "get_location_serviceability",
+    "description": "Check if Zepto services a location and get nearby store details. Returns store information and serviceability status.",
+    "params": [
+     "latitude",
+     "longitude"
+    ],
+    "required": [
+     "latitude",
+     "longitude"
+    ]
+   },
+   {
+    "name": "select_store",
+    "description": "Selects a store for the current session. All subsequent shopping operations will use this store. The store must be obtained from list_all_stores.",
+    "params": [
+     "latitude",
+     "longitude",
+     "storeId"
+    ],
+    "required": [
+     "storeId"
+    ]
+   },
+   {
+    "name": "list_saved_addresses",
+    "description": "List all saved customer addresses for the authenticated user.\n\nFor ChatGPT Apps: Displays an interactive widget with saved addresses and selection functionality. After the widget loads, guide users to click on an address",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "select_saved_address",
+    "description": "Pick a saved address and automatically set the corresponding store context for future actions.",
+    "params": [
+     "addressId"
+    ],
+    "required": [
+     "addressId"
+    ]
+   },
+   {
+    "name": "add_saved_address",
+    "description": "Create and save a new delivery address for the authenticated user. Requires location coordinates (latitude/longitude) and address details like flat number, building name, and a Google Maps formatted address. For Indian u",
+    "params": [
+     "buildingName",
+     "buildingType",
+     "contactName",
+     "contactNumber",
+     "flatDetails",
+     "floor",
+     "formattedAddress",
+     "landmark",
+     "latitude",
+     "longitude",
+     "name",
+     "shortAddress",
+     "type"
+    ],
+    "required": [
+     "type",
+     "name",
+     "flatDetails",
+     "buildingName",
+     "latitude",
+     "longitude",
+     "formattedAddress",
+     "shortAddress"
+    ]
+   },
+   {
+    "name": "update_drop_zone",
+    "description": "Update the delivery drop zone for an address. This tool is REQUIRED before placing an order when the cart response indicates a drop zone selection is needed (event/venue delivery locations).\n\nGUARDRAILS:\n- ONLY call this",
+    "params": [
+     "addressId",
+     "dropZoneSlot"
+    ],
+    "required": [
+     "dropZoneSlot"
+    ]
+   },
+   {
+    "name": "get_user_details",
+    "description": "Fetch the authenticated user's profile details including name, email, phone number, referral code, account status, and user type. No input parameters required.",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "update_user_name",
+    "description": "Updates the authenticated user's full name to complete their registration on Zepto.\n\nWhen to use this tool:\n- Call this tool ONLY after get_user_details has returned isRegistered as false, indicating the user has not yet",
+    "params": [
+     "fullName"
+    ],
+    "required": [
+     "fullName"
+    ]
+   },
+   {
+    "name": "view_cart",
+    "description": "View current cart contents. Returns all items with productVariantId, storeProductId, and quantity.\n\nFor widget-enabled clients: Displays interactive cart with quantity controls.\nFor CLI/API clients: Returns cart items li",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "update_cart",
+    "description": "Add, update, or remove items from the cart. Persists cart state for the session.\n\nUse this tool when:\n- Adding products to cart (set quantity > 0)\n- Updating quantities of existing items\n- Removing items (set quantity to",
+    "params": [
+     "cartItems",
+     "deviceId",
+     "replaceCart"
+    ],
+    "required": [
+     "deviceId",
+     "cartItems"
+    ]
+   },
+   {
+    "name": "get_payment_methods",
+    "description": "Get available payment methods for the current cart. Call this before placing an order so the user can choose their preferred payment method. Returns COD and online payment options with availability status.",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "create_order",
+    "description": "Place a COD (Cash on Delivery) order via Zepto order API. IMPORTANT: Before calling this tool, always call get_payment_methods first to let the user choose their preferred payment method. Requires store context (from get",
+    "params": [
+     "confirmOrder",
+     "riderTip",
+     "useZeptoCash",
+     "userAddressId"
+    ],
+    "required": []
+   },
+   {
+    "name": "create_online_payment_order",
+    "description": "Place an order via Zepto using an online payment link. Before calling this tool, always call get_payment_methods first to let the user choose their preferred payment method. Requires store context (from get_location_serv",
+    "params": [
+     "confirmOrder",
+     "riderTip",
+     "useZeptoCash",
+     "userAddressId"
+    ],
+    "required": []
+   },
+   {
+    "name": "create_wallet_order",
+    "description": "Place an order via Zepto using Zepto Cash (wallet) as the payment method. The wallet must fully cover the order total. Before calling this tool, always call get_payment_methods first to verify that wallet payment is avai",
+    "params": [
+     "confirmOrder",
+     "riderTip",
+     "userAddressId"
+    ],
+    "required": []
+   },
+   {
+    "name": "create_upi_reserve_pay_order",
+    "description": "Place an order via Zepto using UPI Reserve Pay (powered by NPCI and Razorpay). The reserve pay balance must fully cover the order total. Before calling this tool, always call get_payment_methods first to verify that rese",
+    "params": [
+     "confirmOrder",
+     "riderTip",
+     "useZeptoCash",
+     "userAddressId"
+    ],
+    "required": []
+   },
+   {
+    "name": "check_payment_status",
+    "description": "Check payment status for an order placed via create_online_payment_order. Do NOT call this tool unless instructed by a create_online_payment_order response or a previous check_payment_status response.\n\u2022 poll=false (defau",
+    "params": [
+     "orderId",
+     "poll"
+    ],
+    "required": [
+     "orderId"
+    ]
+   },
+   {
+    "name": "get_order_detail",
+    "description": "Get detailed information about a specific order including items, pricing, and delivery details.",
+    "params": [
+     "orderId"
+    ],
+    "required": [
+     "orderId"
+    ]
+   },
+   {
+    "name": "list_order_history",
+    "description": "Get list of past orders for the user. Can also be used to fetch order status or order tracking information.\n\nFor ChatGPT Apps: Displays an interactive widget with order history, tracking, and reordering functionality. Af",
+    "params": [
+     "limit",
+     "pageNumber"
+    ],
+    "required": []
+   },
+   {
+    "name": "get_past_order_items",
+    "description": "MANDATORY FIRST STEP before any product search. Call this tool BEFORE calling search_products or search_multiple_products.\n\nReturns a list of unique products the user has ordered in their last 30+ orders, sorted by order",
+    "params": [],
+    "required": []
+   }
+  ]
+ },
+ "district": {
+  "ok": true,
+  "tools": [
+   {
+    "name": "search_dining_restaurants",
+    "description": "Search for dining restaurants using semantic search.\nThis API is specifically designed for dining/dine-in restaurant discovery.\nUse this when users are looking for restaurants to visit for dining experiences.\n\n\u26a0\ufe0f REQUIRE",
+    "params": [
+     "count",
+     "filters",
+     "should_show_more",
+     "user_location"
+    ],
+    "required": [
+     "user_location"
+    ]
+   },
+   {
+    "name": "get_dynamic_filters",
+    "description": "**[PREREQUISITE STEP]** Get dynamic filters available for dining search based on user's location.\n\n\u26a0\ufe0f IMPORTANT: This tool MUST be called BEFORE using search_dining_restaurants to understand available filter options and ",
+    "params": [
+     "user_location"
+    ],
+    "required": [
+     "user_location"
+    ]
+   },
+   {
+    "name": "get_dining_restaurants_details",
+    "description": "Get enriched restaurant data in bulk for multiple restaurants.\n\nThis tool retrieves comprehensive enrichment information including ratings,\ntimings, address, and other details for multiple restaurants efficiently\nin a si",
+    "params": [
+     "res_ids",
+     "user_location"
+    ],
+    "required": [
+     "user_location",
+     "res_ids"
+    ]
+   },
+   {
+    "name": "get_table_reservation_slots",
+    "description": "Get available time slots for table reservation at a restaurant.\n\nIMPORTANT: You must provide either:\n- res_id (Restaurant ID as string), OR\n- Both res_name AND location_name\n\n\u26a0\ufe0f RESTAURANT CONFIRMATION (when res_name is ",
+    "params": [
+     "booking_date",
+     "location_name",
+     "party_size",
+     "res_id",
+     "res_name"
+    ],
+    "required": [
+     "booking_date",
+     "party_size"
+    ]
+   },
+   {
+    "name": "create_table_reservation_booking",
+    "description": "Create a table reservation booking at a restaurant.\n\n\ud83d\udea8 CRITICAL: Only use this tool for slots where bookable_via_agent is True\n\nSLOT IDENTIFICATION (provide one):\n- Preferred: slot_id from get_table_reservation_slots res",
+    "params": [
+     "offer_id",
+     "offer_value",
+     "party_size",
+     "product_id",
+     "res_id",
+     "slot_id",
+     "slot_time"
+    ],
+    "required": [
+     "res_id",
+     "party_size"
+    ]
+   },
+   {
+    "name": "get_booking_details",
+    "description": "Get detailed information about a table reservation booking.\n\nUse this to:\n- Check booking details and current status\n- Get updates on pending confirmations (OrderStatusConfirmationPending)",
+    "params": [
+     "booking_id"
+    ],
+    "required": [
+     "booking_id"
+    ]
+   },
+   {
+    "name": "get_dynamic_filters_movie",
+    "description": "Fetches available movie filter options based on user's location.\n\nWHEN TO USE: Call this BEFORE using *search_movies*, *search_theatres* or *search_shows*\nto get the current valid filter values for the user's area.\n\nWHAT",
+    "params": [
+     "user_location"
+    ],
+    "required": [
+     "user_location"
+    ]
+   },
+   {
+    "name": "search_movies",
+    "description": "Searches for movies playing in theaters near the user's location or upcoming releases.\n\nWHEN TO USE: When user wants to find movies by title, genre, cast, language, or other criteria.\nThis tool covers both movies current",
+    "params": [
+     "filters",
+     "location"
+    ],
+    "required": [
+     "location"
+    ]
+   },
+   {
+    "name": "search_theatres",
+    "description": "Searches for movie theaters near the user's location.\n\nWHEN TO USE: When user wants to find theaters by name, location, amenities, or screen type.\nUse this when focusing on WHERE to watch rather than WHAT to watch.\n\nRETU",
+    "params": [
+     "filters",
+     "location"
+    ],
+    "required": [
+     "location"
+    ]
+   },
+   {
+    "name": "search_shows",
+    "description": "Searches for specific movie showtimes at theaters.\n\nWHEN TO USE: When user wants to know showtime or available seats.\nUse this to find WHEN and WHERE a movie is playing, not to discover movies or theaters.\n\nSTEP 1: Get v",
+    "params": [
+     "filters",
+     "location"
+    ],
+    "required": [
+     "filters",
+     "location"
+    ]
+   },
+   {
+    "name": "get_movie_critique_reviews",
+    "description": "Get critique reviews and ratings for a specific movie from professional critics.\n\nWHEN TO USE: When you have a specific movie and want to judge more about it \u2014\ne.g., to understand critical reception, read professional re",
+    "params": [
+     "movie_id"
+    ],
+    "required": [
+     "movie_id"
+    ]
+   },
+   {
+    "name": "get_dynamic_filters_event",
+    "description": "Fetches available event filter options for the user's city. This is the bootstrap\ncall for event discovery \u2014 it tells you the current categories, artists, venues,\nevent types, and localities that have upcoming events nea",
+    "params": [
+     "user_location"
+    ],
+    "required": [
+     "user_location"
+    ]
+   },
+   {
+    "name": "search_events",
+    "description": "Search for events, concerts, comedy shows, theatre plays, sports matches, workshops,\nattractions, and dining experiences happening in the user's city. Results are ranked\nby popularity (yield index, descending) and gated ",
+    "params": [
+     "filters",
+     "location"
+    ],
+    "required": [
+     "location"
+    ]
+   },
+   {
+    "name": "search_event_venues",
+    "description": "Search for event venues \u2014 concert halls, theatres, stadiums, comedy clubs,\nactivity spaces, exhibition centres \u2014 that have upcoming events in the user's\ncity. Results are ranked by upcoming-event count (busiest venues fi",
+    "params": [
+     "filters",
+     "location"
+    ],
+    "required": [
+     "location"
+    ]
+   },
+   {
+    "name": "search_artists",
+    "description": "Search for artists \u2014 comedians, musicians, bands, performers \u2014 who have\nupcoming events in the user's city. Results are ranked by upcoming-event count\n(most-booked artists first).\n\nWHEN TO USE: Pick this when the user is",
+    "params": [
+     "filters",
+     "location"
+    ],
+    "required": [
+     "location"
+    ]
+   }
+  ]
+ },
+ "kite": {
+  "ok": true,
+  "tools": [
+   {
+    "name": "cancel_order",
+    "description": "Cancel an existing order",
+    "params": [
+     "order_id",
+     "variety"
+    ],
+    "required": [
+     "variety",
+     "order_id"
+    ]
+   },
+   {
+    "name": "delete_gtt_order",
+    "description": "Delete an existing GTT (Good Till Triggered) order",
+    "params": [
+     "trigger_id"
+    ],
+    "required": [
+     "trigger_id"
+    ]
+   },
+   {
+    "name": "get_gtts",
+    "description": "Get all active GTT orders. Supports pagination for large datasets.",
+    "params": [
+     "from",
+     "limit"
+    ],
+    "required": []
+   },
+   {
+    "name": "get_historical_data",
+    "description": "Get historical price data for an instrument",
+    "params": [
+     "continuous",
+     "from_date",
+     "instrument_token",
+     "interval",
+     "oi",
+     "to_date"
+    ],
+    "required": [
+     "instrument_token",
+     "from_date",
+     "to_date",
+     "interval"
+    ]
+   },
+   {
+    "name": "get_holdings",
+    "description": "Get holdings for the current user. Supports pagination for large datasets.",
+    "params": [
+     "from",
+     "limit"
+    ],
+    "required": []
+   },
+   {
+    "name": "get_ltp",
+    "description": "Get latest trading prices for a list of instruments",
+    "params": [
+     "instruments"
+    ],
+    "required": [
+     "instruments"
+    ]
+   },
+   {
+    "name": "get_margins",
+    "description": "Get margins",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "get_mf_holdings",
+    "description": "Get all mutual fund holdings. Supports pagination for large datasets.",
+    "params": [
+     "from",
+     "limit"
+    ],
+    "required": []
+   },
+   {
+    "name": "get_ohlc",
+    "description": "Get OHLC (Open, High, Low, Close) data for a list of instruments",
+    "params": [
+     "instruments"
+    ],
+    "required": [
+     "instruments"
+    ]
+   },
+   {
+    "name": "get_order_history",
+    "description": "Get order history for a specific order",
+    "params": [
+     "order_id"
+    ],
+    "required": [
+     "order_id"
+    ]
+   },
+   {
+    "name": "get_order_trades",
+    "description": "Get trades for a specific order",
+    "params": [
+     "order_id"
+    ],
+    "required": [
+     "order_id"
+    ]
+   },
+   {
+    "name": "get_orders",
+    "description": "Get all orders. Supports pagination for large datasets.",
+    "params": [
+     "from",
+     "limit"
+    ],
+    "required": []
+   },
+   {
+    "name": "get_positions",
+    "description": "Get current positions. Supports pagination for large datasets.",
+    "params": [
+     "from",
+     "limit"
+    ],
+    "required": []
+   },
+   {
+    "name": "get_profile",
+    "description": "Retrieve the user's profile information, including user ID, name, email, and account details like products orders, and exchanges available to the user. Use this to get basic user details.",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "get_quotes",
+    "description": "Get market data quotes for a list of instruments",
+    "params": [
+     "instruments"
+    ],
+    "required": [
+     "instruments"
+    ]
+   },
+   {
+    "name": "get_trades",
+    "description": "Get trading history. Supports pagination for large datasets.",
+    "params": [
+     "from",
+     "limit"
+    ],
+    "required": []
+   },
+   {
+    "name": "login",
+    "description": "Login to Kite API. This tool helps you log in to the Kite API. If you are starting off a new conversation call this tool before hand. Call this if you get a session error. Returns a link that the user should click to aut",
+    "params": [],
+    "required": []
+   },
+   {
+    "name": "modify_gtt_order",
+    "description": "Modify an existing GTT (Good Till Triggered) order",
+    "params": [
+     "exchange",
+     "last_price",
+     "limit_price",
+     "lower_limit_price",
+     "lower_quantity",
+     "lower_trigger_value",
+     "quantity",
+     "tradingsymbol",
+     "transaction_type",
+     "trigger_id",
+     "trigger_type",
+     "trigger_value",
+     "upper_limit_price",
+     "upper_quantity",
+     "upper_trigger_value"
+    ],
+    "required": [
+     "trigger_id",
+     "exchange",
+     "tradingsymbol",
+     "last_price",
+     "transaction_type",
+     "trigger_type"
+    ]
+   },
+   {
+    "name": "modify_order",
+    "description": "Modify an existing order",
+    "params": [
+     "disclosed_quantity",
+     "order_id",
+     "order_type",
+     "price",
+     "quantity",
+     "trigger_price",
+     "validity",
+     "variety"
+    ],
+    "required": [
+     "variety",
+     "order_id",
+     "order_type"
+    ]
+   },
+   {
+    "name": "place_gtt_order",
+    "description": "Place a GTT (Good Till Triggered) order",
+    "params": [
+     "exchange",
+     "last_price",
+     "limit_price",
+     "lower_limit_price",
+     "lower_quantity",
+     "lower_trigger_value",
+     "product",
+     "quantity",
+     "tradingsymbol",
+     "transaction_type",
+     "trigger_type",
+     "trigger_value",
+     "upper_limit_price",
+     "upper_quantity",
+     "upper_trigger_value"
+    ],
+    "required": [
+     "exchange",
+     "tradingsymbol",
+     "last_price",
+     "transaction_type",
+     "product",
+     "trigger_type"
+    ]
+   },
+   {
+    "name": "place_order",
+    "description": "Place an order",
+    "params": [
+     "disclosed_quantity",
+     "exchange",
+     "iceberg_legs",
+     "iceberg_quantity",
+     "order_type",
+     "price",
+     "product",
+     "quantity",
+     "tag",
+     "tradingsymbol",
+     "transaction_type",
+     "trigger_price",
+     "validity",
+     "validity_ttl",
+     "variety"
+    ],
+    "required": [
+     "variety",
+     "exchange",
+     "tradingsymbol",
+     "transaction_type",
+     "quantity",
+     "product",
+     "order_type"
+    ]
+   },
+   {
+    "name": "search_instruments",
+    "description": "Search instruments. Supports pagination for large result sets.",
+    "params": [
+     "filter_on",
+     "from",
+     "limit",
+     "query"
+    ],
+    "required": [
+     "query"
+    ]
+   }
+  ]
+ }
+}
