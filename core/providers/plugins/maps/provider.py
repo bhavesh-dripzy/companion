@@ -20,11 +20,22 @@ from core.providers.http.http_base import HttpProvider
 _TOOL = Tool(
     name="get_directions",
     provider="maps",
-    description="Distance and ETA from the user's location to a destination.",
+    description=(
+        "Distance and ETA to a destination — from the user's current location "
+        "by default, or from a named origin when the user gives one."
+    ),
     params={
         "type": "object",
         "properties": {
             "destination": {"type": "string", "description": "Place name or address"},
+            "origin": {
+                "type": "string",
+                "description": (
+                    "Starting place name or address, ONLY when the user names one "
+                    '("from Connaught Place to X"). Omit when they mean their '
+                    "current location."
+                ),
+            },
             "travel_mode": {
                 "type": "string",
                 "enum": ["DRIVE", "WALK", "BICYCLE", "TRANSIT", "TWO_WHEELER"],
@@ -70,9 +81,24 @@ def _normalize_travel_mode(value: Any) -> str | None:
     return mode if mode in _VALID_TRAVEL_MODES else None
 
 
+def _resolve_origin(args: dict[str, Any], user_geo: dict[str, Any] | None) -> Any:
+    """Named origin (geocoded) when the user gave one, else their live GPS, else None."""
+    from companion_api.google_maps import GeoPoint, geocode_address
+
+    named = str(args.get("origin") or "").strip()
+    if named:
+        point = geocode_address(named, region="in")
+        if point is not None:
+            return GeoPoint(point.latitude, point.longitude)
+    geo = user_geo if isinstance(user_geo, dict) else {}
+    lat, lng = geo.get("latitude", geo.get("lat")), geo.get("longitude", geo.get("lng"))
+    if lat is None or lng is None:
+        return None
+    return GeoPoint(float(lat), float(lng))
+
+
 def _compute(args: dict[str, Any], user_geo: dict[str, Any] | None) -> dict[str, Any]:
     from companion_api.google_maps import (
-        GeoPoint,
         GoogleMapsError,
         compute_route,
         google_maps_configured,
@@ -85,9 +111,8 @@ def _compute(args: dict[str, Any], user_geo: dict[str, Any] | None) -> dict[str,
             "error": "Google Maps is not configured.",
             "error_code": "not_configured",
         }
-    geo = user_geo if isinstance(user_geo, dict) else {}
-    lat, lng = geo.get("latitude", geo.get("lat")), geo.get("longitude", geo.get("lng"))
-    if lat is None or lng is None:
+    origin = _resolve_origin(args, user_geo)
+    if origin is None:
         return {
             "ok": False,
             "error": "I need your current location.",
@@ -99,7 +124,7 @@ def _compute(args: dict[str, Any], user_geo: dict[str, Any] | None) -> dict[str,
     travel_mode = _normalize_travel_mode(args.get("travel_mode"))
     try:
         route = compute_route(
-            origin=GeoPoint(float(lat), float(lng)),
+            origin=origin,
             destination=destination,
             travel_mode=travel_mode,
         )
