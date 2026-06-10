@@ -188,3 +188,40 @@ def test_clean_provider_session_lru_retains_prior_tail_under_cap():
     merged = ZomatoProvider().merge({"session_restaurants": prior}, one_hit)
     ids = [r["res_id"] for r in merged["session_restaurants"]]
     assert ids == ["111", "999"], "fresh leads, prior retained in the tail"
+
+
+def test_normalize_args_renests_flattened_search_filters():
+    # Regression: the planner emitted near_and_fast at top level; Zomato tools
+    # are additionalProperties:false, so the server rejected the entire call.
+    out = ZomatoProvider().normalize_args(
+        "get_restaurants_for_keyword",
+        {"address_id": "A1", "keyword": "pizza", "near_and_fast": True, "min_rating": 4},
+    )
+    assert out == {
+        "address_id": "A1",
+        "keyword": "pizza",
+        "filter": {"near_and_fast": True, "min_rating": 4},
+    }
+
+
+def test_normalize_args_merges_into_existing_filter_without_overwrite():
+    out = ZomatoProvider().normalize_args(
+        "get_restaurants_for_keyword",
+        {"keyword": "pizza", "distance": 3, "filter": {"distance": 5, "flash_sale": True}},
+    )
+    assert out["filter"] == {"distance": 5, "flash_sale": True}
+    assert "distance" not in {k: v for k, v in out.items() if k != "filter"}
+
+
+def test_normalize_args_renests_menu_filter_prices():
+    out = ZomatoProvider().normalize_args(
+        "get_menu_items_listing",
+        {"res_id": "R1", "address_id": "A1", "max_price": 250},
+    )
+    assert out == {"res_id": "R1", "address_id": "A1", "menu_filter": {"max_price": 250}}
+
+
+def test_normalize_args_passes_clean_args_through():
+    args = {"address_id": "A1", "keyword": "pizza", "filter": {"near_and_fast": True}}
+    assert ZomatoProvider().normalize_args("get_restaurants_for_keyword", args) == args
+    assert ZomatoProvider().normalize_args("checkout_cart", {"cart_id": "C1"}) == {"cart_id": "C1"}

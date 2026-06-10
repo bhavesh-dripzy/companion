@@ -67,6 +67,11 @@ class McpProvider(ABC):
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         """Build the stdio launch spec (mcp-remote command + token env) for this turn."""
 
+    def normalize_args(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Hook: repair provider-specific argument shapes the planner gets wrong
+        (e.g. re-nest filter keys). Default: pass through unchanged."""
+        return args
+
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
         """Resolve __ADDRESS_ID__ before the first call (address-taking providers).
 
@@ -116,6 +121,7 @@ class McpProvider(ABC):
                 self.resolver.clear_stale(ctx.placeholders, call.tool)
                 self.resolver.learn_from_args(ctx.placeholders, call.tool, call.arguments)
                 args = self.resolver.substitute(dict(call.arguments), ctx.placeholders)
+                args = self.normalize_args(call.tool, args)
                 unresolved = self.resolver.unresolved(args)
                 if unresolved:
                     raise UnresolvedPlaceholderError(

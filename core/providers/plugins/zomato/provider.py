@@ -37,6 +37,27 @@ from core.providers.plugins.zomato.session import ZomatoSession, merge_restauran
 
 _DEFAULT_URL = "https://mcp-server.zomato.com/mcp"
 
+_SEARCH_FILTER_KEYS = (
+    "min_price",
+    "max_price",
+    "min_rating",
+    "is_gourmet",
+    "new_for_you_filter",
+    "offers_tag",
+    "near_and_fast",
+    "distance",
+    "flash_sale",
+)
+
+_MENU_FILTER_KEYS = ("min_price", "max_price")
+
+# tool -> (nested filter field, keys the planner tends to flatten to top level).
+_FILTER_FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "get_restaurants_for_keyword": ("filter", _SEARCH_FILTER_KEYS),
+    "get_restaurant_menu_by_categories": ("menu_filter", _MENU_FILTER_KEYS),
+    "get_menu_items_listing": ("menu_filter", _MENU_FILTER_KEYS),
+}
+
 
 class ZomatoProvider(McpProvider):
     id = "zomato"
@@ -48,6 +69,21 @@ class ZomatoProvider(McpProvider):
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         url = os.getenv("ZOMATO_MCP_URL", _DEFAULT_URL)
         return remote_stdio_spec(url, user_id=ctx.user_id)
+
+    def normalize_args(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Re-nest filter keys the planner left at top level. Every Zomato tool
+        is `additionalProperties: false`, so one stray key rejects the call."""
+        spec = _FILTER_FIELDS.get(tool)
+        if not spec or not isinstance(args, dict):
+            return args
+        field, keys = spec
+        stray = {k: args[k] for k in keys if k in args}
+        if not stray:
+            return args
+        out = {k: v for k, v in args.items() if k not in stray}
+        nested = out.get(field)
+        out[field] = {**stray, **(nested if isinstance(nested, dict) else {})}
+        return out
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         # Provider-internal render order (parity with the legacy hoist):

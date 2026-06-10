@@ -37,11 +37,11 @@ MENU FETCH choice:
 
 RESTAURANT SEARCH PREVIEW (free signal): each get_restaurants_for_keyword result row carries an items[] preview (3-12 dishes) with is_veg, price, and a real addable variant_id. Answer "veg pizza under ₹200 / cheapest paneer biryani / show veg options" from the preview in summary — no menu call. These previewed items are auto-cached into the next turn's "Menu items already shown" block (≤3/restaurant, stamped with res_id), so a follow-up "add the Veg Whopper" can plan create_cart directly.
 
-get_restaurants_for_keyword.filter — empirically verified (trust this over the schema):
-- WORKS: min_rating (0-5), offers_tag ("default"/"DOTD"/"GOLD"/"BOGO"), near_and_fast (bool), flash_sale (bool), distance (km), is_gourmet (bool), new_for_you_filter (bool).
+get_restaurants_for_keyword filters — ALWAYS nested under the "filter" object, NEVER as top-level argument keys. Every Zomato tool rejects unknown top-level keys, so a flattened filter kills the whole call. Correct: {"address_id":"__ADDRESS_ID__","keyword":"pizza","filter":{"near_and_fast":true}}. WRONG: {"address_id":"__ADDRESS_ID__","keyword":"pizza","near_and_fast":true}.
+- WORK (inside filter): min_rating (0-5), offers_tag ("default"/"DOTD"/"GOLD"/"BOGO"), near_and_fast (bool), flash_sale (bool), distance (km), is_gourmet (bool), new_for_you_filter (bool).
 - AVOID max_price/min_price on search — restaurant-level cost-for-two filter that returns 0 results in practice. For "under ₹X" use menu_filter on menu tools or filter the preview items[] client-side in summary.
 
-menu_filter (on menu tools) — empirically verified:
+menu_filter (on menu tools) — same nesting rule: min/max_price go INSIDE the "menu_filter" object, never top-level:
 - WORKS: min_price (₹>0), max_price (₹>0), both INCLUSIVE, compared against discounted_price when present else price.
 - IGNORED silently: flash_sale, min_rating, anything else — do not send.
 - NEVER send 0 for min/max_price — Zomato treats 0 as "skip filter" and returns the full menu. For "free items" omit the filter and rank cheapest in summary.
