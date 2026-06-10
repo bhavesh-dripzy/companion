@@ -70,6 +70,9 @@ class PlaceholderResolver:
                 found.extend(self.unresolved(value))
         return sorted(set(found))
 
+    def learn_from_args(self, values: dict[str, str], tool: str, args: dict[str, Any]) -> None:
+        """Hook: harvest placeholder values from a step's literal arguments (no-op by default)."""
+
     def learn(self, values: dict[str, str], payload: dict[str, Any]) -> dict[str, str]:
         """Harvest first-seen placeholder values from a tool's response data."""
         learned: dict[str, str] = {}

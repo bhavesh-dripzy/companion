@@ -114,6 +114,7 @@ class McpProvider(ABC):
 
             async def execute_one(call: ToolCall) -> ToolResult:
                 self.resolver.clear_stale(ctx.placeholders, call.tool)
+                self.resolver.learn_from_args(ctx.placeholders, call.tool, call.arguments)
                 args = self.resolver.substitute(dict(call.arguments), ctx.placeholders)
                 unresolved = self.resolver.unresolved(args)
                 if unresolved:

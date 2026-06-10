@@ -31,6 +31,7 @@ from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.swiggy_food.cards import build_restaurant_cards
 from core.providers.plugins.swiggy_food.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.swiggy_food.menu_cards import build_menu_cards
+from core.providers.plugins.swiggy_food.placeholders import SwiggyFoodResolver
 from core.providers.plugins.swiggy_food.planner_context import build_context
 from core.providers.plugins.swiggy_food.session import (
     SwiggyFoodSession,
@@ -49,6 +50,7 @@ class SwiggyFoodProvider(McpProvider):
     auth_mode = AuthMode.OAUTH
     session_cls = SwiggyFoodSession
     saved_addresses_tool = "get_addresses"
+    resolver = SwiggyFoodResolver()
 
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         url = os.getenv("SWIGGY_FOOD_MCP_URL", _DEFAULT_URL)
