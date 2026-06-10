@@ -23,6 +23,7 @@ class TaskType(str, Enum):
     WHATSAPP_MESSAGE = "whatsapp_message"
     CAB_BOOKING = "cab_booking"
     PHONE_CALL = "phone_call"
+    DATA_LOOKUP = "data_lookup"
 
 
 class RoutingDecision(BaseModel):

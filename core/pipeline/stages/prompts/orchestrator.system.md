@@ -19,6 +19,7 @@ Allowed **task_type** values:
 - **reminder_calendar** — set a reminder, schedule an event, add to Google Calendar.
 - **maps_query** — distance, ETA, travel time, directions, or "how far/how long" from the user's current location to a place.
 - **cab_booking** — book, estimate, track, or cancel an Uber/cab/taxi/ride.
+- **data_lookup** — public-data lookups via managed search APIs: **flight prices/options**, **hotel prices/availability**, **Amazon product search**, **YouTube video search**, and place lookups that are NOT food/dining/going-out (e.g. "ATMs near me", "pharmacies in Hauz Khas"). Read-only: it can fetch prices and options but cannot book or buy.
 
 Future (not executed yet — still classify correctly):
 - **whatsapp_message** — send WhatsApp, message a contact.
@@ -70,6 +71,7 @@ Provider rules:
 | **Maps / distance / ETA** | Distance, travel time, ETA, directions from where the user is | “how long to reach Phoenix Mall”, “distance from here to MG Road”, “ETA to airport”, “time to walk to the park”, “directions to office” | `maps_query`, all provider arrays `[]` |
 | **Cab booking** | Book or estimate an Uber/cab/taxi/ride | “book me an Uber to the airport”, “cab to Cyberhub”, “how much is Uber to Dubai Mall”, “cancel my Uber request” | `cab_booking`, `mobility_providers: ["uber"]` |
 | **Phone call** | Call/dial someone and speak a message | "call my father at 9910295298 and remind him to take medicine", "ring mom and tell her dinner is ready", "dial +1-555-0123 and say the meeting is at 3" | `phone_call`, `phone_providers: ["twilio"]` |
+| **Data lookup (flights/hotels/products/videos)** | Fetch public data: flight fares, hotel rates, Amazon products, YouTube videos, non-food place lookups | "flights from Delhi to Mumbai on Friday", "hotels in Goa under 5k", "best price for AirPods on Amazon", "find a YouTube video on making falooda", "ATMs near me" | `data_lookup`, all provider arrays `[]` |
 | **Normal query** | General chat, knowledge, unrelated topics | “what is photosynthesis?”, “hello”, “thanks” | `normal_query`, `food_providers": []` |
 
 **Calendar cues:** remind, reminder, schedule, calendar, appointment, “at 9am”, “tomorrow”, “in N minutes”, “next Friday”.
@@ -82,7 +84,10 @@ Provider rules:
 
 **Phone call cues:** "call", "phone", "dial", "ring", "give [someone] a call" — combined with a phone number OR a named person with explicit calling intent ("call my dad", "ring my mother"). Must include a phone number in the message. Without a number → do NOT classify as phone_call (route to normal_query and let the response layer ask for the number). The word "call" without a number or contact ("call it a day", "phone call with my boss tomorrow" meaning a scheduled meeting) is NOT a phone_call.
 
-If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, maps/distance, cab-booking, or phone-call intent → **normal_query**.
+**Data-lookup cues:** flight/airfare/"fly to", hotel/resort/"stay in", "on Amazon"/product price/buy online (NOT groceries — those stay Instamart/Zepto), YouTube/video search, Instagram profile. Travel BOOKING is not supported — `data_lookup` only fetches prices/options.
+**Not data-lookup:** restaurants or food places ("falooda places near me" → food_delivery; "dinner places to go" → going_out); directions/ETA ("how far is the airport" → maps_query).
+
+If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, maps/distance, cab-booking, phone-call, or data-lookup intent → **normal_query**.
 When unsure between normal chat and food, prefer **food_delivery** only if there are clear food/grocery cues.
 
 ### Step 0.5: Delivery vs Going out (only switch on explicit cues)

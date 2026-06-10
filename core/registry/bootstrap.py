@@ -34,6 +34,7 @@ def build_registry() -> ProviderRegistry:
 
     from core.providers.plugins.calendar import CalendarProvider
     from core.providers.plugins.maps import MapsProvider
+    from core.providers.plugins.serp import SerpProvider
     from core.providers.plugins.twilio import TwilioProvider
     from core.providers.plugins.whatsapp import WhatsAppProvider
 
@@ -42,6 +43,7 @@ def build_registry() -> ProviderRegistry:
         MapsProvider(),
         CalendarProvider(),
         WhatsAppProvider(),
+        SerpProvider(),
     ):
         _register(registry, plugin)
 
