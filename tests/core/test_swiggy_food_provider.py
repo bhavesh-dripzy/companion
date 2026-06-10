@@ -233,3 +233,34 @@ def test_run_chains_search_to_menu_in_one_plan(monkeypatch):
     )
     assert result.ok, [r.error_detail for r in result.results if not r.ok]
     assert seen[1] == ("get_restaurant_menu", {"restaurantId": "760631"})
+
+
+def test_dish_rows_in_search_results_are_not_restaurants():
+    # Swiggy's universal search returns DISH rows inside data.restaurants[] for
+    # dish queries ("paniyaram") — bare {id, name, cuisines: []} where id is a
+    # menu-item id. They must not become cards, session restaurants, or a
+    # learned __RESTAURANT_ID__.
+    from core.providers.plugins.swiggy_food.cards import restaurant_entries
+
+    env = {
+        "is_error": False,
+        "data": {
+            "restaurants": [
+                {"id": "139558883", "name": "Kuzhi Paniyaram (8pcs)", "cuisines": []},
+                {"id": "760631", "name": "Olio", "avgRating": 4.3, "deliveryTimeRange": "35-40 MINS"},
+            ],
+            "total": 2,
+            "query": "paniyaram",
+        },
+    }
+    entries = restaurant_entries(env)
+    assert [e["res_id"] for e in entries] == ["760631"], "dish row dropped, real restaurant kept"
+
+    values: dict[str, str] = {}
+    SwiggyFoodResolver().learn(values, env)
+    assert values["__RESTAURANT_ID__"] == "760631", "dish id must not be learned"
+
+    tr = ToolResult(tool="search_restaurants", provider="swiggy_food", ok=True, data=env)
+    merged = SwiggyFoodProvider().merge({}, ProviderResult(provider="swiggy_food", results=[tr]))
+    names = [r["name"] for r in merged.get("session_restaurants") or []]
+    assert names == ["Olio"]

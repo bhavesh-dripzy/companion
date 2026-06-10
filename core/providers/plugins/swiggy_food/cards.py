@@ -18,10 +18,38 @@ _RESTAURANT_CARD_TOOLS = {"search_restaurants"}
 _MAX_RESTAURANT_CARDS = 8
 _IMG_PREFIX = "https://media-assets.swiggy.com/swiggy/image/upload/"
 
+# Fields only real restaurant rows carry. Swiggy's universal search returns
+# DISH rows inside data.restaurants[] for dish queries ("paniyaram") — bare
+# {id, name, cuisines: []} where id is a menu-item id. Rendering those as
+# restaurants (or learning their id as __RESTAURANT_ID__) corrupts the turn.
+_RESTAURANT_SIGNALS = (
+    "avgRating",
+    "rating",
+    "deliveryTimeRange",
+    "deliveryTimeMinutes",
+    "eta",
+    "distanceKm",
+    "distance_km",
+    "distance",
+    "availabilityStatus",
+    "serviceability_status",
+    "costForTwo",
+    "areaName",
+    "imageUrl",
+    "offer",
+)
+
+
+def is_restaurant_row(resto: Any) -> bool:
+    """True when a `data.restaurants[]` row is an actual restaurant, not a dish."""
+    if not isinstance(resto, dict):
+        return False
+    return any(resto.get(field) not in (None, "", [], {}) for field in _RESTAURANT_SIGNALS)
+
 
 def _card_entry(resto: Any) -> dict[str, Any] | None:
     """Normalize one Swiggy `data.restaurants[]` row (id + name required)."""
-    if not isinstance(resto, dict):
+    if not is_restaurant_row(resto):
         return None
     rid_raw = resto.get("id") or resto.get("restaurant_id") or resto.get("res_id")
     name = resto.get("name") or resto.get("restaurant_name")

@@ -47,7 +47,13 @@ _RESTAURANT_SCOPED_TOOLS = frozenset(
 
 
 def _first_restaurant_id(payload: dict[str, Any]) -> str | None:
-    """First `data.restaurants[].id` from a non-error `search_restaurants` envelope."""
+    """First REAL restaurant id from a non-error `search_restaurants` envelope.
+
+    Dish rows (Swiggy's universal search mixes them into restaurants[] for dish
+    queries) are skipped — learning a menu-item id as __RESTAURANT_ID__ would
+    poison every downstream menu/cart step."""
+    from core.providers.plugins.swiggy_food.cards import is_restaurant_row
+
     if not isinstance(payload, dict) or payload.get("is_error"):
         return None
     data = payload.get("data")
@@ -57,7 +63,7 @@ def _first_restaurant_id(payload: dict[str, Any]) -> str | None:
     if not isinstance(data, dict) or not isinstance(data.get("restaurants"), list):
         return None
     for row in data["restaurants"]:
-        if not isinstance(row, dict):
+        if not is_restaurant_row(row):
             continue
         rid = row.get("id") or row.get("restaurant_id") or row.get("restaurantId")
         text = str(rid).strip() if rid is not None else ""
