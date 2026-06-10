@@ -25,11 +25,21 @@ _RESTAURANT_ALIASES = DEFAULT_ALIASES["__RESTAURANT_ID__"] + (
     "storeId",
 )
 
-_ALIASES = {**DEFAULT_ALIASES, "__RESTAURANT_ID__": _RESTAURANT_ALIASES}
+# Item-level ids chain search_menu → update_food_cart IN-PLAN (the planner
+# emits __MENU_ITEM_ID__ after a same-plan search_menu) but are TRANSIENT:
+# Swiggy item ids are outlet-specific, so persisting one across turns silently
+# adds the previous outlet's item after a restaurant/address pivot.
+_ALIASES = {
+    **DEFAULT_ALIASES,
+    "__RESTAURANT_ID__": _RESTAURANT_ALIASES,
+    "__MENU_ITEM_ID__": ("menu_item_id", "menuItemId", "item_id", "itemId"),
+    "__ITEM_ID__": ("item_id", "itemId", "menu_item_id", "menuItemId"),
+}
 
 _ISSUERS = {
     **DEFAULT_ISSUERS,
     "search_restaurants": ("__RESTAURANT_ID__",),
+    "search_menu": ("__MENU_ITEM_ID__", "__ITEM_ID__"),
     "place_food_order": ("__ORDER_ID__",),
 }
 
@@ -93,6 +103,8 @@ def _first_restaurant_id(payload: dict[str, Any]) -> str | None:
 
 class SwiggyFoodResolver(PlaceholderResolver):
     """Shared resolver plus Swiggy's restaurant-id learning and pivot rules."""
+
+    transient = frozenset({"__MENU_ITEM_ID__", "__ITEM_ID__"})
 
     def __init__(self) -> None:
         super().__init__(aliases=_ALIASES, issuers=_ISSUERS)

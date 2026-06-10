@@ -73,7 +73,14 @@ def _walk(obj: Any):
 
 
 class PlaceholderResolver:
-    """Substitute / learn / clear placeholders. Plugins may pass custom maps."""
+    """Substitute / learn / clear placeholders. Plugins may pass custom maps.
+
+    `transient` names placeholders that are learned for IN-PLAN chaining only
+    and never persisted across turns (e.g. Swiggy's `__MENU_ITEM_ID__` —
+    item ids are outlet-specific, so carrying one over silently adds the wrong
+    outlet's item after a restaurant or address pivot)."""
+
+    transient: frozenset[str] = frozenset()
 
     def __init__(
         self,

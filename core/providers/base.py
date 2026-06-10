@@ -46,6 +46,9 @@ class ExecCtx:
     intent_summary: str | None = None
     repair_budget: Any = field(default_factory=_repair_budget)
     idempotent_tools: frozenset[str] = frozenset()
+    # Per-turn provider scratch (e.g. an in-plan menu index harvested from one
+    # call and consulted by a later call in the same plan). Never persisted.
+    scratch: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable

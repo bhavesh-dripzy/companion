@@ -115,8 +115,49 @@ def _menu_attachment(tr: ToolResult) -> Attachment | None:
     return Attachment(**payload)
 
 
+def _trim_variants_v2(raw: Any) -> list[dict[str, Any]]:
+    """Lean copy of a response-shape variantsV2 block (groups/variations capped)
+    — enough for the planner brief tail and the cart variant gate, without
+    bloating the session round trip."""
+    groups: list[dict[str, Any]] = []
+    for group in raw if isinstance(raw, list) else []:
+        if not isinstance(group, dict):
+            continue
+        variations: list[dict[str, Any]] = []
+        for v in (group.get("variations") or [])[:6]:
+            if not isinstance(v, dict):
+                continue
+            vid = v.get("id") or v.get("variantId") or v.get("variant_id")
+            if vid in (None, ""):
+                continue
+            row: dict[str, Any] = {"id": str(vid), "name": str(v.get("name") or "")}
+            if v.get("price") is not None:
+                row["price"] = v.get("price")
+            if v.get("inStock") is not None:
+                row["inStock"] = v.get("inStock")
+            if v.get("default") is not None:
+                row["default"] = v.get("default")
+            variations.append(row)
+        if variations:
+            groups.append(
+                {
+                    "groupId": str(group.get("groupId") or group.get("group_id") or ""),
+                    "name": str(group.get("name") or ""),
+                    "variations": variations,
+                }
+            )
+        if len(groups) >= 4:
+            break
+    return groups
+
+
 def menu_entries(envelope: dict[str, Any]) -> list[dict[str, Any]]:
-    """Lean session_menu rows (variant_id→item_name/price, res_id-stamped) for the planner."""
+    """Lean session_menu rows for the planner and the cart variant gate.
+
+    Carries `menu_item_id` (so the brief labels the row as a Swiggy cart id)
+    plus `hasVariants`/trimmed `variantsV2` — without these the brief renders
+    Swiggy rows Zomato-style and a follow-up cart add cannot resolve the
+    item's required size/crust choice."""
     data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
     rest = data.get("restaurant") if isinstance(data.get("restaurant"), dict) else {}
     res_id = rest.get("id") or rest.get("restaurant_id")
@@ -130,11 +171,17 @@ def menu_entries(envelope: dict[str, Any]) -> list[dict[str, Any]]:
         seen.add(card["variant_id"])
         entry = {
             "variant_id": card["variant_id"],
+            "menu_item_id": card["variant_id"],
             "item_name": card["name"],
             "price": card.get("price"),
         }
         if res_id:
             entry["res_id"] = res_id
+        if raw.get("hasVariants"):
+            entry["hasVariants"] = True
+        trimmed = _trim_variants_v2(raw.get("variantsV2"))
+        if trimmed:
+            entry["variantsV2"] = trimmed
         out.append(entry)
     return out
 

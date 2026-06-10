@@ -29,6 +29,13 @@ from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.plugins.swiggy_food.cards import build_restaurant_cards
+from core.providers.plugins.swiggy_food.cart_args import (
+    collect_menu_index,
+    is_choice_trivial,
+    normalize_cart_payload,
+    pick_default_variants,
+    summarize_variant_choices,
+)
 from core.providers.plugins.swiggy_food.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.swiggy_food.digest import summarize
 from core.providers.plugins.swiggy_food.menu_cards import build_menu_cards
@@ -41,6 +48,8 @@ from core.providers.plugins.swiggy_food.session import (
 )
 
 _CART_TOOLS = {"get_food_cart", "update_food_cart"}
+_MENU_INDEX_TOOLS = {"search_menu", "get_restaurant_menu"}
+_SCRATCH_MENU_INDEX = "swiggy_menu_index"
 
 _DEFAULT_URL = "https://mcp.swiggy.com/food"
 
@@ -56,6 +65,75 @@ class SwiggyFoodProvider(McpProvider):
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         url = os.getenv("SWIGGY_FOOD_MCP_URL", _DEFAULT_URL)
         return remote_stdio_spec(url, user_id=ctx.user_id)
+
+    def normalize_args(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Coerce cart payloads to Swiggy's strict request shape — the planner
+        copies the nested camelCase RESPONSE shape, which the MCP rejects."""
+        if tool == "update_food_cart":
+            return normalize_cart_payload(args)
+        return args
+
+    def harvest(self, tool: str, envelope: dict[str, Any], ctx: ExecCtx) -> None:
+        """Index this plan's menu envelopes so a same-plan cart add can resolve
+        variant requirements without a second round trip."""
+        if tool in _MENU_INDEX_TOOLS:
+            ctx.scratch.setdefault(_SCRATCH_MENU_INDEX, {}).update(collect_menu_index(envelope))
+
+    def _variant_meta(self, item_id: str, ctx: ExecCtx) -> dict[str, Any] | None:
+        """Variant schema for an item: this plan's menu index, else the session
+        menu rows carried from earlier turns."""
+        meta = (ctx.scratch.get(_SCRATCH_MENU_INDEX) or {}).get(item_id)
+        if meta:
+            return meta
+        menu = ctx.session.get("session_menu") if isinstance(ctx.session, dict) else None
+        for row in menu if isinstance(menu, list) else []:
+            if not isinstance(row, dict) or str(row.get("provider") or self.id) != self.id:
+                continue
+            rid = str(row.get("menu_item_id") or row.get("variant_id") or "").strip()
+            if rid == item_id and (row.get("hasVariants") or row.get("variantsV2")):
+                return {
+                    "name": row.get("item_name"),
+                    "hasVariants": bool(row.get("hasVariants") or row.get("variantsV2")),
+                    "variantsV2": row.get("variantsV2") or [],
+                }
+        return None
+
+    def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
+        """Variant gate for cart adds (port of the legacy enrichment): a row
+        targeting a multi-variant item with no explicit pick either gets the
+        trivial single option injected, or the call is SKIPPED and the choices
+        are returned so the narrator asks instead of pinning a guessed size."""
+        if tool != "update_food_cart" or not isinstance(args, dict):
+            return None
+        pending: list[dict[str, Any]] = []
+        for item in args.get("cartItems") or []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("variantsV2") or item.get("variants") or item.get("variations"):
+                continue
+            iid = str(item.get("menu_item_id") or "").strip()
+            meta = self._variant_meta(iid, ctx) if iid else None
+            if not meta or not meta.get("hasVariants"):
+                continue
+            v2 = meta.get("variantsV2") or []
+            if is_choice_trivial(v2):
+                picked = pick_default_variants(v2)
+                if picked:
+                    item["variantsV2"] = picked
+            else:
+                pending.append(summarize_variant_choices(iid, meta.get("name"), v2))
+        if not pending:
+            return None
+        return {
+            "is_error": False,
+            "data": {
+                "variant_choice_required": pending,
+                "message": (
+                    "Cart NOT updated: these items need a size/variant choice. "
+                    "Ask the user to pick one option per group."
+                ),
+            },
+        }
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         # Internal render order: menu -> restaurant -> cart.

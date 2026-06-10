@@ -80,6 +80,16 @@ class McpProvider(ABC):
         (e.g. re-nest filter keys). Default: pass through unchanged."""
         return args
 
+    def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
+        """Hook: gate a call after substitution/normalization. Returning an
+        envelope dict SKIPS the MCP call and uses it as the result (e.g. defer
+        a cart add that needs a variant choice the user hasn't made)."""
+        return None
+
+    def harvest(self, tool: str, envelope: dict[str, Any], ctx: ExecCtx) -> None:  # noqa: B027 — optional hook, intentionally a no-op
+        """Hook: accumulate per-turn state from a call's envelope into
+        `ctx.scratch` for later calls in the same plan (e.g. a menu index)."""
+
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
         """Resolve __ADDRESS_ID__ before the first call (address-taking providers).
 
@@ -177,17 +187,22 @@ class McpProvider(ABC):
                     raise UnresolvedPlaceholderError(
                         f"unresolved placeholders: {', '.join(unresolved)}"
                     )
-                raw = await self._call_with_timeout_retry(session, call.tool, args, ctx)
-                envelope = tool_result_payload(raw)
                 error: ErrorCode | None = None
                 detail: str | None = None
-                if envelope.get("is_error"):
-                    if classify_envelope(envelope) is ErrorCode.INVALID_ARGS:
-                        args, envelope = await self._try_repair(session, call, args, envelope, ctx)
+                envelope = self.before_call(call.tool, args, ctx)
+                if envelope is None:
+                    raw = await self._call_with_timeout_retry(session, call.tool, args, ctx)
+                    envelope = tool_result_payload(raw)
                     if envelope.get("is_error"):
-                        error = classify_envelope(envelope)
-                        detail = error_text(envelope) or None
+                        if classify_envelope(envelope) is ErrorCode.INVALID_ARGS:
+                            args, envelope = await self._try_repair(
+                                session, call, args, envelope, ctx
+                            )
+                        if envelope.get("is_error"):
+                            error = classify_envelope(envelope)
+                            detail = error_text(envelope) or None
                 learned = self.resolver.learn(ctx.placeholders, envelope)
+                self.harvest(call.tool, envelope, ctx)
                 return ToolResult(
                     tool=call.tool,
                     provider=self.id,
@@ -196,7 +211,11 @@ class McpProvider(ABC):
                     data=envelope,
                     error=error,
                     error_detail=detail,
-                    learned_placeholders=learned,
+                    # Transient placeholders chain in-plan via ctx.placeholders but
+                    # never persist (outlet-specific ids go stale across turns).
+                    learned_placeholders={
+                        k: v for k, v in learned.items() if k not in self.resolver.transient
+                    },
                 )
 
             return await run_calls(execute_one, calls=calls, provider_id=self.id, ctx=ctx)
