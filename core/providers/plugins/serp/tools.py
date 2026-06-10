@@ -101,6 +101,33 @@ _TOOLS: list[Tool] = [
     ),
 ]
 
+_TOOLS.append(
+    Tool(
+        name="get_product_details",
+        provider="serp",
+        description=(
+            "Amazon.in product page for ONE product: price/discount/stock/delivery, "
+            "image gallery, feature bullets, spec table, and a review-sentiment "
+            "summary with per-aspect positives/negatives plus top review excerpts. "
+            "Pass the asin from a prior search_products result (or the session "
+            "brief); pass query instead to auto-resolve the top match."
+        ),
+        params={
+            "type": "object",
+            "properties": {
+                "asin": {"type": "string", "description": "Amazon ASIN, e.g. B0FQFJBBVY"},
+                "query": {
+                    "type": "string",
+                    "description": "Product name — used ONLY when no asin is known",
+                },
+            },
+            "required": [],
+        },
+        auth_mode=AuthMode.NONE,
+        source="static",
+    )
+)
+
 _INSTAGRAM_TOOL = Tool(
     name="instagram_profile",
     provider="serp",

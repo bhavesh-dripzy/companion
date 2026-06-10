@@ -10,6 +10,7 @@ import asyncio
 import pytest
 
 from core.contracts.tool_call import ToolCall
+from core.contracts.tool_result import ToolResult
 from core.pipeline.orchestration import parse_routing
 from core.providers.base import ExecCtx
 from core.providers.plugins.serp import client as serp_client
@@ -223,7 +224,7 @@ def test_budget_exhaustion_is_a_tool_error_not_a_crash(monkeypatch):
 def test_instagram_gated_behind_flag(monkeypatch):
     monkeypatch.delenv("SERP_INSTAGRAM_ENABLED", raising=False)
     names = {t.name for t in SerpProvider().declared_tools()}
-    assert "instagram_profile" not in names and len(names) == 5
+    assert "instagram_profile" not in names and len(names) == 6
     monkeypatch.setenv("SERP_INSTAGRAM_ENABLED", "true")
     names = {t.name for t in SerpProvider().declared_tools()}
     assert "instagram_profile" in names
@@ -324,7 +325,7 @@ def test_serp_cards_emit_dedicated_kinds():
 
 def test_flights_brief_carries_departure_tokens():
     from core.contracts.tool_result import ProviderResult, ToolResult
-    from core.providers.plugins.serp.cards import flights_brief, merge_flights
+    from core.providers.plugins.serp.cards import flights_brief, merge_serp_session
 
     result = ProviderResult(
         provider="serp",
@@ -355,7 +356,7 @@ def test_flights_brief_carries_departure_tokens():
             )
         ],
     )
-    legacy = merge_flights({}, result)
+    legacy = merge_serp_session({}, result)
     rows = legacy["session_serp_flights"]
     assert rows[0]["departure_token"] == "TOK123"
     assert "airline_logo" not in rows[0], "logos don't belong in the planner brief"
@@ -404,3 +405,67 @@ def test_planner_input_carries_the_clock():
     framed = _format_input(ctx)
     assert f"today is {now_ist().strftime('%Y-%m-%d')}" in framed
     assert framed.index("current date-time") < framed.index("flights to Hyderabad")
+
+
+def test_product_details_extraction_and_brief():
+    from core.contracts.tool_result import ProviderResult
+    from core.providers.plugins.serp.cards import merge_serp_session, products_brief
+    from core.providers.plugins.serp.product_detail import extract_product_details
+
+    payload = {
+        "product_results": {
+            "title": "Apple AirPods Pro 3",
+            "asin": "B0FQFJBBVY",
+            "price": "₹23,990",
+            "old_price": "₹25,900",
+            "discount": "-7%",
+            "rating": 4.3,
+            "reviews": 502,
+            "stock": "In stock",
+            "thumbnail": "https://m.media/t.jpg",
+            "thumbnails": [f"https://m.media/{i}.jpg" for i in range(8)],
+            "link_clean": "https://www.amazon.in/dp/B0FQFJBBVY/",
+        },
+        "about_item": ["WORLD'S BEST ANC " + "x" * 200, "Heart rate sensing"],
+        "product_details": {"brand_name": "Apple", "model_name": "AirPods Pro 3"},
+        "reviews_information": {
+            "summary": {
+                "text": "Customers praise the sound quality...",
+                "insights": [
+                    {
+                        "title": "Sound quality",
+                        "sentiment": "positive",
+                        "mentions": {"total": 66, "positive": 55, "negative": 11},
+                    }
+                ],
+            },
+            "authors_reviews": [{"rating": 5, "title": "Great", "body": "Superb bass."}],
+        },
+    }
+    d = extract_product_details(payload)
+    assert d["asin"] == "B0FQFJBBVY" and d["price"] == "₹23,990"
+    assert len(d["images"]) == 5, "image gallery capped"
+    assert d["about"][0].endswith("…"), "bullets trimmed"
+    assert d["review_insights"][0]["positive"] == 55
+    assert d["top_reviews"][0]["text"] == "Superb bass."
+
+    result = ProviderResult(
+        provider="serp",
+        ok=True,
+        results=[
+            ToolResult(
+                tool="search_products",
+                provider="serp",
+                ok=True,
+                data={
+                    "is_error": False,
+                    "data": {
+                        "products": [{"name": "AirPods Pro 3", "asin": "B0F", "price": "₹23,990"}]
+                    },
+                },
+            )
+        ],
+    )
+    legacy = merge_serp_session({}, result)
+    brief = products_brief(legacy)
+    assert "asin=B0F" in brief and "get_product_details" in brief
