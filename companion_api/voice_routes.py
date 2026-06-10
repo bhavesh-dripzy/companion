@@ -617,10 +617,19 @@ async def voice_gemini_token_endpoint(
             ]
         )
         system_instruction = GEMINI_LIVE_SYSTEM_INSTRUCTION + _voice_profile_summary(user)
+        # Pin ONE voice — without speech_config the Live API picks per session,
+        # so users heard a different (male/female) voice every connect.
+        voice_name = secret_or_env("GEMINI_LIVE_VOICE") or "Charon"
+        speech_config = types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+            )
+        )
         live_config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=types.Content(parts=[types.Part(text=system_instruction)]),
             tools=[companion_tool],
+            speech_config=speech_config,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
         )

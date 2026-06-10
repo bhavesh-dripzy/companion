@@ -10,6 +10,11 @@ import { api } from '../api';
 export interface UseGeminiLiveOptions {
   onUserTranscript?: (text: string) => void;
   onAssistantTranscript?: (text: string) => void;
+  // Live stage signals — phase transitions (listening / thinking / speaking)
+  // and the accumulated caption text for the in-flight turn, for the
+  // VoiceStage bar. Distinct from the per-delta transcript callbacks above.
+  onPhase?: (phase: 'listening' | 'thinking' | 'speaking') => void;
+  onCaption?: (role: 'user' | 'assistant', fullText: string) => void;
   onToolCall?: (name: string, args: Record<string, string>, callId: string) => void;
   // Fires once per completed turn with that turn's full transcript and whether
   // it invoked a tool. Used to render each turn live and to persist/leadgen
@@ -50,7 +55,7 @@ function floatTo16BitPCMBase64(input: Float32Array): string {
 }
 
 export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveReturn {
-  const { onUserTranscript, onAssistantTranscript, onToolCall, onTurnComplete, onError, onStateChange } = options;
+  const { onUserTranscript, onAssistantTranscript, onPhase, onCaption, onToolCall, onTurnComplete, onError, onStateChange } = options;
   const [state, setState] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -149,6 +154,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       if (obj.setupComplete !== undefined) {
         setState('connected');
         onStateChange?.('connected');
+        onPhase?.('listening');
         void startMic();
         // Nudge a greeting; text turns don't produce inputTranscription, so this
         // won't pollute the captured user transcript.
@@ -167,10 +173,35 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
         const calls = obj.toolCall.functionCalls || [];
         turnHadToolRef.current = true;
         toolPendingRef.current = true; // mute mic until this turn completes
+        onPhase?.('thinking');
         for (const fc of calls) {
           if (fc?.id) toolNamesRef.current[fc.id] = fc.name;
           onToolCall?.(fc.name, (fc.args || {}) as Record<string, string>, fc.id);
         }
+        // companion_execute is NON_BLOCKING, but in practice the model calls it
+        // and goes silent for the 10-15s the backend needs — dead air. Nudge a
+        // spoken one-liner so it talks WHILE the tool runs; the toolResponse
+        // arrives later with scheduling=INTERRUPT and cuts straight to results.
+        wsRef.current?.send(
+          JSON.stringify({
+            clientContent: {
+              turns: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      text:
+                        '(system: the tool is still running. Speak ONE short, natural Hinglish '
+                        + 'status line right now — e.g. "Ek second, dekh raha hoon…" — tailored to '
+                        + 'what the user asked. Do NOT call any tool. Do NOT invent results.)',
+                    },
+                  ],
+                },
+              ],
+              turnComplete: true,
+            },
+          }),
+        );
         return;
       }
 
@@ -179,10 +210,12 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       if (sc.inputTranscription?.text) {
         turnUserRef.current += sc.inputTranscription.text;
         onUserTranscript?.(sc.inputTranscription.text);
+        onCaption?.('user', turnUserRef.current);
       }
       if (sc.outputTranscription?.text) {
         turnAsstRef.current += sc.outputTranscription.text;
         onAssistantTranscript?.(sc.outputTranscription.text);
+        onCaption?.('assistant', turnAsstRef.current);
       }
       const parts = sc.modelTurn?.parts || [];
       for (const p of parts) {
@@ -190,6 +223,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
           if (!speakingRef.current) {
             speakingRef.current = true;
             setIsSpeaking(true);
+            onPhase?.('speaking');
           }
           playAudioChunk(p.inlineData.data);
         }
@@ -202,6 +236,9 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
         speakingRef.current = false;
         toolPendingRef.current = false; // re-enable mic for the next user turn
         setIsSpeaking(false);
+        onPhase?.('listening');
+        onCaption?.('user', '');
+        onCaption?.('assistant', '');
         const u = turnUserRef.current.trim();
         const a = turnAsstRef.current.trim();
         const hadTool = turnHadToolRef.current;
@@ -211,7 +248,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
         if (u || a) onTurnComplete?.(u, a, hadTool);
       }
     },
-    [onStateChange, onToolCall, onUserTranscript, onAssistantTranscript, onTurnComplete, startMic, playAudioChunk],
+    [onStateChange, onToolCall, onUserTranscript, onAssistantTranscript, onPhase, onCaption, onTurnComplete, startMic, playAudioChunk],
   );
 
   const connect = useCallback(async () => {

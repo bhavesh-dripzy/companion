@@ -14,6 +14,7 @@ import remarkBreaks from 'remark-breaks';
 import { motion } from 'motion/react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { AddressChoices, AttachmentList, looksLikeAddressPrompt } from '../ChatLog';
+import { ActivityTrail } from './ActivityTrail';
 import type { Message, SessionAddress } from '../types';
 
 interface ChatMessageItemProps {
@@ -78,8 +79,10 @@ export function ChatMessageItem({
         </div>
       )}
 
-      {/* Bubble body + cards + chips */}
+      {/* Bubble body + cards + chips. Cards-only turns (voice tool results
+          flushed without narration) skip the empty bubble shell. */}
       <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : 'max-w-[88%] flex-1'}`}>
+        {(msg.content || '').trim() && (
         <div
           className={`animate-fade-in px-5 py-3 rounded-[20px] text-[14.5px] leading-relaxed transition-all duration-200 max-w-full ${
             isUser
@@ -97,6 +100,7 @@ export function ChatMessageItem({
             <ReactMarkdown remarkPlugins={[remarkBreaks]}>{msg.content}</ReactMarkdown>
           </div>
         </div>
+        )}
 
         {/* Real attachments (menu_cards / restaurant_cards / cart_card /
             QR images) rendered via the existing component so all the
@@ -116,38 +120,15 @@ export function ChatMessageItem({
           <AddressChoices addresses={sessionAddresses} onSelect={onSelectAddress} />
         )}
 
-        {/* Meta chips ("zomato_food", "tools ok", etc.) — kept for
-            parity with the previous skin so users can still see which
-            provider handled a turn at a glance. */}
-        {msg.meta && msg.meta.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-2">
-            {msg.meta.map((m, idx) => (
-              <span
-                key={idx}
-                className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-white/70 border border-slate-200/70 rounded-md text-slate-500"
-              >
-                {m}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Collapsible trace details — preserved from the prior skin
-            so debug/observability info stays one click away. */}
-        {msg.trace && msg.trace.length > 0 && (
-          <details className="mt-2 w-full">
-            <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-700 transition-colors font-medium">
-              View trace details
-            </summary>
-            <div className="mt-2 space-y-2 p-3 bg-white/70 rounded-xl border border-slate-200/70">
-              {msg.trace.map((t: any, idx: number) => (
-                <div key={idx} className="text-[11px] grid grid-cols-[80px_1fr] gap-2">
-                  <span className="text-slate-700 font-semibold">{t.provider || t.stage}:</span>
-                  <span className="text-slate-500 truncate">{t.detail}</span>
-                </div>
-              ))}
-            </div>
-          </details>
+        {/* Human activity trail — replaces the raw meta chips + "View trace
+            details" block with a warm status pill and friendly step rail. */}
+        {!isUser && ((msg.meta && msg.meta.length > 0) || (msg.trace && msg.trace.length > 0)) && (
+          <ActivityTrail
+            meta={msg.meta}
+            trace={msg.trace}
+            toolsOk={msg.toolsOk}
+            toolsError={msg.toolsError}
+          />
         )}
 
         {/* Timestamp + like buttons (assistant only) */}
