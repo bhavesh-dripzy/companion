@@ -8,7 +8,7 @@ narrator produces the message text and degrades gracefully if the LLM is absent.
 from __future__ import annotations
 
 import json
-from collections import Counter
+from typing import Any
 
 from core.pipeline.context import PipelineContext
 
@@ -21,6 +21,13 @@ _RESPONSE_PROMPT = (
     "Successful results are rendered to the user as rich cards beside your reply "
     "(the 'Cards rendered' line lists them) — summarize them confidently and point "
     "at the cards; never enumerate every row.\n"
+    "Every tool result is tagged with its platform ([<platform>.<tool>]), and the "
+    "'Cards rendered' lines name the platform each card set came from. Attribute "
+    "every fact (items, prices, ratings, menus) to its tagged platform — NEVER "
+    "present one platform's data as another's. When the user asks to compare "
+    "platforms, report each side strictly from its own tagged results; if one "
+    "side's tools failed or returned nothing, say that about that platform only — "
+    "do not claim a platform had no results while its cards are being rendered.\n"
     "If some tools failed while others succeeded, lead with what succeeded and "
     "mention the failure only if it blocks what the user asked for. NEVER give a "
     "blanket 'technical issue' apology while results are being shown.\n"
@@ -48,6 +55,23 @@ def _conversation(ctx: PipelineContext) -> str:
     return "Conversation so far:\n" + "\n".join(lines)
 
 
+def _card_line(attachment: Any) -> str:
+    """One 'Cards rendered' line: platform, kind, and the top entry names —
+    ground truth the narrator can cite even when raw tool blobs are truncated."""
+    wire = attachment.to_wire()
+    source = str(wire.get("source") or wire.get("provider") or "").split(".")[0] or "unknown"
+    entries = wire.get("restaurants") or wire.get("items") or wire.get("products") or []
+    names = [
+        str(e.get("name") or e.get("item_name") or "").strip()
+        for e in entries[:6]
+        if isinstance(e, dict)
+    ]
+    names = [n for n in names if n]
+    extra = f", +{len(entries) - 6} more" if names and len(entries) > 6 else ""
+    tail = f": {', '.join(names)}{extra}" if names else ""
+    return f"  - [{source}] {wire.get('kind')} ({len(entries)} entries){tail}"
+
+
 def _results_summary(ctx: PipelineContext) -> str:
     parts: list[str] = []
     for result in ctx.provider_results:
@@ -59,9 +83,8 @@ def _results_summary(ctx: PipelineContext) -> str:
     if ctx.blocked:
         parts.append("Blocked pending confirmation: " + ", ".join(c.tool for c in ctx.blocked))
     if ctx.attachments:
-        kinds = Counter(a.kind for a in ctx.attachments)
-        rendered = ", ".join(kind if n == 1 else f"{kind} x{n}" for kind, n in kinds.items())
-        parts.append(f"Cards rendered to the user this turn: {rendered}")
+        parts.append("Cards rendered to the user this turn:")
+        parts.extend(_card_line(a) for a in ctx.attachments)
     return "\n".join(parts) or "(no tools ran)"
 
 

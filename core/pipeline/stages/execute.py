@@ -13,6 +13,7 @@ from core.middleware.dispatcher import Dispatcher
 from core.middleware.repair import RepairBudget
 from core.pipeline.context import PipelineContext
 from core.providers.base import ExecCtx
+from core.providers.mcp.placeholders import provider_view
 
 
 def _exec_ctx_for(ctx: PipelineContext, provider_id: str, budget: RepairBudget) -> ExecCtx:
@@ -22,7 +23,9 @@ def _exec_ctx_for(ctx: PipelineContext, provider_id: str, budget: RepairBudget) 
         user_id=ctx.request.user_id,
         address_id=ctx.session.selected_address_id,
         user_geo=ctx.request.user_geo,
-        placeholders=dict(ctx.session.placeholders),
+        # Each provider sees only its own placeholder slice — a __RESTAURANT_ID__
+        # learned on one platform must never substitute into another's tools.
+        placeholders=provider_view(ctx.session.placeholders, provider_id),
         session=dict(ctx.session.legacy),  # the flat legacy bag the adapters read
         llm=ctx.llm,
         requested_location_text=plan.constraints.requested_location_text if plan else None,

@@ -59,13 +59,21 @@ def first_address_id(payload: dict[str, Any]) -> str | None:
 
 
 def merge_saved_addresses(
-    merged: dict[str, Any], results: Any, *, key: str = "session_addresses"
+    merged: dict[str, Any], results: Any, *, provider: str, key: str = "session_addresses"
 ) -> None:
-    """Surface saved-address rows into ``merged[key]`` (in place).
+    """Surface saved-address rows into ``merged[key]`` (in place), provider-scoped.
 
-    ``key`` is the provider's flat session_* namespace for saved addresses."""
+    Address ids are platform-specific, so rows are stamped with ``provider`` and
+    only this provider's (or untagged legacy) rows are replaced — a fan-out turn
+    can no longer clobber another platform's saved addresses."""
     for tr in results:
         if getattr(tr, "ok", False) and "address" in getattr(tr, "tool", "").lower():
             rows = extract_address_rows(tr.data if isinstance(tr.data, dict) else {})
             if rows:
-                merged[key] = rows
+                prior = merged.get(key) if isinstance(merged.get(key), list) else []
+                kept = [
+                    r
+                    for r in prior
+                    if isinstance(r, dict) and str(r.get("provider") or provider) != provider
+                ]
+                merged[key] = [{**r, "provider": provider} for r in rows] + kept

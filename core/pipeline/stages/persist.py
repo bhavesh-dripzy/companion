@@ -11,6 +11,7 @@ import uuid
 
 from core.contracts.turn_event import TurnEvent
 from core.pipeline.context import PipelineContext
+from core.providers.mcp.placeholders import fold_learned
 
 
 def _routed_provider(ctx: PipelineContext) -> str | None:
@@ -30,7 +31,9 @@ class Persist:
                 # provider only touches its own keys, so chaining is safe.
                 ctx.session.legacy = provider.merge(ctx.session.legacy, result)
             for tool_result in result.results:
-                ctx.session.placeholders.update(tool_result.learned_placeholders)
+                fold_learned(
+                    ctx.session.placeholders, result.provider, tool_result.learned_placeholders
+                )
 
         if ctx.request.user_id:
             event = TurnEvent(

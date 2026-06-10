@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.contracts.tool_result import ToolResult
-from core.providers.mcp.lru import lru_merge
+from core.providers.mcp.lru import backfill_fields, scoped_lru_merge
 
 _MAX_MENU_ITEMS = 35
 _MENU_TOOLS = {"get_menu_items_listing", "get_restaurant_menu_by_categories"}
@@ -141,4 +141,13 @@ def merge_menu(
             fresh.extend(keyword_entries(envelope))
     if not fresh and not prior:
         return []
-    return lru_merge(prior, fresh, key=_key, cap=_MAX_MENU_ITEMS)
+    return scoped_lru_merge(
+        prior,
+        fresh,
+        provider="zomato",
+        key=_key,
+        cap=_MAX_MENU_ITEMS,
+        combine=backfill_fields(
+            "price", "discounted_price", "categories", "variants", "available_add_ons"
+        ),
+    )

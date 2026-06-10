@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from typing import Any
 
-# Max remembered restaurants — matches the executors' cap and the card cap so the
-# LRU, the visible cards, and narration always agree.
+from core.providers.mcp.lru import scoped_lru_merge
+
+# Max remembered restaurants PER PROVIDER — matches the executors' cap and the
+# card cap so the LRU, the visible cards, and narration always agree.
 MAX_REMEMBERED = 8
 # Lean projection stored in session: the planner needs id+name; the rest is for
 # the next-turn context line. Mirrors the legacy executors' session shape.
@@ -23,19 +25,18 @@ def lean(entry: dict[str, Any]) -> dict[str, Any]:
     return {k: entry[k] for k in _SESSION_FIELDS if k in entry}
 
 
+def _valid(entry: dict[str, Any]) -> bool:
+    return bool(str(entry.get("res_id") or "").strip() and str(entry.get("name") or "").strip())
+
+
 def lru_merge(
-    prior: list[dict[str, Any]] | None, fresh: list[dict[str, Any]]
+    prior: list[dict[str, Any]] | None, fresh: list[dict[str, Any]], *, provider: str
 ) -> list[dict[str, Any]]:
-    """Most-recent-first LRU: this turn's hits, then prior, deduped by res_id, capped."""
-    merged: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for entry in [*fresh, *(prior or [])]:
-        rid = str(entry.get("res_id") or "").strip()
-        name = str(entry.get("name") or "").strip()
-        if not rid or not name or rid in seen:
-            continue
-        seen.add(rid)
-        merged.append({**entry, "res_id": rid, "name": name})
-        if len(merged) >= MAX_REMEMBERED:
-            break
-    return merged
+    """Most-recent-first restaurant LRU, scoped per provider (`scoped_lru_merge`)."""
+    return scoped_lru_merge(
+        [e for e in (prior or []) if isinstance(e, dict) and _valid(e)],
+        [e for e in fresh if isinstance(e, dict) and _valid(e)],
+        provider=provider,
+        key=lambda e: str(e.get("res_id") or "").strip(),
+        cap=MAX_REMEMBERED,
+    )

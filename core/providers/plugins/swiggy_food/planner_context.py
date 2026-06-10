@@ -17,22 +17,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.providers.mcp.planner_context import placeholders_block, rows_for_provider
+
+_PROVIDER_ID = "swiggy_food"
+
 
 def _rows(value: Any, cap: int) -> list[Any]:
     """Capped list of the value (``[]`` for non-lists) — defensive iteration."""
     return value[:cap] if isinstance(value, list) else []
-
-
-def _placeholders_block(placeholders: Any) -> str | None:
-    src = placeholders if isinstance(placeholders, dict) else {}
-    keys = sorted({str(k) for k in src if isinstance(k, str) and k.strip()})
-    if not keys:
-        return None
-    return (
-        "Carried-forward placeholders available (set by previous turns; "
-        "use them directly in tool arguments — the executor will substitute "
-        "the real values): " + ", ".join(keys)
-    )
 
 
 def _restaurants_block(session_restaurants: Any) -> str | None:
@@ -52,9 +44,9 @@ def _restaurants_block(session_restaurants: Any) -> str | None:
     return (
         "Restaurants already shown to the user this session — if the "
         "user picks one of these by name, use the literal res_id below "
-        "instead of running get_restaurants_for_keyword again "
-        "(Zomato's keyword search is fuzzy and often returns the wrong "
-        "restaurant for short brand names):\n" + "\n".join(rows)
+        "instead of running search_restaurants again (keyword search is "
+        "fuzzy and often returns the wrong restaurant for short brand "
+        "names):\n" + "\n".join(rows)
     )
 
 
@@ -241,10 +233,13 @@ def build_context(ctx: Any) -> str:
     session = ctx.session
     legacy = session.legacy if isinstance(session.legacy, dict) else {}
     parts: list[str | None] = [
-        _placeholders_block(session.placeholders),
-        _restaurants_block(legacy.get("session_restaurants")),
-        _addresses_block(legacy.get("session_addresses"), session.selected_address_id),
-        _menu_block(legacy.get("session_menu")),
+        placeholders_block(session.placeholders, _PROVIDER_ID),
+        _restaurants_block(rows_for_provider(legacy.get("session_restaurants"), _PROVIDER_ID)),
+        _addresses_block(
+            rows_for_provider(legacy.get("session_addresses"), _PROVIDER_ID),
+            session.selected_address_id,
+        ),
+        _menu_block(rows_for_provider(legacy.get("session_menu"), _PROVIDER_ID)),
         _pending_variant_block(session.pending_variant_choice),
     ]
     return "\n\n".join(block for block in parts if block)

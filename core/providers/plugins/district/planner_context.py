@@ -21,6 +21,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from core.providers.mcp.planner_context import placeholders_block
+
 # District operates in India and the LLM has no clock of its own; resolve "today"
 # / "tomorrow" / "this weekend" against IST. ZoneInfo handles DST/offset cleanly;
 # fall back to a fixed +05:30 offset if the tz database is unavailable.
@@ -60,19 +62,6 @@ def _rows(entries: Any, id_key: str, cap: int) -> list[str]:
         if ident and name:
             out.append(f"  - {name} → {id_key}={ident}")
     return out
-
-
-def _placeholders_block(placeholders: Any) -> str | None:
-    if not isinstance(placeholders, dict):
-        return None
-    keys = sorted({str(k) for k in placeholders if isinstance(k, str) and k.strip()})
-    if not keys:
-        return None
-    return (
-        "Carried-forward placeholders available (set by previous turns; "
-        "use them directly in tool arguments — the executor will substitute "
-        "the real values): " + ", ".join(keys)
-    )
 
 
 def _restaurants_block(entries: Any) -> str | None:
@@ -195,7 +184,7 @@ def build_context(ctx: Any) -> str:
 
     parts: list[str | None] = [
         _date_context(),
-        _placeholders_block(placeholders),
+        placeholders_block(placeholders, "district"),
         _restaurants_block(legacy.get("session_restaurants")),
         _movies_block(legacy.get("session_movies")),
         _theatres_block(legacy.get("session_theatres")),

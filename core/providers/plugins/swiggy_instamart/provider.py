@@ -52,7 +52,9 @@ class SwiggyInstamartProvider(McpProvider):
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)
-        merge_saved_addresses(merged, result.results, key=self.saved_addresses_session_key)
+        merge_saved_addresses(
+            merged, result.results, provider=self.id, key=self.saved_addresses_session_key
+        )
         products = merge_products(slice_.get("session_instamart_products"), result.results)
         if products:
             merged["session_instamart_products"] = products

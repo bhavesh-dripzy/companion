@@ -19,16 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-
-def _placeholders_block(placeholders: dict[str, Any]) -> str | None:
-    keys = sorted({str(k) for k in placeholders if isinstance(k, str) and k.strip()})
-    if not keys:
-        return None
-    return (
-        "Carried-forward placeholders available (set by previous turns; "
-        "use them directly in tool arguments — the executor will substitute "
-        "the real values): " + ", ".join(keys)
-    )
+from core.providers.mcp.planner_context import placeholders_block
 
 
 def _products_block(session_instamart_products: Any) -> str | None:
@@ -138,7 +129,7 @@ def build_context(ctx: Any) -> str:
     session = ctx.session
     legacy = session.legacy if isinstance(session.legacy, dict) else {}
     parts: list[str | None] = [
-        _placeholders_block(session.placeholders or {}),
+        placeholders_block(session.placeholders or {}, "swiggy_instamart"),
         _products_block(legacy.get("session_instamart_products")),
         _addresses_block(legacy.get("session_instamart_addresses"), session.selected_address_id),
         _cart_block(legacy.get("session_instamart_cart")),

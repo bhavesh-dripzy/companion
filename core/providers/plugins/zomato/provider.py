@@ -97,7 +97,7 @@ class ZomatoProvider(McpProvider):
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)
-        merge_saved_addresses(merged, result.results)
+        merge_saved_addresses(merged, result.results, provider=self.id)
         restaurants = merge_restaurants(slice_.get("session_restaurants"), result.results)
         if restaurants:
             merged["session_restaurants"] = restaurants

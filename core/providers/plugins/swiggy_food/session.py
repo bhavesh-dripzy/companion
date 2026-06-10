@@ -9,7 +9,7 @@ from pydantic import Field
 from core.contracts.session import ProviderSessionState
 from core.contracts.tool_result import ToolResult
 from core.providers.mcp.food_session import lean, lru_merge
-from core.providers.mcp.lru import lru_merge as lru_merge_keyed
+from core.providers.mcp.lru import backfill_fields, scoped_lru_merge
 from core.providers.plugins.swiggy_food.cards import restaurant_entries
 from core.providers.plugins.swiggy_food.menu_cards import menu_entries
 
@@ -33,7 +33,7 @@ def merge_restaurants(
             continue
         envelope = tr.data if isinstance(tr.data, dict) else {}
         fresh.extend(lean(e) for e in restaurant_entries(envelope))
-    return lru_merge(prior, fresh)
+    return lru_merge(prior, fresh, provider="swiggy_food")
 
 
 def merge_menu(
@@ -48,4 +48,11 @@ def merge_menu(
         if envelope.get("is_error"):
             continue
         fresh.extend(menu_entries(envelope))
-    return lru_merge_keyed(prior, fresh, key=lambda e: e.get("variant_id"), cap=_MAX_MENU_ITEMS)
+    return scoped_lru_merge(
+        prior,
+        fresh,
+        provider="swiggy_food",
+        key=lambda e: e.get("variant_id"),
+        cap=_MAX_MENU_ITEMS,
+        combine=backfill_fields("price", "discounted_price"),
+    )

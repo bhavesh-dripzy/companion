@@ -46,12 +46,26 @@ _RESTAURANT_SCOPED_TOOLS = frozenset(
 )
 
 
+def _is_ad_row(row: dict[str, Any]) -> bool:
+    """Promoted rows: Swiggy suffixes the name with '(Ad)' and/or sets ad flags."""
+    name = str(row.get("name") or "").strip().lower()
+    return (
+        name.endswith("(ad)")
+        or bool(row.get("promoted"))
+        or bool(row.get("isAd"))
+        or bool(row.get("adTrackingId"))
+    )
+
+
 def _first_restaurant_id(payload: dict[str, Any]) -> str | None:
-    """First REAL restaurant id from a non-error `search_restaurants` envelope.
+    """First ORGANIC restaurant id from a non-error `search_restaurants` envelope.
 
     Dish rows (Swiggy's universal search mixes them into restaurants[] for dish
     queries) are skipped — learning a menu-item id as __RESTAURANT_ID__ would
-    poison every downstream menu/cart step."""
+    poison every downstream menu/cart step. Promoted '(Ad)' rows rank first but
+    rarely match the query (a falooda search led with a biryani ad), so the id
+    is learned from the first organic hit, falling back to an ad only when the
+    page is all ads."""
     from core.providers.plugins.swiggy_food.cards import is_restaurant_row
 
     if not isinstance(payload, dict) or payload.get("is_error"):
@@ -62,14 +76,19 @@ def _first_restaurant_id(payload: dict[str, Any]) -> str | None:
         data = inner if isinstance(inner, dict) else data
     if not isinstance(data, dict) or not isinstance(data.get("restaurants"), list):
         return None
+    first_ad: str | None = None
     for row in data["restaurants"]:
         if not is_restaurant_row(row):
             continue
         rid = row.get("id") or row.get("restaurant_id") or row.get("restaurantId")
         text = str(rid).strip() if rid is not None else ""
-        if text:
-            return text
-    return None
+        if not text:
+            continue
+        if _is_ad_row(row):
+            first_ad = first_ad or text
+            continue
+        return text
+    return first_ad
 
 
 class SwiggyFoodResolver(PlaceholderResolver):

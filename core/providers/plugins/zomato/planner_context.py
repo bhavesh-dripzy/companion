@@ -21,21 +21,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.providers.mcp.planner_context import placeholders_block, rows_for_provider
+
+_PROVIDER_ID = "zomato"
+
 
 def _rows(value: Any) -> list[dict[str, Any]]:
-    """Coerce a session list slice to a list of dict rows (defensive)."""
-    return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
-
-
-def _placeholders_block(placeholders: dict[str, str]) -> str | None:
-    keys = sorted({str(k) for k in placeholders if isinstance(k, str) and k.strip()})
-    if not keys:
-        return None
-    return (
-        "Carried-forward placeholders available (set by previous turns; "
-        "use them directly in tool arguments — the executor will substitute "
-        "the real values): " + ", ".join(keys)
-    )
+    """This provider's rows of a shared session list (foreign-platform ids hidden)."""
+    return rows_for_provider(value, _PROVIDER_ID)
 
 
 def _restaurants_block(restaurants: list[dict[str, Any]]) -> str | None:
@@ -223,7 +216,7 @@ def build_context(ctx: Any) -> str:
     )
 
     blocks = [
-        _placeholders_block(placeholders),
+        placeholders_block(placeholders, _PROVIDER_ID),
         _restaurants_block(_rows(legacy.get("session_restaurants"))),
         _addresses_block(_rows(legacy.get("session_addresses")), session.selected_address_id),
         _menu_block(_rows(legacy.get("session_menu"))),

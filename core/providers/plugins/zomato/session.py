@@ -38,4 +38,4 @@ def merge_restaurants(
             continue
         envelope = tr.data if isinstance(tr.data, dict) else {}
         fresh.extend(lean(e) for e in restaurant_entries(envelope))
-    return lru_merge(prior, fresh)
+    return lru_merge(prior, fresh, provider="zomato")

@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.providers.mcp.planner_context import placeholders_block
+
 
 def build_context(ctx: Any) -> str:
     """Render the Kite session brief; join present blocks with blank lines.
@@ -34,23 +36,15 @@ def build_context(ctx: Any) -> str:
     placeholders = placeholders if isinstance(placeholders, dict) else {}
 
     parts: list[str] = []
-    _add_placeholders(parts, placeholders)
+    block = placeholders_block(placeholders, "kite")
+    if block:
+        parts.append(block)
     _add_instruments(parts, legacy.get("session_kite_instruments"))
     _add_holdings(parts, legacy.get("session_kite_holdings"))
     _add_positions(parts, legacy.get("session_kite_positions"))
     _add_open_orders(parts, legacy.get("session_kite_open_orders"))
     _add_order_ticket(parts, legacy.get("session_kite_order_ticket"))
     return "\n\n".join(parts)
-
-
-def _add_placeholders(parts: list[str], placeholders: dict[str, str]) -> None:
-    keys = sorted({str(k) for k in placeholders if isinstance(k, str) and k.strip()})
-    if keys:
-        parts.append(
-            "Carried-forward placeholders available (set by previous turns; "
-            "use them directly in tool arguments — the executor will substitute "
-            "the real values): " + ", ".join(keys)
-        )
 
 
 def _add_instruments(parts: list[str], instruments: Any) -> None:

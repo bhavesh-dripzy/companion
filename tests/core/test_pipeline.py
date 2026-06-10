@@ -185,4 +185,5 @@ def test_narrate_results_summary_lists_rendered_cards():
     summary = _results_summary(ctx)
     assert "[district.search_movies ok]" in summary
     assert "[district.search_shows error" in summary
-    assert "Cards rendered to the user this turn: movie_cards x2" in summary
+    assert "Cards rendered to the user this turn:" in summary
+    assert summary.count("[district] movie_cards") == 2

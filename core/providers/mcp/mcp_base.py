@@ -32,6 +32,7 @@ from core.providers.base import ExecCtx
 from core.providers.mcp.address import extract_address_rows
 from core.providers.mcp.connection import StdioSpec, call_tool, list_tools, mcp_session
 from core.providers.mcp.placeholders import PlaceholderResolver
+from core.providers.mcp.planner_context import rows_for_provider
 from core.providers.mcp.result_parse import tool_result_payload
 from core.providers.runner import run_calls
 
@@ -90,8 +91,9 @@ class McpProvider(ABC):
             return
         key = self.saved_addresses_session_key
         carried = ctx.session.get(key) if isinstance(ctx.session, dict) else None
-        if isinstance(carried, list) and carried:
-            aid = str((carried[0] or {}).get("address_id") or "").strip()
+        mine = rows_for_provider(carried, self.id)
+        if mine:
+            aid = str(mine[0].get("address_id") or "").strip()
             if aid:
                 ctx.placeholders["__ADDRESS_ID__"] = aid
                 return

@@ -16,6 +16,34 @@ from typing import Any
 # instead of leaking literal placeholder strings to the server.
 _PLACEHOLDER_TOKEN = re.compile(r"__[A-Z][A-Z0-9_]*__")
 
+# Separator for provider-scoped session keys ("zomato:__RESTAURANT_ID__").
+# Every placeholder value is provider-specific (a Swiggy res_id means nothing
+# to Zomato), so the session stores them scoped; each provider works on a
+# bare-key view of its own slice.
+SCOPE_SEP = ":"
+
+
+def provider_view(values: dict[str, str], provider_id: str) -> dict[str, str]:
+    """Bare-key view of one provider's placeholders.
+
+    Scoped `provider:key` entries win; bare legacy keys (pre-scoping sessions)
+    fall back; other providers' scoped entries are invisible."""
+    view = {k: v for k, v in values.items() if SCOPE_SEP not in k}
+    prefix = f"{provider_id}{SCOPE_SEP}"
+    view.update({k[len(prefix) :]: v for k, v in values.items() if k.startswith(prefix)})
+    return view
+
+
+def fold_learned(values: dict[str, str], provider_id: str, learned: dict[str, str]) -> None:
+    """Store a turn's learned placeholders scoped to their provider.
+
+    The bare duplicate is retired so a stale ambiguous value can never leak
+    into another provider's view (the cross-platform id-poisoning bug)."""
+    for key, value in learned.items():
+        values[f"{provider_id}{SCOPE_SEP}{key}"] = value
+        values.pop(key, None)
+
+
 # placeholder -> response field names that carry its value (dual-key aware).
 DEFAULT_ALIASES: dict[str, tuple[str, ...]] = {
     "__ADDRESS_ID__": ("address_id", "addressId"),
