@@ -1701,6 +1701,8 @@ export const AttachmentList: React.FC<{
             flights={att.flight_options}
             route={att.route}
             leg={att.leg}
+            outboundDate={att.outbound_date}
+            returnDate={att.return_date}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />

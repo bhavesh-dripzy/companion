@@ -52,6 +52,9 @@ def build_serp_cards(result: ProviderResult, provider_id: str) -> list[Attachmen
             route = f"{args.get('departure_id', '')} → {args.get('arrival_id', '')}".strip(" →")
             if route:
                 payload["route"] = route
+            for date_field in ("outbound_date", "return_date"):
+                if args.get(date_field):
+                    payload[date_field] = args[date_field]
             if args.get("departure_token"):
                 payload["leg"] = "return"
         if tr.tool in ("search_hotels", "search_places", "search_products", "youtube_search"):

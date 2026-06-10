@@ -538,6 +538,8 @@ export interface Attachment {
   flight_options?: FlightOption[];
   route?: string;
   leg?: string;
+  outbound_date?: string;
+  return_date?: string;
   lowest_price?: number;
   hotel_options?: HotelOption[];
   place_results?: PlaceResult[];

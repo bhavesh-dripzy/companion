@@ -67,9 +67,11 @@ export const FlightCardGrid: React.FC<{
   flights: FlightOption[];
   route?: string;
   leg?: string;
+  outboundDate?: string;
+  returnDate?: string;
   onQuickPrompt?: QuickPrompt;
   disabled?: boolean;
-}> = ({ flights, route, leg, onQuickPrompt, disabled }) => (
+}> = ({ flights, route, leg, outboundDate, returnDate, onQuickPrompt, disabled }) => (
   <Shell
     icon={<Plane size={14} />}
     label={leg === 'return' ? `Return flights${route ? ` — ${route}` : ''}` : `Flights${route ? ` — ${route}` : ''}`}
@@ -79,10 +81,17 @@ export const FlightCardGrid: React.FC<{
       {flights.map((f, idx) => {
         const first = f.legs?.[0];
         const last = f.legs?.[f.legs.length - 1];
+        const gflights = `https://www.google.com/travel/flights?q=${encodeURIComponent(
+          `flights from ${first?.from || ''} to ${last?.to || ''}${outboundDate ? ` on ${outboundDate}` : ''}${returnDate ? ` returning ${returnDate}` : ''}`,
+        )}`;
         return (
           <div
             key={idx}
-            className="w-64 shrink-0 rounded-xl border border-slate-200/80 bg-white p-3 hover:shadow-md hover:-translate-y-0.5 transition-all"
+            role="link"
+            tabIndex={0}
+            onClick={() => window.open(gflights, '_blank', 'noopener')}
+            onKeyDown={(e) => e.key === 'Enter' && window.open(gflights, '_blank', 'noopener')}
+            className="w-64 shrink-0 cursor-pointer rounded-xl border border-slate-200/80 bg-white p-3 outline-none hover:shadow-md hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-slate-300 transition-all"
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 min-w-0">
@@ -122,7 +131,10 @@ export const FlightCardGrid: React.FC<{
               <button
                 type="button"
                 disabled={disabled}
-                onClick={() => onQuickPrompt(`Show return flights for the ₹${f.price} option`)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onQuickPrompt(`Show return flights for the ₹${f.price} option`);
+                }}
                 className="mt-2 w-full rounded-full border border-slate-200 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
               >
                 Return options
@@ -147,7 +159,7 @@ export const HotelCardGrid: React.FC<{ hotels: HotelOption[]; keyword?: string }
           href={h.link || undefined}
           target="_blank"
           rel="noreferrer"
-          className="w-56 shrink-0 rounded-xl border border-slate-200/80 bg-white overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all"
+          className="w-56 shrink-0 rounded-xl border border-slate-200/80 bg-white overflow-hidden outline-none hover:shadow-md hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-slate-300 transition-all"
         >
           {h.image ? (
             <img src={h.image} alt="" className="h-24 w-full object-cover" />
@@ -183,36 +195,48 @@ export const PlaceCardGrid: React.FC<{ places: PlaceResult[]; keyword?: string }
 }) => (
   <Shell icon={<MapPinned size={14} />} label="Places" trailing={keyword}>
     <Scroller>
-      {places.map((p, idx) => (
-        <a
-          key={idx}
-          href={p.website || undefined}
-          target="_blank"
-          rel="noreferrer"
-          className="w-56 shrink-0 rounded-xl border border-slate-200/80 bg-white p-2.5 hover:shadow-md hover:-translate-y-0.5 transition-all"
-        >
-          <div className="flex items-start gap-2">
+      {places.map((p, idx) => {
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+          [p.name, p.address].filter(Boolean).join(' '),
+        )}`;
+        return (
+          <a
+            key={idx}
+            href={p.website || mapsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="w-60 shrink-0 rounded-xl border border-slate-200/80 bg-white overflow-hidden outline-none hover:shadow-md hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-slate-300 transition-all"
+          >
             {p.image ? (
-              <img src={p.image} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+              <div className="relative h-24 w-full bg-slate-100">
+                <img src={p.image} alt="" className="h-full w-full object-cover" />
+                {p.open_state ? (
+                  <span className="absolute bottom-1.5 left-1.5 rounded-full bg-white/95 px-2 py-0.5 text-[8.5px] font-extrabold uppercase tracking-wide text-emerald-700 shadow-sm">
+                    {p.open_state}
+                  </span>
+                ) : null}
+              </div>
             ) : null}
-            <div className="min-w-0">
-              <p className="text-[11.5px] font-extrabold text-slate-900 leading-tight line-clamp-1">
+            <div className="p-2.5">
+              <p className="text-[12px] font-extrabold text-slate-900 leading-tight line-clamp-1">
                 {p.name}
               </p>
-              <p className="text-[9.5px] text-slate-500">{p.category}</p>
+              <div className="mt-0.5 flex items-center gap-1.5 text-[9.5px] text-slate-500">
+                <span>{p.category}</span>
+                {!p.image && p.open_state ? (
+                  <span className="font-bold text-emerald-700">{p.open_state}</span>
+                ) : null}
+              </div>
+              <div className="mt-1.5">
+                <RatingChip rating={p.rating} reviews={p.reviews} />
+              </div>
+              {p.address ? (
+                <p className="mt-1 text-[9.5px] leading-snug text-slate-500 line-clamp-2">{p.address}</p>
+              ) : null}
             </div>
-          </div>
-          <div className="mt-1.5 flex items-center justify-between">
-            <RatingChip rating={p.rating} reviews={p.reviews} />
-            {p.open_state ? (
-              <span className="text-[9px] font-bold text-emerald-700">{p.open_state}</span>
-            ) : null}
-          </div>
-          {p.address ? (
-            <p className="mt-1 text-[9.5px] text-slate-500 line-clamp-2">{p.address}</p>
-          ) : null}
-        </a>
-      ))}
+          </a>
+        );
+      })}
     </Scroller>
   </Shell>
 );
@@ -229,7 +253,7 @@ export const ShopProductCardGrid: React.FC<{ products: ShopProduct[]; keyword?: 
           href={p.link || undefined}
           target="_blank"
           rel="noreferrer"
-          className="w-44 shrink-0 rounded-xl border border-slate-200/80 bg-white p-2.5 hover:shadow-md hover:-translate-y-0.5 transition-all"
+          className="w-44 shrink-0 rounded-xl border border-slate-200/80 bg-white p-2.5 outline-none hover:shadow-md hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-slate-300 transition-all"
         >
           {p.image ? (
             <img src={p.image} alt="" className="h-24 w-full object-contain" />
