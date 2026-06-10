@@ -35,14 +35,17 @@ import {
 } from 'lucide-react';
 import type {
   Attachment,
+  KiteGttRow,
   KiteHoldings,
   KiteHoldingRow,
   KiteInstrumentCardEntry,
   KiteMargin,
+  KiteMfRow,
   KiteOpenOrder,
   KiteOrderTicket,
   KitePositionRow,
   KitePositions,
+  KiteTradeRow,
 } from '../types';
 import { cn } from '../utils';
 import { themeFor } from '../ChatLog';
@@ -829,3 +832,155 @@ export const KiteOrderTicketCard: React.FC<{
     </div>
   );
 };
+
+/* ----------------------- GTT / trades / MF holdings ----------------------- */
+
+const KiteTableShell: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  children: React.ReactNode;
+}> = ({ icon, label, count, children }) => {
+  const theme = themeFor('kite');
+  return (
+    <div className="mt-3 w-full max-w-full md:max-w-lg animate-fade-in">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div
+          className="flex items-center justify-between px-4 py-2.5"
+          style={{
+            background: `linear-gradient(to right, ${theme.brandHex}26, transparent)`,
+            borderBottomColor: `${theme.brandHex}33`,
+            borderBottomWidth: 1,
+          }}
+        >
+          <div className="flex items-center gap-1.5" style={{ color: theme.brandHex }}>
+            {icon}
+            <span className="text-[11px] font-bold uppercase tracking-wider">{label}</span>
+          </div>
+          <span className="text-[10px] text-slate-500 font-semibold">{count}</span>
+        </div>
+        <div className="overflow-x-auto">{children}</div>
+      </div>
+    </div>
+  );
+};
+
+const kiteTh = 'py-1.5 px-3 text-[9.5px] uppercase tracking-wider text-slate-400 font-bold';
+const kiteTd = 'py-2 px-3 text-[11.5px] font-semibold text-slate-700';
+
+export const KiteGttCard: React.FC<{ gtts: KiteGttRow[] }> = ({ gtts }) => (
+  <KiteTableShell icon={<ShieldCheck size={14} />} label="GTT triggers" count={gtts.length}>
+    <table className="w-full border-collapse">
+      <thead>
+        <tr className="bg-slate-50/70">
+          <th className={`${kiteTh} text-left`}>Symbol</th>
+          <th className={`${kiteTh} text-right`}>Trigger</th>
+          <th className={`${kiteTh} text-right hidden sm:table-cell`}>Qty</th>
+          <th className={`${kiteTh} text-right hidden sm:table-cell`}>Price</th>
+          <th className={`${kiteTh} text-right`}>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {gtts.map((g, idx) => (
+          <tr key={`${g.id ?? idx}`} className="border-t border-slate-100">
+            <td className={`${kiteTd} text-left`}>
+              <span className="font-extrabold text-slate-900">{g.tradingsymbol || '—'}</span>
+              {g.transaction_type ? (
+                <span
+                  className={cn(
+                    'ml-1.5 rounded px-1 py-0.5 text-[8.5px] font-extrabold uppercase',
+                    g.transaction_type === 'BUY'
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-rose-50 text-rose-600',
+                  )}
+                >
+                  {g.transaction_type}
+                </span>
+              ) : null}
+            </td>
+            <td className={`${kiteTd} text-right font-mono`}>
+              {(g.trigger_values || []).map((v) => formatInr(v)).join(' / ') || '—'}
+            </td>
+            <td className={`${kiteTd} text-right hidden sm:table-cell`}>{g.quantity ?? '—'}</td>
+            <td className={`${kiteTd} text-right font-mono hidden sm:table-cell`}>
+              {formatInr(g.price)}
+            </td>
+            <td className={`${kiteTd} text-right text-[10px] uppercase`}>{g.status || '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </KiteTableShell>
+);
+
+export const KiteTradesCard: React.FC<{ trades: KiteTradeRow[] }> = ({ trades }) => (
+  <KiteTableShell icon={<ListOrdered size={14} />} label="Trades" count={trades.length}>
+    <table className="w-full border-collapse">
+      <thead>
+        <tr className="bg-slate-50/70">
+          <th className={`${kiteTh} text-left`}>Symbol</th>
+          <th className={`${kiteTh} text-right`}>Qty</th>
+          <th className={`${kiteTh} text-right`}>Avg</th>
+          <th className={`${kiteTh} text-right hidden sm:table-cell`}>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {trades.map((t, idx) => (
+          <tr key={`${t.order_id ?? idx}`} className="border-t border-slate-100">
+            <td className={`${kiteTd} text-left`}>
+              <span className="font-extrabold text-slate-900">{t.tradingsymbol}</span>
+              {t.transaction_type ? (
+                <span
+                  className={cn(
+                    'ml-1.5 rounded px-1 py-0.5 text-[8.5px] font-extrabold uppercase',
+                    t.transaction_type === 'BUY'
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-rose-50 text-rose-600',
+                  )}
+                >
+                  {t.transaction_type}
+                </span>
+              ) : null}
+            </td>
+            <td className={`${kiteTd} text-right`}>{t.quantity ?? '—'}</td>
+            <td className={`${kiteTd} text-right font-mono`}>{formatInr(t.average_price)}</td>
+            <td className={`${kiteTd} text-right text-[10px] hidden sm:table-cell`}>
+              {t.fill_timestamp || '—'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </KiteTableShell>
+);
+
+export const KiteMfHoldingsCard: React.FC<{ mfHoldings: KiteMfRow[] }> = ({ mfHoldings }) => (
+  <KiteTableShell icon={<Briefcase size={14} />} label="Mutual funds" count={mfHoldings.length}>
+    <table className="w-full border-collapse">
+      <thead>
+        <tr className="bg-slate-50/70">
+          <th className={`${kiteTh} text-left`}>Fund</th>
+          <th className={`${kiteTh} text-right`}>Units</th>
+          <th className={`${kiteTh} text-right hidden sm:table-cell`}>Avg</th>
+          <th className={`${kiteTh} text-right`}>P&amp;L</th>
+        </tr>
+      </thead>
+      <tbody>
+        {mfHoldings.map((m, idx) => (
+          <tr key={`${m.fund}-${idx}`} className="border-t border-slate-100">
+            <td className={`${kiteTd} text-left`}>
+              <span className="font-extrabold text-slate-900 line-clamp-1">{m.fund}</span>
+            </td>
+            <td className={`${kiteTd} text-right`}>{m.quantity ?? '—'}</td>
+            <td className={`${kiteTd} text-right font-mono hidden sm:table-cell`}>
+              {formatInr(m.average_price)}
+            </td>
+            <td className={cn(kiteTd, 'text-right font-bold', pnlColor(m.pnl))}>
+              {formatSignedInr(m.pnl)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </KiteTableShell>
+);

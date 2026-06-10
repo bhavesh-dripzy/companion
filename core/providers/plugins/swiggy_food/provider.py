@@ -28,6 +28,12 @@ from core.providers.mcp.address import merge_saved_addresses
 from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
+from core.providers.mcp.result_cards import (
+    build_coupon_cards,
+    build_info_cards,
+    build_order_cards,
+    build_tracking_card,
+)
 from core.providers.plugins.swiggy_food.cards import build_restaurant_cards
 from core.providers.plugins.swiggy_food.cart_args import (
     collect_menu_index,
@@ -136,11 +142,45 @@ class SwiggyFoodProvider(McpProvider):
         }
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
-        # Internal render order: menu -> restaurant -> cart.
+        # Internal render order: menu -> restaurant -> cart -> orders/tracking/coupons.
         return [
             *build_menu_cards(result.results),
             *build_restaurant_cards(result.results),
             *build_cart_cards(result.results),
+            *build_order_cards(
+                result.results,
+                tools={"get_food_orders", "get_food_order_details"},
+                provider_id=self.id,
+                brand="swiggy",
+            ),
+            *build_tracking_card(
+                result.results, tools={"track_food_order"}, provider_id=self.id, brand="swiggy"
+            ),
+            *build_coupon_cards(
+                result.results,
+                tools={"fetch_food_coupons", "apply_food_coupon"},
+                provider_id=self.id,
+                brand="swiggy",
+            ),
+            *build_info_cards(
+                result.results,
+                exclude={
+                    "search_restaurants",
+                    "search_menu",
+                    "get_restaurant_menu",
+                    "get_food_cart",
+                    "update_food_cart",
+                    "get_food_orders",
+                    "get_food_order_details",
+                    "track_food_order",
+                    "fetch_food_coupons",
+                    "apply_food_coupon",
+                    "get_addresses",
+                    "report_error",
+                },
+                provider_id=self.id,
+                brand="swiggy",
+            ),
         ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:

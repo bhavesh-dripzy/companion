@@ -23,6 +23,7 @@ from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
+from core.providers.mcp.result_cards import build_info_cards, build_order_cards
 from core.providers.plugins.zepto.cards import build_product_cards
 from core.providers.plugins.zepto.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.zepto.planner_context import build_context
@@ -44,7 +45,32 @@ class ZeptoProvider(McpProvider):
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
-        return [*build_product_cards(result.results), *build_cart_cards(result.results)]
+        return [
+            *build_product_cards(result.results),
+            *build_cart_cards(result.results),
+            *build_order_cards(
+                result.results,
+                tools={"list_order_history", "get_order_detail"},
+                provider_id=self.id,
+                brand="zepto",
+                paise=True,
+            ),
+            *build_info_cards(
+                result.results,
+                exclude={
+                    "search_products",
+                    "search_multiple_products",
+                    "get_past_order_items",
+                    "view_cart",
+                    "update_cart",
+                    "list_order_history",
+                    "get_order_detail",
+                    "list_saved_addresses",
+                },
+                provider_id=self.id,
+                brand="zepto",
+            ),
+        ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)

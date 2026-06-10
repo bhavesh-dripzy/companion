@@ -25,6 +25,11 @@ from core.providers.mcp.address import merge_saved_addresses
 from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
+from core.providers.mcp.result_cards import (
+    build_info_cards,
+    build_order_cards,
+    build_tracking_card,
+)
 from core.providers.plugins.swiggy_instamart.cards import build_product_cards
 from core.providers.plugins.swiggy_instamart.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.swiggy_instamart.planner_context import build_context
@@ -48,7 +53,32 @@ class SwiggyInstamartProvider(McpProvider):
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
-        return [*build_product_cards(result.results), *build_cart_cards(result.results)]
+        return [
+            *build_product_cards(result.results),
+            *build_cart_cards(result.results),
+            *build_order_cards(
+                result.results, tools={"get_orders"}, provider_id=self.id, brand="instamart"
+            ),
+            *build_tracking_card(
+                result.results, tools={"track_order"}, provider_id=self.id, brand="instamart"
+            ),
+            *build_info_cards(
+                result.results,
+                exclude={
+                    "search_products",
+                    "your_go_to_items",
+                    "get_cart",
+                    "update_cart",
+                    "clear_cart",
+                    "get_orders",
+                    "track_order",
+                    "get_addresses",
+                    "report_error",
+                },
+                provider_id=self.id,
+                brand="instamart",
+            ),
+        ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)

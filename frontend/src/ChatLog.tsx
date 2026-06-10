@@ -27,13 +27,24 @@ import {
 import { ZeptoCartCard, ZeptoProductCardGrid } from './components/ZeptoCards';
 import { InstamartCartCard, InstamartProductCardGrid } from './components/InstamartCards';
 import {
+  KiteGttCard,
   KiteHoldingsCard,
   KiteInstrumentGrid,
   KiteMarginCard,
+  KiteMfHoldingsCard,
   KiteOpenOrdersCard,
   KiteOrderTicketCard,
   KitePositionsCard,
+  KiteTradesCard,
 } from './components/KiteCards';
+import {
+  CouponCardGrid,
+  InfoCardView,
+  OrderCardGrid,
+  ReviewCardGrid,
+  SlotCardGrid,
+  TrackingCardView,
+} from './components/ResultCards';
 import {
   ExternalLink,
   MapPin,
@@ -1609,6 +1620,62 @@ export const AttachmentList: React.FC<{
             disabled={quickPromptDisabled}
           />
         );
+      }
+      if (kind === 'kite_gtt_card' && att.gtts?.length) {
+        return <KiteGttCard key={`kite-gtt-${idx}`} gtts={att.gtts} />;
+      }
+      if (kind === 'kite_trades_card' && att.trades?.length) {
+        return <KiteTradesCard key={`kite-trades-${idx}`} trades={att.trades} />;
+      }
+      if (kind === 'kite_mf_holdings_card' && att.mf_holdings?.length) {
+        return <KiteMfHoldingsCard key={`kite-mf-${idx}`} mfHoldings={att.mf_holdings} />;
+      }
+      // Long-tail result tiles (any provider): order history, live tracking,
+      // coupons, reservation slots, critic reviews, and the generic info tile.
+      if (kind === 'order_cards' && att.past_orders?.length) {
+        return (
+          <OrderCardGrid
+            key={`orders-${idx}`}
+            orders={att.past_orders}
+            provider={att.provider}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'tracking_card' && att.tracking) {
+        return (
+          <TrackingCardView key={`tracking-${idx}`} tracking={att.tracking} provider={att.provider} />
+        );
+      }
+      if (kind === 'coupon_cards' && att.coupons?.length) {
+        return (
+          <CouponCardGrid
+            key={`coupons-${idx}`}
+            coupons={att.coupons}
+            provider={att.provider}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'slot_cards' && att.slots?.length) {
+        return (
+          <SlotCardGrid
+            key={`slots-${idx}`}
+            att={att}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'review_cards' && att.reviews?.length) {
+        return (
+          <ReviewCardGrid key={`reviews-${idx}`} reviews={att.reviews} provider={att.provider} />
+        );
+      }
+      if (kind === 'info_card' && att.info) {
+        return <InfoCardView key={`info-${idx}`} info={att.info} provider={att.provider} />;
       }
       const mime = String(att.mime_type || 'image/png');
       const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';

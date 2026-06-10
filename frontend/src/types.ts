@@ -499,6 +499,105 @@ export interface Attachment {
   orders?: KiteOpenOrder[];
   order_ticket?: KiteOrderTicket;
   margin?: KiteMargin;
+  //   kind === "kite_gtt_card"         → gtts         (KiteGttRow[])
+  //   kind === "kite_trades_card"      → trades       (KiteTradeRow[])
+  //   kind === "kite_mf_holdings_card" → mf_holdings  (KiteMfRow[])
+  gtts?: KiteGttRow[];
+  trades?: KiteTradeRow[];
+  mf_holdings?: KiteMfRow[];
+  // Long-tail result cards (any provider; see ./components/ResultCards.tsx):
+  //   kind === "order_cards"    → past_orders  (OrderCardEntry[])
+  //   kind === "tracking_card"  → tracking     (TrackingSnapshot)
+  //   kind === "coupon_cards"   → coupons      (CouponCardEntry[])
+  //   kind === "slot_cards"     → slots        (+ res_name/booking_date/party_size)
+  //   kind === "review_cards"   → reviews      (ReviewCardEntry[])
+  //   kind === "info_card"      → info         (InfoCardPayload) — the generic
+  //     fallback tile: ANY successful tool result without a bespoke card.
+  past_orders?: OrderCardEntry[];
+  tracking?: TrackingSnapshot;
+  coupons?: CouponCardEntry[];
+  slots?: SlotEntry[];
+  res_name?: string;
+  booking_date?: string;
+  party_size?: number | string;
+  reviews?: ReviewCardEntry[];
+  info?: InfoCardPayload;
+}
+
+export interface OrderCardEntry {
+  order_id: string;
+  status?: string;
+  place_name?: string;
+  date?: string;
+  total?: number;
+  total_text?: string;
+  eta?: string;
+  items?: { name: string; quantity?: number }[];
+}
+
+export interface TrackingSnapshot {
+  status?: string;
+  eta?: string;
+  stage?: string;
+  order_id?: string;
+  place_name?: string;
+}
+
+export interface CouponCardEntry {
+  code?: string;
+  title?: string;
+  description?: string;
+  savings_text?: string;
+}
+
+export interface SlotEntry {
+  time: string;
+  label?: string;
+  available?: boolean;
+}
+
+export interface ReviewCardEntry {
+  critic?: string;
+  publication?: string;
+  rating?: string;
+  snippet?: string;
+}
+
+export interface InfoCardPayload {
+  title: string;
+  rows: { label: string; value: string }[];
+  lines?: string[];
+}
+
+export interface KiteGttRow {
+  id?: number | string;
+  tradingsymbol?: string | null;
+  trigger_values?: number[];
+  last_price?: number;
+  transaction_type?: string;
+  quantity?: number;
+  price?: number;
+  status?: string;
+  gtt_type?: string;
+}
+
+export interface KiteTradeRow {
+  tradingsymbol: string;
+  exchange?: string;
+  transaction_type?: string;
+  quantity?: number;
+  average_price?: number;
+  fill_timestamp?: string;
+  order_id?: string;
+}
+
+export interface KiteMfRow {
+  fund: string;
+  tradingsymbol?: string;
+  quantity?: number;
+  average_price?: number;
+  last_price?: number;
+  pnl?: number;
 }
 
 export interface Message {

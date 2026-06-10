@@ -27,6 +27,12 @@ from core.providers.mcp.address import merge_saved_addresses
 from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
+from core.providers.mcp.result_cards import (
+    build_coupon_cards,
+    build_info_cards,
+    build_order_cards,
+    build_tracking_card,
+)
 from core.providers.plugins.zomato.cards import build_restaurant_cards
 from core.providers.plugins.zomato.cart_cards import build_cart_cards, cart_snapshot
 from core.providers.plugins.zomato.digest import summarize
@@ -88,12 +94,42 @@ class ZomatoProvider(McpProvider):
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         # Provider-internal render order (parity with the legacy hoist):
-        #   payment -> menu -> restaurant -> cart.
+        #   payment -> menu -> restaurant -> cart -> orders/tracking/coupons.
         return [
             *build_payment_cards(result.results),
             *build_menu_cards(result.results),
             *build_restaurant_cards(result.results),
             *build_cart_cards(result.results),
+            *build_order_cards(
+                result.results, tools={"get_order_history"}, provider_id=self.id, brand="zomato"
+            ),
+            *build_tracking_card(
+                result.results,
+                tools={"get_order_tracking_info"},
+                provider_id=self.id,
+                brand="zomato",
+            ),
+            *build_coupon_cards(
+                result.results, tools={"get_cart_offers"}, provider_id=self.id, brand="zomato"
+            ),
+            *build_info_cards(
+                result.results,
+                exclude={
+                    "get_restaurants_for_keyword",
+                    "get_restaurant_menu_by_categories",
+                    "get_menu_items_listing",
+                    "create_cart",
+                    "checkout_cart",
+                    "get_order_history",
+                    "get_order_tracking_info",
+                    "get_cart_offers",
+                    "get_saved_addresses_for_user",
+                    "bind_user_number",
+                    "bind_user_number_verify_code",
+                },
+                provider_id=self.id,
+                brand="zomato",
+            ),
         ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:

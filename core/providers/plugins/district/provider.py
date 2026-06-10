@@ -32,6 +32,10 @@ from core.providers.plugins.district.reservation import (
     reservation_snapshot,
 )
 from core.providers.plugins.district.session import merge as merge_district_session
+from core.providers.plugins.district.slots_reviews import (
+    build_review_cards,
+    build_slot_cards,
+)
 
 _BOOKING_TOOLS = {"create_table_reservation_booking", "get_booking_details"}
 
@@ -119,6 +123,8 @@ class DistrictProvider(McpProvider):
         return [
             *build_district_cards(result.results),
             *build_reservation_cards(result.results),
+            *build_slot_cards(result.results),
+            *build_review_cards(result.results),
         ]
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
