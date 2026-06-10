@@ -153,6 +153,14 @@ class VoiceLogTurnResponse(BaseModel):
     chat_id: str | None = None
 
 
+class VoiceRomanizeRequest(BaseModel):
+    text: str = ""
+
+
+class VoiceRomanizeResponse(BaseModel):
+    text: str
+
+
 def _clean_session_index(raw: Any, *, id_key: str) -> list[dict[str, Any]] | None:
     if not isinstance(raw, list) or not raw:
         return None
@@ -634,6 +642,19 @@ async def voice_gemini_token_endpoint(
         return {"error": str(e), "token": ""}
 
 
+async def voice_romanize_endpoint(
+    request: VoiceRomanizeRequest,
+    user: str = Depends(get_current_user),
+) -> VoiceRomanizeResponse:
+    """Romanize a Devanagari voice transcript to Hinglish for chat display.
+
+    Gemini Live transcribes Hindi speech in Devanagari and offers no script
+    control, so the frontend patches the user bubble through this endpoint."""
+    from companion_api.transliterate import romanize_hinglish
+
+    return VoiceRomanizeResponse(text=await romanize_hinglish((request.text or "").strip()))
+
+
 async def voice_log_turn_endpoint(
     request: VoiceLogTurnRequest,
     user: str = Depends(get_current_user),
@@ -642,9 +663,12 @@ async def voice_log_turn_endpoint(
 
     Tool-call turns are already persisted by voice_tool_execute_endpoint; this
     captures the chit-chat turns that otherwise never reach the backend, so the
-    full voice conversation lands in history and the leadgen pipeline.
+    full voice conversation lands in history and the leadgen pipeline. The user
+    transcript is romanized so persisted history matches the Hinglish persona.
     """
-    user_text = (request.user_text or "").strip()
+    from companion_api.transliterate import romanize_hinglish
+
+    user_text = await romanize_hinglish((request.user_text or "").strip())
     assistant_text = (request.assistant_text or "").strip()
     if not user_text and not assistant_text:
         return VoiceLogTurnResponse(success=False, chat_id=request.chat_id)

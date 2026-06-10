@@ -933,6 +933,32 @@ function App() {
       return next;
     });
 
+    // Gemini Live transcribes Hindi speech in Devanagari; the product speaks
+    // romanized Hinglish. Patch the just-rendered user bubble (and the text we
+    // persist below) once the backend transliterates it. Best-effort: on any
+    // failure the original transcript stays.
+    let persistedUserText = userText;
+    if (userText && /[ऀ-ॿ]/.test(userText)) {
+      try {
+        const romanized = await api.post('/api/voice/romanize/', { text: userText });
+        if (romanized?.text && romanized.text !== userText) {
+          persistedUserText = romanized.text;
+          setMessages((prev) => {
+            const next = [...prev];
+            for (let i = next.length - 1; i >= 0; i--) {
+              if (next[i].role === 'user' && next[i].content === userText) {
+                next[i] = { ...next[i], content: romanized.text };
+                break;
+              }
+            }
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error('[Voice] romanize failed', err);
+      }
+    }
+
     // Tool turns are already persisted + leadgen-enqueued server-side by
     // /api/voice/tool-execute/. Persist conversational turns here so voice
     // history and the leadgen pipeline stay complete.
@@ -943,7 +969,7 @@ function App() {
         // for every conversational voice turn.
         const liveChatId = voiceCtxRef.current.chatId;
         const data = await api.post('/api/voice/log-turn/', {
-          user_text: userText,
+          user_text: persistedUserText,
           assistant_text: assistantText,
           chat_id: liveChatId,
         });

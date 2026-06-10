@@ -25,6 +25,7 @@ from companion_api.reminders import ReminderScheduler
 from companion_api.voice_routes import (
     voice_gemini_token_endpoint,
     voice_log_turn_endpoint,
+    voice_romanize_endpoint,
     voice_token_endpoint,
     voice_tool_execute_endpoint,
 )
@@ -252,6 +253,7 @@ app.post("/api/voice/tool-execute/")(voice_tool_execute_endpoint)
 app.post("/api/voice/token/")(voice_token_endpoint)
 app.post("/api/voice/gemini-token/")(voice_gemini_token_endpoint)
 app.post("/api/voice/log-turn/")(voice_log_turn_endpoint)
+app.post("/api/voice/romanize/")(voice_romanize_endpoint)
 
 # Routers extracted from this module (#29 — main.py decomposition).
 from companion_api.routers.auth import router as auth_router  # noqa: E402
