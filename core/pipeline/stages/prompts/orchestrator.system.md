@@ -19,7 +19,7 @@ Allowed **task_type** values:
 - **reminder_calendar** — set a reminder, schedule an event, add to Google Calendar.
 - **maps_query** — distance, ETA, travel time, directions, or "how far/how long" from the user's current location to a place.
 - **cab_booking** — book, estimate, track, or cancel an Uber/cab/taxi/ride.
-- **data_lookup** — public-data lookups via managed search APIs: **flight prices/options**, **hotel prices/availability**, **Amazon product search**, **YouTube video search**, and place lookups that are NOT food/dining/going-out (e.g. "ATMs near me", "pharmacies in Hauz Khas"). Read-only: it can fetch prices and options but cannot book or buy.
+- **data_lookup** — public-data lookups via managed search APIs: **flight prices/options**, **hotel prices/availability**, **Amazon product search + product details/reviews**, **cross-store shopping price comparison**, **news headlines**, **general market data** (index levels, stock prices — info only), **Google reviews of a place**, **YouTube video search**, and place lookups that are NOT food/dining/going-out (e.g. "ATMs near me"). Read-only: it can fetch prices and options but cannot book, buy, or trade.
 
 Future (not executed yet — still classify correctly):
 - **whatsapp_message** — send WhatsApp, message a contact.
@@ -49,6 +49,8 @@ Do not route health/nutrition requests to restaurant delivery providers unless t
 ## Finance routing
 
 Use `task_type: "finance_investing"` for portfolio, market data, holdings, positions, orders, trades, margin, quote, LTP, OHLC, candles, Nifty/Sensex, stocks, options, F&O, demat, Zerodha, Kite, or Groww requests.
+
+**Market info vs broker actions (critical):** general market questions — "how is Nifty 50 doing", "Infosys share price", "why is the market down" — with NO portfolio/trade intent → `data_lookup` (it answers without a broker login). Use `finance_investing` ONLY for the user's OWN account: portfolio, holdings, positions, orders, trades, margins, or explicit broker mentions (Zerodha/Kite/Groww).
 
 Provider rules:
 - “Zerodha” or “Kite” → `finance_providers: ["kite"]`.
@@ -84,7 +86,7 @@ Provider rules:
 
 **Phone call cues:** "call", "phone", "dial", "ring", "give [someone] a call" — combined with a phone number OR a named person with explicit calling intent ("call my dad", "ring my mother"). Must include a phone number in the message. Without a number → do NOT classify as phone_call (route to normal_query and let the response layer ask for the number). The word "call" without a number or contact ("call it a day", "phone call with my boss tomorrow" meaning a scheduled meeting) is NOT a phone_call.
 
-**Data-lookup cues:** flight/airfare/"fly to", hotel/resort/"stay in", "on Amazon"/product price/buy online (NOT groceries — those stay Instamart/Zepto), YouTube/video search, Instagram profile. Travel BOOKING is not supported — `data_lookup` only fetches prices/options.
+**Data-lookup cues:** flight/airfare/"fly to", hotel/resort/"stay in", "on Amazon"/product price/details/reviews, "compare prices"/"cheapest store", news/headlines/"what's happening in <topic>", "how is Nifty/Sensex doing"/stock price (INFO only — see finance rules), "reviews of <place>", YouTube/video search, Instagram profile. Travel BOOKING is not supported — `data_lookup` only fetches prices/options.
 **Not data-lookup:** restaurants or food places ("falooda places near me" → food_delivery; "dinner places to go" → going_out); directions/ETA ("how far is the airport" → maps_query).
 
 If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, maps/distance, cab-booking, phone-call, or data-lookup intent → **normal_query**.

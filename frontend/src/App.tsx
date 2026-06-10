@@ -97,6 +97,9 @@ interface PersistedChatSession {
   // indexes: stored locally so a reload restores the planner's context.
   session_kite_instruments: SessionKiteInstrument[];
   session_serp_flights: FlightOption[];
+  session_serp_products: Record<string, unknown>[];
+  session_serp_places: Record<string, unknown>[];
+  session_serp_hotels: Record<string, unknown>[];
   session_kite_holdings: SessionKiteHoldings | null;
   session_kite_positions: SessionKitePositions | null;
   session_kite_open_orders: SessionKiteOpenOrders[];
@@ -178,6 +181,15 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
       session_serp_flights: Array.isArray(parsed.session_serp_flights)
         ? (parsed.session_serp_flights as FlightOption[])
         : [],
+      session_serp_products: Array.isArray(parsed.session_serp_products)
+        ? (parsed.session_serp_products as Record<string, unknown>[])
+        : [],
+      session_serp_places: Array.isArray(parsed.session_serp_places)
+        ? (parsed.session_serp_places as Record<string, unknown>[])
+        : [],
+      session_serp_hotels: Array.isArray(parsed.session_serp_hotels)
+        ? (parsed.session_serp_hotels as Record<string, unknown>[])
+        : [],
       session_kite_holdings:
         parsed.session_kite_holdings && typeof parsed.session_kite_holdings === 'object'
           ? (parsed.session_kite_holdings as SessionKiteHoldings)
@@ -218,6 +230,9 @@ const saveChatSession = (chatId: string, snap: PersistedChatSession) => {
       && snap.session_zepto_cart === null
       && snap.session_kite_instruments.length === 0
       && snap.session_serp_flights.length === 0
+      && snap.session_serp_products.length === 0
+      && snap.session_serp_places.length === 0
+      && snap.session_serp_hotels.length === 0
       && snap.session_kite_holdings === null
       && snap.session_kite_positions === null
       && snap.session_kite_open_orders.length === 0
@@ -376,6 +391,9 @@ function App() {
   // and resolve a confirmation against the pending order ticket.
   const [sessionKiteInstruments, setSessionKiteInstruments] = useState<SessionKiteInstrument[]>([]);
   const [sessionSerpFlights, setSessionSerpFlights] = useState<FlightOption[]>([]);
+  const [sessionSerpProducts, setSessionSerpProducts] = useState<Record<string, unknown>[]>([]);
+  const [sessionSerpPlaces, setSessionSerpPlaces] = useState<Record<string, unknown>[]>([]);
+  const [sessionSerpHotels, setSessionSerpHotels] = useState<Record<string, unknown>[]>([]);
   const [sessionKiteHoldings, setSessionKiteHoldings] = useState<SessionKiteHoldings | null>(null);
   const [sessionKitePositions, setSessionKitePositions] = useState<SessionKitePositions | null>(null);
   const [sessionKiteOpenOrders, setSessionKiteOpenOrders] = useState<SessionKiteOpenOrders[]>([]);
@@ -448,6 +466,9 @@ function App() {
       session_instamart_cart: sessionInstamartCart,
       session_kite_instruments: sessionKiteInstruments,
       session_serp_flights: sessionSerpFlights,
+      session_serp_products: sessionSerpProducts,
+      session_serp_places: sessionSerpPlaces,
+      session_serp_hotels: sessionSerpHotels,
       session_kite_holdings: sessionKiteHoldings,
       session_kite_positions: sessionKitePositions,
       session_kite_open_orders: sessionKiteOpenOrders,
@@ -474,6 +495,9 @@ function App() {
     sessionInstamartCart,
     sessionKiteInstruments,
     sessionSerpFlights,
+    sessionSerpProducts,
+    sessionSerpPlaces,
+    sessionSerpHotels,
     sessionKiteHoldings,
     sessionKitePositions,
     sessionKiteOpenOrders,
@@ -504,6 +528,9 @@ function App() {
         setSessionInstamartCart(snap.session_instamart_cart);
         setSessionKiteInstruments(snap.session_kite_instruments);
         setSessionSerpFlights(snap.session_serp_flights ?? []);
+        setSessionSerpProducts(snap.session_serp_products ?? []);
+        setSessionSerpPlaces(snap.session_serp_places ?? []);
+        setSessionSerpHotels(snap.session_serp_hotels ?? []);
         setSessionKiteHoldings(snap.session_kite_holdings);
         setSessionKitePositions(snap.session_kite_positions);
         setSessionKiteOpenOrders(snap.session_kite_open_orders);
@@ -592,6 +619,9 @@ function App() {
     setSessionInstamartCart(snap?.session_instamart_cart ?? null);
     setSessionKiteInstruments(snap?.session_kite_instruments ?? []);
     setSessionSerpFlights(snap?.session_serp_flights ?? []);
+    setSessionSerpProducts(snap?.session_serp_products ?? []);
+    setSessionSerpPlaces(snap?.session_serp_places ?? []);
+    setSessionSerpHotels(snap?.session_serp_hotels ?? []);
     setSessionKiteHoldings(snap?.session_kite_holdings ?? null);
     setSessionKitePositions(snap?.session_kite_positions ?? null);
     setSessionKiteOpenOrders(snap?.session_kite_open_orders ?? []);
@@ -632,7 +662,16 @@ function App() {
       setSessionInstamartCart(null);
       setSessionKiteInstruments([]);
     setSessionSerpFlights([]);
+    setSessionSerpProducts([]);
+    setSessionSerpPlaces([]);
+    setSessionSerpHotels([]);
       setSessionSerpFlights([]);
+    setSessionSerpProducts([]);
+    setSessionSerpPlaces([]);
+    setSessionSerpHotels([]);
+      setSessionSerpProducts([]);
+      setSessionSerpPlaces([]);
+      setSessionSerpHotels([]);
       setSessionKiteHoldings(null);
       setSessionKitePositions(null);
       setSessionKiteOpenOrders([]);
@@ -706,6 +745,9 @@ function App() {
     setSessionInstamartCart(null);
     setSessionKiteInstruments([]);
     setSessionSerpFlights([]);
+    setSessionSerpProducts([]);
+    setSessionSerpPlaces([]);
+    setSessionSerpHotels([]);
     setSessionKiteHoldings(null);
     setSessionKitePositions(null);
     setSessionKiteOpenOrders([]);
@@ -738,6 +780,9 @@ function App() {
     setSessionInstamartCart(null);
     setSessionKiteInstruments([]);
     setSessionSerpFlights([]);
+    setSessionSerpProducts([]);
+    setSessionSerpPlaces([]);
+    setSessionSerpHotels([]);
     setSessionKiteHoldings(null);
     setSessionKitePositions(null);
     setSessionKiteOpenOrders([]);
@@ -786,6 +831,9 @@ function App() {
     if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
     if (sessionKiteInstruments.length > 0) body.session_kite_instruments = sessionKiteInstruments;
     if (sessionSerpFlights.length > 0) body.session_serp_flights = sessionSerpFlights;
+    if (sessionSerpProducts.length > 0) body.session_serp_products = sessionSerpProducts;
+    if (sessionSerpPlaces.length > 0) body.session_serp_places = sessionSerpPlaces;
+    if (sessionSerpHotels.length > 0) body.session_serp_hotels = sessionSerpHotels;
     if (sessionKiteHoldings) body.session_kite_holdings = sessionKiteHoldings;
     if (sessionKitePositions) body.session_kite_positions = sessionKitePositions;
     if (sessionKiteOpenOrders.length > 0) body.session_kite_open_orders = sessionKiteOpenOrders;
@@ -876,6 +924,9 @@ function App() {
       }
       if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
       if (Array.isArray(data.session_serp_flights)) setSessionSerpFlights(data.session_serp_flights);
+      if (Array.isArray(data.session_serp_products)) setSessionSerpProducts(data.session_serp_products);
+      if (Array.isArray(data.session_serp_places)) setSessionSerpPlaces(data.session_serp_places);
+      if (Array.isArray(data.session_serp_hotels)) setSessionSerpHotels(data.session_serp_hotels);
       if ('session_kite_holdings' in data) {
         const kh = (data as any).session_kite_holdings;
         setSessionKiteHoldings(kh && typeof kh === 'object' ? kh : null);

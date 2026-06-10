@@ -21,18 +21,22 @@ from core.providers.base import ExecCtx
 from core.providers.http.http_base import HttpProvider
 from core.providers.mcp.digest import lean_digest
 from core.providers.plugins.serp import engines
-from core.providers.plugins.serp.cards import (
-    build_attachments,
-    flights_brief,
-    merge_serp_session,
-    products_brief,
-)
+from core.providers.plugins.serp import more_engines as m2
+from core.providers.plugins.serp.cards import build_attachments
 from core.providers.plugins.serp.client import SerpBudgetExceeded, search
 from core.providers.plugins.serp.product_detail import (
     extract_product_details,
     product_details_params,
 )
+from core.providers.plugins.serp.session import (
+    flights_brief,
+    hotels_brief,
+    merge_serp_session,
+    places_brief,
+    products_brief,
+)
 from core.providers.plugins.serp.tools import _INSTAGRAM_TOOL, _TOOLS
+from core.providers.plugins.serp.tools_more import MORE_TOOLS
 
 _DATE_ARGS = ("outbound_date", "return_date", "check_in_date", "check_out_date")
 
@@ -63,6 +67,10 @@ _PREAMBLE = (
     "- Round-trip flights: the first call returns outbound options each with a "
     "departure_token; when the user picks one, call search_flights AGAIN with that "
     "departure_token (same route/dates) to fetch return legs.\n"
+    "- get_place_reviews / get_product_details / get_hotel_details are the DEEP-DIVE "
+    "tools: use literal ids/tokens from results or the session brief (query fallback "
+    "exists for places and products). get_market_data is general market info; the "
+    "user's own portfolio belongs to the Kite provider, never here.\n"
     "- For details/reviews/images of ONE product, use get_product_details with the "
     "literal asin from search results or the session brief (or query as fallback).\n"
     "- These tools only FETCH data — never claim a booking or purchase happened.\n"
@@ -82,7 +90,7 @@ class SerpProvider(HttpProvider):
     planner_preamble = _PREAMBLE
 
     def declared_tools(self) -> list[Tool]:
-        tools = list(_TOOLS)
+        tools = [*_TOOLS, *MORE_TOOLS]
         if _instagram_enabled():
             tools.append(_INSTAGRAM_TOOL)
         return tools
@@ -96,6 +104,28 @@ class SerpProvider(HttpProvider):
                 ErrorCode.INVALID_ARGS,
                 f"missing required arguments: {', '.join(missing)} — ask the user for them",
             )
+        if call.tool == "get_place_reviews":
+            args = dict(args)
+            if not str(args.get("data_id") or "").strip():
+                query = str(args.get("query") or "").strip()
+                if not query:
+                    return self._error(
+                        call, ErrorCode.INVALID_ARGS, "need data_id or query for place reviews"
+                    )
+                try:
+                    hits = await search(engines.places_params({"query": query}, ctx.user_geo))
+                    rows = hits.get("local_results") or (
+                        [hits["place_results"]]
+                        if isinstance(hits.get("place_results"), dict)
+                        else []
+                    )
+                    args["data_id"] = str((rows[0] or {}).get("data_id") or "")
+                except Exception as exc:
+                    return self._error(call, ErrorCode.UPSTREAM_ERROR, f"lookup failed: {exc}")
+                if not args["data_id"]:
+                    return self._error(
+                        call, ErrorCode.UPSTREAM_ERROR, f"no place match for {query!r}"
+                    )
         if call.tool == "get_product_details":
             args = dict(args)
             if not str(args.get("asin") or "").strip():
@@ -162,6 +192,18 @@ class SerpProvider(HttpProvider):
             return engines.products_params(args), engines.extract_products
         if tool == "get_product_details":
             return product_details_params(args), extract_product_details
+        if tool == "search_news":
+            return m2.news_params(args), m2.extract_news
+        if tool == "get_market_data":
+            return m2.finance_params(args), m2.extract_finance
+        if tool == "search_shopping":
+            return m2.shopping_params(args), m2.extract_shopping
+        if tool == "search_events":
+            return m2.events_params(args), m2.extract_events
+        if tool == "get_place_reviews":
+            return m2.place_reviews_params(args), m2.extract_place_reviews
+        if tool == "get_hotel_details":
+            return m2.hotel_details_params(args), m2.extract_hotel_details
         if tool == "youtube_search":
             return engines.youtube_params(args), engines.extract_youtube
         if tool == "instagram_profile" and _instagram_enabled():
@@ -187,7 +229,13 @@ class SerpProvider(HttpProvider):
 
     def planner_context(self, ctx: Any) -> str:
         legacy = ctx.session.legacy if isinstance(ctx.session.legacy, dict) else {}
-        return "\n\n".join(b for b in (flights_brief(legacy), products_brief(legacy)) if b)
+        briefs = (
+            flights_brief(legacy),
+            products_brief(legacy),
+            places_brief(legacy),
+            hotels_brief(legacy),
+        )
+        return "\n\n".join(b for b in briefs if b)
 
     def summarize_result(self, tool_result: Any) -> str | None:
         data = tool_result.data if isinstance(tool_result.data, dict) else None

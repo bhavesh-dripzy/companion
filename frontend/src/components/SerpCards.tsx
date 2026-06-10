@@ -8,6 +8,7 @@
 
 import React from 'react';
 import {
+  Newspaper,
   Plane,
   BedDouble,
   MapPinned,
@@ -19,6 +20,7 @@ import {
 import { BrandHeader } from './ResultCards';
 import type {
   FlightOption,
+  NewsArticle,
   HotelOption,
   PlaceResult,
   ShopProduct,
@@ -337,6 +339,35 @@ export const VideoCardGrid: React.FC<{ videos: VideoResult[]; keyword?: string }
     <Scroller>
       {videos.map((v, idx) => (
         <VideoTile key={v.video_id || idx} video={v} />
+      ))}
+    </Scroller>
+  </Shell>
+);
+
+export const NewsCardGrid: React.FC<{ articles: NewsArticle[]; keyword?: string }> = ({
+  articles,
+  keyword,
+}) => (
+  <Shell icon={<Newspaper size={14} />} label="News" trailing={keyword}>
+    <Scroller>
+      {articles.map((a, idx) => (
+        <a
+          key={idx}
+          href={a.link || undefined}
+          target="_blank"
+          rel="noreferrer"
+          className="w-64 shrink-0 rounded-xl border border-slate-200/80 bg-white overflow-hidden outline-none hover:shadow-md hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-slate-300 transition-all"
+        >
+          {a.image ? <img src={a.image} alt="" className="h-24 w-full object-cover" /> : null}
+          <div className="p-2.5">
+            <p className="text-[11px] font-bold text-slate-800 leading-snug line-clamp-3">
+              {a.title}
+            </p>
+            <p className="mt-1.5 text-[9.5px] text-slate-500">
+              {[a.source, a.date].filter(Boolean).join(' · ')}
+            </p>
+          </div>
+        </a>
       ))}
     </Scroller>
   </Shell>

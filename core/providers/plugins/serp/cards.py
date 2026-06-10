@@ -19,6 +19,8 @@ _KINDS: dict[str, tuple[str, str, str]] = {
     "search_places": ("place_cards", "places", "place_results"),
     "search_products": ("shop_product_cards", "products", "shop_products"),
     "youtube_search": ("video_cards", "videos", "videos"),
+    "search_shopping": ("shop_product_cards", "products", "shop_products"),
+    "search_news": ("news_cards", "articles", "articles"),
 }
 
 
@@ -32,6 +34,52 @@ def _rows(tr: ToolResult, data_key: str) -> list[dict[str, Any]]:
 def build_serp_cards(result: ProviderResult, provider_id: str) -> list[Attachment]:
     out: list[Attachment] = []
     for tr in result.results:
+        if tr.ok and tr.tool == "get_place_reviews":
+            data = (tr.data or {}).get("data") or {}
+            rows = [
+                {
+                    "critic": r.get("author"),
+                    "publication": r.get("date"),
+                    "rating": str(r.get("rating")) if r.get("rating") is not None else None,
+                    "snippet": r.get("snippet"),
+                }
+                for r in data.get("reviews") or []
+                if isinstance(r, dict)
+            ]
+            rows = [{k: v for k, v in r.items() if v} for r in rows if r.get("snippet")]
+            if rows:
+                out.append(
+                    Attachment(
+                        kind="review_cards",
+                        provider="serp",
+                        source=f"{provider_id}.{tr.tool}",
+                        keyword=data.get("place"),
+                        reviews=rows,
+                    )
+                )
+            continue
+        if tr.ok and tr.tool == "get_hotel_details":
+            data = (tr.data or {}).get("data") or {}
+            if data.get("name"):
+                out.append(
+                    Attachment(
+                        kind="hotel_cards",
+                        provider="serp",
+                        source=f"{provider_id}.{tr.tool}",
+                        keyword=data.get("name"),
+                        hotel_options=[
+                            {
+                                "name": data.get("name"),
+                                "rating": data.get("rating"),
+                                "reviews": data.get("reviews"),
+                                "rate_per_night": data.get("rate_per_night"),
+                                "amenities": (data.get("amenities") or [])[:5],
+                                "image": (data.get("images") or [None])[0],
+                            }
+                        ],
+                    )
+                )
+            continue
         if tr.ok and tr.tool == "get_product_details":
             detail = (tr.data or {}).get("data") or {}
             if detail.get("name"):
@@ -98,81 +146,8 @@ def build_attachments(result: ProviderResult, provider_id: str) -> list[Attachme
         *build_serp_cards(result, provider_id),
         *build_info_cards(
             result.results,
-            exclude=set(_KINDS) | {"get_product_details"},
+            exclude=set(_KINDS) | {"get_product_details", "get_place_reviews", "get_hotel_details"},
             provider_id=provider_id,
             brand="serp",
         ),
     ]
-
-
-def merge_serp_session(slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
-    """Latest flight options (tokens for leg 2) and product hits (asins for
-    detail lookups) into the session for follow-up turns."""
-    merged = dict(slice_)
-    for tr in result.results:
-        if not tr.ok:
-            continue
-        if tr.tool == "search_flights":
-            rows = _rows(tr, "flights")
-            if rows:
-                merged["session_serp_flights"] = [
-                    {k: v for k, v in row.items() if k != "airline_logo"} for row in rows[:6]
-                ]
-        elif tr.tool == "search_products":
-            rows = _rows(tr, "products")
-            if rows:
-                merged["session_serp_products"] = [
-                    {k: row.get(k) for k in ("name", "asin", "price") if row.get(k)}
-                    for row in rows[:8]
-                ]
-    return merged
-
-
-def flights_brief(legacy: dict[str, Any]) -> str:
-    """Planner brief: the shown flight options with their literal tokens."""
-    rows = legacy.get("session_serp_flights")
-    if not isinstance(rows, list) or not rows:
-        return ""
-    lines: list[str] = []
-    for i, row in enumerate(rows[:6], start=1):
-        if not isinstance(row, dict):
-            continue
-        legs = row.get("legs") or []
-        first, last = (legs[0] if legs else {}), (legs[-1] if legs else {})
-        bits = [
-            f"₹{row.get('price')}" if row.get("price") else None,
-            "/".join(row.get("airlines") or []) or None,
-            f"{first.get('from', '?')} {first.get('departs', '')} → {last.get('to', '?')}".strip(),
-            f"{row.get('stops', 0)} stop(s)",
-        ]
-        line = f"  {i}. " + ", ".join(b for b in bits if b)
-        token = row.get("departure_token")
-        if token:
-            line += f" [departure_token={token}]"
-        lines.append(line)
-    if not lines:
-        return ""
-    return (
-        "Flight options already shown to the user (most recent search). When the "
-        "user picks one for a ROUND TRIP, call search_flights again with the SAME "
-        "route/dates plus that option's literal departure_token to fetch return "
-        "legs:\n" + "\n".join(lines)
-    )
-
-
-def products_brief(legacy: dict[str, Any]) -> str:
-    """Planner brief: shown products with literal asins for get_product_details."""
-    rows = legacy.get("session_serp_products")
-    if not isinstance(rows, list) or not rows:
-        return ""
-    lines = [
-        f"  - {str(row.get('name'))[:70]} → asin={row.get('asin')}"
-        for row in rows[:8]
-        if isinstance(row, dict) and row.get("asin")
-    ]
-    if not lines:
-        return ""
-    return (
-        "Products already shown to the user — for details/reviews of one, call "
-        "get_product_details with its literal asin:\n" + "\n".join(lines)
-    )

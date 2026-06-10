@@ -51,6 +51,9 @@ _SESSION_KEYS = (
     "session_kite_open_orders",
     "session_kite_order_ticket",
     "session_serp_flights",
+    "session_serp_products",
+    "session_serp_places",
+    "session_serp_hotels",
 )
 
 _runner = None

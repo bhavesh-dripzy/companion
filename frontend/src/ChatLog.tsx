@@ -48,6 +48,7 @@ import {
 import {
   FlightCardGrid,
   HotelCardGrid,
+  NewsCardGrid,
   PlaceCardGrid,
   ShopProductCardGrid,
   VideoCardGrid,
@@ -1729,6 +1730,9 @@ export const AttachmentList: React.FC<{
       }
       if (kind === 'video_cards' && att.videos?.length) {
         return <VideoCardGrid key={`videos-${idx}`} videos={att.videos} keyword={att.keyword} />;
+      }
+      if (kind === 'news_cards' && att.articles?.length) {
+        return <NewsCardGrid key={`news-${idx}`} articles={att.articles} keyword={att.keyword} />;
       }
       const mime = String(att.mime_type || 'image/png');
       const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';

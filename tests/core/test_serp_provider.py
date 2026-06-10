@@ -224,7 +224,7 @@ def test_budget_exhaustion_is_a_tool_error_not_a_crash(monkeypatch):
 def test_instagram_gated_behind_flag(monkeypatch):
     monkeypatch.delenv("SERP_INSTAGRAM_ENABLED", raising=False)
     names = {t.name for t in SerpProvider().declared_tools()}
-    assert "instagram_profile" not in names and len(names) == 6
+    assert "instagram_profile" not in names and len(names) == 12
     monkeypatch.setenv("SERP_INSTAGRAM_ENABLED", "true")
     names = {t.name for t in SerpProvider().declared_tools()}
     assert "instagram_profile" in names
@@ -325,7 +325,7 @@ def test_serp_cards_emit_dedicated_kinds():
 
 def test_flights_brief_carries_departure_tokens():
     from core.contracts.tool_result import ProviderResult, ToolResult
-    from core.providers.plugins.serp.cards import flights_brief, merge_serp_session
+    from core.providers.plugins.serp.session import flights_brief, merge_serp_session
 
     result = ProviderResult(
         provider="serp",
@@ -409,8 +409,8 @@ def test_planner_input_carries_the_clock():
 
 def test_product_details_extraction_and_brief():
     from core.contracts.tool_result import ProviderResult
-    from core.providers.plugins.serp.cards import merge_serp_session, products_brief
     from core.providers.plugins.serp.product_detail import extract_product_details
+    from core.providers.plugins.serp.session import merge_serp_session, products_brief
 
     payload = {
         "product_results": {
@@ -469,3 +469,162 @@ def test_product_details_extraction_and_brief():
     legacy = merge_serp_session({}, result)
     brief = products_brief(legacy)
     assert "asin=B0F" in brief and "get_product_details" in brief
+
+
+def test_batch2_extractors():
+    from core.providers.plugins.serp import more_engines as m2
+
+    news = m2.extract_news(
+        {
+            "news_results": [
+                {
+                    "title": "T",
+                    "source": {"name": "Mint"},
+                    "date": "1h ago",
+                    "link": "https://x",
+                    "thumbnail": "https://t",
+                }
+            ]
+        }
+    )
+    assert news["articles"][0]["source"] == "Mint"
+
+    fin = m2.extract_finance(
+        {
+            "summary": {
+                "title": "Nifty 50",
+                "stock": ".NSEI",
+                "exchange": "INDEXNSE",
+                "price": "23,214.95",
+                "price_movement": {"percentage": 0.12, "movement": "Down"},
+            },
+            "news_results": [{"title": "Markets slip"}],
+        }
+    )
+    assert fin["price"] == "23,214.95" and fin["movement"] == "Down"
+    assert fin["headlines"] == ["Markets slip"]
+
+    shop = m2.extract_shopping(
+        {
+            "shopping_results": [
+                {
+                    "title": "XM5",
+                    "price": "₹23,800",
+                    "source": "vplak.com",
+                    "product_link": "https://p",
+                    "thumbnail": "https://t",
+                }
+            ]
+        }
+    )
+    assert shop["products"][0]["source"] == "vplak.com"
+
+    ev = m2.extract_events(
+        {
+            "events_results": [
+                {
+                    "title": "Comedy Night",
+                    "date": {"when": "Sat, 8 PM"},
+                    "venue": {"name": "Canvas Laugh Club"},
+                    "address": ["DLF CyberHub", "Gurugram"],
+                    "link": "https://e",
+                }
+            ]
+        }
+    )
+    assert ev["events"][0]["venue"] == "Canvas Laugh Club"
+    assert ev["events"][0]["address"] == "DLF CyberHub, Gurugram"
+
+    rev = m2.extract_place_reviews(
+        {
+            "place_info": {"title": "Radisson", "rating": 4.4, "reviews": 6987},
+            "reviews": [
+                {
+                    "rating": 5,
+                    "snippet": "Great staff",
+                    "date": "a week ago",
+                    "user": {"name": "A"},
+                    "likes": 3,
+                }
+            ],
+        }
+    )
+    assert rev["place"] == "Radisson" and rev["reviews"][0]["author"] == "A"
+
+    hotel = m2.extract_hotel_details(
+        {
+            "name": "Baga Sunshine",
+            "overall_rating": 3.3,
+            "reviews": 16,
+            "rate_per_night": {"lowest": "₹2,613"},
+            "amenities": ["AC"],
+            "images": [{"thumbnail": "https://i"}],
+            "nearby_places": [{"name": "Baga Beach"}],
+        }
+    )
+    assert hotel["rate_per_night"] == "₹2,613" and hotel["nearby"] == ["Baga Beach"]
+
+
+def test_batch2_cards_and_briefs():
+    from core.contracts.tool_result import ProviderResult
+    from core.providers.plugins.serp.cards import build_serp_cards
+    from core.providers.plugins.serp.session import hotels_brief, merge_serp_session, places_brief
+
+    result = ProviderResult(
+        provider="serp",
+        ok=True,
+        results=[
+            ToolResult(
+                tool="search_news",
+                provider="serp",
+                ok=True,
+                arguments={"query": "startups"},
+                data={"is_error": False, "data": {"articles": [{"title": "T", "source": "Mint"}]}},
+            ),
+            ToolResult(
+                tool="get_place_reviews",
+                provider="serp",
+                ok=True,
+                data={
+                    "is_error": False,
+                    "data": {
+                        "place": "Radisson",
+                        "reviews": [
+                            {"author": "A", "rating": 5, "snippet": "Great staff", "date": "1w"}
+                        ],
+                    },
+                },
+            ),
+            ToolResult(
+                tool="search_places",
+                provider="serp",
+                ok=True,
+                data={
+                    "is_error": False,
+                    "data": {
+                        "places": [{"name": "Radisson", "data_id": "0x39:0xce", "rating": 4.4}]
+                    },
+                },
+            ),
+            ToolResult(
+                tool="search_hotels",
+                provider="serp",
+                ok=True,
+                arguments={
+                    "query": "hotels in Goa",
+                    "check_in_date": "2026-06-20",
+                    "check_out_date": "2026-06-22",
+                },
+                data={
+                    "is_error": False,
+                    "data": {"hotels": [{"name": "Baga Sunshine", "property_token": "TOK1"}]},
+                },
+            ),
+        ],
+    )
+    kinds = [a.kind for a in build_serp_cards(result, "serp")]
+    assert "news_cards" in kinds and "review_cards" in kinds
+    legacy = merge_serp_session({}, result)
+    assert "data_id=0x39:0xce" in places_brief(legacy)
+    hb = hotels_brief(legacy)
+    assert "property_token=TOK1" in hb and "check_in_date=2026-06-20" in hb

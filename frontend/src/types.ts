@@ -545,6 +545,8 @@ export interface Attachment {
   place_results?: PlaceResult[];
   shop_products?: ShopProduct[];
   videos?: VideoResult[];
+  //   kind === "news_cards" → articles (NewsArticle[])
+  articles?: NewsArticle[];
 }
 
 export interface FlightLeg {
@@ -594,6 +596,8 @@ export interface PlaceResult {
 
 export interface ShopProduct {
   name?: string;
+  source?: string;
+  delivery?: string;
   price?: string | number;
   rating?: number;
   reviews?: number;
@@ -601,6 +605,14 @@ export interface ShopProduct {
   prime?: boolean;
   image?: string;
   link?: string;
+}
+
+export interface NewsArticle {
+  title?: string;
+  source?: string;
+  date?: string;
+  link?: string;
+  image?: string;
 }
 
 export interface VideoResult {
@@ -1058,6 +1070,9 @@ export interface QueryResponse {
   // without re-deriving any of it from chat history.
   session_kite_instruments?: SessionKiteInstrument[];
   session_serp_flights?: FlightOption[];
+  session_serp_products?: Record<string, unknown>[];
+  session_serp_places?: Record<string, unknown>[];
+  session_serp_hotels?: Record<string, unknown>[];
   session_kite_holdings?: SessionKiteHoldings | null;
   session_kite_positions?: SessionKitePositions | null;
   session_kite_open_orders?: SessionKiteOpenOrders[];

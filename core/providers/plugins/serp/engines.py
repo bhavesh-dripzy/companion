@@ -156,6 +156,7 @@ def extract_places(payload: dict[str, Any]) -> dict[str, Any]:
                     "price": place.get("price"),
                     "image": place.get("thumbnail"),
                     "website": place.get("website"),
+                    "data_id": place.get("data_id"),
                 }
             )
         )
