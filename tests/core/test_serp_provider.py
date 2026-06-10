@@ -277,3 +277,87 @@ def test_missing_required_args_fail_before_spending_a_request(monkeypatch):
     tr = result.results[0]
     assert not tr.ok
     assert "arrival_id" in (tr.error_detail or "") and "outbound_date" in (tr.error_detail or "")
+
+
+def test_serp_cards_emit_dedicated_kinds():
+    from core.contracts.tool_result import ProviderResult, ToolResult
+    from core.providers.plugins.serp.cards import build_attachments
+
+    result = ProviderResult(
+        provider="serp",
+        ok=True,
+        results=[
+            ToolResult(
+                tool="search_flights",
+                provider="serp",
+                ok=True,
+                arguments={"departure_id": "DEL", "arrival_id": "BOM"},
+                data={
+                    "is_error": False,
+                    "data": {
+                        "flights": [{"price": 6228, "airlines": ["IndiGo"], "stops": 1}],
+                        "lowest_price": 6228,
+                    },
+                },
+            ),
+            ToolResult(
+                tool="youtube_search",
+                provider="serp",
+                ok=True,
+                arguments={"query": "falooda"},
+                data={"is_error": False, "data": {"videos": [{"title": "x", "channel": "y"}]}},
+            ),
+            ToolResult(
+                tool="instagram_profile",
+                provider="serp",
+                ok=True,
+                data={"is_error": False, "data": {"username": "x", "followers": 5}},
+            ),
+        ],
+    )
+    kinds = [a.kind for a in build_attachments(result, "serp")]
+    assert kinds == ["flight_cards", "video_cards", "info_card"]
+    wire = build_attachments(result, "serp")[0].to_wire()
+    assert wire["flight_options"][0]["price"] == 6228
+    assert wire["route"] == "DEL → BOM" and wire["lowest_price"] == 6228
+
+
+def test_flights_brief_carries_departure_tokens():
+    from core.contracts.tool_result import ProviderResult, ToolResult
+    from core.providers.plugins.serp.cards import flights_brief, merge_flights
+
+    result = ProviderResult(
+        provider="serp",
+        ok=True,
+        results=[
+            ToolResult(
+                tool="search_flights",
+                provider="serp",
+                ok=True,
+                data={
+                    "is_error": False,
+                    "data": {
+                        "flights": [
+                            {
+                                "price": 6228,
+                                "airlines": ["IndiGo"],
+                                "stops": 1,
+                                "legs": [
+                                    {"from": "DEL", "departs": "2026-06-20 05:10"},
+                                    {"to": "BOM", "arrives": "2026-06-20 09:35"},
+                                ],
+                                "departure_token": "TOK123",
+                                "airline_logo": "https://x/logo.png",
+                            }
+                        ]
+                    },
+                },
+            )
+        ],
+    )
+    legacy = merge_flights({}, result)
+    rows = legacy["session_serp_flights"]
+    assert rows[0]["departure_token"] == "TOK123"
+    assert "airline_logo" not in rows[0], "logos don't belong in the planner brief"
+    brief = flights_brief(legacy)
+    assert "departure_token=TOK123" in brief and "₹6228" in brief

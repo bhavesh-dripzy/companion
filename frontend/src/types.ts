@@ -93,7 +93,14 @@ export interface RestaurantCardEntry {
 // QuickAction popovers. Cards without a `provider` field (legacy turns
 // from before this stamp landed) fall back to a neutral slate styling —
 // never a wrong-brand colour.
-export type CardProvider = 'zomato' | 'swiggy' | 'district' | 'zepto' | 'instamart' | 'kite';
+export type CardProvider =
+  | 'zomato'
+  | 'swiggy'
+  | 'district'
+  | 'zepto'
+  | 'instamart'
+  | 'kite'
+  | 'serp';
 
 // ---------------------------------------------------------------------------
 // District card entries. District spans three independent discovery
@@ -522,6 +529,86 @@ export interface Attachment {
   party_size?: number | string;
   reviews?: ReviewCardEntry[];
   info?: InfoCardPayload;
+  // Serp data tiles (see ./components/SerpCards.tsx):
+  //   kind === "flight_cards"       → flight_options (+ route/leg/lowest_price)
+  //   kind === "hotel_cards"        → hotel_options
+  //   kind === "place_cards"        → place_results
+  //   kind === "shop_product_cards" → shop_products
+  //   kind === "video_cards"        → videos
+  flight_options?: FlightOption[];
+  route?: string;
+  leg?: string;
+  lowest_price?: number;
+  hotel_options?: HotelOption[];
+  place_results?: PlaceResult[];
+  shop_products?: ShopProduct[];
+  videos?: VideoResult[];
+}
+
+export interface FlightLeg {
+  from?: string;
+  departs?: string;
+  to?: string;
+  arrives?: string;
+  airline?: string;
+  flight_number?: string;
+}
+
+export interface FlightOption {
+  price?: number;
+  total_duration_minutes?: number;
+  stops?: number;
+  airlines?: string[];
+  legs?: FlightLeg[];
+  airline_logo?: string;
+  departure_token?: string;
+  booking_token?: string;
+}
+
+export interface HotelOption {
+  name?: string;
+  rate_per_night?: string;
+  total_rate?: string;
+  hotel_class?: string;
+  rating?: number;
+  reviews?: number;
+  amenities?: string[];
+  image?: string;
+  link?: string;
+}
+
+export interface PlaceResult {
+  name?: string;
+  rating?: number;
+  reviews?: number;
+  category?: string;
+  address?: string;
+  open_state?: string;
+  phone?: string;
+  price?: string;
+  image?: string;
+  website?: string;
+}
+
+export interface ShopProduct {
+  name?: string;
+  price?: string | number;
+  rating?: number;
+  reviews?: number;
+  asin?: string;
+  prime?: boolean;
+  image?: string;
+  link?: string;
+}
+
+export interface VideoResult {
+  title?: string;
+  channel?: string;
+  views?: number;
+  length?: string;
+  published?: string;
+  link?: string;
+  image?: string;
 }
 
 export interface OrderCardEntry {
@@ -967,6 +1054,7 @@ export interface QueryResponse {
   // a "yes, place it" confirmation against the pending order ticket
   // without re-deriving any of it from chat history.
   session_kite_instruments?: SessionKiteInstrument[];
+  session_serp_flights?: FlightOption[];
   session_kite_holdings?: SessionKiteHoldings | null;
   session_kite_positions?: SessionKitePositions | null;
   session_kite_open_orders?: SessionKiteOpenOrders[];

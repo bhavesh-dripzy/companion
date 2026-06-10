@@ -1,9 +1,5 @@
-"""Per-engine SerpApi param mapping + LEAN result extraction (issue #46).
-
-Raw SerpApi envelopes run to ~100KB of metadata and thumbnails; extraction at
-the provider boundary keeps tool results small enough for the narrator, the
-planner brief, and the generic info-card tiles without any truncation games.
-"""
+"""Per-engine SerpApi param mapping + LEAN extraction: raw ~100KB envelopes
+become tool results small enough for the narrator, planner brief, and tiles."""
 
 from __future__ import annotations
 
@@ -66,6 +62,7 @@ def extract_flights(payload: dict[str, Any]) -> dict[str, Any]:
                             {leg.get("airline") for leg in legs if leg.get("airline")}
                         ),
                         "legs": [_flight_leg(leg) for leg in legs[:4]],
+                        "airline_logo": option.get("airline_logo"),
                         "departure_token": option.get("departure_token"),
                         "booking_token": option.get("booking_token"),
                     }
@@ -117,6 +114,8 @@ def extract_hotels(payload: dict[str, Any]) -> dict[str, Any]:
                     "rating": prop.get("overall_rating"),
                     "reviews": prop.get("reviews"),
                     "amenities": (prop.get("amenities") or [])[:5],
+                    "image": ((prop.get("images") or [{}])[0] or {}).get("thumbnail"),
+                    "link": prop.get("link"),
                     "property_token": prop.get("property_token"),
                 }
             )
@@ -155,6 +154,8 @@ def extract_places(payload: dict[str, Any]) -> dict[str, Any]:
                     "open_state": place.get("open_state"),
                     "phone": place.get("phone"),
                     "price": place.get("price"),
+                    "image": place.get("thumbnail"),
+                    "website": place.get("website"),
                 }
             )
         )
@@ -185,6 +186,8 @@ def extract_products(payload: dict[str, Any]) -> dict[str, Any]:
                     "reviews": item.get("reviews"),
                     "asin": item.get("asin"),
                     "prime": item.get("prime"),
+                    "image": item.get("thumbnail"),
+                    "link": item.get("link_clean") or item.get("link"),
                 }
             )
         )
@@ -209,6 +212,9 @@ def extract_youtube(payload: dict[str, Any]) -> dict[str, Any]:
                     "length": video.get("length"),
                     "published": video.get("published_date"),
                     "link": video.get("link"),
+                    "image": (video.get("thumbnail") or {}).get("static")
+                    if isinstance(video.get("thumbnail"), dict)
+                    else video.get("thumbnail"),
                 }
             )
         )

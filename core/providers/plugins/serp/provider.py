@@ -19,8 +19,8 @@ from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
 from core.providers.base import ExecCtx
 from core.providers.http.http_base import HttpProvider
 from core.providers.mcp.digest import lean_digest
-from core.providers.mcp.info_cards import build_info_cards
 from core.providers.plugins.serp import engines
+from core.providers.plugins.serp.cards import build_attachments, flights_brief, merge_flights
 from core.providers.plugins.serp.client import SerpBudgetExceeded, search
 
 _DATE = {"type": "string", "description": "YYYY-MM-DD"}
@@ -233,7 +233,14 @@ class SerpProvider(HttpProvider):
         )
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
-        return build_info_cards(result.results, exclude=set(), provider_id=self.id, brand="serp")
+        return build_attachments(result, self.id)
+
+    def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
+        return merge_flights(slice_, result)
+
+    def planner_context(self, ctx: Any) -> str:
+        legacy = ctx.session.legacy if isinstance(ctx.session.legacy, dict) else {}
+        return flights_brief(legacy)
 
     def summarize_result(self, tool_result: Any) -> str | None:
         data = tool_result.data if isinstance(tool_result.data, dict) else None

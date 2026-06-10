@@ -46,6 +46,13 @@ import {
   TrackingCardView,
 } from './components/ResultCards';
 import {
+  FlightCardGrid,
+  HotelCardGrid,
+  PlaceCardGrid,
+  ShopProductCardGrid,
+  VideoCardGrid,
+} from './components/SerpCards';
+import {
   ExternalLink,
   MapPin,
   ChevronDown,
@@ -369,6 +376,15 @@ const PROVIDER_THEMES: Record<CardProvider, ProviderTheme> = {
     checkoutPrompt: 'Confirm and place the order.',
     cartHeaderTitle: 'Zerodha Kite',
     activeRingClass: 'bg-[#387ED1]/10 ring-1 ring-[#387ED1]/30',
+  },
+  serp: {
+    label: 'Search',
+    brandHex: '#2b2f72',
+    brandTintBg: 'bg-[#2b2f72]/5',
+    brandTintBorder: 'border-[#2b2f72]/20',
+    checkoutPrompt: '',
+    cartHeaderTitle: 'Search results',
+    activeRingClass: 'bg-[#2b2f72]/10 ring-1 ring-[#2b2f72]/30',
   },
 };
 
@@ -1676,6 +1692,41 @@ export const AttachmentList: React.FC<{
       }
       if (kind === 'info_card' && att.info) {
         return <InfoCardView key={`info-${idx}`} info={att.info} provider={att.provider} />;
+      }
+      // Serp data tiles: flights / hotels / places / Amazon / YouTube.
+      if (kind === 'flight_cards' && att.flight_options?.length) {
+        return (
+          <FlightCardGrid
+            key={`flights-${idx}`}
+            flights={att.flight_options}
+            route={att.route}
+            leg={att.leg}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      if (kind === 'hotel_cards' && att.hotel_options?.length) {
+        return (
+          <HotelCardGrid key={`hotels-${idx}`} hotels={att.hotel_options} keyword={att.keyword} />
+        );
+      }
+      if (kind === 'place_cards' && att.place_results?.length) {
+        return (
+          <PlaceCardGrid key={`places-${idx}`} places={att.place_results} keyword={att.keyword} />
+        );
+      }
+      if (kind === 'shop_product_cards' && att.shop_products?.length) {
+        return (
+          <ShopProductCardGrid
+            key={`shop-${idx}`}
+            products={att.shop_products}
+            keyword={att.keyword}
+          />
+        );
+      }
+      if (kind === 'video_cards' && att.videos?.length) {
+        return <VideoCardGrid key={`videos-${idx}`} videos={att.videos} keyword={att.keyword} />;
       }
       const mime = String(att.mime_type || 'image/png');
       const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';

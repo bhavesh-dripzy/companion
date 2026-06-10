@@ -35,6 +35,7 @@ import type {
   SessionInstamartProduct,
   SessionKiteHoldings,
   SessionKiteInstrument,
+  FlightOption,
   SessionKiteOpenOrders,
   SessionKiteOrderTicket,
   SessionKitePositions,
@@ -95,6 +96,7 @@ interface PersistedChatSession {
   // unconfirmed order ticket. Same persistence contract as the other
   // indexes: stored locally so a reload restores the planner's context.
   session_kite_instruments: SessionKiteInstrument[];
+  session_serp_flights: FlightOption[];
   session_kite_holdings: SessionKiteHoldings | null;
   session_kite_positions: SessionKitePositions | null;
   session_kite_open_orders: SessionKiteOpenOrders[];
@@ -173,6 +175,9 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
       session_kite_instruments: Array.isArray(parsed.session_kite_instruments)
         ? (parsed.session_kite_instruments as SessionKiteInstrument[])
         : [],
+      session_serp_flights: Array.isArray(parsed.session_serp_flights)
+        ? (parsed.session_serp_flights as FlightOption[])
+        : [],
       session_kite_holdings:
         parsed.session_kite_holdings && typeof parsed.session_kite_holdings === 'object'
           ? (parsed.session_kite_holdings as SessionKiteHoldings)
@@ -212,6 +217,7 @@ const saveChatSession = (chatId: string, snap: PersistedChatSession) => {
       && snap.session_zepto_addresses.length === 0
       && snap.session_zepto_cart === null
       && snap.session_kite_instruments.length === 0
+      && snap.session_serp_flights.length === 0
       && snap.session_kite_holdings === null
       && snap.session_kite_positions === null
       && snap.session_kite_open_orders.length === 0
@@ -369,6 +375,7 @@ function App() {
   // re-use literal instrument triples, read the latest portfolio snapshots,
   // and resolve a confirmation against the pending order ticket.
   const [sessionKiteInstruments, setSessionKiteInstruments] = useState<SessionKiteInstrument[]>([]);
+  const [sessionSerpFlights, setSessionSerpFlights] = useState<FlightOption[]>([]);
   const [sessionKiteHoldings, setSessionKiteHoldings] = useState<SessionKiteHoldings | null>(null);
   const [sessionKitePositions, setSessionKitePositions] = useState<SessionKitePositions | null>(null);
   const [sessionKiteOpenOrders, setSessionKiteOpenOrders] = useState<SessionKiteOpenOrders[]>([]);
@@ -440,6 +447,7 @@ function App() {
       session_instamart_addresses: sessionInstamartAddresses,
       session_instamart_cart: sessionInstamartCart,
       session_kite_instruments: sessionKiteInstruments,
+      session_serp_flights: sessionSerpFlights,
       session_kite_holdings: sessionKiteHoldings,
       session_kite_positions: sessionKitePositions,
       session_kite_open_orders: sessionKiteOpenOrders,
@@ -465,6 +473,7 @@ function App() {
     sessionInstamartAddresses,
     sessionInstamartCart,
     sessionKiteInstruments,
+    sessionSerpFlights,
     sessionKiteHoldings,
     sessionKitePositions,
     sessionKiteOpenOrders,
@@ -494,6 +503,7 @@ function App() {
         setSessionInstamartAddresses(snap.session_instamart_addresses);
         setSessionInstamartCart(snap.session_instamart_cart);
         setSessionKiteInstruments(snap.session_kite_instruments);
+        setSessionSerpFlights(snap.session_serp_flights ?? []);
         setSessionKiteHoldings(snap.session_kite_holdings);
         setSessionKitePositions(snap.session_kite_positions);
         setSessionKiteOpenOrders(snap.session_kite_open_orders);
@@ -581,6 +591,7 @@ function App() {
     setSessionInstamartAddresses(snap?.session_instamart_addresses ?? []);
     setSessionInstamartCart(snap?.session_instamart_cart ?? null);
     setSessionKiteInstruments(snap?.session_kite_instruments ?? []);
+    setSessionSerpFlights(snap?.session_serp_flights ?? []);
     setSessionKiteHoldings(snap?.session_kite_holdings ?? null);
     setSessionKitePositions(snap?.session_kite_positions ?? null);
     setSessionKiteOpenOrders(snap?.session_kite_open_orders ?? []);
@@ -620,6 +631,8 @@ function App() {
       setSessionInstamartAddresses([]);
       setSessionInstamartCart(null);
       setSessionKiteInstruments([]);
+    setSessionSerpFlights([]);
+      setSessionSerpFlights([]);
       setSessionKiteHoldings(null);
       setSessionKitePositions(null);
       setSessionKiteOpenOrders([]);
@@ -692,6 +705,7 @@ function App() {
     setSessionInstamartAddresses([]);
     setSessionInstamartCart(null);
     setSessionKiteInstruments([]);
+    setSessionSerpFlights([]);
     setSessionKiteHoldings(null);
     setSessionKitePositions(null);
     setSessionKiteOpenOrders([]);
@@ -723,6 +737,7 @@ function App() {
     setSessionInstamartAddresses([]);
     setSessionInstamartCart(null);
     setSessionKiteInstruments([]);
+    setSessionSerpFlights([]);
     setSessionKiteHoldings(null);
     setSessionKitePositions(null);
     setSessionKiteOpenOrders([]);
@@ -770,6 +785,7 @@ function App() {
     if (sessionInstamartAddresses.length > 0) body.session_instamart_addresses = sessionInstamartAddresses;
     if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
     if (sessionKiteInstruments.length > 0) body.session_kite_instruments = sessionKiteInstruments;
+    if (sessionSerpFlights.length > 0) body.session_serp_flights = sessionSerpFlights;
     if (sessionKiteHoldings) body.session_kite_holdings = sessionKiteHoldings;
     if (sessionKitePositions) body.session_kite_positions = sessionKitePositions;
     if (sessionKiteOpenOrders.length > 0) body.session_kite_open_orders = sessionKiteOpenOrders;
@@ -859,6 +875,7 @@ function App() {
         setSessionInstamartCart(ic && typeof ic === 'object' ? ic : null);
       }
       if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
+      if (Array.isArray(data.session_serp_flights)) setSessionSerpFlights(data.session_serp_flights);
       if ('session_kite_holdings' in data) {
         const kh = (data as any).session_kite_holdings;
         setSessionKiteHoldings(kh && typeof kh === 'object' ? kh : null);

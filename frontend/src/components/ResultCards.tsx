@@ -53,7 +53,7 @@ const formatTotal = (entry: OrderCardEntry): string | null => {
   return null;
 };
 
-const BrandHeader: React.FC<{
+export const BrandHeader: React.FC<{
   provider?: CardProvider;
   icon: React.ReactNode;
   label: string;
