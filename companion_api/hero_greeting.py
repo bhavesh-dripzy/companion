@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -159,6 +160,25 @@ _VIBES = [
     "friendly and conversational",
 ]
 
+# Rotating activity themes drawn from what Companion can actually do, so the
+# greeting nudges real capabilities instead of fixating on one idea (issue #48).
+_THEMES = [
+    "ordering food or groceries",
+    "booking a cab or planning an outing",
+    "discovering movies or events nearby",
+    "keeping an eye on their investments",
+    "setting a reminder or getting organized",
+    "no activity nudge, just a warm welcome",
+]
+
+# Family-friendly guard: the model is told to avoid these; this is the cheap
+# safety net when it doesn't listen. One regenerate, then the static fallback.
+_FAMILY_UNFRIENDLY = re.compile(
+    r"\b(drinks?|drinking|alcohol|bars?|pubs?|beers?|wines?|cocktails?|whisk(?:e)?y"
+    r"|vodka|rum|nightlife|booze|hangover)\b",
+    re.IGNORECASE,
+)
+
 
 def generate_greeting(
     *,
@@ -195,15 +215,6 @@ def generate_greeting(
             bits.append(f"{weather['temp_c']}°C")
         weather_str = ", ".join(bits) if bits else "unknown"
 
-    context = {
-        "user_name": name or "(unknown)",
-        "city": city or "(unknown)",
-        "top_interest": interest or "(unknown)",
-        "time_of_day": tod,
-        "weather": weather_str,
-        "vibe": random.choice(_VIBES),
-    }
-
     system_prompt = (
         "You write a single, short, catchy welcome line for the home screen of "
         "'Companion', an everything-assistant app for India (order food & groceries, "
@@ -211,37 +222,53 @@ def generate_greeting(
         "Rules: ONE sentence, at most 14 words. Greet by first name if known. "
         "Weave in the time of day and, if known, the weather and/or their top "
         "interest, naturally and subtly (do not list facts mechanically). "
+        "Keep it family-friendly and inclusive for all ages: NEVER suggest alcohol, "
+        "drinks, bars, pubs, or nightlife. If you nudge an activity at all, use the "
+        "suggestion_theme from the context, nothing else. "
         "Sound human and inviting, never corporate. No emojis, no hashtags, no "
         "surrounding quotes. Do not use em dashes (—); use commas or other "
         "punctuation instead. Do NOT include the phrase 'From Bharat, For Bharat'. "
         'Return strict JSON: {"greeting": "<the line>"}.'
     )
-    user_message = (
-        "Write the greeting using this context:\n"
-        + json.dumps(context, ensure_ascii=False)
-        + f"\nMake the tone {context['vibe']}."
-    )
 
-    try:
-        out = asyncio.run(
-            complete_json_object(
-                user_message=user_message,
-                system_prompt=system_prompt,
-                llm=resolved,
-            )
+    for _ in range(2):  # one regenerate if the guard trips
+        context = {
+            "user_name": name or "(unknown)",
+            "city": city or "(unknown)",
+            "top_interest": interest or "(unknown)",
+            "time_of_day": tod,
+            "weather": weather_str,
+            "vibe": random.choice(_VIBES),
+            "suggestion_theme": random.choice(_THEMES),
+        }
+        user_message = (
+            "Write the greeting using this context:\n"
+            + json.dumps(context, ensure_ascii=False)
+            + f"\nMake the tone {context['vibe']}."
         )
-    except Exception:
-        logger.debug("greeting LLM call failed", exc_info=True)
-        return None
+        try:
+            out = asyncio.run(
+                complete_json_object(
+                    user_message=user_message,
+                    system_prompt=system_prompt,
+                    llm=resolved,
+                )
+            )
+        except Exception:
+            logger.debug("greeting LLM call failed", exc_info=True)
+            return None
 
-    line = (out or {}).get("greeting")
-    if not isinstance(line, str):
-        return None
-    line = line.strip().strip('"').strip()
-    # Guard against a model that ignores the length rule.
-    if not line or len(line) > 160:
-        return None
-    return line
+        line = (out or {}).get("greeting")
+        if not isinstance(line, str):
+            continue
+        line = line.strip().strip('"').strip()
+        if not line or len(line) > 160:
+            continue
+        if _FAMILY_UNFRIENDLY.search(line):
+            logger.info("greeting: blocked non-family-friendly line, regenerating")
+            continue
+        return line
+    return None
 
 
 def build_hero_greeting(user_id: str) -> dict[str, Any]:

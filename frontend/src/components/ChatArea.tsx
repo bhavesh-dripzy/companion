@@ -169,29 +169,45 @@ export function ChatArea({
     }
   }
 
+  // Account chip in the header — the raw handle is fine THERE, never in the hero.
   const welcomeName = (username && username.trim()) || 'there';
   const avatarLetter = welcomeName.charAt(0).toUpperCase() || 'C';
 
   // Personalized AI hero greeting — generated server-side each load from the
   // user's profile (name/city/interests), live weather at their saved address,
-  // and the time of day (DeepSeek, with a static fallback). Starts with a
-  // sensible local line so the hero never shows empty while the call is in
-  // flight, then swaps in the generated line when it arrives.
-  const localGreeting = `Namaste, ${welcomeName === 'there' ? 'there' : welcomeName}.`;
-  const [greeting, setGreeting] = useState<string>(localGreeting);
+  // and the time of day (DeepSeek, with a static fallback). The raw account
+  // username (e.g. "admin_bhavesh") is never shown: first paint uses the last
+  // generated line cached per user (else a neutral "Namaste."), then swaps in
+  // the fresh line when it arrives.
+  const greetingCacheKey = `companion.heroGreeting.${(username || 'anon').trim()}`;
+  const readCachedGreeting = () => {
+    try {
+      return localStorage.getItem(greetingCacheKey) || '';
+    } catch {
+      return '';
+    }
+  };
+  const [greeting, setGreeting] = useState<string>(() => readCachedGreeting() || 'Namaste.');
   const [greetingReady, setGreetingReady] = useState(false);
   useEffect(() => {
     let alive = true;
+    const cached = readCachedGreeting();
+    if (cached) setGreeting(cached);
     api
       .get('/api/hero/greeting/')
       .then((res: { greeting?: string }) => {
         if (alive && res && res.greeting) {
           setGreeting(res.greeting);
           setGreetingReady(true);
+          try {
+            localStorage.setItem(greetingCacheKey, res.greeting);
+          } catch {
+            /* private mode — skip caching */
+          }
         }
       })
       .catch(() => {
-        /* keep the local fallback greeting */
+        /* keep the cached/neutral greeting */
       });
     return () => {
       alive = false;
