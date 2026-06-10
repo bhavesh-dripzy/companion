@@ -603,6 +603,7 @@ export interface ShopProduct {
 
 export interface VideoResult {
   title?: string;
+  video_id?: string;
   channel?: string;
   views?: number;
   length?: string;

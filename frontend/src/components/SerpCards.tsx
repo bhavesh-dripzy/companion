@@ -249,6 +249,62 @@ export const ShopProductCardGrid: React.FC<{ products: ShopProduct[]; keyword?: 
   </Shell>
 );
 
+const VideoTile: React.FC<{ video: VideoResult }> = ({ video }) => {
+  const [playing, setPlaying] = React.useState(false);
+  const canEmbed = Boolean(video.video_id);
+  return (
+    <div className="w-72 shrink-0 rounded-xl border border-slate-200/80 bg-white overflow-hidden hover:shadow-md transition-all">
+      <div className="relative aspect-video bg-slate-900">
+        {playing && canEmbed ? (
+          <iframe
+            className="absolute inset-0 h-full w-full"
+            src={`https://www.youtube.com/embed/${video.video_id}?autoplay=1&rel=0`}
+            title={video.title || 'YouTube video'}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => (canEmbed ? setPlaying(true) : window.open(video.link, '_blank'))}
+            className="group absolute inset-0 h-full w-full"
+            aria-label={`Play ${video.title || 'video'}`}
+          >
+            {video.image ? (
+              <img src={video.image} alt="" className="h-full w-full object-cover" />
+            ) : null}
+            <span className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/35 transition-colors">
+              <span className="flex h-10 w-14 items-center justify-center rounded-xl bg-[#FF0000]/90 shadow-lg group-hover:scale-110 transition-transform">
+                <PlayCircle size={22} className="text-white" />
+              </span>
+            </span>
+            {video.length ? (
+              <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 font-mono text-[9px] font-bold text-white">
+                {video.length}
+              </span>
+            ) : null}
+          </button>
+        )}
+      </div>
+      <div className="p-2.5">
+        <p className="text-[11px] font-bold text-slate-800 leading-snug line-clamp-2">
+          {video.title}
+        </p>
+        <p className="mt-1 text-[9.5px] text-slate-500">
+          {[
+            video.channel,
+            typeof video.views === 'number'
+              ? `${Intl.NumberFormat('en', { notation: 'compact' }).format(video.views)} views`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      </div>
+    </div>
+  );
+};
+
 export const VideoCardGrid: React.FC<{ videos: VideoResult[]; keyword?: string }> = ({
   videos,
   keyword,
@@ -256,34 +312,7 @@ export const VideoCardGrid: React.FC<{ videos: VideoResult[]; keyword?: string }
   <Shell icon={<PlayCircle size={14} />} label="YouTube" trailing={keyword}>
     <Scroller>
       {videos.map((v, idx) => (
-        <a
-          key={idx}
-          href={v.link || undefined}
-          target="_blank"
-          rel="noreferrer"
-          className="w-56 shrink-0 rounded-xl border border-slate-200/80 bg-white overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all"
-        >
-          {v.image ? (
-            <div className="relative">
-              <img src={v.image} alt="" className="h-28 w-full object-cover" />
-              {v.length ? (
-                <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 font-mono text-[9px] font-bold text-white">
-                  {v.length}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-          <div className="p-2.5">
-            <p className="text-[11px] font-bold text-slate-800 leading-snug line-clamp-2">
-              {v.title}
-            </p>
-            <p className="mt-1 text-[9.5px] text-slate-500">
-              {[v.channel, typeof v.views === 'number' ? `${Intl.NumberFormat('en', { notation: 'compact' }).format(v.views)} views` : null]
-                .filter(Boolean)
-                .join(' · ')}
-            </p>
-          </div>
-        </a>
+        <VideoTile key={v.video_id || idx} video={v} />
       ))}
     </Scroller>
   </Shell>

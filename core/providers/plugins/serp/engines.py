@@ -207,6 +207,7 @@ def extract_youtube(payload: dict[str, Any]) -> dict[str, Any]:
             _clean(
                 {
                     "title": video.get("title"),
+                    "video_id": video.get("video_id"),
                     "channel": (video.get("channel") or {}).get("name"),
                     "views": video.get("views"),
                     "length": video.get("length"),
