@@ -155,3 +155,34 @@ def test_confirmation_gate_blocks_then_allows_checkout():
         runner2.run(TurnRequest(message="confirm checkout my cart", user_id="u1"), _LLM)
     )
     assert done.session.legacy["last_tools"] == ["checkout_cart"]
+
+
+def test_narrate_results_summary_lists_rendered_cards():
+    # Mixed-result turns: the narrator must know cards are showing so it leads
+    # with the successful results instead of a blanket apology.
+    from types import SimpleNamespace
+
+    from core.contracts.tool_result import ProviderResult
+    from core.pipeline.stages.narrate import _results_summary
+
+    ctx = SimpleNamespace(
+        provider_results=[
+            ProviderResult(
+                provider="district",
+                ok=False,
+                results=[
+                    ToolResult(tool="search_movies", provider="district", ok=True, data={"movies": []}),
+                    ToolResult(tool="search_shows", provider="district", ok=False, data={"is_error": True}),
+                ],
+            )
+        ],
+        blocked=[],
+        attachments=[
+            Attachment(kind="movie_cards", source="district.search_movies", payload={}),
+            Attachment(kind="movie_cards", source="district.search_movies", payload={}),
+        ],
+    )
+    summary = _results_summary(ctx)
+    assert "[district.search_movies ok]" in summary
+    assert "[district.search_shows error" in summary
+    assert "Cards rendered to the user this turn: movie_cards x2" in summary

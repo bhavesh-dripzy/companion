@@ -8,6 +8,7 @@ narrator produces the message text and degrades gracefully if the LLM is absent.
 from __future__ import annotations
 
 import json
+from collections import Counter
 
 from core.pipeline.context import PipelineContext
 
@@ -17,6 +18,15 @@ _RESPONSE_PROMPT = (
     "reply to the latest user message. Use the earlier turns for context — names, "
     "preferences, and what was already shown (e.g. items or restaurants) carry over; "
     "do not claim the user never told you something they said earlier in the chat.\n"
+    "Successful results are rendered to the user as rich cards beside your reply "
+    "(the 'Cards rendered' line lists them) — summarize them confidently and point "
+    "at the cards; never enumerate every row.\n"
+    "If some tools failed while others succeeded, lead with what succeeded and "
+    "mention the failure only if it blocks what the user asked for. NEVER give a "
+    "blanket 'technical issue' apology while results are being shown.\n"
+    "An empty result list from a successful tool is valid data, not an error — say "
+    "what it means using facts from the results (e.g. 'no showtimes today; it "
+    "releases on 17 July'), and suggest the natural next step.\n"
     "Reply ONLY in this language/style: {language}.\n"
     "If tools were blocked pending confirmation, ask the user to confirm.\n"
     'Respond with ONLY a JSON object: {{"message": "<reply>"}}.'
@@ -48,6 +58,10 @@ def _results_summary(ctx: PipelineContext) -> str:
             parts.append(f"[{result.provider}.{tool_result.tool} {status}] {blob}")
     if ctx.blocked:
         parts.append("Blocked pending confirmation: " + ", ".join(c.tool for c in ctx.blocked))
+    if ctx.attachments:
+        kinds = Counter(a.kind for a in ctx.attachments)
+        rendered = ", ".join(kind if n == 1 else f"{kind} x{n}" for kind, n in kinds.items())
+        parts.append(f"Cards rendered to the user this turn: {rendered}")
     return "\n".join(parts) or "(no tools ran)"
 
 
