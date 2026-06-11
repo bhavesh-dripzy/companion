@@ -89,6 +89,15 @@ export async function runNativeMcpConnect(provider: string): Promise<{ status: s
       detail: start.detail || 'This provider cannot be connected from the app yet.',
     };
   }
+  if (start.completion === 'external') {
+    // Login completes on the provider's own site (e.g. Zerodha) — no redirect
+    // to intercept; status flips server-side once the user finishes.
+    window.open(start.authorization_url, '_blank');
+    return {
+      status: 'external_started',
+      detail: start.detail || 'Finish logging in, then refresh the connection status.',
+    };
+  }
   const caught = await interceptOAuth(start.authorization_url);
   if (caught.kind === 'redirect') {
     return { status: 'connected_pending_test', detail: `${start.provider_label || 'Provider'} connected.` };

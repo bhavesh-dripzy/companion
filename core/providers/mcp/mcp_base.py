@@ -77,6 +77,12 @@ class McpProvider(ABC):
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         """Build the stdio launch spec (mcp-remote command + token env) for this turn."""
 
+    def open_session(self, ctx: ExecCtx):
+        """Hook: the async context manager yielding this turn's MCP session.
+        Default: spawn mcp-remote over stdio. Providers with a custom transport
+        (e.g. Kite re-attaching a vaulted authed session) override this."""
+        return mcp_session(self.stdio_spec(ctx))
+
     def normalize_args(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         """Hook: repair provider-specific argument shapes the planner gets wrong
         (e.g. re-nest filter keys). Default: pass through unchanged."""
@@ -119,7 +125,7 @@ class McpProvider(ABC):
             ctx.placeholders["__ADDRESS_ID__"] = aid
 
     async def discover_tools(self) -> list[Tool]:
-        async with mcp_session(self.stdio_spec(ExecCtx())) as session:
+        async with self.open_session(ExecCtx()) as session:
             raw = await list_tools(session)
         return [
             Tool(
@@ -175,7 +181,7 @@ class McpProvider(ABC):
         return new_args, tool_result_payload(raw)
 
     async def run(self, calls: list[ToolCall], ctx: ExecCtx) -> ProviderResult:
-        async with mcp_session(self.stdio_spec(ctx)) as session:
+        async with self.open_session(ctx) as session:
             await self.before_run(session, ctx)
 
             async def execute_one(call: ToolCall) -> ToolResult:

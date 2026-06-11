@@ -44,6 +44,16 @@ class KiteProvider(McpProvider):
         url = os.getenv("KITE_MCP_URL", _DEFAULT_URL)
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
+    def open_session(self, ctx: ExecCtx):
+        """Re-attach the user's vaulted (authed) Kite session when one exists;
+        anonymous mcp-remote otherwise (the in-chat login-tool flow)."""
+        from core.providers.plugins.kite.transport import raw_session, vaulted_sid
+
+        sid = vaulted_sid(ctx.user_id)
+        if sid:
+            return raw_session(sid)
+        return super().open_session(ctx)
+
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         return [
             *build_kite_cards(result.results),

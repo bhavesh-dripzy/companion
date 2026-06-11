@@ -267,6 +267,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             [selectedProviderId]: { url: data.authorization_url, detail: data.detail || '' },
           }));
           window.open(data.authorization_url, '_blank', 'noopener');
+        } else if (data.completion === 'external') {
+          // Provider login lives entirely on its own site (e.g. Zerodha);
+          // status flips to Connected once the user finishes there.
+          setPasteError(data.detail || 'Complete the login in the new tab, then tap refresh.');
+          window.open(data.authorization_url, '_blank', 'noopener');
         } else {
           window.location.assign(data.authorization_url);
         }
@@ -276,10 +281,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         recordPairingCommand(selectedProviderId, data.command);
         return;
       }
+      if (data.detail) {
+        // Nothing actionable came back (not_required / unavailable) — say so
+        // instead of silently doing nothing.
+        setPasteError(data.detail);
+        return;
+      }
       const pairing = await api.post(`/api/mcp/pairing/?provider=${selectedProviderId}`);
       if (pairing.command) recordPairingCommand(selectedProviderId, pairing.command);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to connect MCP', err);
+      setPasteError(err?.message || 'Could not start the connection. Please try again.');
     }
   };
 
@@ -463,6 +475,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <p className="text-xs text-slate-600 leading-relaxed">
                     {mcpStatus?.detail || 'No status details available.'}
                   </p>
+
+                  {pasteError && !pasteFlow && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                      {pasteError}
+                    </p>
+                  )}
 
                   <div className="pt-1 flex gap-3">
                     <button

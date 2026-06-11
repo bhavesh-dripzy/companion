@@ -258,6 +258,31 @@ def _compute_mcp_status(provider: str, user: str) -> dict[str, Any]:
                 "installed": installed,
             },
         }
+    if provider == "kite":
+        from core.providers.plugins.kite.transport import probe_profile, vaulted_sid
+
+        sid = vaulted_sid(user)
+        probe = probe_profile(sid) if sid else {"authed": False, "session_alive": False}
+        authed = bool(probe.get("authed"))
+        if authed:
+            who = probe.get("profile")
+            detail = f"Connected to Zerodha{f' as {who}' if who else ''}."
+        elif sid and probe.get("session_alive"):
+            detail = "Login started but not finished — tap Connect and complete the Zerodha login."
+        else:
+            detail = "Not connected. Tap Connect to log in to Zerodha (session lasts the trading day)."
+        return {
+            "provider": tool_provider.name,
+            "provider_label": tool_provider.label,
+            "status": "ready" if authed else "needs_login",
+            "detail": detail,
+            "mcp_url": mcp_url or None,
+            "node_binary": node_binary,
+            "has_local_tokens": authed,
+            "has_secret_tokens": authed,
+            "token_status": {"auth_mode": "tool", "transport": "http", "session": bool(sid)},
+            "diagnostics": {"transport": "streamable-http", "session_alive": probe.get("session_alive")},
+        }
     url_set = bool(mcp_url.strip())
 
     root = repo_root()
@@ -362,6 +387,15 @@ def mcp_disconnect(
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
     if not tool_provider:
         raise HTTPException(status_code=404, detail=f"Unknown MCP provider {provider!r}.")
+    if provider == "kite":
+        from core.providers.plugins.kite.transport import clear_sid
+
+        clear_sid(user)
+        return {
+            "status": "disconnected",
+            "provider": provider,
+            "detail": "Zerodha session forgotten. Connect again any time.",
+        }
     if not mcp_url:
         raise HTTPException(
             status_code=400,
@@ -656,6 +690,36 @@ def mcp_oauth_start(
             "mcp_url": mcp_url,
         }
     if tool_provider.auth_mode == "tool" or tool_provider.stdio_command:
+        if provider == "kite":
+            # Kite: mint a fresh MCP session, vault its id, and hand back the
+            # Zerodha login URL. Auth binds to the session id server-side, so
+            # once the user logs in every later turn re-attaches authed.
+            from core.providers.plugins.kite.transport import save_sid, start_login
+
+            try:
+                started = start_login()
+                save_sid(user, started["sid"])
+                return {
+                    "status": "oauth_required",
+                    "completion": "external",
+                    "authorization_url": started["authorization_url"],
+                    "detail": (
+                        "Log in to Zerodha in the new tab (link valid ~5 min). "
+                        "Once you finish, this status flips to Connected — tap refresh to check."
+                    ),
+                    "provider": provider,
+                    "provider_label": tool_provider.label,
+                    "mcp_url": mcp_url or None,
+                }
+            except Exception as e:
+                logger.exception("kite login mint failed")
+                return {
+                    "status": "oauth_unavailable",
+                    "detail": f"{type(e).__name__}: {e}",
+                    "provider": provider,
+                    "provider_label": tool_provider.label,
+                    "mcp_url": mcp_url or None,
+                }
         return {
             "status": "not_required",
             "detail": f"{tool_provider.label} does not use Companion pairing. Use Test to verify tools.",
