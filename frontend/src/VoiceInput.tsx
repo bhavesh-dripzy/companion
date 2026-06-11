@@ -18,6 +18,9 @@ interface VoiceInputProps {
   // Live stage signals for the VoiceStage bar (phase + streaming captions).
   onVoicePhase?: (phase: 'listening' | 'thinking' | 'speaking') => void;
   onVoiceCaption?: (role: 'user' | 'assistant', fullText: string) => void;
+  // Live reader for the ongoing chat — lets a voice (re)connect resume the
+  // conversation instead of starting fresh (#20).
+  getVoiceContext?: () => { chatId: string | null; history: { role: string; content: string }[] };
   disabled?: boolean;
 }
 
@@ -29,6 +32,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
   onVoiceError,
   onVoicePhase,
   onVoiceCaption,
+  getVoiceContext,
   disabled = false,
 }) => {
   const [state, setState] = useState<VoiceSessionState>('inactive');
@@ -41,6 +45,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
   // until connect() is called, so calling both and selecting one is safe and
   // lets us A/B providers at runtime via VITE_VOICE_PROVIDER.
   const voiceOptions = {
+    getContext: getVoiceContext,
     onUserTranscript: (text: string) => {
       userTranscriptRef.current += ' ' + text;
     },

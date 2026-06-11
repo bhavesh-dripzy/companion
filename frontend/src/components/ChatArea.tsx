@@ -41,6 +41,8 @@ interface ChatAreaProps {
   onVoiceError?: (message: string) => void;
   onVoicePhase?: (phase: 'listening' | 'thinking' | 'speaking') => void;
   onVoiceCaption?: (role: 'user' | 'assistant', fullText: string) => void;
+  // Live reader for the ongoing chat — voice (re)connect resumes it (#20).
+  getVoiceContext?: () => { chatId: string | null; history: { role: string; content: string }[] };
   // Delivery address chip above the composer (food/grocery context).
   selectedAddressId?: string | null;
   onPickAddress?: (addr: SessionAddress) => void;
@@ -114,6 +116,7 @@ export function ChatArea({
   onVoiceError,
   onVoicePhase,
   onVoiceCaption,
+  getVoiceContext,
   selectedAddressId,
   onPickAddress,
 }: ChatAreaProps) {
@@ -559,6 +562,7 @@ export function ChatArea({
                   onVoiceError={onVoiceError}
                   onVoicePhase={onVoicePhase}
                   onVoiceCaption={onVoiceCaption}
+                  getVoiceContext={getVoiceContext}
                   disabled={isThinking}
                 />
               </div>

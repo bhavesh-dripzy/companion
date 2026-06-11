@@ -22,6 +22,10 @@ export interface UseGeminiLiveOptions {
   onTurnComplete?: (userText: string, assistantText: string, hadToolCall: boolean) => void;
   onError?: (message: string) => void;
   onStateChange?: (state: 'disconnected' | 'connecting' | 'connected') => void;
+  // Live reader for the ongoing chat (#20). Called at connect() time so the
+  // token bakes in the conversation being resumed; re-enabling voice mid-chat
+  // continues the thread instead of greeting fresh.
+  getContext?: () => { chatId: string | null; history: { role: string; content: string }[] };
 }
 
 export interface UseGeminiLiveReturn {
@@ -55,7 +59,7 @@ function floatTo16BitPCMBase64(input: Float32Array): string {
 }
 
 export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveReturn {
-  const { onUserTranscript, onAssistantTranscript, onPhase, onCaption, onToolCall, onTurnComplete, onError, onStateChange } = options;
+  const { onUserTranscript, onAssistantTranscript, onPhase, onCaption, onToolCall, onTurnComplete, onError, onStateChange, getContext } = options;
   const [state, setState] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -75,6 +79,8 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
   // keep streaming mic audio — stray speech/noise triggers VAD, starts a new
   // turn, and cancels/cuts off the pending tool reply.
   const toolPendingRef = useRef(false);
+  // True when this connect resumed an ongoing chat (#20) — picks the nudge.
+  const resumingRef = useRef(false);
 
   const disconnect = useCallback(() => {
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -156,12 +162,18 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
         onStateChange?.('connected');
         onPhase?.('listening');
         void startMic();
-        // Nudge a greeting; text turns don't produce inputTranscription, so this
-        // won't pollute the captured user transcript.
+        // Nudge an opener; text turns don't produce inputTranscription, so this
+        // won't pollute the captured user transcript. Resumed chats get a
+        // continue-the-thread nudge instead of a fresh greeting (#20).
+        const opener = resumingRef.current
+          ? '(system: the user just re-enabled voice mid-conversation. In ONE short Hinglish '
+            + 'line, acknowledge you are back and continue from the recent turns in your '
+            + 'instructions — reference the task in progress. Do NOT greet like a new session.)'
+          : 'Greet me warmly in one short Hindi line.';
         wsRef.current?.send(
           JSON.stringify({
             clientContent: {
-              turns: [{ role: 'user', parts: [{ text: 'Greet me warmly in one short Hindi line.' }] }],
+              turns: [{ role: 'user', parts: [{ text: opener }] }],
               turnComplete: true,
             },
           }),
@@ -255,7 +267,18 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
     setState('connecting');
     onStateChange?.('connecting');
     try {
-      const tokenData = await api.post('/api/voice/gemini-token/');
+      // Read the LIVE chat context (ref-backed in App.tsx) so the token bakes
+      // in what's being discussed right now, not a stale connect-time snapshot.
+      const chatCtx = getContext?.();
+      const history = (chatCtx?.history || [])
+        .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
+        .slice(-8)
+        .map((m) => ({ role: m.role, content: m.content }));
+      resumingRef.current = history.length > 0;
+      const tokenData = await api.post(
+        '/api/voice/gemini-token/',
+        history.length > 0 ? { chat_id: chatCtx?.chatId || null, history } : {},
+      );
       const token = tokenData.token;
       if (!token) throw new Error(tokenData.error || 'Failed to get Gemini token');
       const model = tokenData.model || 'gemini-3.1-flash-live-preview';
@@ -298,7 +321,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
       disconnect();
       throw err;
     }
-  }, [onStateChange, onError, handleMessage, disconnect, state]);
+  }, [onStateChange, onError, handleMessage, disconnect, state, getContext]);
 
   const respondToToolCall = useCallback((callId: string, output: Record<string, unknown>) => {
     const ws = wsRef.current;

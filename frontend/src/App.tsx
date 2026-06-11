@@ -1308,6 +1308,15 @@ function App() {
               if (role === 'user') setVoiceUserCaption(text);
               else setVoiceAssistantCaption(text);
             }}
+            getVoiceContext={() => ({
+              // Read through voiceCtxRef so a (re)connect sees the LIVE chat,
+              // not a stale closure — same pattern as handleVoiceToolCall (#20).
+              chatId: voiceCtxRef.current.chatId,
+              history: voiceCtxRef.current.messages.map((m) => ({
+                role: m.role,
+                content: m.content,
+              })),
+            })}
             selectedAddressId={selectedAddressId ?? sessionState['__ADDRESS_ID__'] ?? null}
             onPickAddress={(addr) => {
               const id = String(addr.address_id || '').trim();

@@ -568,15 +568,51 @@ def _voice_profile_summary(user_id: str) -> str:
     )
 
 
+class VoiceGeminiTokenRequest(BaseModel):
+    """Optional resume context (#20): the ongoing chat's id + recent turns."""
+
+    chat_id: str | None = None
+    history: list[dict[str, Any]] = []
+
+
+def _voice_resume_context(history: list[dict[str, Any]] | None) -> str:
+    """Bake the tail of the ongoing chat into the Live system instruction.
+
+    The constrained Live endpoint ignores client-supplied setup, so resuming
+    an in-progress conversation (#20) must ride in the token. Compact by
+    design — the last few turns, whitespace-collapsed and truncated, just
+    enough for the model to pick the thread back up instead of greeting cold.
+    """
+    turns = [
+        (str(t.get("role") or ""), " ".join(str(t.get("content") or "").split()))
+        for t in (history or [])[-6:]
+        if isinstance(t, dict)
+    ]
+    lines = [
+        f"{role.title()}: {text[:220]}"
+        for role, text in turns
+        if role in ("user", "assistant") and text
+    ]
+    if not lines:
+        return ""
+    return (
+        "\n\nYou are RESUMING an ongoing conversation the user just switched to voice "
+        "from — do NOT greet like a fresh session. Recent turns:\n"
+        + "\n".join(lines)
+        + "\nPick the thread back up naturally and continue helping with the task in progress."
+    )
+
+
 async def voice_gemini_token_endpoint(
-    request: VoiceTokenRequest = None,
+    request: VoiceGeminiTokenRequest = None,
     user: str = Depends(get_current_user),
 ) -> dict:
     """Mint a single-use ephemeral Gemini Live token for client-side WebSocket use.
 
     The companion_execute tool + system instruction + transcription are baked
     into the token because the constrained Live endpoint ignores client-supplied
-    setup config.
+    setup config. When the client sends the ongoing chat's recent turns, they
+    are baked in too, so re-enabling voice resumes the conversation (#20).
     """
     gemini_key = secret_or_env("GEMINI_API_KEY") or secret_or_env("GOOGLE_API_KEY")
     if not gemini_key:
@@ -616,7 +652,11 @@ async def voice_gemini_token_endpoint(
                 )
             ]
         )
-        system_instruction = GEMINI_LIVE_SYSTEM_INSTRUCTION + _voice_profile_summary(user)
+        system_instruction = (
+            GEMINI_LIVE_SYSTEM_INSTRUCTION
+            + _voice_profile_summary(user)
+            + _voice_resume_context(request.history if request else None)
+        )
         # Pin ONE voice — without speech_config the Live API picks per session,
         # so users heard a different (male/female) voice every connect.
         voice_name = secret_or_env("GEMINI_LIVE_VOICE") or "Charon"
