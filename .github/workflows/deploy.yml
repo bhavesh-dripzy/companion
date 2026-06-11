@@ -254,12 +254,31 @@ jobs:
             --output text)"
           curl -fsS "$API_URL/api/"
 
+  # Detect whether this push touched anything the APK is built from, so the
+  # (slow) Android build only runs when it would actually change.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      apk: ${{ steps.filter.outputs.apk }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            apk:
+              - 'frontend/**'
+              - 'ci/**'
+              - '.github/workflows/deploy.yml'
+
   # Rebuild the Android APK from the just-deployed code and publish it to the
   # app-downloads bucket, which /companion.apk redirects to. Runs after deploy
-  # so the bucket exists. Signs with the committed fixed debug keystore so every
-  # build has the same signature and installs update in place.
+  # so the bucket exists, and only when APK-relevant files changed. Signs with
+  # the committed fixed debug keystore so every build has the same signature
+  # and installs update in place.
   build-apk:
-    needs: deploy
+    needs: [deploy, changes]
+    if: needs.changes.outputs.apk == 'true'
     runs-on: ubuntu-latest
     environment: production
     env:
