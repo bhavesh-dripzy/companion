@@ -271,7 +271,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"  # Capacitor 8 CLI requires Node >=22
 
       - uses: actions/setup-java@v4
         with:
