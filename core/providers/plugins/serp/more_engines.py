@@ -49,7 +49,25 @@ def finance_params(args: dict[str, Any]) -> dict[str, Any]:
     return {"engine": "google_finance", "q": args.get("symbol"), "hl": "en"}
 
 
+_SPARK_POINTS = 48
+
+
+def _spark(payload: dict[str, Any]) -> list[float]:
+    """Downsample the intraday graph series (~376 points) to a lean sparkline."""
+    prices = [
+        p["price"]
+        for p in (payload.get("graph") or [])
+        if isinstance(p, dict) and isinstance(p.get("price"), int | float)
+    ]
+    if len(prices) <= _SPARK_POINTS:
+        return [round(p, 2) for p in prices]
+    step = (len(prices) - 1) / (_SPARK_POINTS - 1)
+    return [round(prices[int(i * step)], 2) for i in range(_SPARK_POINTS)]
+
+
 def extract_finance(payload: dict[str, Any]) -> dict[str, Any]:
+    """Lean google_finance snapshot; change_percent is SIGNED (SerpApi ships the
+    magnitude in price_movement.percentage and the sign in .movement)."""
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     movement = (
         summary.get("price_movement") if isinstance(summary.get("price_movement"), dict) else {}
@@ -66,14 +84,20 @@ def extract_finance(payload: dict[str, Any]) -> dict[str, Any]:
         for n in (payload.get("news_results") or [])[:3]
         if isinstance(n, dict)
     ]
+    pct = movement.get("percentage")
+    if isinstance(pct, int | float):
+        sign = -1 if str(movement.get("movement", "")).lower() == "down" else 1
+        pct = round(sign * abs(pct), 2)
     return _clean(
         {
             "name": summary.get("title"),
             "symbol": summary.get("stock"),
             "exchange": summary.get("exchange"),
-            "price": summary.get("price"),
-            "change_percent": movement.get("percentage"),
+            "price": summary.get("extracted_price") or summary.get("price"),
+            "change_percent": pct,
             "movement": movement.get("movement"),
+            "as_of": summary.get("date"),
+            "spark": _spark(payload) or None,
             "key_stats": stats or None,
             "headlines": [h for h in headlines if h] or None,
         }

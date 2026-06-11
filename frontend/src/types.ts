@@ -547,6 +547,12 @@ export interface Attachment {
   videos?: VideoResult[];
   //   kind === "news_cards" → articles (NewsArticle[])
   articles?: NewsArticle[];
+  //   kind === "metric_card" → metric (MetricCardPayload) — provider-agnostic
+  //     "number that moved" tile: market data today, any KPI tomorrow.
+  metric?: MetricCardPayload;
+  // Optional header override for any card tray (e.g. "Price comparison" on
+  // shop_product_cards when results span many stores, not just Amazon).
+  card_title?: string;
 }
 
 export interface FlightLeg {
@@ -613,6 +619,18 @@ export interface NewsArticle {
   date?: string;
   link?: string;
   image?: string;
+}
+
+export interface MetricCardPayload {
+  title?: string;
+  subtitle?: string;
+  value?: number | string;
+  delta_percent?: number;
+  direction?: string;
+  as_of?: string;
+  series?: number[];
+  series_label?: string;
+  stats?: Record<string, string>;
 }
 
 export interface VideoResult {

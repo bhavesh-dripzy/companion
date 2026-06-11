@@ -661,14 +661,7 @@ function App() {
       setSessionInstamartAddresses([]);
       setSessionInstamartCart(null);
       setSessionKiteInstruments([]);
-    setSessionSerpFlights([]);
-    setSessionSerpProducts([]);
-    setSessionSerpPlaces([]);
-    setSessionSerpHotels([]);
       setSessionSerpFlights([]);
-    setSessionSerpProducts([]);
-    setSessionSerpPlaces([]);
-    setSessionSerpHotels([]);
       setSessionSerpProducts([]);
       setSessionSerpPlaces([]);
       setSessionSerpHotels([]);

@@ -70,11 +70,11 @@ def _fake_complete_json(reply="Here are some options."):
     return complete
 
 
-def _runner(profile=None, publisher=None, complete=None):
+def _runner(profile=None, publisher=None, complete=None, geocode=None, provider=None):
     tools = ToolRegistry()
     tools.register_all(builtin_tools())
     registry = ProviderRegistry(tools=tools)
-    registry.register(_FakeZomato())
+    registry.register(provider or _FakeZomato())
 
     class _Profile:
         async def get(self, user_id):
@@ -85,6 +85,7 @@ def _runner(profile=None, publisher=None, complete=None):
         profile_service=_Profile(),
         publisher=publisher or NoopPublisher(),
         complete_json=complete or _fake_complete_json(),
+        geocode=geocode,
     )
 
 
@@ -101,6 +102,65 @@ def test_full_turn_routes_plans_executes_collects_narrates_publishes():
     # observable trace records every stage
     events = {e["event"] for e in response.observable_trace}
     assert {"personalize", "route", "plan", "execute", "collect", "narrate", "persist"} <= events
+
+
+def test_named_location_overrides_gps_for_provider_geo():
+    """'events in Delhi' from a phone in Dubai must search Delhi: Execute geocodes
+    the plan's requested_location_text and overrides ambient GPS in ExecCtx."""
+    seen = {}
+
+    class _GeoProvider(_FakeZomato):
+        async def run(self, calls, ctx):
+            seen["user_geo"] = ctx.user_geo
+            return await _FakeZomato.run(self, calls, ctx)
+
+    class _Geocode:
+        async def geocode(self, text):
+            return (28.6139, 77.209) if text == "Delhi" else None
+
+    async def complete(*, user_message, system_prompt, llm):
+        if "machine-ready tool plan" in system_prompt:
+            return {
+                "intent": "x",
+                "summary": "x",
+                "tool_plan": [{"tool": "search_restaurants", "arguments": {}}],
+                "constraints": {"requested_location_text": "Delhi"},
+            }
+        if "You are Companion" in system_prompt:
+            return {"message": "ok"}
+        return {"task_type": "food_delivery", "food_providers": ["zomato"], "reasoning": "f"}
+
+    runner = _runner(complete=complete, geocode=_Geocode(), provider=_GeoProvider())
+    request = TurnRequest(
+        message="events in Delhi",
+        user_id="u1",
+        user_geo={"latitude": 25.2048, "longitude": 55.2708},
+    )
+    asyncio.run(runner.run(request, _LLM))
+    assert seen["user_geo"] == {"latitude": 28.6139, "longitude": 77.209}
+
+
+def test_gps_used_when_no_locality_named():
+    """No named place in the plan -> ambient GPS flows through untouched."""
+    seen = {}
+
+    class _GeoProvider(_FakeZomato):
+        async def run(self, calls, ctx):
+            seen["user_geo"] = ctx.user_geo
+            return await _FakeZomato.run(self, calls, ctx)
+
+    class _Geocode:
+        async def geocode(self, text):
+            raise AssertionError("geocode must not be called without a named locality")
+
+    runner = _runner(geocode=_Geocode(), provider=_GeoProvider())
+    request = TurnRequest(
+        message="order pizza",
+        user_id="u1",
+        user_geo={"latitude": 25.2048, "longitude": 55.2708},
+    )
+    asyncio.run(runner.run(request, _LLM))
+    assert seen["user_geo"] == {"latitude": 25.2048, "longitude": 55.2708}
 
 
 def test_narrator_receives_conversation_history():

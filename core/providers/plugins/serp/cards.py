@@ -1,8 +1,10 @@
 """Serp result tiles — dedicated card kinds per engine (flights, hotels,
-places, products, videos), with the generic info_card as the fallback for
-anything else (instagram profile, misc). Field names avoid the Attachment
-interface collisions (`flight_options`, not `flights`; `shop_products`, not
-`products` — that one belongs to Zepto)."""
+places, products, videos, news), with the generic info_card as the fallback
+for anything else (instagram profile, misc). Market data maps onto the
+provider-agnostic `metric_card` (headline value + delta + series + stats —
+reusable by any provider with a number to chart). Field names avoid the
+Attachment interface collisions (`flight_options`, not `flights`;
+`shop_products`, not `products` — that one belongs to Zepto)."""
 
 from __future__ import annotations
 
@@ -107,6 +109,32 @@ def build_serp_cards(result: ProviderResult, provider_id: str) -> list[Attachmen
                     )
                 )
             continue
+        if tr.ok and tr.tool == "get_market_data":
+            data = (tr.data or {}).get("data") or {}
+            if data.get("name") or data.get("price"):
+                metric = {
+                    "title": data.get("name") or data.get("symbol"),
+                    "subtitle": " · ".join(
+                        str(v) for v in (data.get("symbol"), data.get("exchange")) if v
+                    )
+                    or None,
+                    "value": data.get("price"),
+                    "delta_percent": data.get("change_percent"),
+                    "direction": str(data.get("movement") or "").lower() or None,
+                    "series": data.get("spark"),
+                    "series_label": "today",
+                    "stats": data.get("key_stats"),
+                    "as_of": data.get("as_of"),
+                }
+                out.append(
+                    Attachment(
+                        kind="metric_card",
+                        provider="serp",
+                        source=f"{provider_id}.{tr.tool}",
+                        metric={k: v for k, v in metric.items() if v is not None},
+                    )
+                )
+            continue
         if not tr.ok or tr.tool not in _KINDS:
             continue
         kind, data_key, field = _KINDS[tr.tool]
@@ -132,10 +160,18 @@ def build_serp_cards(result: ProviderResult, provider_id: str) -> list[Attachmen
                     payload[date_field] = args[date_field]
             if args.get("departure_token"):
                 payload["leg"] = "return"
-        if tr.tool in ("search_hotels", "search_places", "search_products", "youtube_search"):
+        if tr.tool in (
+            "search_hotels",
+            "search_places",
+            "search_products",
+            "search_shopping",
+            "youtube_search",
+        ):
             query = (tr.arguments or {}).get("query")
             if query:
                 payload["keyword"] = str(query)
+        if tr.tool == "search_shopping":
+            payload["card_title"] = "Price comparison"
         out.append(Attachment(**payload))
     return out
 
@@ -146,7 +182,8 @@ def build_attachments(result: ProviderResult, provider_id: str) -> list[Attachme
         *build_serp_cards(result, provider_id),
         *build_info_cards(
             result.results,
-            exclude=set(_KINDS) | {"get_product_details", "get_place_reviews", "get_hotel_details"},
+            exclude=set(_KINDS)
+            | {"get_product_details", "get_place_reviews", "get_hotel_details", "get_market_data"},
             provider_id=provider_id,
             brand="serp",
         ),

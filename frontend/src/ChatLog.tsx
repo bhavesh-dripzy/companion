@@ -48,6 +48,7 @@ import {
 import {
   FlightCardGrid,
   HotelCardGrid,
+  MetricCard,
   NewsCardGrid,
   PlaceCardGrid,
   ShopProductCardGrid,
@@ -1725,6 +1726,7 @@ export const AttachmentList: React.FC<{
             key={`shop-${idx}`}
             products={att.shop_products}
             keyword={att.keyword}
+            label={att.card_title}
           />
         );
       }
@@ -1733,6 +1735,9 @@ export const AttachmentList: React.FC<{
       }
       if (kind === 'news_cards' && att.articles?.length) {
         return <NewsCardGrid key={`news-${idx}`} articles={att.articles} keyword={att.keyword} />;
+      }
+      if (kind === 'metric_card' && att.metric) {
+        return <MetricCard key={`metric-${idx}`} metric={att.metric} provider={att.provider} />;
       }
       const mime = String(att.mime_type || 'image/png');
       const b64 = typeof att.data_b64 === 'string' ? att.data_b64 : '';

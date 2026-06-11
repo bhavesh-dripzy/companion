@@ -72,6 +72,16 @@ def test_lean_digest_caps_rows_and_reports_overflow():
     assert "r12" not in digest and "(+18 more)" in digest
 
 
+def test_lean_digest_compresses_numeric_series():
+    """Chart series (e.g. a market sparkline) digest to a range summary, not
+    a dozen raw floats in the narrator prompt; short scalar lists still list."""
+    envelope = {"data": {"spark": [23257.25 + i for i in range(48)], "amenities": ["AC", "Wifi"]}}
+    digest = lean_digest(envelope)
+    assert "48 values: 23257.25 → 23304.25" in digest
+    assert "23258.25" not in digest
+    assert "AC" in digest and "Wifi" in digest
+
+
 def test_lean_digest_empty_data_is_none():
     assert lean_digest({"data": {}}) is None
     assert lean_digest({}) is None

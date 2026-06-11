@@ -16,10 +16,14 @@ import {
   PlayCircle,
   ArrowRight,
   Star,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react';
 import { BrandHeader } from './ResultCards';
 import type {
+  CardProvider,
   FlightOption,
+  MetricCardPayload,
   NewsArticle,
   HotelOption,
   PlaceResult,
@@ -243,11 +247,12 @@ export const PlaceCardGrid: React.FC<{ places: PlaceResult[]; keyword?: string }
   </Shell>
 );
 
-export const ShopProductCardGrid: React.FC<{ products: ShopProduct[]; keyword?: string }> = ({
-  products,
-  keyword,
-}) => (
-  <Shell icon={<ShoppingCart size={14} />} label="Amazon" trailing={keyword}>
+export const ShopProductCardGrid: React.FC<{
+  products: ShopProduct[];
+  keyword?: string;
+  label?: string;
+}> = ({ products, keyword, label }) => (
+  <Shell icon={<ShoppingCart size={14} />} label={label || 'Amazon'} trailing={keyword}>
     <Scroller>
       {products.map((p, idx) => (
         <a
@@ -269,11 +274,109 @@ export const ShopProductCardGrid: React.FC<{ products: ShopProduct[]; keyword?: 
             </span>
             <RatingChip rating={p.rating} />
           </div>
+          {p.source || p.delivery ? (
+            <p className="mt-1 text-[9.5px] text-slate-500 line-clamp-1">
+              {p.source ? <span className="font-bold text-slate-600">{p.source}</span> : null}
+              {p.source && p.delivery ? ' · ' : ''}
+              {p.delivery || ''}
+            </p>
+          ) : null}
         </a>
       ))}
     </Scroller>
   </Shell>
 );
+
+const Sparkline: React.FC<{ points: number[]; up: boolean }> = ({ points, up }) => {
+  const W = 220;
+  const H = 56;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const step = W / (points.length - 1 || 1);
+  const coords = points.map((p, i) => `${(i * step).toFixed(1)},${(H - 6 - ((p - min) / span) * (H - 12)).toFixed(1)}`);
+  const color = up ? '#059669' : '#e11d48';
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14" preserveAspectRatio="none">
+      <polygon
+        points={`0,${H} ${coords.join(' ')} ${W},${H}`}
+        fill={color}
+        opacity="0.08"
+      />
+      <polyline
+        points={coords.join(' ')}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+};
+
+export const MetricCard: React.FC<{ metric: MetricCardPayload; provider?: CardProvider }> = ({
+  metric,
+  provider,
+}) => {
+  const up = String(metric.direction || '').toLowerCase() !== 'down';
+  const pct = typeof metric.delta_percent === 'number' ? metric.delta_percent : null;
+  const value =
+    typeof metric.value === 'number' ? metric.value.toLocaleString('en-IN') : metric.value;
+  const stats = Object.entries(metric.stats || {}).slice(0, 6);
+  return (
+    <div className="mt-3 w-full max-w-md animate-fade-in">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <BrandHeader
+          provider={provider || 'serp'}
+          icon={up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+          label={metric.title || 'Metric'}
+        />
+        <div className="px-4 pt-3">
+          <div className="flex items-baseline gap-2.5">
+            <span className="font-mono text-[22px] font-extrabold text-slate-900">{value}</span>
+            {pct !== null ? (
+              <span
+                className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-extrabold ${
+                  up ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'
+                }`}
+              >
+                {up ? '▲' : '▼'} {Math.abs(pct).toFixed(2)}%
+              </span>
+            ) : null}
+          </div>
+          {metric.subtitle || metric.as_of ? (
+            <p className="mt-0.5 text-[9.5px] font-medium text-slate-400">
+              {[metric.subtitle, metric.as_of].filter(Boolean).join(' · ')}
+            </p>
+          ) : null}
+        </div>
+        {metric.series && metric.series.length > 1 ? (
+          <div className="px-4 pt-2">
+            <Sparkline points={metric.series} up={up} />
+            {metric.series_label ? (
+              <p className="text-right text-[8.5px] font-semibold uppercase tracking-wide text-slate-400">
+                {metric.series_label}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {stats.length ? (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-4 pb-3.5 pt-2">
+            {stats.map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between gap-2 text-[10px]">
+                <span className="text-slate-500 truncate">{label}</span>
+                <span className="font-mono font-bold text-slate-800 shrink-0">{value}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="pb-3" />
+        )}
+      </div>
+    </div>
+  );
+};
 
 const VideoTile: React.FC<{ video: VideoResult }> = ({ video }) => {
   const [playing, setPlaying] = React.useState(false);

@@ -496,12 +496,16 @@ def test_batch2_extractors():
                 "stock": ".NSEI",
                 "exchange": "INDEXNSE",
                 "price": "23,214.95",
+                "extracted_price": 23214.95,
                 "price_movement": {"percentage": 0.12, "movement": "Down"},
             },
+            "graph": [{"price": 23257.25 + i, "date": f"d{i}"} for i in range(100)],
             "news_results": [{"title": "Markets slip"}],
         }
     )
-    assert fin["price"] == "23,214.95" and fin["movement"] == "Down"
+    assert fin["price"] == 23214.95 and fin["movement"] == "Down"
+    assert fin["change_percent"] == -0.12
+    assert len(fin["spark"]) == 48 and fin["spark"][0] == 23257.25
     assert fin["headlines"] == ["Markets slip"]
 
     shop = m2.extract_shopping(
@@ -620,10 +624,48 @@ def test_batch2_cards_and_briefs():
                     "data": {"hotels": [{"name": "Baga Sunshine", "property_token": "TOK1"}]},
                 },
             ),
+            ToolResult(
+                tool="get_market_data",
+                provider="serp",
+                ok=True,
+                arguments={"symbol": "NIFTY_50:INDEXNSE"},
+                data={
+                    "is_error": False,
+                    "data": {
+                        "name": "NIFTY 50",
+                        "symbol": "NIFTY_50",
+                        "exchange": "INDEXNSE",
+                        "price": 23214.95,
+                        "change_percent": -0.12,
+                        "movement": "Down",
+                        "spark": [23257.25, 23230.1, 23216.45],
+                        "key_stats": {"P/E ratio": "21.4"},
+                        "headlines": ["Markets slip"],
+                    },
+                },
+            ),
+            ToolResult(
+                tool="search_shopping",
+                provider="serp",
+                ok=True,
+                arguments={"query": "Sony XM5"},
+                data={
+                    "is_error": False,
+                    "data": {"products": [{"name": "XM5", "price": "₹23,800", "source": "vplak"}]},
+                },
+            ),
         ],
     )
-    kinds = [a.kind for a in build_serp_cards(result, "serp")]
+    cards = build_serp_cards(result, "serp")
+    kinds = [a.kind for a in cards]
     assert "news_cards" in kinds and "review_cards" in kinds
+    metric = next(a for a in cards if a.kind == "metric_card").to_wire()["metric"]
+    assert metric["title"] == "NIFTY 50" and metric["value"] == 23214.95
+    assert metric["delta_percent"] == -0.12 and metric["direction"] == "down"
+    assert metric["series"] == [23257.25, 23230.1, 23216.45]
+    assert "headlines" not in metric
+    shopping = next(a for a in cards if a.kind == "shop_product_cards").to_wire()
+    assert shopping["card_title"] == "Price comparison" and shopping["keyword"] == "Sony XM5"
     legacy = merge_serp_session({}, result)
     assert "data_id=0x39:0xce" in places_brief(legacy)
     hb = hotels_brief(legacy)

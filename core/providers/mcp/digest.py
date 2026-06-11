@@ -17,6 +17,7 @@ _MAX_CHARS = 2000
 _MAX_LIST_ROWS = 12
 _MAX_DEPTH = 4
 _MAX_VALUE_LEN = 120
+_MAX_SERIES_POINTS = 8  # longer all-numeric lists are chart data, not facts
 
 _NOISE_KEY = re.compile(
     r"(image|img|icon|logo|photo|thumbnail|banner|media|url|link|deeplink|href|"
@@ -75,6 +76,11 @@ def _render(obj: Any, lines: list[str], indent: int, depth: int) -> None:
             else:
                 lines.append(f"{pad}{key}: {_scalar(value)}")
     elif isinstance(obj, list):
+        if len(obj) > _MAX_SERIES_POINTS and all(
+            isinstance(x, int | float) and not isinstance(x, bool) for x in obj
+        ):
+            lines.append(f"{pad}{len(obj)} values: {_scalar(obj[0])} → {_scalar(obj[-1])}")
+            return
         for row in obj[:_MAX_LIST_ROWS]:
             if isinstance(row, dict):
                 lead = [

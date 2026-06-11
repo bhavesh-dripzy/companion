@@ -25,3 +25,10 @@ class TurnEventPublisher(Protocol):
     async def publish(self, event: TurnEvent) -> None:
         """Publish a conversation turn for async KG extraction (fire-and-forget)."""
         ...
+
+
+@runtime_checkable
+class GeocodeService(Protocol):
+    async def geocode(self, text: str) -> tuple[float, float] | None:
+        """Resolve a free-text locality to (lat, lng), or None (fail-open)."""
+        ...

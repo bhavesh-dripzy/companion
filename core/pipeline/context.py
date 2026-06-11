@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.boundaries.protocols import ProfileReadService, TurnEventPublisher
+from core.boundaries.protocols import GeocodeService, ProfileReadService, TurnEventPublisher
 from core.contracts.attachment import Attachment
 from core.contracts.profile import Profile
 from core.contracts.routing import RoutingDecision
@@ -32,6 +32,7 @@ class PipelineDeps:
     profile_service: ProfileReadService
     publisher: TurnEventPublisher
     complete_json: CompleteJson
+    geocode: GeocodeService | None = None
 
 
 @dataclass

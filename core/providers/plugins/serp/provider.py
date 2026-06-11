@@ -59,8 +59,11 @@ _PREAMBLE = (
     "Respond with ONLY a JSON object shaped exactly like:\n"
     '{"intent": "<snake_case>", "summary": "<one sentence>", '
     '"tool_plan": [{"tool": "<exact tool name>", "arguments": {<filled from the user\'s words>}}], '
-    '"constraints": {"requires_address_resolution": false}}\n'
+    '"constraints": {"requires_address_resolution": false, '
+    '"requested_location_text": "<city/locality the user named, else null>"}}\n'
     "Fill EVERY required argument (marked * in the tool list) with literal values.\n"
+    "- Set constraints.requested_location_text whenever the user names a city or "
+    "locality — it geo-biases place searches; null when they mean 'near me'.\n"
     "- Dates MUST be YYYY-MM-DD; resolve relative dates ('next Friday') yourself.\n"
     "- search_flights needs IATA codes (Delhi→DEL, Mumbai→BOM, Bengaluru→BLR, "
     "Goa→GOI, Hyderabad→HYD, Chennai→MAA, Kolkata→CCU, Pune→PNQ, Jaipur→JAI).\n"
