@@ -1,6 +1,9 @@
 node_modules/
 .env
 
+# Scratch APK copy at repo root (the served one lives in frontend/public/)
+/companion-debug.apk
+
 # Python
 __pycache__/
 *.py[cod]

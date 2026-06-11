@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 from starlette.responses import Response as StarletteResponse
@@ -105,6 +105,19 @@ def favicon():
     if fav_path.exists():
         return HTMLResponse(fav_path.read_text(), media_type="image/svg+xml")
     return HTMLResponse("", status_code=404)
+
+
+@app.get("/companion.apk")
+def companion_apk():
+    """Serve the Android app for sideloading from a stable, shareable URL."""
+    apk_path = _FRONTEND_DIST / "companion.apk"
+    if not apk_path.is_file():
+        raise HTTPException(status_code=404, detail="APK not available")
+    return FileResponse(
+        apk_path,
+        media_type="application/vnd.android.package-archive",
+        filename="companion.apk",
+    )
 
 
 # Mount static assets (JS, CSS, images) from the React build with
