@@ -221,3 +221,24 @@ def test_persist_turn_lazy_creates_titled_chat(monkeypatch):
     assert chats[chat_id]["title"] != "New chat"
     roles = [m["role"] for m in messages]
     assert roles == ["user", "assistant"]
+
+
+# ── exception-group flattening (errors.py) ────────────────────────────────
+
+
+def test_result_from_exception_flattens_groups():
+    from core.contracts.tool_result import ErrorCode
+    from core.middleware.errors import UpstreamError, result_from_exception
+
+    group = ExceptionGroup(
+        "unhandled errors in a TaskGroup",
+        [ExceptionGroup("inner", [TimeoutError()]), UpstreamError("zepto 502", detail="zepto 502")],
+    )
+    tr = result_from_exception("search_products", "zepto", group)
+    assert tr.error is ErrorCode.UPSTREAM_ERROR
+    assert tr.error_detail == "zepto 502"
+
+    timeout_only = ExceptionGroup("unhandled errors in a TaskGroup", [TimeoutError()])
+    tr2 = result_from_exception("search_products", "swiggy_instamart", timeout_only)
+    assert tr2.error is ErrorCode.TOOL_TIMEOUT
+    assert "reconnect" in tr2.error_detail
