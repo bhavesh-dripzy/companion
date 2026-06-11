@@ -6,16 +6,41 @@ from aws_cdk import (
     Duration,
     RemovalPolicy,
     Stack,
+)
+from aws_cdk import (
     aws_apigatewayv2 as apigwv2,
+)
+from aws_cdk import (
     aws_certificatemanager as acm,
-    aws_route53 as route53,
-    aws_route53_targets as targets,
-    aws_dynamodb as dynamodb,
-    aws_iam as iam,
-    aws_lambda as lambda_,
-    aws_scheduler as scheduler,
+)
+from aws_cdk import (
     aws_cognito as cognito,
+)
+from aws_cdk import (
+    aws_dynamodb as dynamodb,
+)
+from aws_cdk import (
+    aws_iam as iam,
+)
+from aws_cdk import (
+    aws_lambda as lambda_,
+)
+from aws_cdk import (
+    aws_route53 as route53,
+)
+from aws_cdk import (
+    aws_route53_targets as targets,
+)
+from aws_cdk import (
+    aws_s3 as s3,
+)
+from aws_cdk import (
+    aws_scheduler as scheduler,
+)
+from aws_cdk import (
     aws_secretsmanager as secretsmanager,
+)
+from aws_cdk import (
     aws_sqs as sqs,
 )
 from constructs import Construct
@@ -217,6 +242,16 @@ class CompanionStack(Stack):
         )
         reminder_target_function.grant_invoke(scheduler_invoke_role)
 
+        # Holds the Android APK that CI rebuilds on every deploy. Private; the
+        # /companion.apk route 302-redirects to a short-lived presigned URL.
+        app_downloads = s3.Bucket(
+            self,
+            "AppDownloads",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+
         api_function = lambda_.DockerImageFunction(
             self,
             "ApiFunction",
@@ -262,6 +297,15 @@ class CompanionStack(Stack):
         api_function.add_environment("GRAPH_SERVICE_URL", f"https://graph.{domain_name}")
         api_function.add_environment("GRAPH_SERVICE_TOKEN_SECRET", f"{project_name}/graph-service-token")
         app_secret.grant_read(api_function)
+        app_downloads.grant_read(api_function)
+        api_function.add_environment("APP_DOWNLOADS_BUCKET", app_downloads.bucket_name)
+        # Let the GitHub Actions deploy role upload the freshly-built APK.
+        app_downloads.grant_put(
+            iam.ArnPrincipal(
+                f"arn:{cdk.Aws.PARTITION}:iam::{cdk.Aws.ACCOUNT_ID}:role/GitHubActionsDeployRole"
+            )
+        )
+        cdk.CfnOutput(self, "AppDownloadsBucket", value=app_downloads.bucket_name)
         api_function.add_to_role_policy(
             iam.PolicyStatement(
                 actions=[

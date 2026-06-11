@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import boto3
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 from starlette.responses import Response as StarletteResponse
@@ -109,15 +111,36 @@ def favicon():
 
 @app.get("/companion.apk")
 def companion_apk():
-    """Serve the Android app for sideloading from a stable, shareable URL."""
+    """Serve the Android app for sideloading from a stable, shareable URL.
+
+    CI rebuilds the APK on every deploy and uploads it to the app-downloads
+    bucket; we 302 to a short-lived presigned URL. Falls back to a bundled copy
+    for local/dev runs without the bucket.
+    """
+    bucket = os.getenv("APP_DOWNLOADS_BUCKET", "").strip()
+    if bucket:
+        try:
+            url = boto3.client("s3").generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": bucket,
+                    "Key": "companion.apk",
+                    "ResponseContentType": "application/vnd.android.package-archive",
+                    "ResponseContentDisposition": "attachment; filename=companion.apk",
+                },
+                ExpiresIn=3600,
+            )
+            return RedirectResponse(url, status_code=302)
+        except Exception:
+            logger.warning("Could not presign companion.apk from %s", bucket, exc_info=True)
     apk_path = _FRONTEND_DIST / "companion.apk"
-    if not apk_path.is_file():
-        raise HTTPException(status_code=404, detail="APK not available")
-    return FileResponse(
-        apk_path,
-        media_type="application/vnd.android.package-archive",
-        filename="companion.apk",
-    )
+    if apk_path.is_file():
+        return FileResponse(
+            apk_path,
+            media_type="application/vnd.android.package-archive",
+            filename="companion.apk",
+        )
+    raise HTTPException(status_code=404, detail="APK is being built; try again shortly.")
 
 
 # Mount static assets (JS, CSS, images) from the React build with

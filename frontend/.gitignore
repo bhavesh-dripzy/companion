@@ -26,3 +26,6 @@ ios
 *.njsproj
 *.sln
 *.sw?
+
+# Local APK build copy (served from S3 in prod)
+public/companion.apk
