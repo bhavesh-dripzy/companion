@@ -32,6 +32,7 @@ from core.providers.base import ExecCtx
 from core.providers.mcp.address import extract_address_rows
 from core.providers.mcp.connection import StdioSpec, call_tool, list_tools, mcp_session
 from core.providers.mcp.digest import lean_digest
+from core.providers.mcp.nearest import pick_address_id
 from core.providers.mcp.placeholders import PlaceholderResolver
 from core.providers.mcp.planner_context import rows_for_provider
 from core.providers.mcp.result_parse import tool_result_payload
@@ -94,29 +95,28 @@ class McpProvider(ABC):
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
         """Resolve __ADDRESS_ID__ before the first call (address-taking providers).
 
-        Order: request address_id, then carried session addresses[0], then a
-        one-shot fetch via ``saved_addresses_tool``. No-op when that attr is None."""
+        Order: request address_id, then carried session addresses, then a
+        one-shot fetch via ``saved_addresses_tool``. Both lookups pick the
+        saved address nearest ``ctx.user_geo`` (#18), falling back to the
+        first row when no geo/coords exist. No-op when the attr is None."""
         if ctx.address_id and "__ADDRESS_ID__" not in ctx.placeholders:
             ctx.placeholders["__ADDRESS_ID__"] = ctx.address_id
         if not self.saved_addresses_tool or "__ADDRESS_ID__" in ctx.placeholders:
             return
         key = self.saved_addresses_session_key
         carried = ctx.session.get(key) if isinstance(ctx.session, dict) else None
-        mine = rows_for_provider(carried, self.id)
-        if mine:
-            aid = str(mine[0].get("address_id") or "").strip()
-            if aid:
-                ctx.placeholders["__ADDRESS_ID__"] = aid
-                return
+        aid = pick_address_id(rows_for_provider(carried, self.id), ctx.user_geo)
+        if aid:
+            ctx.placeholders["__ADDRESS_ID__"] = aid
+            return
         try:
             raw = await call_tool(session, self.saved_addresses_tool, {})
             rows = extract_address_rows(tool_result_payload(raw))
         except Exception:
             return
-        if rows:
-            aid = str(rows[0].get("address_id") or "").strip()
-            if aid:
-                ctx.placeholders["__ADDRESS_ID__"] = aid
+        aid = pick_address_id(rows, ctx.user_geo)
+        if aid:
+            ctx.placeholders["__ADDRESS_ID__"] = aid
 
     async def discover_tools(self) -> list[Tool]:
         async with mcp_session(self.stdio_spec(ExecCtx())) as session:
