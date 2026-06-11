@@ -15,6 +15,7 @@ import {
   Unplug,
 } from 'lucide-react';
 import { api } from './api';
+import { isNative, runNativeMcpConnect } from './native';
 import type { ToolProvider, McpStatus, MapsRouteSummary, MapsTravelMode } from './types';
 import { cn } from './utils';
 import { GeolocationError, computeRoute, mapsStatus } from './maps';
@@ -93,6 +94,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [pairingCommands, setPairingCommands] = useState<Record<string, string>>(() =>
     readStoredPairings(),
   );
+  const [pasteFlows, setPasteFlows] = useState<Record<string, { url: string; detail: string }>>({});
+  const [pasteText, setPasteText] = useState('');
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
 
   const [mapsDestination, setMapsDestination] = useState('');
   const [mapsTravelMode, setMapsTravelMode] = useState<MapsTravelMode>('DRIVE');
@@ -108,6 +113,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const mcpStatus: McpStatus | null = mcpStatuses[selectedProviderId] || null;
   const pairingCommand: string = pairingCommands[selectedProviderId] || '';
+  const pasteFlow = pasteFlows[selectedProviderId] || null;
+
+  useEffect(() => {
+    setPasteText('');
+    setPasteError(null);
+  }, [selectedProviderId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -230,20 +241,77 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleConnectMcp = async () => {
+    setPasteError(null);
+    // Native app: run the whole OAuth round trip in an intercepting WebView —
+    // the localhost redirect is caught automatically, so there is no paste step.
+    if (isNative) {
+      onLoadingMcpChange(true);
+      try {
+        await runNativeMcpConnect(selectedProviderId);
+        await checkAllMcpStatuses();
+      } catch (err: any) {
+        if (err?.message !== 'cancelled') {
+          setPasteError(err?.message || 'Could not connect. Please try again.');
+        }
+      } finally {
+        onLoadingMcpChange(false);
+      }
+      return;
+    }
     try {
       const data = await api.get(`/api/mcp/oauth/start?provider=${selectedProviderId}`);
-      if (data.command) {
-        recordPairingCommand(selectedProviderId, data.command);
+      if (data.authorization_url) {
+        if (data.completion === 'paste') {
+          setPasteFlows((prev) => ({
+            ...prev,
+            [selectedProviderId]: { url: data.authorization_url, detail: data.detail || '' },
+          }));
+          window.open(data.authorization_url, '_blank', 'noopener');
+        } else {
+          window.location.assign(data.authorization_url);
+        }
         return;
       }
-      if (data.authorization_url) {
-        window.location.assign(data.authorization_url);
+      if (data.command) {
+        recordPairingCommand(selectedProviderId, data.command);
         return;
       }
       const pairing = await api.post(`/api/mcp/pairing/?provider=${selectedProviderId}`);
       if (pairing.command) recordPairingCommand(selectedProviderId, pairing.command);
     } catch (err) {
       console.error('Failed to connect MCP', err);
+    }
+  };
+
+  const handlePasteComplete = async () => {
+    let text = pasteText.trim();
+    if (!text && navigator.clipboard?.readText) {
+      try {
+        text = (await navigator.clipboard.readText()).trim();
+        if (text) setPasteText(text);
+      } catch {
+        /* clipboard permission denied — user pastes manually */
+      }
+    }
+    if (!text) {
+      setPasteError('Paste the full address of the page you landed on after logging in.');
+      return;
+    }
+    setPasteBusy(true);
+    setPasteError(null);
+    try {
+      await api.post('/api/mcp/oauth/complete/', { text });
+      setPasteFlows((prev) => {
+        const next = { ...prev };
+        delete next[selectedProviderId];
+        return next;
+      });
+      setPasteText('');
+      await checkAllMcpStatuses();
+    } catch (err: any) {
+      setPasteError(err?.message || 'Could not finish connecting. Tap Connect to retry.');
+    } finally {
+      setPasteBusy(false);
     }
   };
 
@@ -415,6 +483,58 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     )}
                   </div>
                 </div>
+
+                {pasteFlow && !isProviderConnected(mcpStatus) && (
+                  <div className="space-y-3 p-5 bg-blue-50/50 border border-blue-200 rounded-2xl">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[10px] font-black uppercase text-blue-700 tracking-wider">
+                        Finish Connecting
+                      </label>
+                      <button
+                        onClick={() =>
+                          setPasteFlows((prev) => {
+                            const next = { ...prev };
+                            delete next[selectedProviderId];
+                            return next;
+                          })
+                        }
+                        className="text-[10px] font-bold uppercase text-slate-400 hover:text-slate-700 tracking-wider"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                    <a
+                      href={pasteFlow.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-2.5 rounded-xl transition-all shadow-sm"
+                    >
+                      <ExternalLink size={14} />
+                      Open {toolProviders.find((p) => p.id === selectedProviderId)?.label || 'provider'} login
+                    </a>
+                    <p className="text-xs text-slate-700 leading-relaxed">
+                      After logging in you'll land on a page that can't open — that's expected.
+                      Copy that page's full address, come back here, and tap Paste &amp; Connect.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        value={pasteText}
+                        onChange={(e) => setPasteText(e.target.value)}
+                        placeholder="http://localhost:3334/oauth/callback?code=..."
+                        className="flex-1 min-w-0 px-3 py-2.5 text-xs font-mono border border-slate-300 rounded-xl bg-white focus:outline-none focus:border-blue-400"
+                      />
+                      <button
+                        onClick={handlePasteComplete}
+                        disabled={pasteBusy}
+                        className="px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-all flex items-center gap-2 whitespace-nowrap"
+                      >
+                        {pasteBusy && <Loader2 size={14} className="animate-spin" />}
+                        Paste &amp; Connect
+                      </button>
+                    </div>
+                    {pasteError && <p className="text-xs text-red-600">{pasteError}</p>}
+                  </div>
+                )}
 
                 {pairingCommand && (
                   <div className="space-y-3">

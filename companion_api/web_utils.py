@@ -25,17 +25,22 @@ def public_url(request: Request, path: str) -> str:
     return f"{proto}://{host}{path}"
 
 
-def oauth_result_page(title: str, detail: str, *, ok: bool) -> str:
+def oauth_result_page(title: str, detail: str, *, ok: bool, redirect_to: str | None = None) -> str:
     """The small HTML page shown after an OAuth redirect completes."""
     safe_title = escape(title)
     safe_detail = escape(detail)
     color = "#047857" if ok else "#b91c1c"
     badge = "Connected" if ok else "Needs attention"
+    back_href = escape(redirect_to, quote=True) if redirect_to else "/"
+    refresh_meta = (
+        f'<meta http-equiv="refresh" content="1;url={back_href}">' if ok and redirect_to else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {refresh_meta}
   <title>{safe_title}</title>
   <style>
     body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:#f6f7f9; color:#111827; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }}
@@ -51,7 +56,7 @@ def oauth_result_page(title: str, detail: str, *, ok: bool) -> str:
     <span class="badge">{badge}</span>
     <h1>{safe_title}</h1>
     <p>{safe_detail}</p>
-    <a href="/">Back to Companion</a>
+    <a href="{back_href}">Back to Companion</a>
   </main>
 </body>
 </html>"""

@@ -68,12 +68,10 @@ jobs:
 
       - name: Populate app secrets
         run: |
-          API_URL="$(aws cloudformation describe-stacks \
-            --stack-name companion-serverless \
-            --query "Stacks[0].Outputs[?OutputKey=='HttpApiEndpoint'].OutputValue" \
-            --output text \
-            --region "$AWS_REGION")"
-          export PUBLIC_BASE_URL="$API_URL"
+          # OAuth callbacks and the post-login bounce must use the stable public
+          # domain where users are actually logged in — not the raw execute-api
+          # endpoint (which is a different origin and would drop the session).
+          export PUBLIC_BASE_URL="https://houzzat.in"
           python3 <<'PY'
           import json
           import os

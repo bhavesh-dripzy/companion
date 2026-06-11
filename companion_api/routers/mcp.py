@@ -149,6 +149,16 @@ class McpPairingComplete(BaseModel):
     files: dict[str, str]
 
 
+class McpOauthComplete(BaseModel):
+    text: str
+
+
+def _paste_forced(provider: str) -> bool:
+    """Providers pinned to paste completion via MCP_OAUTH_PASTE_PROVIDERS (comma list)."""
+    raw = secret_or_env("MCP_OAUTH_PASTE_PROVIDERS", "")
+    return provider in {p.strip() for p in raw.split(",") if p.strip()}
+
+
 def _provider_mcp_url(provider_id: str, user_id: str | None = None) -> tuple[Any, str]:
     tool_provider = get_tool_provider(provider_id, user_id=user_id) or get_tool_provider(
         "zomato", user_id=user_id
@@ -471,6 +481,8 @@ def mcp_initiate_oauth(
             callback_url=callback_url,
             user_id=user,
             provider_label=tool_provider.label,
+            provider_id=provider,
+            force_paste=_paste_forced(provider),
         )
         result["provider"] = provider
         result["provider_label"] = tool_provider.label
@@ -566,13 +578,14 @@ def mcp_pairing_complete(payload: McpPairingComplete):
 
 @router.get("/api/mcp/oauth/callback", response_class=HTMLResponse)
 def mcp_oauth_callback(
+    request: Request,
     state: str | None = Query(default=None),
     code: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
     provider: str = Query(default="zomato"),
 ):
-    from core.providers.mcp.oauth import complete_web_oauth
+    from core.providers.mcp.oauth_complete import complete_web_oauth
 
     if error:
         return _oauth_result_page(
@@ -589,11 +602,31 @@ def mcp_oauth_callback(
     try:
         result = complete_web_oauth(state=state, code=code, provider=provider)
         provider_label = result.get("provider_label") or provider.replace("_", " ").title()
-        return _oauth_result_page(f"{provider_label} connected", result["detail"], ok=True)
+        provider_id = str(result.get("provider_id") or provider)
+        return _oauth_result_page(
+            f"{provider_label} connected",
+            result["detail"],
+            ok=True,
+            redirect_to=_public_url(request, f"/?mcp_oauth=success&provider={quote(provider_id)}"),
+        )
     except Exception as e:
         return _oauth_result_page(
             "Authorization could not finish", f"{type(e).__name__}: {e}", ok=False
         )
+
+
+@router.post("/api/mcp/oauth/complete/")
+def mcp_oauth_complete_paste(
+    payload: McpOauthComplete,
+    user: str = Depends(get_current_user),
+):
+    """Finish a paste-back OAuth flow from the post-login URL the user pasted."""
+    from core.providers.mcp.oauth_complete import complete_web_oauth_from_text
+
+    try:
+        return complete_web_oauth_from_text(text=payload.text, user_id=user)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}") from e
 
 
 @router.get("/api/mcp/oauth/start")
@@ -602,7 +635,10 @@ def mcp_oauth_start(
     provider: str = Query(default="zomato"),
     user: str = Depends(get_current_user),
 ):
-    """Return the browser-local mcp-remote pairing command for an MCP provider."""
+    """Start the phone-first connect flow: hosted OAuth (redirect or paste-back
+    completion), falling back to the laptop pairing command only if OAuth
+    cannot be negotiated at all."""
+    from core.providers.mcp.oauth import start_web_oauth
     from core.providers.mcp.pairing import create_pairing_session
 
     tool_provider, mcp_url = _provider_mcp_url(provider, user)
@@ -636,6 +672,22 @@ def mcp_oauth_start(
             "provider_label": tool_provider.label,
             "mcp_url": None,
         }
+
+    callback_url = _public_url(request, "/api/mcp/oauth/callback")
+    try:
+        result = start_web_oauth(
+            mcp_url=mcp_url,
+            callback_url=callback_url,
+            user_id=user,
+            provider_label=tool_provider.label,
+            provider_id=provider,
+            force_paste=_paste_forced(provider),
+        )
+        result["provider"] = provider
+        result["provider_label"] = tool_provider.label
+        return result
+    except Exception:
+        logger.exception("Hosted OAuth start failed for %s; falling back to pairing", provider)
 
     base_url = _public_url(request, "").rstrip("/")
     session = create_pairing_session(mcp_url=mcp_url, user_id=user)

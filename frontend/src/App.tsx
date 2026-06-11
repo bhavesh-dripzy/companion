@@ -1171,6 +1171,18 @@ function App() {
     setIsSettingsOpen(true);
   };
 
+  // Returning from a hosted MCP OAuth round trip: the callback page sends the
+  // browser back to /?mcp_oauth=success&provider=<id>. Reopen Settings on that
+  // provider so its freshly-vaulted status is visible, then clean the URL.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mcp_oauth') !== 'success') return;
+    openSettings('mcp', params.get('provider') || undefined);
+    window.history.replaceState({}, '', window.location.pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
   // Cosmetic reminders/orders handlers — unchanged from the new UI's
   // reference App.tsx, just lifted into local state because there's no
   // backend wiring for them yet.

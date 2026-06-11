@@ -1,4 +1,17 @@
+import { Capacitor } from '@capacitor/core';
+
 const TOKEN_KEY = "companion_token";
+
+// On web the app is same-origin with the API, so paths stay relative. In the
+// native app the bundle is served from a local origin, so calls must target the
+// deployed backend absolutely (CORS is open; auth is a Bearer header).
+const API_BASE = Capacitor.isNativePlatform()
+  ? ((import.meta.env.VITE_API_BASE as string | undefined) || 'https://houzzat.in')
+  : '';
+
+function apiUrl(path: string): string {
+  return path.startsWith('/') ? `${API_BASE}${path}` : path;
+}
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -42,7 +55,7 @@ export const api = {
     const token = getToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const response = await fetch(path, { headers });
+    const response = await fetch(apiUrl(path), { headers });
     return handleResponse(response);
   },
 
@@ -53,7 +66,7 @@ export const api = {
     const token = getToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const response = await fetch(path, {
+    const response = await fetch(apiUrl(path), {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -68,7 +81,7 @@ export const api = {
     const token = getToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const response = await fetch(path, {
+    const response = await fetch(apiUrl(path), {
       method: 'DELETE',
       headers,
     });
