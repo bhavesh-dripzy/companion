@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import boto3
+from botocore.config import Config
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -120,7 +121,17 @@ def companion_apk():
     bucket = os.getenv("APP_DOWNLOADS_BUCKET", "").strip()
     if bucket:
         try:
-            url = boto3.client("s3").generate_presigned_url(
+            # Presign against the bucket's regional endpoint — the global
+            # s3.amazonaws.com host with a regionally-scoped signature gets a
+            # SignatureDoesNotMatch from S3.
+            region = os.getenv("AWS_REGION") or "ap-south-1"
+            s3 = boto3.client(
+                "s3",
+                region_name=region,
+                endpoint_url=f"https://s3.{region}.amazonaws.com",
+                config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+            )
+            url = s3.generate_presigned_url(
                 "get_object",
                 Params={
                     "Bucket": bucket,
