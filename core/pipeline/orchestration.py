@@ -8,6 +8,7 @@ previous provider rather than silently defaulting (ADR-0002 / parity).
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from core.contracts.routing import RoutingDecision, TaskType
@@ -96,9 +97,13 @@ def fallback_routing(previous_provider: str | None) -> RoutingDecision:
     return _decision("food_delivery", ["zomato"], reason, previous_provider)
 
 
-# Delivery food providers fanned out to when the user names no specific app (#14).
-# (District is dining-out, not delivery, so it is excluded from delivery fan-out.)
-_DELIVERY_FOOD = ("zomato", "swiggy_food", "swiggy_instamart", "zepto")
+# #14 agnostic fan-out: per-domain provider groups. The orchestrator picks one
+# seed provider (grocery -> swiggy_instamart, meals -> zomato); expansion fans
+# the seed out to its whole group. District is dining-out, never expanded.
+_AGNOSTIC_GROUPS = (
+    ("zomato", "swiggy_food"),
+    ("swiggy_instamart", "zepto"),
+)
 _PROVIDER_NAME_HINTS = (
     "zomato",
     "swiggy",
@@ -117,18 +122,38 @@ def message_names_provider(message: str) -> bool:
     return any(hint in low for hint in _PROVIDER_NAME_HINTS)
 
 
+_TRANSACTIONAL_RE = re.compile(
+    r"\b(checkout|check out|pay|payment|confirm|cancel|track|reorder)\b|my (cart|order)"
+)
+
+
+def message_is_transactional(message: str) -> bool:
+    """True for cart/checkout/order-management turns — never fanned out (#14)."""
+    return bool(_TRANSACTIONAL_RE.search((message or "").lower()))
+
+
 def expand_agnostic(
     decision: RoutingDecision, message: str, *, enabled: bool, allowed: list[str] | None = None
 ) -> RoutingDecision:
-    """Issue #14: name an app -> that app; name none -> fan out to all relevant apps.
+    """Issue #14: name an app -> that app; name none -> fan out within the domain group.
 
-    Only applies to food delivery; gated by `enabled`. `allowed` (the client's
-    enabled providers) intersects the fan-out when provided.
+    Only applies to discovery turns on food delivery; gated by `enabled`.
+    Transactional turns (checkout/pay/cancel/track) and mid-flow turns (the
+    orchestrator stuck with the previous provider) are never re-fanned, so a
+    cart in progress stays on its provider. `allowed` (the client's enabled
+    providers) intersects the fan-out when provided.
     """
     if not enabled or decision.task_type != "food_delivery" or message_names_provider(message):
         return decision
-    providers = [p for p in _DELIVERY_FOOD if not allowed or p in allowed]
-    if not providers:
+    if message_is_transactional(message):
+        return decision
+    if decision.previous_provider and decision.previous_provider in decision.providers:
+        return decision
+    providers: list[str] = []
+    for group in _AGNOSTIC_GROUPS:
+        if any(p in group for p in decision.providers):
+            providers.extend(p for p in group if not allowed or p in allowed)
+    if not providers or set(providers) == set(decision.providers):
         return decision
     return _decision(
         decision.task_type,

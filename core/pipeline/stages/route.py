@@ -43,7 +43,7 @@ class Route:
             ctx.routing = parse_routing(raw, previous)
         except Exception:  # orchestrator unparseable/unavailable -> stick with previous
             ctx.routing = fallback_routing(previous)
-        if os.getenv("AGNOSTIC_FANOUT", "false").strip().lower() == "true":
+        if os.getenv("AGNOSTIC_FANOUT", "true").strip().lower() == "true":
             ctx.routing = expand_agnostic(
                 ctx.routing,
                 ctx.request.message,
