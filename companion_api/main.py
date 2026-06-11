@@ -356,5 +356,13 @@ def handler(event: Any, context: Any) -> Any:
     if isinstance(event, dict) and event.get("companion_async"):
         from companion_api.agent_jobs import run_async_turn_event
 
-        return run_async_turn_event(event)
+        try:
+            return run_async_turn_event(event)
+        finally:
+            # The worker's asyncio.run() leaves MainThread with NO event loop
+            # (set_event_loop(None) on teardown); Mangum's get_event_loop()
+            # would then 500 every later HTTP request on this warm container.
+            import asyncio
+
+            asyncio.set_event_loop(asyncio.new_event_loop())
     return _http_handler(event, context)
