@@ -121,7 +121,8 @@ def process_event(graph_client: GraphClient, event: dict):
     recent_history = []
     try:
         msg_repo = MessageRepository()
-        recent_history = msg_repo.list_recent(member_id=user_id, limit=8)
+        dynamo_member_id = event.get("member_id") or user_id
+        recent_history = msg_repo.list_recent(member_id=dynamo_member_id, limit=8)
     except Exception as e:
         logger.error(f"Error reading conversation history from DynamoDB: {e}")
 

@@ -99,6 +99,19 @@ class MessageRepository:
         items.reverse()
         return items
 
+    def list_recent(self, member_id: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Return the last ``limit`` messages of the user's most recently
+        active chat (oldest first) — the transcript slice the leadgen
+        extractor feeds its LLM. Empty when the user has no chats yet.
+        """
+        chats = ChatRepository(self.table.name).list_chats(member_id, limit=1)
+        if not chats:
+            return []
+        chat_id = chats[0].get("chat_id")
+        if not chat_id:
+            return []
+        return self.list_for_chat(member_id, str(chat_id), limit=limit)
+
     def delete_chat_messages(self, member_id: str, chat_id: str) -> int:
         """Scan-delete every message row for one chat. Returns the deleted
         count. Cheap because each chat is bounded — at most ~hundreds of
