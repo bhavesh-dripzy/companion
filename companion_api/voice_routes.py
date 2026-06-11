@@ -3,20 +3,14 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Any
 
 from fastapi import Depends
 from pydantic import BaseModel
 
 from companion_api.auth import get_current_user
-from companion_api.leadgen_queue import send_turn_event
-from companion_api.messages_repo import (
-    ChatRepository,
-    MessageRepository,
-    derive_chat_title,
-)
 from companion_api.secrets import secret_or_env
+from companion_api.turn_persistence import persist_turn
 from core.llm.config import resolve_llm_from_env
 
 logger = logging.getLogger(__name__)
@@ -32,77 +26,19 @@ def _persist_and_enqueue_voice_turn(
     routed_provider: str | None = None,
     session_addresses: Any = None,
 ) -> str | None:
-    """Persist a voice turn + enqueue the leadgen event, mirroring /api/send-message.
-
-    Used by both the tool-call path and the conversational log-turn path so
-    voice conversations show up in chat history AND feed the knowledge-graph /
-    leadgen pipeline exactly like text chats. Best-effort: any Dynamo/SQS error
-    is swallowed so it can never break the live voice reply.
-
-    Returns the resolved chat_id (looked up or freshly created).
-    """
-    resolved_chat_id = (chat_id or "").strip() or None
-    try:
-        chat_repo = ChatRepository()
-        existing = chat_repo.get(user, resolved_chat_id) if resolved_chat_id else None
-        created = False
-        if existing is None:
-            resolved_chat_id = resolved_chat_id or str(uuid.uuid4())
-            chat_repo.create(
-                member_id=user,
-                chat_id=resolved_chat_id,
-                title=derive_chat_title(user_text or "Voice chat"),
-            )
-            created = True
-
-        turn_id = str(uuid.uuid4())
-        msg_repo = MessageRepository()
-        if user_text:
-            msg_repo.create(
-                member_id=user,
-                chat_id=resolved_chat_id,
-                message_id=f"{turn_id}-user",
-                role="user",
-                text=user_text,
-                task_type=task_type,
-                provider=routed_provider,
-            )
-        msg_repo.create(
-            member_id=user,
-            chat_id=resolved_chat_id,
-            message_id=f"{turn_id}-assistant",
-            role="assistant",
-            text=assistant_text,
-            task_type=task_type,
-            provider=routed_provider,
-        )
-        chat_repo.touch(
-            member_id=user,
-            chat_id=resolved_chat_id,
-            last_message_preview=(assistant_text or "").strip(),
-            title=derive_chat_title(user_text) if created else None,
-            increment_count=2 if user_text else 1,
-        )
-    except Exception:
-        logger.exception("voice turn persistence failed (user=%s)", user)
-
-    # Enqueue leadgen independent of persistence (matches the text path).
-    try:
-        send_turn_event(
-            user_id=user,
-            message_id=str(uuid.uuid4()),
-            user_message=user_text,
-            assistant_message=assistant_text,
-            task_type=task_type,
-            routed_provider=routed_provider,
-            session_addresses=session_addresses,
-            user_geo=None,
-            member_id=user,
-        )
-    except Exception:
-        logger.exception("voice turn leadgen enqueue failed (user=%s)", user)
-
-    return resolved_chat_id
+    """Persist a voice turn + enqueue the leadgen event via the shared
+    `turn_persistence` helper (one persistence path for text + voice).
+    Returns the resolved chat_id (looked up or freshly created)."""
+    return persist_turn(
+        user=user,
+        chat_id=chat_id,
+        user_text=user_text,
+        assistant_text=assistant_text,
+        task_type=task_type,
+        provider=routed_provider,
+        session_addresses=session_addresses,
+        fallback_title="Voice chat",
+    )
 
 
 class VoiceToolExecuteRequest(BaseModel):

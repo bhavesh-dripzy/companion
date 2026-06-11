@@ -10,6 +10,7 @@ the core pipeline end-to-end against real providers.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 
 from core.app_factory import build_runner
@@ -17,6 +18,7 @@ from core.contracts.session import SessionState
 from core.contracts.tool_result import ProviderResult
 from core.contracts.turn import TurnRequest, TurnResponse
 from core.llm.config import resolve_llm_from_env
+from core.middleware.tracing import Tracer
 
 try:
     from companion_api.secrets import secret_or_env
@@ -132,17 +134,30 @@ def _to_envelope(response: TurnResponse, chat_id: str | None) -> dict[str, Any]:
     }
 
 
-async def _run(data: dict[str, Any], user: str, reply_language: str | None) -> dict[str, Any]:
+async def _run(
+    data: dict[str, Any],
+    user: str,
+    reply_language: str | None,
+    trace_listener: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     llm, reason = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
     if llm is None:
         return {"status": "error", "assistant_message": "", "error": reason, "pipeline": "core"}
     request = _to_request(data, user, reply_language)
-    response = await _get_runner().run(request, llm)
+    if trace_listener:
+        tracer = Tracer(listener=trace_listener)
+        response = await _get_runner().run(request, llm, tracer=tracer)
+    else:
+        response = await _get_runner().run(request, llm)
     return _to_envelope(response, request.chat_id)
 
 
 def run_core_turn_sync(
-    payload: Any, user: str, *, reply_language: str | None = None
+    payload: Any,
+    user: str,
+    *,
+    reply_language: str | None = None,
+    trace_listener: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Sync entry for the (sync) web handlers; drives the async pipeline once."""
-    return asyncio.run(_run(_payload_dict(payload), user, reply_language))
+    return asyncio.run(_run(_payload_dict(payload), user, reply_language, trace_listener))

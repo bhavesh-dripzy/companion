@@ -190,13 +190,36 @@ def _companion_agent_turn(
     payload: FoodQueryRequest | AgentQueryRequest,
     user: str,
 ) -> dict[str, Any]:
-    """Run a chat / voice turn through the core pipeline (the only path now).
+    """Run a chat turn through the core pipeline.
 
-    The legacy monolith and the LEGACY_PIPELINE escape hatch were removed in the
-    teardown; core/ is the pipeline."""
+    Tool-heavy turns outlive API Gateway's 30s integration cap, so the default
+    path hands the turn to the async job worker (`agent_jobs`): fast turns
+    still return their final envelope inline; slow ones return an ``accepted``
+    ack that the frontend polls for rolling progress + the result. The sync
+    fallback (ASYNC_TURNS=false or dispatch failure) runs in-request."""
+    from companion_api.agent_jobs import async_turns_enabled, finalize_turn, start_async_turn
     from companion_api.core_shadow import run_core_turn_sync
 
-    return run_core_turn_sync(payload, user)
+    data = payload.model_dump() if hasattr(payload, "model_dump") else dict(payload)
+    if async_turns_enabled():
+        try:
+            return start_async_turn(data, user)
+        except Exception:
+            logger.exception("async turn dispatch failed; running sync")
+
+    envelope = run_core_turn_sync(payload, user)
+    return finalize_turn(envelope, data, user)
+
+
+@app.get("/api/agent/jobs/{job_id}/")
+def agent_job_status(job_id: str, user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """Poll an async turn: status + rolling progress lines + the final envelope."""
+    from companion_api.agent_jobs import get_job
+
+    job = get_job(job_id, user)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    return job
 
 
 @app.get("/api/hero/greeting/")
@@ -324,4 +347,14 @@ app.include_router(auth_router)
 app.include_router(mcp_router)
 
 
-handler = Mangum(app, lifespan="off")
+_http_handler = Mangum(app, lifespan="off")
+
+
+def handler(event: Any, context: Any) -> Any:
+    """Lambda entry: routes self-invoked async-turn events to the worker,
+    everything else (API Gateway) through Mangum."""
+    if isinstance(event, dict) and event.get("companion_async"):
+        from companion_api.agent_jobs import run_async_turn_event
+
+        return run_async_turn_event(event)
+    return _http_handler(event, context)

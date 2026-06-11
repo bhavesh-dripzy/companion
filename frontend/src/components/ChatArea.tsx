@@ -25,6 +25,8 @@ interface ChatAreaProps {
   messages: Message[];
   onSendMessage: (text: string) => void;
   isThinking: boolean;
+  /** Rolling human status from the in-flight turn ("Searching Zomato…"). */
+  thinkingStatus?: string | null;
   onSuggestionClick: (text: string) => void;
   onToggleLeft?: () => void;
   connectedCount?: number;
@@ -100,6 +102,7 @@ export function ChatArea({
   messages,
   onSendMessage,
   isThinking,
+  thinkingStatus,
   onSuggestionClick,
   onToggleLeft,
   connectedCount = 0,
@@ -482,7 +485,7 @@ export function ChatArea({
                     <div className="bg-white/80 border border-[#ece3d6]/80 py-2.5 px-4 rounded-full flex items-center gap-2 shadow-xs backdrop-blur-xs">
                       <span className="w-1.5 h-1.5 bg-[#ff8a1e] rounded-full animate-ping" />
                       <span className="text-slate-500 font-medium text-xs italic">
-                        Thinking…
+                        {thinkingStatus || 'Thinking…'}
                       </span>
                     </div>
                   </motion.div>

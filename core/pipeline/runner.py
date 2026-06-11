@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 from core.contracts.turn import TurnRequest, TurnResponse
 from core.llm.config import ResolvedLlm
+from core.middleware.tracing import Tracer
 from core.pipeline.context import PipelineContext, PipelineDeps
 from core.pipeline.stage import Stage
 from core.pipeline.stages.collect import Collect
@@ -67,9 +68,14 @@ class PipelineRunner:
         self.deps = deps
         self.stages: list[Stage] = list(stages) if stages is not None else default_stages()
 
-    async def run(self, request: TurnRequest, llm: ResolvedLlm) -> TurnResponse:
+    async def run(
+        self, request: TurnRequest, llm: ResolvedLlm, *, tracer: Tracer | None = None
+    ) -> TurnResponse:
         ctx = PipelineContext(request=request, llm=llm, deps=self.deps)
+        if tracer is not None:
+            ctx.tracer = tracer
         ctx.confirmed = _is_confirmation(request)
         for stage in self.stages:
+            ctx.tracer.progress("stage", name=stage.__class__.__name__.lower())
             await stage.run(ctx)
         return _build_response(ctx)

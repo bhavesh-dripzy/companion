@@ -301,6 +301,7 @@ function App() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
+  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
 
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
   const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
@@ -835,6 +836,28 @@ function App() {
     return body;
   };
 
+  // Tool-heavy turns run past API Gateway's 30s cap, so the backend may
+  // answer with {status:'accepted', job_id} instead of the final envelope.
+  // This helper makes that transparent: it polls the job, surfaces each
+  // rolling progress line into the thinking bubble, and resolves with the
+  // final envelope exactly as if the POST had returned it directly.
+  const runTurn = async (body: Record<string, any>): Promise<QueryResponse> => {
+    const first = await api.post('/api/agent/query/', body);
+    if (first?.status !== 'accepted' || !first?.job_id) return first as QueryResponse;
+    const lines: string[] = Array.isArray(first.progress) ? first.progress : [];
+    if (lines.length) setThinkingStatus(lines[lines.length - 1]);
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 180_000) {
+      await new Promise((r) => setTimeout(r, 1400));
+      const job = await api.get(`/api/agent/jobs/${encodeURIComponent(first.job_id)}/`);
+      const progress: string[] = Array.isArray(job?.progress) ? job.progress : [];
+      if (progress.length) setThinkingStatus(progress[progress.length - 1]);
+      if (job?.status === 'done' && job.result) return job.result as QueryResponse;
+      if (job?.status === 'error') throw new Error(job.error || 'The request failed.');
+    }
+    throw new Error('This is taking longer than expected — please try again.');
+  };
+
   const handleSendMessage = async (content: string) => {
     const text = (content || '').trim();
     if (!text) return;
@@ -843,13 +866,13 @@ function App() {
     setIsThinking(true);
 
     try {
-      let data: QueryResponse = await api.post('/api/agent/query/', buildAgentBody(text, userLocation));
+      let data: QueryResponse = await runTurn(buildAgentBody(text, userLocation));
 
       const errorCode = (data as any)?.tool_execution?.error_code;
       if (errorCode === 'needs_location') {
         try {
           const fresh = await ensureLocation();
-          data = await api.post('/api/agent/query/', buildAgentBody(text, fresh));
+          data = await runTurn(buildAgentBody(text, fresh));
         } catch (geoErr: any) {
           const reason = geoErr?.reason ?? 'unknown';
           const friendly: Record<string, string> = {
@@ -951,6 +974,7 @@ function App() {
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsThinking(false);
+      setThinkingStatus(null);
     }
   };
 
@@ -1288,6 +1312,7 @@ function App() {
             messages={messages}
             onSendMessage={handleSendMessage}
             isThinking={isThinking}
+            thinkingStatus={thinkingStatus}
             onSuggestionClick={(prompt) => {
               if (!isThinking) handleSendMessage(prompt);
             }}
