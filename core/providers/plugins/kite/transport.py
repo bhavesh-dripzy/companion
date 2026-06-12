@@ -57,9 +57,7 @@ def result_shim(rpc: dict[str, Any] | None) -> Any:
         return SimpleNamespace(content=[], isError=True)
     if rpc.get("error"):
         message = str((rpc["error"] or {}).get("message") or "MCP error")
-        return SimpleNamespace(
-            content=[SimpleNamespace(type="text", text=message)], isError=True
-        )
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=message)], isError=True)
     result = rpc.get("result") or {}
     blocks = [
         SimpleNamespace(
@@ -101,8 +99,12 @@ def start_login() -> dict[str, Any]:
         raise RuntimeError(f"Kite MCP initialize failed (HTTP {r.status_code}).")
     _post_sync({"jsonrpc": "2.0", "method": "notifications/initialized"}, sid=sid)
     r2 = _post_sync(
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-         "params": {"name": "login", "arguments": {}}},
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "login", "arguments": {}},
+        },
         sid=sid,
     )
     rpc = parse_rpc_text(r2.text, r2.headers.get("Content-Type", ""))
@@ -120,8 +122,12 @@ def probe_profile(sid: str) -> dict[str, Any]:
     """Is this vaulted session authenticated? (get_profile on the session.)"""
     try:
         r = _post_sync(
-            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-             "params": {"name": "get_profile", "arguments": {}}},
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "get_profile", "arguments": {}},
+            },
             sid=sid,
         )
     except requests.RequestException as e:
@@ -137,9 +143,7 @@ def probe_profile(sid: str) -> dict[str, Any]:
         }
     result = rpc.get("result") or {}
     text = "".join(
-        str(blk.get("text") or "")
-        for blk in (result.get("content") or [])
-        if isinstance(blk, dict)
+        str(blk.get("text") or "") for blk in (result.get("content") or []) if isinstance(blk, dict)
     )
     if result.get("isError"):
         return {"authed": False, "session_alive": True, "detail": text[:200]}
@@ -194,8 +198,12 @@ class RawKiteSession:
     async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
         self._next_id += 1
         r = await self._post(
-            {"jsonrpc": "2.0", "id": self._next_id, "method": "tools/call",
-             "params": {"name": name, "arguments": arguments or {}}}
+            {
+                "jsonrpc": "2.0",
+                "id": self._next_id,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments or {}},
+            }
         )
         return result_shim(parse_rpc_text(r.text, r.headers.get("Content-Type", "")))
 
