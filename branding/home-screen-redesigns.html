@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Companion — UI Review №2 · Home Screen</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#fdfaf3; --surface:#ffffff; --border:#ece3d6; --border-strong:#ddd0bf;
+    --ink:#221b2e; --muted:#7a7388; --saffron:#ff8a1e; --marigold:#ffb347;
+    --rose:#e85d7a; --indigo:#2b2f72; --green:#1a9d6b;
+    --ease:cubic-bezier(0.22,1,0.36,1);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--ink); font-family:'Satoshi',sans-serif;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  .atmosphere{position:fixed;inset:0;pointer-events:none;z-index:0}
+  .atmosphere::before{
+    content:"";position:absolute;inset:-20% -10% auto;height:70vh;
+    background:
+      radial-gradient(58% 90% at 18% 0%, rgba(255,138,30,.14), transparent 62%),
+      radial-gradient(50% 80% at 55% -10%, rgba(232,93,122,.11), transparent 60%),
+      radial-gradient(60% 90% at 88% 0%, rgba(43,47,114,.12), transparent 64%);
+  }
+  .atmosphere::after{
+    content:"";position:absolute;inset:0;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56'%3E%3Cpath d='M28 2l8 8-8 8-8-8zM2 28l8-8 8 8-8 8zM54 28l-8-8-8 8 8 8zM28 54l-8-8 8-8 8 8z' fill='none' stroke='%23221b2e' stroke-width='1'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:64px 36px 120px}
+
+  /* ----- masthead ----- */
+  .masthead{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid var(--ink);padding-bottom:26px}
+  .kicker{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+  h1{font-family:'Clash Display',sans-serif;font-weight:600;font-size:clamp(40px,6vw,68px);letter-spacing:-.02em;line-height:.98;margin-top:10px}
+  h1 .grad{background:linear-gradient(100deg,#ff8a1e,#e85d7a 55%,#2b2f72);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .mast-meta{text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);line-height:1.9}
+  .intro{max-width:720px;margin:26px 0 0;font-size:17.5px;line-height:1.65;color:#4a4458}
+  .intro b{color:var(--ink)}
+
+  /* ----- diagnosis stat strip ----- */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px solid var(--ink);border-radius:18px;overflow:hidden;margin-top:42px;background:var(--surface)}
+  @media (max-width:840px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .stat{padding:18px 20px;border-right:1.5px solid var(--ink)}
+  .stat:last-child{border-right:none}
+  @media (max-width:840px){.stat:nth-child(2){border-right:none}.stat:nth-child(1),.stat:nth-child(2){border-bottom:1.5px solid var(--ink)}}
+  .stat .big{font-family:'Clash Display',sans-serif;font-weight:600;font-size:34px;line-height:1;
+    background:linear-gradient(135deg,#ff8a1e,#e85d7a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat .lbl{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:7px;line-height:1.6}
+
+  /* ----- index strip ----- */
+  .index{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px solid var(--ink);border-radius:18px;overflow:hidden;margin-top:22px;background:var(--surface)}
+  .index a{display:block;padding:16px 18px;text-decoration:none;color:var(--ink);border-right:1.5px solid var(--ink);transition:background .25s var(--ease)}
+  .index a:last-child{border-right:none}
+  .index a:hover{background:rgba(255,138,30,.08)}
+  .index .n{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--saffron);font-weight:500}
+  .index .t{font-family:'Clash Display',sans-serif;font-weight:500;font-size:15px;margin-top:3px;letter-spacing:-.01em}
+  @media (max-width:840px){.index{grid-template-columns:repeat(2,1fr)}.index a:nth-child(2){border-right:none}.index a:nth-child(-n+2){border-bottom:1.5px solid var(--ink)}}
+
+  /* ----- sections ----- */
+  section.prop{margin-top:110px;opacity:0;transform:translateY(26px);animation:rise .9s var(--ease) forwards}
+  section.prop:nth-of-type(2){animation-delay:.08s}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .prop-head{display:flex;align-items:baseline;gap:18px}
+  .prop-num{font-family:'Clash Display',sans-serif;font-size:54px;font-weight:600;line-height:1;
+    background:linear-gradient(135deg,#ff8a1e,#e85d7a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  h2{font-family:'Clash Display',sans-serif;font-weight:600;font-size:30px;letter-spacing:-.015em}
+  .prop-sub{font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-top:6px}
+  .prop-why{max-width:760px;color:#4a4458;font-size:15.5px;line-height:1.66;margin:14px 0 34px}
+  .prop-why b{color:var(--ink)}
+
+  .duo{display:grid;grid-template-columns:auto 1fr;gap:46px;align-items:start}
+  @media (max-width:900px){.duo{grid-template-columns:1fr}}
+
+  /* ----- phone frame ----- */
+  .phone{width:316px;height:668px;border-radius:48px;background:#14101f;padding:9px;flex:none;position:relative;
+    box-shadow:0 34px 80px -34px rgba(34,27,46,.5), 0 0 0 1px rgba(34,27,46,.08)}
+  .phone .scr{width:100%;height:100%;border-radius:40px;background:var(--bg);overflow:hidden;position:relative;display:flex;flex-direction:column}
+  .island{position:absolute;top:17px;left:50%;transform:translateX(-50%);width:84px;height:22px;border-radius:12px;background:#14101f;z-index:40}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:13px 26px 2px;font-size:11px;font-weight:700;color:var(--ink)}
+  .homebar{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:108px;height:4px;border-radius:2px;background:rgba(34,27,46,.22);z-index:40}
+
+  .apphead{display:flex;align-items:center;gap:8px;padding:9px 16px 8px}
+  .orb{width:24px;height:24px;border-radius:50%;flex:none;position:relative;
+    background:conic-gradient(from 210deg,#ff8a1e,#ffb347,#e85d7a,#2b2f72,#ff8a1e)}
+  .orb::after{content:"";position:absolute;inset:7px;border-radius:50%;background:#fdfaf3;box-shadow:0 0 0 1.5px rgba(253,250,243,.9) inset}
+  .wordmark{font-family:'Clash Display',sans-serif;font-weight:600;font-size:14.5px;letter-spacing:-.01em}
+  .head-spacer{flex:1}
+  .head-ic{width:26px;height:26px;border-radius:9px;border:1px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:center;color:#a89f95}
+  .userpill{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#2b2f72,#e85d7a);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+
+  /* mock mandala */
+  .mandala-wrap{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:560px;height:560px;pointer-events:none;
+    -webkit-mask-image:radial-gradient(circle at 50% 50%,#000 52%,transparent 76%);mask-image:radial-gradient(circle at 50% 50%,#000 52%,transparent 76%)}
+  .mandala-wrap svg{width:100%;height:100%;animation:mspin 180s linear infinite}
+  @keyframes mspin{to{transform:rotate(360deg)}}
+  .veil{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:480px;height:340px;pointer-events:none;
+    background:radial-gradient(ellipse 54% 58% at 50% 50%, rgba(253,250,243,.94), rgba(253,250,243,.62) 52%, transparent 76%)}
+
+  /* composer */
+  .composer{padding:10px 12px 26px;position:relative;z-index:10;background:linear-gradient(to top,rgba(247,242,234,.95),rgba(247,242,234,.3),transparent)}
+  .inputbar{background:rgba(255,255,255,.9);border:1px solid rgba(236,227,214,.9);border-radius:16px;display:flex;align-items:center;gap:6px;padding:7px 9px;
+    box-shadow:0 14px 36px -22px rgba(60,40,30,.45)}
+  .inputbar .ph-ic{color:#a89f95;flex:none;display:flex}
+  .inputbar .ph-text{flex:1;font-size:11.5px;color:#a89f95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sendbtn{width:28px;height:28px;border-radius:11px;background:var(--ink);display:flex;align-items:center;justify-content:center;color:#ffd9a8;flex:none}
+  .micbtn{width:28px;height:28px;border-radius:11px;display:flex;align-items:center;justify-content:center;color:var(--indigo);flex:none;background:rgba(43,47,114,.07)}
+
+  /* chips */
+  .mchip{display:inline-flex;align-items:center;gap:5px;border:1px solid;border-radius:11px;padding:7px 10px;font-size:10.5px;font-weight:600;background:rgba(255,255,255,.85);
+    box-shadow:0 6px 18px -14px rgba(60,40,30,.4)}
+  .c-saff{border-color:rgba(255,138,30,.45);color:#b35a08}
+  .c-rose{border-color:rgba(232,93,122,.45);color:#b03a55}
+  .c-green{border-color:rgba(26,157,107,.45);color:#137a52}
+  .c-indigo{border-color:rgba(43,47,114,.4);color:#2b2f72}
+  .c-mari{border-color:rgba(255,179,71,.55);color:#a86b00}
+
+  .heritage{display:inline-flex;align-items:flex-start;gap:6px;background:rgba(43,47,114,.08);border:1px solid rgba(43,47,114,.16);border-radius:13px;
+    padding:8px 12px;font-size:10.5px;line-height:1.5;color:#4a4458;text-align:left}
+  .heritage b{color:#b35a08}
+
+  /* ----- annotations (current frame) ----- */
+  .anno-stage{position:relative;display:flex;justify-content:flex-start}
+  .annos{position:absolute;left:356px;top:0;bottom:0;width:300px}
+  @media (max-width:900px){.annos{display:none}}
+  .anno{position:absolute;left:0;padding-left:46px;font-size:12px;line-height:1.5;color:#4a4458;max-width:290px}
+  .anno::before{content:"";position:absolute;left:0;top:9px;width:38px;border-top:1.5px dashed #c9a87a}
+  .anno::after{content:"";position:absolute;left:-6px;top:5.5px;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--saffron);background:#fff}
+  .anno b{display:block;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#b35a08;margin-bottom:2px}
+  .anno.bad b{color:#a14848}
+  .anno.bad::after{border-color:#cf5b5b}
+
+  .foldline{position:absolute;left:-14px;right:-14px;border-top:2px dashed rgba(232,93,122,.65);z-index:30}
+  .foldline span{position:absolute;right:0;top:-22px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;color:#b03a55;background:#fdf0f3;border:1px solid rgba(232,93,122,.4);border-radius:6px;padding:3px 8px}
+
+  /* ----- rationale column ----- */
+  .keep-cut{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:6px}
+  @media (max-width:560px){.keep-cut{grid-template-columns:1fr}}
+  .kc{border:1.5px solid var(--border-strong);border-radius:14px;padding:14px 16px;background:var(--surface)}
+  .kc h4{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;margin-bottom:9px}
+  .kc.keep h4{color:var(--green)}
+  .kc.cut h4{color:#a14848}
+  .kc ul{list-style:none;font-size:13px;line-height:1.5;color:#4a4458}
+  .kc li{padding:4px 0 4px 18px;position:relative}
+  .kc.keep li::before{content:"✓";position:absolute;left:0;color:var(--green);font-weight:700}
+  .kc.cut li::before{content:"✕";position:absolute;left:0;color:#cf5b5b;font-weight:700}
+
+  .diffplan{margin-top:18px;border:1.5px solid var(--ink);border-radius:14px;background:#171221;color:#e8e1d4;overflow:hidden}
+  .diffplan h4{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:#ffb347;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.1)}
+  .diffplan ul{list-style:none;padding:10px 16px 13px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:2}
+  .diffplan .del{color:#ff9d9d}
+  .diffplan .add{color:#8fe3bb}
+  .diffplan .mod{color:#ffd9a8}
+  .diffplan .loc{color:#8d84a3}
+
+  .budget{display:inline-flex;align-items:center;gap:10px;margin-top:16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)}
+  .budget .pill{background:var(--green);color:#fff;font-weight:700;border-radius:999px;padding:3px 10px;font-size:10px}
+
+  /* ===== variant-specific bits ===== */
+
+  /* current frame content */
+  .cur-hero{flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;padding:14px 18px 0;position:relative;z-index:5;overflow:hidden}
+  .cur-tag{font-size:8.5px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;margin-bottom:10px;
+    background:linear-gradient(100deg,#ff8a1e,#ffb347 26%,#e85d7a 58%,#2b2f72);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .cur-h1{font-family:'Clash Display',sans-serif;font-weight:600;font-size:23px;line-height:1.12;letter-spacing:-.01em;margin-bottom:10px;max-width:260px}
+  .cur-sub{font-size:11px;line-height:1.55;color:#7a7388;max-width:250px;margin-bottom:14px}
+  .cur-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:250px}
+  .ribbon{display:flex;gap:6px;overflow:hidden;padding:0 2px;margin-bottom:8px}
+  .ribbon .mchip{flex:none;padding:5px 9px;font-size:9.5px}
+
+  /* v1 */
+  .v1-hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 22px;position:relative;z-index:5}
+  .v1-greet{font-family:'Clash Display',sans-serif;font-weight:600;font-size:27px;line-height:1.1;letter-spacing:-.015em}
+  .v1-greet .accent{background:linear-gradient(100deg,#ff8a1e,#e85d7a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .v1-ctx{margin-top:9px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#a89db4}
+  .v1-fact{position:relative;z-index:5;margin:0 26px 10px;text-align:center;font-size:10px;color:#9a92a8;line-height:1.5;height:30px;overflow:hidden}
+  .v1-fact .f{position:absolute;inset:0;opacity:0;animation:factcycle 16s infinite}
+  .v1-fact .f:nth-child(2){animation-delay:8s}
+  .v1-fact b{color:#b35a08;font-weight:700}
+  @keyframes factcycle{0%,6%{opacity:0;transform:translateY(6px)}12%,44%{opacity:1;transform:none}50%,100%{opacity:0;transform:translateY(-6px)}}
+
+  /* v2 launcher */
+  .v2-hero{flex:1;display:flex;flex-direction:column;padding:6px 18px 0;position:relative;z-index:5}
+  .v2-greet{font-family:'Clash Display',sans-serif;font-weight:600;font-size:24px;line-height:1.12;letter-spacing:-.015em;margin:10px 2px 16px;text-align:left}
+  .v2-greet small{display:block;font-family:'Satoshi',sans-serif;font-weight:500;font-size:11px;color:#a89db4;letter-spacing:0;margin-top:5px}
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .tile{background:rgba(255,255,255,.88);border:1px solid var(--border);border-radius:16px;padding:12px 13px;text-align:left;position:relative;overflow:hidden;
+    box-shadow:0 10px 26px -20px rgba(60,40,30,.5)}
+  .tile .ic{width:30px;height:30px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+  .tile b{display:block;font-size:12px;font-weight:700;letter-spacing:-.01em}
+  .tile span{display:block;font-size:9px;color:#a39bb0;margin-top:2px}
+  .t-saff .ic{background:rgba(255,138,30,.14);color:#b35a08}
+  .t-rose .ic{background:rgba(232,93,122,.13);color:#b03a55}
+  .t-green .ic{background:rgba(26,157,107,.12);color:#137a52}
+  .t-indigo .ic{background:rgba(43,47,114,.1);color:#2b2f72}
+  .t-mari .ic{background:rgba(255,179,71,.18);color:#a86b00}
+  .t-ink .ic{background:rgba(34,27,46,.08);color:#221b2e}
+  .tile.wide{grid-column:span 2;display:flex;align-items:center;gap:11px;padding:11px 13px}
+  .tile.wide .ic{margin-bottom:0}
+  .tile.wide .arr{margin-left:auto;color:#c9c2d4;font-size:14px}
+
+  /* v3 composer-first */
+  .v3-hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 16px;position:relative;z-index:5;gap:14px}
+  .v3-greet{font-family:'Clash Display',sans-serif;font-weight:600;font-size:25px;line-height:1.1;letter-spacing:-.015em;text-align:center}
+  .v3-inputcard{width:100%;background:rgba(255,255,255,.94);border:1.5px solid var(--ink);border-radius:20px;padding:13px 13px 11px;
+    box-shadow:0 22px 50px -26px rgba(34,27,46,.45);text-align:left}
+  .v3-inputcard .ph-text{font-size:12px;color:#a89f95}
+  .v3-inputcard .row{display:flex;align-items:center;gap:8px;margin-top:14px}
+  .v3-inputcard .row .grow{flex:1}
+  .v3-smart{display:flex;flex-direction:column;gap:7px;width:100%}
+  .v3-smart .mchip{justify-content:flex-start;width:100%;padding:9px 12px;font-size:11px;border-radius:13px;background:rgba(255,255,255,.78)}
+  .v3-smart .mchip .why{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#b7afc4;font-weight:500}
+  .v3-label{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:#a89db4;margin-bottom:-6px}
+
+  /* v4 one card */
+  .v4-hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 20px;position:relative;z-index:5}
+  .v4-greet{font-family:'Clash Display',sans-serif;font-weight:600;font-size:26px;line-height:1.1;letter-spacing:-.015em;margin-bottom:18px}
+  .smartcard{width:100%;height:118px;position:relative}
+  .smartcard .card{position:absolute;inset:0;border-radius:18px;border:1px solid var(--border);background:rgba(255,255,255,.92);padding:14px 16px;text-align:left;
+    box-shadow:0 16px 40px -24px rgba(60,40,30,.5);opacity:0;animation:cardcycle 18s infinite}
+  .smartcard .card:nth-child(2){animation-delay:6s}
+  .smartcard .card:nth-child(3){animation-delay:12s}
+  @keyframes cardcycle{0%,3%{opacity:0;transform:translateY(8px) scale(.985)}7%,30%{opacity:1;transform:none}34%,100%{opacity:0;transform:translateY(-8px) scale(.985)}}
+  .smartcard .eyebrow{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;margin-bottom:7px;display:flex;align-items:center;gap:6px}
+  .smartcard .e-saff{color:#b35a08}.smartcard .e-indigo{color:#2b2f72}.smartcard .e-green{color:#137a52}
+  .smartcard .body{font-size:11.5px;line-height:1.55;color:#4a4458}
+  .smartcard .body b{color:var(--ink)}
+  .smartcard .cta{display:inline-block;margin-top:8px;font-size:10px;font-weight:700;color:var(--indigo);border-bottom:1.5px solid rgba(43,47,114,.3);padding-bottom:1px}
+  .dots{display:flex;gap:5px;justify-content:center;margin-top:12px}
+  .dots i{width:5px;height:5px;border-radius:50%;background:#d8d0c2}
+  .dots i.on{background:var(--saffron);width:14px;border-radius:3px}
+
+  /* №1-style gradient accent on the user's name (chosen combo) */
+  .grad2{background:linear-gradient(100deg,#ff8a1e,#e85d7a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .chosen{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;font-weight:500;
+    background:var(--green);color:#fff;border-radius:999px;padding:4px 12px;margin-left:14px;vertical-align:middle}
+
+  /* desktop browser frame (web ui) */
+  .browser{border-radius:18px;border:1.5px solid var(--ink);background:#fff;overflow:hidden;margin-top:10px;
+    box-shadow:0 34px 80px -34px rgba(34,27,46,.4)}
+  .bbar{display:flex;align-items:center;gap:7px;padding:11px 16px;background:#171221}
+  .bdot{width:10px;height:10px;border-radius:50%}
+  .burl{margin-left:12px;background:rgba(255,255,255,.08);border-radius:8px;color:#a89db4;
+    font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 14px;min-width:240px}
+  .bapp{display:flex;height:580px;background:var(--bg)}
+  .bside{width:216px;border-right:1px solid var(--border);background:rgba(255,255,255,.55);padding:16px 14px;display:flex;flex-direction:column;gap:7px;flex:none}
+  .bnew{background:var(--ink);color:#ffd9a8;border-radius:12px;font-size:12px;font-weight:700;padding:9px 14px;text-align:center;margin-bottom:8px}
+  .blabel{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#b7afc4;margin:6px 2px 2px}
+  .brow{font-size:12px;color:#4a4458;padding:8px 11px;border-radius:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brow.on{background:rgba(255,138,30,.1);border:1px solid rgba(255,138,30,.3);font-weight:700;color:var(--ink)}
+  .bmain{flex:1;position:relative;display:flex;flex-direction:column;overflow:hidden}
+  .bhead{display:flex;align-items:center;gap:8px;padding:12px 20px;border-bottom:1px solid rgba(236,227,214,.6);background:rgba(255,255,255,.46);position:relative;z-index:10}
+  .bhead .tag9{font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#a89db4;margin-left:10px;margin-top:2px}
+  .bhero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;z-index:5;gap:26px;padding:0 40px}
+  .bgreet{font-family:'Clash Display',sans-serif;font-weight:600;font-size:clamp(28px,3.4vw,42px);line-height:1.1;letter-spacing:-.015em;text-align:center;max-width:640px}
+  .bcomposer{position:relative;z-index:10;padding:14px 24px 22px;background:linear-gradient(to top,rgba(247,242,234,.95),rgba(247,242,234,.3),transparent);display:flex;flex-direction:column;align-items:center;gap:10px}
+  .bcomposer .ribbon{margin-bottom:0;justify-content:center}
+  .bcomposer .inputbar{width:min(640px,100%)}
+
+  /* verdict */
+  .verdict{margin-top:110px;border:2px solid var(--ink);border-radius:22px;background:var(--surface);padding:34px 38px;position:relative;overflow:hidden}
+  .verdict::before{content:"";position:absolute;inset:0 0 auto;height:5px;background:linear-gradient(90deg,#ff8a1e,#ffb347,#e85d7a,#2b2f72)}
+  .verdict h2{margin-bottom:14px}
+  .verdict p{max-width:760px;font-size:15.5px;line-height:1.68;color:#4a4458;margin-bottom:12px}
+  .verdict b{color:var(--ink)}
+  .vchips{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  .vchip{font-family:'JetBrains Mono',monospace;font-size:11px;border:1.5px solid var(--ink);border-radius:999px;padding:7px 16px;font-weight:500}
+  .vchip.first{background:var(--ink);color:#ffd9a8}
+</style>
+</head>
+<body>
+<div class="atmosphere"></div>
+<div class="wrap">
+
+  <!-- ============ MASTHEAD ============ -->
+  <header class="masthead">
+    <div>
+      <div class="kicker">Companion · Branding / UI Review №2</div>
+      <h1>The home screen,<br><span class="grad">with room to breathe.</span></h1>
+    </div>
+    <div class="mast-meta">
+      mobile · 390×844 baseline<br>
+      source: ChatArea.tsx empty state<br>
+      12 Jun 2026
+    </div>
+  </header>
+
+  <p class="intro">
+    Today the empty state stacks <b>seven blocks of copy</b> between the status bar and the keyboard —
+    tagline, a multi-line greeting, a 24-word subtitle, a rotating fact pill, five chips, the <i>same</i>
+    five chips again in the ribbon, then the composer. On a phone it overflows and scrolls.
+    Four directions below; every frame is drawn with the real brand system and fits <b>without scrolling</b>.
+  </p>
+
+  <div class="stats">
+    <div class="stat"><div class="big">7</div><div class="lbl">copy blocks before the input</div></div>
+    <div class="stat"><div class="big">5 × 2</div><div class="lbl">same chips, rendered twice<br>(hero grid + ribbon)</div></div>
+    <div class="stat"><div class="big">~1.3×</div><div class="lbl">screens tall on a 390pt phone → scrolls</div></div>
+    <div class="stat"><div class="big">24</div><div class="lbl">words in the subtitle nobody reads twice</div></div>
+  </div>
+
+  <div class="index" style="grid-template-columns:repeat(5,1fr)">
+    <a href="#v1"><div class="n">№1</div><div class="t">Khulā — subtract</div></a>
+    <a href="#v2"><div class="n">№2</div><div class="t">Launcher — show, don't tell</div></a>
+    <a href="#v3"><div class="n">№3</div><div class="t">Sutra — composer first</div></a>
+    <a href="#v4"><div class="n">№4</div><div class="t">Ek Card — one smart slot</div></a>
+    <a href="#v4w"><div class="n">№4·W</div><div class="t">Ek Card on the web</div></a>
+  </div>
+
+  <!-- ============ CURRENT, ANNOTATED ============ -->
+  <section class="prop" id="current">
+    <div class="prop-head">
+      <div class="prop-num">№0</div>
+      <div>
+        <h2>What ships today</h2>
+        <div class="prop-sub">the diagnosis · annotated</div>
+      </div>
+    </div>
+    <p class="prop-why">
+      Nothing here is bad in isolation — the problem is <b>everything is promoted to the hero</b>.
+      When seven things ask for attention, none gets it, and the one thing the user came to do
+      (type or tap) is pushed below the fold.
+    </p>
+
+    <div class="anno-stage">
+      <div class="phone"><div class="scr">
+        <div class="island"></div>
+        <div class="statusbar"><span>9:41</span><span>▲▲ ⏻</span></div>
+        <div class="apphead">
+          <div class="orb"></div><span class="wordmark">Companion</span>
+          <div class="head-spacer"></div>
+          <div class="head-ic">⌕</div><div class="userpill">A</div>
+        </div>
+
+        <div class="mandala-wrap" style="opacity:.5">
+          <svg viewBox="0 0 400 400" fill="none">
+            <g stroke="#2b2f72" stroke-width="1" opacity=".5">
+              <circle cx="200" cy="200" r="190"/><circle cx="200" cy="200" r="178"/>
+            </g>
+            <g stroke="#ff8a1e" stroke-width="1.2" opacity=".7">
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(0 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(30 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(60 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(90 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(120 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(150 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(180 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(210 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(240 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(270 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(300 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(330 200 200)"/>
+            </g>
+            <g stroke="#e85d7a" stroke-width="1" opacity=".6">
+              <circle cx="200" cy="200" r="120"/><circle cx="200" cy="200" r="108"/>
+              <circle cx="200" cy="135" r="9"/><circle cx="256" cy="167" r="9"/><circle cx="256" cy="232" r="9"/>
+              <circle cx="200" cy="265" r="9"/><circle cx="144" cy="232" r="9"/><circle cx="144" cy="167" r="9"/>
+            </g>
+            <g stroke="#1a9d6b" stroke-width="1" opacity=".55">
+              <circle cx="200" cy="200" r="62"/><circle cx="200" cy="200" r="52"/>
+            </g>
+            <circle cx="200" cy="200" r="20" stroke="#ff8a1e" stroke-width="1.4" opacity=".8"/>
+          </svg>
+        </div>
+        <div class="veil"></div>
+
+        <div class="cur-hero">
+          <div class="cur-tag">★ From Bharat, For Bharat ★</div>
+          <div class="cur-h1">Good evening, Aashish. Hope Gurgaon's heat is treating you kindly.</div>
+          <div class="cur-sub">Order food &amp; groceries, book cabs, find events, track investments, set reminders, all in one place, in your language.</div>
+          <div class="heritage" style="max-width:250px;margin-bottom:14px">
+            <span>💡</span><span>Did you know? <b>Chess began in India as chaturanga, around the 6th century CE.</b></span>
+          </div>
+          <div class="cur-chips">
+            <span class="mchip c-indigo">🚕 Book a Cab</span>
+            <span class="mchip c-saff">🍽 Order Food</span>
+            <span class="mchip c-green">🥬 Groceries</span>
+            <span class="mchip c-rose">🎟 Find Events</span>
+            <span class="mchip c-mari">🛒 My Cart</span>
+          </div>
+          <div class="foldline" style="position:relative;width:100%;margin-top:26px"><span>FOLD · everything below scrolls</span></div>
+        </div>
+
+        <div class="composer">
+          <div class="ribbon">
+            <span class="mchip c-indigo">🚕 Book a Cab</span>
+            <span class="mchip c-saff">🍽 Order Food</span>
+            <span class="mchip c-green">🥬 Groceries</span>
+            <span class="mchip c-rose">🎟 Find Events</span>
+          </div>
+          <div class="inputbar">
+            <span class="ph-ic">📎</span>
+            <span class="ph-text">Ask Companion anything…  Hindi, English, ya Hinglish…</span>
+            <span class="micbtn">🎙</span><span class="sendbtn">➤</span>
+          </div>
+        </div>
+        <div class="homebar"></div>
+      </div></div>
+
+      <div class="annos">
+        <div class="anno" style="top:96px"><b>Row 1 · tagline</b>Brand line. Earns its place — but not <i>here</i>, ahead of the greeting.</div>
+        <div class="anno" style="top:166px"><b>Rows 2–4 · AI greeting</b>The best thing on screen. At 28–46px it wraps to 3 lines — fine, if it weren't competing with everything below.</div>
+        <div class="anno" style="top:258px"><b>Rows 5–7 · subtitle</b>A 24-word capability list. Feature copy, read once, then it's noise on every cold open.</div>
+        <div class="anno" style="top:330px"><b>Rows 8–9 · fact pill</b>Charming, but it animates every 12s — motion + bold text pulls the eye away from the input.</div>
+        <div class="anno bad" style="top:412px"><b>Chips, appearance №1</b>Five chips wrap into 2–3 rows here…</div>
+        <div class="anno bad" style="top:524px"><b>Chips, appearance №2</b>…and the <i>identical five</i> render again in the ribbon. ChatArea.tsx:437 + :512.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ №1 KHULA ============ -->
+  <section class="prop" id="v1">
+    <div class="prop-head">
+      <div class="prop-num">№1</div>
+      <div>
+        <h2>Khulā — subtract until it breathes</h2>
+        <div class="prop-sub">recommended starting point · pure deletion, ships in an hour</div>
+      </div>
+    </div>
+    <p class="prop-why">
+      Keep exactly three things: the <b>greeting</b> (your personalization is the differentiator — let it own the screen),
+      the <b>mandala</b> (bigger, quieter), and <b>one</b> row of chips — the ribbon, where the thumb already is.
+      The tagline moves into the header next to the wordmark. The subtitle is deleted. The fact demotes to a
+      single whispering line that cross-fades — no pill, no box.
+    </p>
+
+    <div class="duo">
+      <div class="phone"><div class="scr">
+        <div class="island"></div>
+        <div class="statusbar"><span>9:41</span><span>▲▲ ⏻</span></div>
+        <div class="apphead">
+          <div class="orb"></div>
+          <span class="wordmark">Companion</span>
+          <span style="font-size:8px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#b7afc4;margin-left:2px;margin-top:3px">From Bharat, For Bharat</span>
+          <div class="head-spacer"></div>
+          <div class="head-ic">⌕</div><div class="userpill">A</div>
+        </div>
+
+        <div class="mandala-wrap" style="opacity:.75;width:640px;height:640px">
+          <svg viewBox="0 0 400 400" fill="none">
+            <g stroke="#2b2f72" stroke-width="1" opacity=".5"><circle cx="200" cy="200" r="190"/><circle cx="200" cy="200" r="178"/></g>
+            <g stroke="#ff8a1e" stroke-width="1.2" opacity=".7">
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(0 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(30 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(60 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(90 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(120 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(150 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(180 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(210 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(240 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(270 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(300 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(330 200 200)"/>
+            </g>
+            <g stroke="#e85d7a" stroke-width="1" opacity=".6">
+              <circle cx="200" cy="200" r="120"/><circle cx="200" cy="200" r="108"/>
+              <circle cx="200" cy="135" r="9"/><circle cx="256" cy="167" r="9"/><circle cx="256" cy="232" r="9"/>
+              <circle cx="200" cy="265" r="9"/><circle cx="144" cy="232" r="9"/><circle cx="144" cy="167" r="9"/>
+            </g>
+            <g stroke="#1a9d6b" stroke-width="1" opacity=".55"><circle cx="200" cy="200" r="62"/><circle cx="200" cy="200" r="52"/></g>
+            <circle cx="200" cy="200" r="20" stroke="#ff8a1e" stroke-width="1.4" opacity=".8"/>
+          </svg>
+        </div>
+        <div class="veil"></div>
+
+        <div class="v1-hero">
+          <div class="v1-greet">Good evening,<br><span class="accent">Aashish.</span></div>
+          <div class="v1-ctx">Thursday · 34° in Gurgaon</div>
+        </div>
+
+        <div class="v1-fact">
+          <div class="f">💡 Chess began in India as <b>chaturanga</b>, around the 6th century CE.</div>
+          <div class="f">💡 The Bakhshali manuscript holds the oldest written <b>zero</b>.</div>
+        </div>
+
+        <div class="composer">
+          <div class="ribbon">
+            <span class="mchip c-saff">🍽 Order Food</span>
+            <span class="mchip c-indigo">🚕 Book a Cab</span>
+            <span class="mchip c-green">🥬 Groceries</span>
+            <span class="mchip c-rose">🎟 Events</span>
+          </div>
+          <div class="inputbar">
+            <span class="ph-ic">📎</span>
+            <span class="ph-text">Ask anything — Hindi, English, ya Hinglish</span>
+            <span class="micbtn">🎙</span><span class="sendbtn">➤</span>
+          </div>
+        </div>
+        <div class="homebar"></div>
+      </div></div>
+
+      <div>
+        <div class="keep-cut">
+          <div class="kc keep"><h4>Keep</h4><ul>
+            <li>AI greeting — now the only headline, split onto two lines for drama</li>
+            <li>Mandala — grows ~15%, becomes the visual hero</li>
+            <li>One ribbon of chips, above the input</li>
+            <li>Fact — as a one-line whisper, not a pill</li>
+          </ul></div>
+          <div class="kc cut"><h4>Cut</h4><ul>
+            <li>Hero chip grid (the duplicate)</li>
+            <li>24-word subtitle — entirely</li>
+            <li>Fact pill box + bold styling</li>
+            <li>Tagline from hero → header, 8px</li>
+          </ul></div>
+        </div>
+        <div class="diffplan">
+          <h4>Diff plan · ChatArea.tsx</h4>
+          <ul>
+            <li><span class="del">− delete</span> hero chip grid <span class="loc">:436–452</span></li>
+            <li><span class="del">− delete</span> subtitle &lt;p&gt; <span class="loc">:422–425</span></li>
+            <li><span class="mod">~ restyle</span> heritage fact → single-line ticker <span class="loc">:428–433</span></li>
+            <li><span class="mod">~ move</span> tagline into header beside wordmark <span class="loc">:407–409</span></li>
+            <li><span class="add">+ add</span> one-line context row (day · temp) under greeting</li>
+          </ul>
+        </div>
+        <div class="budget"><span class="pill">7 → 3</span> copy blocks · zero new components · greeting API untouched</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ №2 LAUNCHER ============ -->
+  <section class="prop" id="v2">
+    <div class="prop-head">
+      <div class="prop-num">№2</div>
+      <div>
+        <h2>Launcher — show, don't tell</h2>
+        <div class="prop-sub">the super-app posture · capabilities become surface, not sentence</div>
+      </div>
+    </div>
+    <p class="prop-why">
+      The subtitle's job — "here's what I can do" — is real, especially for new users. So do it with
+      <b>tappable tiles instead of a sentence</b>: six capabilities, each with a provider hint where the
+      proof lives ("Swiggy · Zomato"). The chips and ribbon disappear on the empty state — the tiles <i>are</i>
+      the prompts. Greeting compresses to two lines, left-aligned, like a person saying hello rather than a billboard.
+    </p>
+
+    <div class="duo">
+      <div class="phone"><div class="scr">
+        <div class="island"></div>
+        <div class="statusbar"><span>9:41</span><span>▲▲ ⏻</span></div>
+        <div class="apphead">
+          <div class="orb"></div><span class="wordmark">Companion</span>
+          <div class="head-spacer"></div>
+          <div class="head-ic">⌕</div><div class="userpill">A</div>
+        </div>
+
+        <div class="mandala-wrap" style="opacity:.28;top:30%">
+          <svg viewBox="0 0 400 400" fill="none">
+            <g stroke="#ff8a1e" stroke-width="1.2" opacity=".7">
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(0 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(45 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(90 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(135 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(180 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(225 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(270 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(315 200 200)"/>
+            </g>
+            <g stroke="#e85d7a" stroke-width="1" opacity=".6"><circle cx="200" cy="200" r="120"/><circle cx="200" cy="200" r="108"/></g>
+            <circle cx="200" cy="200" r="20" stroke="#ff8a1e" stroke-width="1.4" opacity=".8"/>
+          </svg>
+        </div>
+
+        <div class="v2-hero">
+          <div class="v2-greet">Good evening, Aashish.<small>What shall we get done?</small></div>
+          <div class="tiles">
+            <div class="tile t-saff"><div class="ic">🍽</div><b>Order food</b><span>Swiggy · Zomato</span></div>
+            <div class="tile t-indigo"><div class="ic">🚕</div><b>Book a cab</b><span>Uber · Ola</span></div>
+            <div class="tile t-green"><div class="ic">🥬</div><b>Groceries</b><span>Blinkit · Instamart</span></div>
+            <div class="tile t-rose"><div class="ic">🎟</div><b>Events</b><span>District · BMS</span></div>
+            <div class="tile t-ink"><div class="ic">📈</div><b>Investments</b><span>Zerodha Kite</span></div>
+            <div class="tile t-mari"><div class="ic">⏰</div><b>Reminders</b><span>"remind me at 6…"</span></div>
+            <div class="tile wide t-saff"><div class="ic">🛒</div><div><b>Resume your cart</b><span>2 items · Blinkit · ₹304</span></div><div class="arr">›</div></div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <div class="inputbar">
+            <span class="ph-ic">📎</span>
+            <span class="ph-text">Ask anything — Hindi, English, ya Hinglish</span>
+            <span class="micbtn">🎙</span><span class="sendbtn">➤</span>
+          </div>
+        </div>
+        <div class="homebar"></div>
+      </div></div>
+
+      <div>
+        <div class="keep-cut">
+          <div class="kc keep"><h4>Keep</h4><ul>
+            <li>Greeting — compact, left-aligned, conversational</li>
+            <li>Capability story — as a grid you can tap</li>
+            <li>Live state (cart) gets a wide tile — the screen earns its space</li>
+            <li>Mandala — faded to 28%, peeking from the top</li>
+          </ul></div>
+          <div class="kc cut"><h4>Cut</h4><ul>
+            <li>Subtitle, tagline, fact pill — all of it</li>
+            <li>Both chip rows (tiles replace them)</li>
+            <li>Centered-billboard layout</li>
+          </ul></div>
+        </div>
+        <div class="diffplan">
+          <h4>Diff plan</h4>
+          <ul>
+            <li><span class="add">+ new</span> HomeTiles.tsx — 6 tiles from PROMPT_OPTIONS + capability map</li>
+            <li><span class="del">− delete</span> subtitle, fact pill, hero chips <span class="loc">:422–452</span></li>
+            <li><span class="mod">~ hide</span> ribbon when messages.length === 0 <span class="loc">:510–529</span></li>
+            <li><span class="add">+ wire</span> cart tile to existing My Cart prompt / session cart state</li>
+          </ul>
+        </div>
+        <div class="budget"><span class="pill">7 → 2</span> copy blocks · trade-off: busier than №1, but every pixel is tappable</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ №3 SUTRA ============ -->
+  <section class="prop" id="v3">
+    <div class="prop-head">
+      <div class="prop-num">№3</div>
+      <div>
+        <h2>Sutra — the input is the product</h2>
+        <div class="prop-sub">composer lifted to centre stage · three smart suggestions, max</div>
+      </div>
+    </div>
+    <p class="prop-why">
+      The boldest read: Companion's product <i>is the conversation</i>, so the composer shouldn't hide at the
+      bottom of a brochure — it floats dead-centre, framed by the mandala, with the mic given equal billing
+      (voice is a first-class input for Bharat). Below it, <b>exactly three suggestions</b>, picked by time
+      and state — evening → dinner &amp; cab home; an open cart always wins a slot. Never five, never two rows.
+    </p>
+
+    <div class="duo">
+      <div class="phone"><div class="scr">
+        <div class="island"></div>
+        <div class="statusbar"><span>9:41</span><span>▲▲ ⏻</span></div>
+        <div class="apphead">
+          <div class="orb"></div><span class="wordmark">Companion</span>
+          <div class="head-spacer"></div>
+          <div class="head-ic">⌕</div><div class="userpill">A</div>
+        </div>
+
+        <div class="mandala-wrap" style="opacity:.6;top:42%">
+          <svg viewBox="0 0 400 400" fill="none">
+            <g stroke="#2b2f72" stroke-width="1" opacity=".5"><circle cx="200" cy="200" r="190"/><circle cx="200" cy="200" r="178"/></g>
+            <g stroke="#ff8a1e" stroke-width="1.2" opacity=".7">
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(0 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(30 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(60 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(90 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(120 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(150 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(180 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(210 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(240 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(270 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(300 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(330 200 200)"/>
+            </g>
+            <g stroke="#e85d7a" stroke-width="1" opacity=".6"><circle cx="200" cy="200" r="120"/><circle cx="200" cy="200" r="108"/></g>
+            <g stroke="#1a9d6b" stroke-width="1" opacity=".55"><circle cx="200" cy="200" r="62"/></g>
+          </svg>
+        </div>
+        <div class="veil" style="top:42%"></div>
+
+        <div class="v3-hero">
+          <div class="v3-greet">Good evening, Aashish.</div>
+          <div class="v3-inputcard">
+            <div class="ph-text">Ask anything — Hindi, English, ya Hinglish…</div>
+            <div class="row">
+              <span class="ph-ic">📎</span>
+              <div class="grow"></div>
+              <span class="micbtn" style="width:32px;height:32px;border-radius:12px;background:linear-gradient(135deg,rgba(255,138,30,.14),rgba(232,93,122,.14));color:#b35a08">🎙</span>
+              <span class="sendbtn" style="width:32px;height:32px;border-radius:12px">➤</span>
+            </div>
+          </div>
+          <div class="v3-label">For this evening</div>
+          <div class="v3-smart">
+            <span class="mchip c-saff">🍽 Order dinner <span class="why">7 PM</span></span>
+            <span class="mchip c-indigo">🚕 Cab back home <span class="why">you're out</span></span>
+            <span class="mchip c-mari">🛒 Finish your Blinkit cart <span class="why">2 items</span></span>
+          </div>
+        </div>
+
+        <div class="composer" style="background:none">
+          <div style="text-align:center;font-size:9.5px;color:#b7afc4;padding-bottom:4px">💡 Chess began in India as chaturanga · 6th c. CE</div>
+        </div>
+        <div class="homebar"></div>
+      </div></div>
+
+      <div>
+        <div class="keep-cut">
+          <div class="kc keep"><h4>Keep</h4><ul>
+            <li>Greeting — one line, directly above the input</li>
+            <li>Composer — promoted to the hero card, ink border</li>
+            <li>Voice — mic gets gradient treatment, equal to send</li>
+            <li>Fact — a 9px footnote at the very bottom</li>
+          </ul></div>
+          <div class="kc cut"><h4>Cut</h4><ul>
+            <li>Tagline, subtitle, fact pill</li>
+            <li>Five-chip sprawl → exactly 3 ranked suggestions</li>
+            <li>Bottom-anchored composer on empty state</li>
+          </ul></div>
+        </div>
+        <div class="diffplan">
+          <h4>Diff plan</h4>
+          <ul>
+            <li><span class="mod">~ move</span> composer into empty-state centre (conditional position)</li>
+            <li><span class="add">+ new</span> rankSuggestions(time, cart, location) → top 3 of PROMPT_OPTIONS</li>
+            <li><span class="del">− delete</span> hero chips + subtitle + tagline <span class="loc">:407–452</span></li>
+            <li><span class="mod">~ on first message</span> composer animates down to its usual dock</li>
+          </ul>
+        </div>
+        <div class="budget"><span class="pill">7 → 2</span> copy blocks · trade-off: biggest layout change; composer position animates on first send</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ №4 EK CARD ============ -->
+  <section class="prop" id="v4">
+    <div class="prop-head">
+      <div class="prop-num">№4</div>
+      <div>
+        <h2>Ek Card — one slot, many stories<span class="chosen">✓ CHOSEN · with №1's gradient name</span></h2>
+        <div class="prop-sub">progressive disclosure · keep everything, show one at a time</div>
+      </div>
+    </div>
+    <p class="prop-why">
+      If the heritage facts and capability nudges are worth keeping (they are — they're personality),
+      give them <b>one shared slot</b> instead of stacking. A single card rotates gently: heritage fact →
+      live nudge (weather + cab) → cart resume. Same content budget as a tweet. Dots show there's more;
+      nothing else competes with the greeting.
+    </p>
+
+    <div class="duo">
+      <div class="phone"><div class="scr">
+        <div class="island"></div>
+        <div class="statusbar"><span>9:41</span><span>▲▲ ⏻</span></div>
+        <div class="apphead">
+          <div class="orb"></div><span class="wordmark">Companion</span>
+          <div class="head-spacer"></div>
+          <div class="head-ic">⌕</div><div class="userpill">A</div>
+        </div>
+
+        <div class="mandala-wrap" style="opacity:.55;top:38%">
+          <svg viewBox="0 0 400 400" fill="none">
+            <g stroke="#2b2f72" stroke-width="1" opacity=".5"><circle cx="200" cy="200" r="190"/><circle cx="200" cy="200" r="178"/></g>
+            <g stroke="#ff8a1e" stroke-width="1.2" opacity=".7">
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(0 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(30 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(60 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(90 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(120 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(150 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(180 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(210 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(240 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(270 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(300 200 200)"/>
+              <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(330 200 200)"/>
+            </g>
+            <g stroke="#e85d7a" stroke-width="1" opacity=".6"><circle cx="200" cy="200" r="120"/></g>
+            <circle cx="200" cy="200" r="20" stroke="#ff8a1e" stroke-width="1.4" opacity=".8"/>
+          </svg>
+        </div>
+        <div class="veil" style="top:38%"></div>
+
+        <div class="v4-hero">
+          <div class="v4-greet">Good evening,<br><span class="grad2">Aashish.</span></div>
+          <div class="smartcard">
+            <div class="card">
+              <div class="eyebrow e-saff">💡 Did you know</div>
+              <div class="body">Chess began in India as <b>chaturanga</b>, around the 6th century CE — it reached Europe through Persia.</div>
+            </div>
+            <div class="card">
+              <div class="eyebrow e-indigo">🌧 This evening</div>
+              <div class="body">Rain expected near Cyber Hub by <b>8 PM</b>. Cabs surge after 7:30 — book early?</div>
+              <span class="cta">Book a cab →</span>
+            </div>
+            <div class="card">
+              <div class="eyebrow e-green">🛒 Pick up where you left off</div>
+              <div class="body">Your Blinkit cart has <b>2 items · ₹304</b>. Amul Gold ×2, brown bread.</div>
+              <span class="cta">Resume cart →</span>
+            </div>
+          </div>
+          <div class="dots"><i class="on"></i><i></i><i></i></div>
+        </div>
+
+        <div class="composer">
+          <div class="ribbon">
+            <span class="mchip c-saff">🍽 Order Food</span>
+            <span class="mchip c-indigo">🚕 Book a Cab</span>
+            <span class="mchip c-green">🥬 Groceries</span>
+            <span class="mchip c-rose">🎟 Events</span>
+          </div>
+          <div class="inputbar">
+            <span class="ph-ic">📎</span>
+            <span class="ph-text">Ask anything — Hindi, English, ya Hinglish</span>
+            <span class="micbtn">🎙</span><span class="sendbtn">➤</span>
+          </div>
+        </div>
+        <div class="homebar"></div>
+      </div></div>
+
+      <div>
+        <div class="keep-cut">
+          <div class="kc keep"><h4>Keep</h4><ul>
+            <li>Greeting as headline</li>
+            <li>Heritage facts — now one slide among useful ones</li>
+            <li>Ribbon (single chip row) + composer as today</li>
+            <li>Slot becomes home for future nudges (IPO alerts, reminders due)</li>
+          </ul></div>
+          <div class="kc cut"><h4>Cut</h4><ul>
+            <li>Subtitle + tagline from hero</li>
+            <li>Hero chip grid (duplicate)</li>
+            <li>Always-on fact pill → 1-of-3 rotating slide</li>
+          </ul></div>
+        </div>
+        <div class="diffplan">
+          <h4>Diff plan</h4>
+          <ul>
+            <li><span class="add">+ new</span> SmartCard.tsx — slides: fact / contextual nudge / cart</li>
+            <li><span class="mod">~ feed</span> from indiaFacts.ts + weather (greeting API) + session cart</li>
+            <li><span class="del">− delete</span> subtitle + hero chips <span class="loc">:422–425, :436–452</span></li>
+            <li><span class="mod">~ swipe</span> to advance; auto-rotate 8s, pauses on touch</li>
+          </ul>
+        </div>
+        <div class="budget"><span class="pill">7 → 3</span> copy blocks · the slot pays rent: facts when idle, action when there's state</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ №4·W EK CARD ON WEB ============ -->
+  <section class="prop" id="v4w">
+    <div class="prop-head">
+      <div class="prop-num">№4·W</div>
+      <div>
+        <h2>Ek Card on the web</h2>
+        <div class="prop-sub">same component, desktop canvas · as implemented in ChatArea.tsx</div>
+      </div>
+    </div>
+    <p class="prop-why">
+      The web UI shares the exact same <b>ChatArea</b> component, so Ek Card carries over for free —
+      the card simply caps at <b>460px</b> and sits centred under the greeting, which gets even more
+      negative space on a wide canvas. Desktop never had the scroll problem; what it gains is <b>focus</b>:
+      one headline (name in the №1 gradient), one card, one composer, and the mandala finally has room
+      to breathe behind them. The sidebar, ribbon and composer stay exactly where they are today.
+    </p>
+
+    <div class="browser">
+      <div class="bbar">
+        <span class="bdot" style="background:#ff5f57"></span>
+        <span class="bdot" style="background:#febc2e"></span>
+        <span class="bdot" style="background:#28c840"></span>
+        <span class="burl">houzzat.in</span>
+      </div>
+      <div class="bapp">
+        <div class="bside">
+          <div class="bnew">+ New chat</div>
+          <div class="blabel">Today</div>
+          <div class="brow on">Pizza near Cyber Hub</div>
+          <div class="brow">Cab to the office</div>
+          <div class="blabel">Yesterday</div>
+          <div class="brow">Nifty positions check</div>
+          <div class="brow">Weekend events in GGN</div>
+          <div class="brow">Instamart — milk &amp; bread</div>
+        </div>
+        <div class="bmain">
+          <div class="bhead">
+            <div class="orb"></div><span class="wordmark">Companion</span>
+            <span aria-hidden style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#1a9d6b;margin-left:26px;box-shadow:-11px 0 0 #fff,-22px 0 0 #ff8a1e"></span>
+            <span class="tag9">From Bharat, For Bharat</span>
+            <div class="head-spacer"></div>
+            <div class="head-ic">⌕</div><div class="userpill">A</div>
+          </div>
+
+          <div class="mandala-wrap" style="opacity:.5;width:620px;height:620px;top:44%">
+            <svg viewBox="0 0 400 400" fill="none">
+              <g stroke="#2b2f72" stroke-width="1" opacity=".5"><circle cx="200" cy="200" r="190"/><circle cx="200" cy="200" r="178"/></g>
+              <g stroke="#ff8a1e" stroke-width="1.2" opacity=".7">
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(0 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(30 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(60 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(90 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(120 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(150 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(180 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(210 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(240 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(270 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(300 200 200)"/>
+                <ellipse cx="200" cy="78" rx="14" ry="40" transform="rotate(330 200 200)"/>
+              </g>
+              <g stroke="#e85d7a" stroke-width="1" opacity=".6">
+                <circle cx="200" cy="200" r="120"/><circle cx="200" cy="200" r="108"/>
+                <circle cx="200" cy="135" r="9"/><circle cx="256" cy="167" r="9"/><circle cx="256" cy="232" r="9"/>
+                <circle cx="200" cy="265" r="9"/><circle cx="144" cy="232" r="9"/><circle cx="144" cy="167" r="9"/>
+              </g>
+              <g stroke="#1a9d6b" stroke-width="1" opacity=".55"><circle cx="200" cy="200" r="62"/><circle cx="200" cy="200" r="52"/></g>
+              <circle cx="200" cy="200" r="20" stroke="#ff8a1e" stroke-width="1.4" opacity=".8"/>
+            </svg>
+          </div>
+          <div class="veil" style="top:44%"></div>
+
+          <div class="bhero">
+            <div class="bgreet">Good evening, <span class="grad2">Aashish</span>. Hope Gurgaon's heat is treating you kindly.</div>
+            <div style="width:min(460px,100%)">
+              <div class="smartcard">
+                <div class="card">
+                  <div class="eyebrow e-saff">💡 Did you know</div>
+                  <div class="body">Chess began in India as <b>chaturanga</b>, around the 6th century CE — it reached Europe through Persia.</div>
+                </div>
+                <div class="card">
+                  <div class="eyebrow e-indigo">🎶 This evening</div>
+                  <div class="body">Plans tonight? See what's on around you.</div>
+                  <span class="cta">Find events →</span>
+                </div>
+                <div class="card">
+                  <div class="eyebrow e-green">🛒 Pick up where you left off</div>
+                  <div class="body">Anything waiting in your cart? Give it a quick look before it goes stale.</div>
+                  <span class="cta">Open my cart →</span>
+                </div>
+              </div>
+              <div class="dots"><i class="on"></i><i></i><i></i></div>
+            </div>
+          </div>
+
+          <div class="bcomposer">
+            <div class="ribbon">
+              <span class="mchip c-indigo">🚕 Book a Cab</span>
+              <span class="mchip c-saff">🍽 Order Food</span>
+              <span class="mchip c-green">🥬 Groceries</span>
+              <span class="mchip c-rose">🎟 Find Events</span>
+              <span class="mchip c-mari">🛒 My Cart</span>
+            </div>
+            <div class="inputbar">
+              <span class="ph-ic">📎</span>
+              <span class="ph-text">Ask Companion anything…  Hindi, English, ya Hinglish — sab chalega</span>
+              <span class="micbtn">🎙</span><span class="sendbtn">➤</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VERDICT ============ -->
+  <div class="verdict">
+    <h2>Where I'd start</h2>
+    <p>
+      <b>Decision (12 Jun):</b> №4 Ek Card chosen, with №1's gradient treatment on the user's name —
+      implemented in <b>ChatArea.tsx + SmartCard.tsx</b>. See №4·W above for how it renders on the web.
+    </p>
+    <p>
+      <b>№1 Khulā is the foundation</b> — it's pure deletion, touches one file, and fixes the actual complaint
+      (scroll + text wall) without betting on a new layout. Ship it first.
+    </p>
+    <p>
+      Then graft <b>№4's smart card</b> into that open space: it rescues the heritage facts from pill-purgatory and
+      gives cart/weather/reminder state a home that pays rent. <b>№2's tiles</b> are the right answer if new-user
+      activation matters more than calm — worth an A/B later. <b>№3</b> is the strongest product statement but the
+      riskiest layout change; keep it in the drawer until voice usage data argues for it.
+    </p>
+    <div class="vchips">
+      <span class="vchip first">Phase 1 · №1 subtract</span>
+      <span class="vchip">Phase 2 · + №4 smart card</span>
+      <span class="vchip">Later · A/B №2 tiles</span>
+      <span class="vchip">Drawer · №3 composer-first</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mihir Labs — Logo Concepts</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fdfaf3; --surface: #fff; --border: #ece3d6; --ink: #221b2e;
+    --muted: #7a7388; --saffron: #ff8a1e; --marigold: #ffb347;
+    --rose: #e85d7a; --indigo: #2b2f72; --green: #1a9d6b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: 'Satoshi', sans-serif; padding: 56px 32px 96px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 44px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin-top: 8px; font-size: 17px; max-width: 640px; line-height: 1.55; }
+  .chips { display: flex; gap: 10px; margin: 26px 0 10px; flex-wrap: wrap; }
+  .chip { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px 6px 7px; font-size: 12.5px; font-family: 'JetBrains Mono', monospace; }
+  .chip i { width: 20px; height: 20px; border-radius: 50%; display: block; }
+  section { margin-top: 64px; }
+  .concept-head { display: flex; align-items: baseline; gap: 14px; }
+  .concept-head .num { font-family: 'Clash Display', sans-serif; font-size: 15px; font-weight: 600; color: var(--saffron); letter-spacing: 0.14em; }
+  h2 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 28px; letter-spacing: -0.01em; }
+  .why { color: var(--muted); font-size: 15.5px; line-height: 1.6; margin: 10px 0 24px; max-width: 720px; }
+  .row { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 36px; display: flex; align-items: center; justify-content: center; min-height: 230px; position: relative; }
+  .card.dark { background: #14101d; border-color: #2a2438; }
+  .card.grad { background: linear-gradient(115deg, #ff8a1e, #e85d7a 55%, #2b2f72); border: none; }
+  .label { position: absolute; top: 14px; left: 18px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .card.dark .label, .card.grad .label { color: rgba(255,255,255,0.55); }
+  .lockup { display: flex; align-items: center; gap: 18px; }
+  .wordmark { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 40px; letter-spacing: -0.015em; color: var(--ink); line-height: 1; }
+  .wordmark .labs { font-weight: 400; color: var(--muted); }
+  .card.dark .wordmark { color: #fdfaf3; } .card.dark .wordmark .labs { color: #9d93b3; }
+  .card.grad .wordmark, .card.grad .wordmark .labs { color: #fff; }
+  .devanagari { font-size: 13px; color: var(--muted); letter-spacing: 0.18em; margin-top: 10px; text-align: left; }
+  .favrow { display: flex; gap: 22px; align-items: center; }
+  .favrow .f { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px; line-height: 0; }
+  .favrow .f.d { background: #14101d; border-color: #2a2438; }
+  .note { margin-top: 56px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 26px 30px; font-size: 15px; line-height: 1.65; color: var(--ink); max-width: 880px; }
+  .note b { font-family: 'Clash Display', sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>mihir <span style="font-weight:400;color:#7a7388">labs</span></h1>
+  <p class="sub">“Mihir” — the Sun; honoring Varahamihira of Ujjain. Three marks, one rule borrowed from
+  Sarvam: a quiet geometric symbol + a confident lowercase wordmark, on the palette the product already lives in.</p>
+
+  <div class="chips">
+    <span class="chip"><i style="background:#ff8a1e"></i>#FF8A1E saffron</span>
+    <span class="chip"><i style="background:#ffb347"></i>#FFB347 marigold</span>
+    <span class="chip"><i style="background:#e85d7a"></i>#E85D7A rose</span>
+    <span class="chip"><i style="background:#2b2f72"></i>#2B2F72 indigo</span>
+    <span class="chip"><i style="background:#221b2e"></i>#221B2E ink</span>
+    <span class="chip"><i style="background:#fdfaf3;border:1px solid #ece3d6"></i>#FDFAF3 ivory</span>
+  </div>
+
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <linearGradient id="dawn" x1="0%" y1="100%" x2="85%" y2="0%">
+        <stop offset="0%" stop-color="#ff8a1e"/><stop offset="30%" stop-color="#ffb347"/>
+        <stop offset="62%" stop-color="#e85d7a"/><stop offset="100%" stop-color="#2b2f72"/>
+      </linearGradient>
+      <linearGradient id="dawnFlat" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#ff8a1e"/><stop offset="45%" stop-color="#e85d7a"/>
+        <stop offset="100%" stop-color="#2b2f72"/>
+      </linearGradient>
+      <linearGradient id="dawnUser" gradientUnits="userSpaceOnUse" x1="10" y1="110" x2="110" y2="10">
+        <stop offset="0%" stop-color="#ff8a1e"/><stop offset="35%" stop-color="#ffb347"/>
+        <stop offset="65%" stop-color="#e85d7a"/><stop offset="100%" stop-color="#2b2f72"/>
+      </linearGradient>
+      <linearGradient id="sunCore" x1="0%" y1="100%" x2="60%" y2="0%">
+        <stop offset="0%" stop-color="#ff8a1e"/><stop offset="100%" stop-color="#e85d7a"/>
+      </linearGradient>
+
+      <!-- CONCEPT 1: Udaya — sunrise over the measured horizon -->
+      <g id="mark-udaya">
+        <clipPath id="horizonClip"><rect x="0" y="0" width="120" height="79"/></clipPath>
+        <g clip-path="url(#horizonClip)">
+          <circle cx="60" cy="79" r="48" fill="none" stroke="url(#dawn)" stroke-width="3" opacity="0.35"/>
+          <circle cx="60" cy="79" r="36" fill="none" stroke="url(#dawn)" stroke-width="3" opacity="0.65"/>
+          <circle cx="60" cy="79" r="24" fill="url(#sunCore)"/>
+        </g>
+        <line x1="4" y1="86" x2="116" y2="86" stroke="#221b2e" stroke-width="4" stroke-linecap="round"/>
+      </g>
+
+      <!-- CONCEPT 2: Yantra — the sun as a scientific dial -->
+      <g id="mark-yantra">
+        <g stroke="url(#dawnUser)" stroke-width="4.5" stroke-linecap="round">
+          <line x1="98.0" y1="60.0" x2="116.0" y2="60.0"/><line x1="60.0" y1="22.0" x2="60.0" y2="4.0"/><line x1="22.0" y1="60.0" x2="4.0" y2="60.0"/><line x1="60.0" y1="98.0" x2="60.0" y2="116.0"/>
+        </g>
+        <g stroke="url(#dawnUser)" stroke-width="3.5" stroke-linecap="round" opacity="0.6">
+          <line x1="94.6" y1="40.0" x2="105.0" y2="34.0"/><line x1="80.0" y1="25.4" x2="86.0" y2="15.0"/><line x1="40.0" y1="25.4" x2="34.0" y2="15.0"/><line x1="25.4" y1="40.0" x2="15.0" y2="34.0"/><line x1="25.4" y1="80.0" x2="15.0" y2="86.0"/><line x1="40.0" y1="94.6" x2="34.0" y2="105.0"/><line x1="80.0" y1="94.6" x2="86.0" y2="105.0"/><line x1="94.6" y1="80.0" x2="105.0" y2="86.0"/>
+        </g>
+        <circle cx="60" cy="60" r="22" fill="url(#sunCore)"/>
+        <circle cx="60" cy="60" r="31" fill="none" stroke="currentColor" stroke-width="2.5"/>
+      </g>
+
+      <!-- CONCEPT 3: Graha — the astronomer's sun, one orbit -->
+      <g id="mark-graha">
+        <ellipse cx="60" cy="60" rx="54" ry="20" fill="none" stroke="currentColor" stroke-width="3"
+                 transform="rotate(-24 60 60)" opacity="0.85"/>
+        <circle cx="60" cy="60" r="27" fill="url(#dawn)"/>
+        <clipPath id="frontArc"><rect x="0" y="62" width="120" height="58"/></clipPath>
+        <g clip-path="url(#frontArc)">
+          <ellipse cx="60" cy="60" rx="54" ry="20" fill="none" stroke="currentColor" stroke-width="3"
+                   transform="rotate(-24 60 60)"/>
+        </g>
+        <circle cx="95.7" cy="31.5" r="5.5" fill="#2b2f72" stroke="#fdfaf3" stroke-width="2"/>
+      </g>
+
+      <!-- mono ink variants -->
+      <g id="mark-udaya-mono">
+        <g clip-path="url(#horizonClip)">
+          <circle cx="60" cy="79" r="48" fill="none" stroke="currentColor" stroke-width="3" opacity="0.3"/>
+          <circle cx="60" cy="79" r="36" fill="none" stroke="currentColor" stroke-width="3" opacity="0.55"/>
+          <circle cx="60" cy="79" r="24" fill="currentColor"/>
+        </g>
+        <line x1="4" y1="86" x2="116" y2="86" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      </g>
+    </defs>
+  </svg>
+
+  <!-- ============================= CONCEPT 1 ============================= -->
+  <section>
+    <div class="concept-head"><span class="num">01</span><h2>Udaya — the rising sun</h2></div>
+    <p class="why">A sun rising over a precise horizon line, its glow drawn as concentric mandala rings —
+    the same rings already watermarked across the app canvas, in the same dawn ramp the hero gradient uses.
+    The horizon doubles as the “bench line” of a laboratory: warm above, exact below. This is the one
+    that feels most like the product.</p>
+    <div class="row">
+      <div class="card"><span class="label">Primary lockup</span>
+        <div class="lockup">
+          <svg width="92" height="92" viewBox="0 0 120 120"><use href="#mark-udaya"/></svg>
+          <div><div class="wordmark">mihir <span class="labs">labs</span></div>
+          <div class="devanagari">मिहिर</div></div>
+        </div>
+      </div>
+      <div class="card dark"><span class="label">On ink</span>
+        <svg width="110" height="110" viewBox="0 0 120 120"><use href="#mark-udaya"/></svg>
+      </div>
+      <div class="card"><span class="label">Mono + favicon</span>
+        <div class="favrow" style="flex-direction:column">
+          <svg width="84" height="84" viewBox="0 0 120 120" style="color:#221b2e"><use href="#mark-udaya-mono"/></svg>
+          <div class="favrow">
+            <span class="f"><svg width="24" height="24" viewBox="0 0 120 120"><use href="#mark-udaya"/></svg></span>
+            <span class="f d"><svg width="24" height="24" viewBox="0 0 120 120"><use href="#mark-udaya"/></svg></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= CONCEPT 2 ============================= -->
+  <section>
+    <div class="concept-head"><span class="num">02</span><h2>Yantra — the instrument sun</h2></div>
+    <p class="why">Sun rays drawn as the graduated ticks of an astronomical dial — half sundial, half sextant.
+    The ink ring holds the gradient core like an instrument bezel: “warm, melodic, quietly scientific” in one
+    figure. Strongest at tiny sizes; the most distinctive as an app icon.</p>
+    <div class="row">
+      <div class="card"><span class="label">Primary lockup</span>
+        <div class="lockup">
+          <svg width="92" height="92" viewBox="0 0 120 120" style="color:#221b2e"><use href="#mark-yantra"/></svg>
+          <div><div class="wordmark">mihir <span class="labs">labs</span></div>
+          <div class="devanagari">मिहिर</div></div>
+        </div>
+      </div>
+      <div class="card dark"><span class="label">On ink</span>
+        <svg width="110" height="110" viewBox="0 0 120 120" style="color:#fdfaf3"><use href="#mark-yantra"/></svg>
+      </div>
+      <div class="card"><span class="label">Favicon scale</span>
+        <div class="favrow">
+          <span class="f"><svg width="24" height="24" viewBox="0 0 120 120" style="color:#221b2e"><use href="#mark-yantra"/></svg></span>
+          <span class="f"><svg width="40" height="40" viewBox="0 0 120 120" style="color:#221b2e"><use href="#mark-yantra"/></svg></span>
+          <span class="f d"><svg width="40" height="40" viewBox="0 0 120 120" style="color:#fdfaf3"><use href="#mark-yantra"/></svg></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= CONCEPT 3 ============================= -->
+  <section>
+    <div class="concept-head"><span class="num">03</span><h2>Graha — the astronomer’s sun</h2></div>
+    <p class="why">The full dawn-gradient sun with a single ink orbit and one indigo graha (planet) —
+    Varahamihira’s claim made visible. The orbit passes behind and in front of the disc, giving the mark
+    dimensionality without losing geometry. The most “labs” of the three.</p>
+    <div class="row">
+      <div class="card"><span class="label">Primary lockup</span>
+        <div class="lockup">
+          <svg width="100" height="92" viewBox="0 0 120 120" style="color:#221b2e"><use href="#mark-graha"/></svg>
+          <div><div class="wordmark">mihir <span class="labs">labs</span></div>
+          <div class="devanagari">मिहिर</div></div>
+        </div>
+      </div>
+      <div class="card dark"><span class="label">On ink</span>
+        <svg width="110" height="110" viewBox="0 0 120 120" style="color:#fdfaf3"><use href="#mark-graha"/></svg>
+      </div>
+      <div class="card grad"><span class="label">On gradient</span>
+        <div class="wordmark" style="font-size:34px">mihir labs</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="note">
+    <b>Recommendation:</b> 01 <i>Udaya</i> as the primary brand mark (it IS the product’s existing visual story —
+    dawn gradient, mandala rings, the hero orb), with 02 <i>Yantra</i> as the app icon / favicon where its tick
+    geometry stays crisp at 16–48&nbsp;px. Wordmark set in Clash Display SemiBold, all-lowercase “mihir” with
+    “labs” in regular — same voice as Sarvam’s restraint, but unmistakably ours. The Devanagari मिहिर sits as a
+    secondary line on stationery and the landing-page footer, never inside the mark.
+  </div>
+
+</div>
+</body>
+</html>

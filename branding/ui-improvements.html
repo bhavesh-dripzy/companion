@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Companion — UI Review №1</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#fdfaf3; --surface:#ffffff; --border:#ece3d6; --border-strong:#ddd0bf;
+    --ink:#221b2e; --muted:#7a7388; --saffron:#ff8a1e; --marigold:#ffb347;
+    --rose:#e85d7a; --indigo:#2b2f72; --green:#1a9d6b;
+    --ease:cubic-bezier(0.22,1,0.36,1);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--ink); font-family:'Satoshi',sans-serif;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  /* dawn bloom + jali texture, echoing the app canvas */
+  .atmosphere{position:fixed;inset:0;pointer-events:none;z-index:0}
+  .atmosphere::before{
+    content:"";position:absolute;inset:-20% -10% auto;height:70vh;
+    background:
+      radial-gradient(58% 90% at 18% 0%, rgba(255,138,30,.14), transparent 62%),
+      radial-gradient(50% 80% at 55% -10%, rgba(232,93,122,.11), transparent 60%),
+      radial-gradient(60% 90% at 88% 0%, rgba(43,47,114,.12), transparent 64%);
+  }
+  .atmosphere::after{
+    content:"";position:absolute;inset:0;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56'%3E%3Cpath d='M28 2l8 8-8 8-8-8zM2 28l8-8 8 8-8 8zM54 28l-8-8-8 8 8 8zM28 54l-8-8 8-8 8 8z' fill='none' stroke='%23221b2e' stroke-width='1'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:64px 36px 120px}
+
+  /* ----- masthead ----- */
+  .masthead{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid var(--ink);padding-bottom:26px}
+  .kicker{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+  h1{font-family:'Clash Display',sans-serif;font-weight:600;font-size:clamp(40px,6vw,68px);letter-spacing:-.02em;line-height:.98;margin-top:10px}
+  h1 .grad{background:linear-gradient(100deg,#ff8a1e,#e85d7a 55%,#2b2f72);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .mast-meta{text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);line-height:1.9}
+  .intro{max-width:680px;margin:26px 0 0;font-size:17.5px;line-height:1.65;color:#4a4458}
+
+  /* ----- index strip ----- */
+  .index{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1.5px solid var(--ink);border-radius:18px;overflow:hidden;margin-top:42px;background:var(--surface)}
+  .index a{display:block;padding:16px 18px;text-decoration:none;color:var(--ink);border-right:1.5px solid var(--ink);transition:background .25s var(--ease)}
+  .index a:last-child{border-right:none}
+  .index a:hover{background:rgba(255,138,30,.08)}
+  .index .n{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--saffron);font-weight:500}
+  .index .t{font-family:'Clash Display',sans-serif;font-weight:500;font-size:15px;margin-top:3px;letter-spacing:-.01em}
+
+  /* ----- proposal sections ----- */
+  section.prop{margin-top:96px;opacity:0;transform:translateY(26px);animation:rise .9s var(--ease) forwards}
+  section.prop:nth-of-type(2){animation-delay:.08s}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .prop-head{display:flex;align-items:baseline;gap:18px}
+  .prop-num{font-family:'Clash Display',sans-serif;font-size:54px;font-weight:600;line-height:1;
+    background:linear-gradient(135deg,#ff8a1e,#e85d7a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  h2{font-family:'Clash Display',sans-serif;font-weight:600;font-size:30px;letter-spacing:-.015em}
+  .prop-sub{font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-top:6px}
+  .prop-why{max-width:760px;color:#4a4458;font-size:15.5px;line-height:1.66;margin:14px 0 28px}
+  .prop-why b{color:var(--ink)}
+
+  .ba{display:grid;grid-template-columns:1fr 1.15fr;gap:22px;align-items:stretch}
+  @media (max-width:900px){.ba{grid-template-columns:1fr}}
+  .panel{border-radius:22px;position:relative;overflow:hidden;display:flex;flex-direction:column}
+  .panel .tag{position:absolute;top:14px;right:14px;z-index:5;font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;letter-spacing:.16em;font-weight:500;padding:5px 12px;border-radius:999px}
+  .panel.before{border:1.5px dashed var(--border-strong);background:repeating-linear-gradient(-45deg,#faf6ec,#faf6ec 14px,#f5efe2 14px,#f5efe2 15px)}
+  .panel.before .tag{background:#efe7da;color:#8a7f6d}
+  .panel.after{border:1.5px solid var(--ink);background:var(--surface);box-shadow:0 24px 60px -30px rgba(34,27,46,.28)}
+  .panel.after .tag{background:var(--ink);color:#ffd9a8}
+  .screen{flex:1;margin:18px;border-radius:14px;background:var(--bg);border:1px solid var(--border);padding:18px 16px;display:flex;flex-direction:column;gap:10px;min-height:300px}
+  .panel.before .screen{filter:saturate(.55);background:#fbf8f0}
+
+  /* chat primitives used inside mockups */
+  .u-bubble{align-self:flex-end;background:linear-gradient(135deg,#ffe9d2,#ffdfd6);border:1px solid #f6d9bd;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:13px;max-width:78%}
+  .a-card{align-self:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:4px 16px 16px 16px;padding:11px 14px;font-size:13px;line-height:1.5;max-width:88%}
+  .chiprow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .devchip{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;border:1px solid var(--border-strong);background:#f3ede1;color:#6f6757;border-radius:6px;padding:3px 8px}
+  .devchip.err{border-color:#e9b8b8;background:#f9eaea;color:#a14848}
+  .tracelink{font-size:11px;color:#9a92a8;text-decoration:underline dotted}
+
+  /* P1 after: activity rail */
+  .rail{border-left:2px solid var(--border-strong);margin:4px 0 2px 8px;display:flex;flex-direction:column;gap:8px;padding-left:14px}
+  .step{display:flex;gap:8px;align-items:center;font-size:12px;color:#4a4458;position:relative}
+  .step::before{content:"";position:absolute;left:-20.5px;width:11px;height:11px;border-radius:50%;background:var(--surface);border:2.5px solid var(--green)}
+  .step.warn::before{border-color:var(--marigold);background:#fff4e0}
+  .step .t{font-family:'JetBrains Mono',monospace;font-size:10px;color:#a59dae;margin-left:auto}
+  .statuspill{display:inline-flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:11px;color:var(--muted);width:fit-content}
+  .dot{width:7px;height:7px;border-radius:50%;background:#7C3AED}
+  .retrychip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--ink);background:rgba(255,138,30,.12);border:1px solid rgba(255,138,30,.45);border-radius:999px;padding:5px 12px;width:fit-content}
+
+  /* mini restaurant / compare cards */
+  .minirow{display:flex;gap:8px}
+  .minicard{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:8px;font-size:11px}
+  .minicard .ph{height:34px;border-radius:8px;background:linear-gradient(135deg,#f1e7d6,#e7dbc6);margin-bottom:6px}
+  .minicard b{display:block;font-size:11.5px}
+  .minicard .meta{color:var(--muted);font-size:10px;margin-top:2px}
+  .provtag{font-size:9px;font-weight:700;border-radius:5px;padding:2px 6px;color:#fff;display:inline-block;margin-bottom:5px}
+  .zom{background:#E23744}.swg{background:#FC8019}
+
+  .compare{background:var(--surface);border:1.5px solid var(--ink);border-radius:16px;overflow:hidden}
+  .compare .ch{display:grid;grid-template-columns:1.2fr 1fr 1fr;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);padding:8px 12px;gap:8px}
+  .compare .cr{display:grid;grid-template-columns:1.2fr 1fr 1fr;padding:9px 12px;gap:8px;font-size:12px;align-items:center;border-bottom:1px solid var(--border)}
+  .compare .cr:last-child{border-bottom:none}
+  .price{font-family:'JetBrains Mono',monospace;font-weight:600}
+  .win{position:relative}
+  .win .price{color:var(--green)}
+  .savepill{display:inline-block;font-size:9px;font-weight:800;background:var(--green);color:#fff;border-radius:999px;padding:2px 7px;margin-left:6px;animation:pop 2.6s var(--ease) infinite}
+  @keyframes pop{0%,80%,100%{transform:scale(1)}88%{transform:scale(1.12)}}
+  .ordercta{display:inline-block;background:var(--ink);color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:7px 14px;margin-top:10px}
+
+  /* P3 cart dock */
+  .dock{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .dockpanel{background:var(--surface);border:1.5px solid var(--ink);border-radius:16px;padding:12px 14px;width:215px;box-shadow:0 18px 40px -18px rgba(34,27,46,.35)}
+  .dockpanel .dp-head{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700}
+  .dockpanel .li{display:flex;justify-content:space-between;font-size:11px;color:#4a4458;margin-top:7px}
+  .dockpanel .tot{display:flex;justify-content:space-between;border-top:1px dashed var(--border-strong);margin-top:9px;padding-top:8px;font-size:12px;font-weight:800}
+  .dockbtn{display:flex;align-items:center;gap:8px;background:var(--ink);color:#fff;border-radius:999px;padding:9px 16px;font-size:12px;font-weight:700;box-shadow:0 14px 30px -12px rgba(34,27,46,.5)}
+  .dockbtn .cnt{background:var(--saffron);border-radius:999px;font-size:10px;padding:1px 7px}
+
+  /* P4 voice overlay */
+  .voicepane{flex:1;border-radius:14px;margin:18px;position:relative;overflow:hidden;background:radial-gradient(120% 90% at 50% -10%, #3a3470 0%, #221b2e 55%, #14101d 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:300px}
+  .orb{width:92px;height:92px;border-radius:50%;position:relative;
+    background:conic-gradient(from 210deg,#ff8a1e,#ffb347,#e85d7a,#2b2f72,#ff8a1e);
+    filter:blur(.4px);animation:spin 14s linear infinite}
+  .orb::before{content:"";position:absolute;inset:9px;border-radius:50%;background:radial-gradient(circle at 38% 32%, #ffd9a8, #ff8a1e 38%, #e85d7a 72%, #2b2f72)}
+  .orb::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:2px solid rgba(255,179,71,.35);animation:breathe 2.4s ease-in-out infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes breathe{0%,100%{transform:scale(.92);opacity:.5}50%{transform:scale(1.06);opacity:1}}
+  .vstates{display:flex;gap:6px}
+  .vstate{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#9d93b3;border:1px solid #3a3450;border-radius:999px;padding:4px 10px}
+  .vstate.on{color:#ffd9a8;border-color:#ff8a1e;background:rgba(255,138,30,.12)}
+  .caption{color:#fdfaf3;font-size:14px;text-align:center;max-width:78%;line-height:1.5}
+  .caption .cursor{display:inline-block;width:7px;height:14px;background:#ffb347;margin-left:3px;vertical-align:-2px;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .vstatus{color:#9d93b3;font-size:11px}
+  .vhint{position:absolute;bottom:12px;font-size:10px;color:#6f6486;font-family:'JetBrains Mono',monospace;letter-spacing:.1em}
+
+  /* P5 address chip */
+  .composer{margin-top:auto;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+  .addrchip{display:inline-flex;align-items:center;gap:7px;background:rgba(26,157,107,.09);border:1px solid rgba(26,157,107,.4);color:#137a52;border-radius:999px;padding:6px 12px;font-size:11.5px;font-weight:700;width:fit-content}
+  .addrmenu{background:var(--surface);border:1.5px solid var(--ink);border-radius:14px;width:230px;overflow:hidden;box-shadow:0 18px 40px -18px rgba(34,27,46,.35)}
+  .addrmenu .ai{display:flex;gap:9px;padding:10px 13px;font-size:12px;border-bottom:1px solid var(--border);align-items:center}
+  .addrmenu .ai:last-child{border-bottom:none}
+  .addrmenu .ai.active{background:rgba(26,157,107,.07)}
+  .addrmenu .ai .lbl{font-weight:800}
+  .addrmenu .ai .sub{color:var(--muted);font-size:10.5px}
+  .addrmenu .ai .tick{margin-left:auto;color:var(--green);font-weight:900}
+
+  /* footer matrix */
+  .matrix{margin-top:110px;border:1.5px solid var(--ink);border-radius:22px;overflow:hidden;background:var(--surface)}
+  .matrix .mh{background:var(--ink);color:#fdfaf3;display:grid;grid-template-columns:2.2fr 1fr 1fr 1.4fr;padding:14px 22px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+  .matrix .mr{display:grid;grid-template-columns:2.2fr 1fr 1fr 1.4fr;padding:15px 22px;border-bottom:1px solid var(--border);align-items:center;font-size:14px}
+  .matrix .mr:last-child{border-bottom:none}
+  .matrix .mr b{font-family:'Clash Display',sans-serif;font-weight:600;letter-spacing:-.01em}
+  .eff{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;border-radius:6px;padding:3px 9px;width:fit-content}
+  .eff.s{background:rgba(26,157,107,.12);color:#137a52}.eff.m{background:rgba(255,138,30,.14);color:#b35c0a}
+  .impact{height:8px;border-radius:999px;background:#f0e9db;overflow:hidden}
+  .impact i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#ff8a1e,#e85d7a)}
+  .closing{margin-top:46px;font-size:14px;color:var(--muted);max-width:640px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="atmosphere"></div>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <div class="kicker">Companion · Mihir Labs · Internal</div>
+      <h1>UI Review <span class="grad">№1</span></h1>
+    </div>
+    <div class="mast-meta">10 JUN 2026<br>5 PROPOSALS · ALL BUILDABLE NOW<br>THEME: INDIA HAS ARRIVED</div>
+  </header>
+
+  <p class="intro">Five improvements drawn from real session transcripts — each one turns something that
+  currently reads as <em>plumbing</em> into something that reads as <em>product</em>. Every mockup below is
+  rendered live in the existing theme tokens; nothing here needs a redesign, only assembly.</p>
+
+  <nav class="index">
+    <a href="#p1"><span class="n">01</span><span class="t" style="display:block">Human activity trail</span></a>
+    <a href="#p2"><span class="n">02</span><span class="t" style="display:block">Compare strip</span></a>
+    <a href="#p3"><span class="n">03</span><span class="t" style="display:block">Cart dock</span></a>
+    <a href="#p4"><span class="n">04</span><span class="t" style="display:block">Voice stage</span></a>
+    <a href="#p5"><span class="n">05</span><span class="t" style="display:block">Address chip</span></a>
+  </nav>
+
+  <!-- ============ 01 ============ -->
+  <section class="prop" id="p1">
+    <div class="prop-head"><span class="prop-num">01</span>
+      <div><h2>Human activity trail</h2><div class="prop-sub">replaces “TOOL EXECUTION FAILED.” badges</div></div>
+    </div>
+    <p class="prop-why">Today every agent turn ships developer debris into the chat: <b>provider chips, a red
+    “TOOL EXECUTION FAILED.” badge, a “View trace details” link</b>. Users read that as the app being broken even
+    when the answer is fine. Replace it with a warm, collapsed activity trail — steps, timings, and a one-tap
+    retry — the transparency stays, the dread goes.</p>
+    <div class="ba">
+      <div class="panel before"><span class="tag">BEFORE</span>
+        <div class="screen">
+          <div class="u-bubble">Show me today's showtimes for The Odyssey near me.</div>
+          <div class="a-card">I'm sorry, I'm having trouble finding showtimes for The Odyssey in Civil Lines, Delhi. Could you check the movie name or try a different search?</div>
+          <div class="chiprow">
+            <span class="devchip">DISTRICT</span>
+            <span class="devchip err">TOOL EXECUTION FAILED.</span>
+          </div>
+          <span class="tracelink">▸ View trace details</span>
+        </div>
+      </div>
+      <div class="panel after"><span class="tag">AFTER</span>
+        <div class="screen">
+          <div class="u-bubble">Show me today's showtimes for The Odyssey near me.</div>
+          <div class="a-card">
+            The Odyssey releases <b>17 July</b> — no shows today. Want me to remind you when booking opens, ya phir <b>Backrooms</b> ke aaj ke shows dikhau?
+            <div class="rail" style="margin-top:10px">
+              <div class="step">Found <b>&nbsp;The Odyssey&nbsp;</b> on District <span class="t">2.1s</span></div>
+              <div class="step">Checked today's showtimes near Civil Lines <span class="t">3.4s</span></div>
+              <div class="step warn">No shows scheduled yet — releases 17 Jul <span class="t">—</span></div>
+            </div>
+          </div>
+          <div class="chiprow">
+            <span class="statuspill"><span class="dot"></span> District · 2 steps · 5.5s</span>
+            <span class="retrychip">↻ Remind me on release</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 ============ -->
+  <section class="prop" id="p2">
+    <div class="prop-head"><span class="prop-num">02</span>
+      <div><h2>Compare strip</h2><div class="prop-sub">the “zomato vs swiggy” turn becomes a product moment</div></div>
+    </div>
+    <p class="prop-why">The backend already fans out to both providers on “compare pizza prices” — but the UI
+    renders <b>two disconnected carousels</b> and makes the user do the math. One comparison strip with the
+    delta called out turns Companion's singular superpower — being above the apps — into something you can
+    <b>see</b>. No other app in India can render this row.</p>
+    <div class="ba">
+      <div class="panel before"><span class="tag">BEFORE</span>
+        <div class="screen">
+          <div class="u-bubble">Compare pizza prices on Zomato and Swiggy</div>
+          <div class="minirow">
+            <div class="minicard"><span class="provtag zom">ZOMATO</span><div class="ph"></div><b>Domino's Pizza</b><div class="meta">⭐ 4.3 · 25–30 min</div></div>
+            <div class="minicard"><span class="provtag zom">ZOMATO</span><div class="ph"></div><b>Pizza Hut</b><div class="meta">⭐ 4.2 · 30–35 min</div></div>
+          </div>
+          <div class="minirow">
+            <div class="minicard"><span class="provtag swg">SWIGGY</span><div class="ph"></div><b>La Pino'z</b><div class="meta">⭐ 3.8 · 30–35 min</div></div>
+            <div class="minicard"><span class="provtag swg">SWIGGY</span><div class="ph"></div><b>Paparizza</b><div class="meta">⭐ 4.3 · 35–40 min</div></div>
+          </div>
+          <div class="a-card" style="font-size:12px">Zomato par Domino's ₹109 se, Swiggy par La Pino'z bhi hai... prices cards mein dekh lo.</div>
+        </div>
+      </div>
+      <div class="panel after"><span class="tag">AFTER</span>
+        <div class="screen">
+          <div class="u-bubble">Compare pizza prices on Zomato and Swiggy</div>
+          <div class="compare">
+            <div class="ch"><span>Margherita, near you</span><span>Zomato</span><span>Swiggy</span></div>
+            <div class="cr"><span><b>Margherita</b><br><span style="color:var(--muted);font-size:10px">Domino's vs La Pino'z</span></span>
+              <span class="win"><span class="price">₹109</span><span class="savepill">−₹40</span><br><span style="font-size:10px;color:var(--muted)">25–30 min</span></span>
+              <span><span class="price">₹149</span><br><span style="font-size:10px;color:var(--muted)">30–35 min</span></span></div>
+            <div class="cr"><span><b>Farmhouse, medium</b></span>
+              <span><span class="price">₹399</span><br><span style="font-size:10px;color:var(--muted)">30% off ₹75</span></span>
+              <span class="win"><span class="price">₹349</span><span class="savepill">−₹50</span><br><span style="font-size:10px;color:var(--muted)">50% OFF deal</span></span></div>
+          </div>
+          <div><span class="ordercta">Order Margherita on Zomato →</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 03 ============ -->
+  <section class="prop" id="p3">
+    <div class="prop-head"><span class="prop-num">03</span>
+      <div><h2>Cart dock</h2><div class="prop-sub">commerce state shouldn't scroll away</div></div>
+    </div>
+    <p class="prop-why">The cart card renders once, inline, then <b>scrolls out of existence</b> as the
+    conversation continues — users forget what's in it, re-ask, or abandon. A floating dock pill keeps cart
+    state alive across every turn (count · total · provider color), expanding to a snapshot with the checkout
+    CTA. Session-cart data already round-trips on every message; this is pure frontend.</p>
+    <div class="ba">
+      <div class="panel before"><span class="tag">BEFORE</span>
+        <div class="screen">
+          <div class="a-card" style="opacity:.45">🛒 Cart — Olio · 2 items · ₹647 <span style="font-size:10px;color:var(--muted)">(12 messages ago…)</span></div>
+          <div class="u-bubble" style="opacity:.7">What desserts do they have?</div>
+          <div class="a-card" style="opacity:.85">Olio ke desserts: Chocolate Brownie ₹129, Tiramisu ₹199…</div>
+          <div class="u-bubble">Wait, kitna ho gaya total?</div>
+          <div class="a-card">Aapke cart mein abhi 2 items hain, total ₹647…</div>
+        </div>
+      </div>
+      <div class="panel after"><span class="tag">AFTER</span>
+        <div class="screen" style="position:relative">
+          <div class="u-bubble">What desserts do they have?</div>
+          <div class="a-card">Olio ke desserts: Chocolate Brownie ₹129, Tiramisu ₹199, Cheesecake ₹249. Brownie cart mein daal doon?</div>
+          <div class="dock">
+            <div class="dockpanel">
+              <div class="dp-head"><span style="width:8px;height:8px;border-radius:50%;background:#FC8019"></span> Olio — Swiggy</div>
+              <div class="li"><span>1 × Margherita (M)</span><span>₹299</span></div>
+              <div class="li"><span>1 × Garlic Bread</span><span>₹149</span></div>
+              <div class="li"><span>Delivery + taxes</span><span>₹199</span></div>
+              <div class="tot"><span>To pay</span><span>₹647</span></div>
+            </div>
+            <div class="dockbtn">🛒 <span class="cnt">2</span> ₹647 · Checkout →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 04 ============ -->
+  <section class="prop" id="p4">
+    <div class="prop-head"><span class="prop-num">04</span>
+      <div><h2>Voice stage</h2><div class="prop-sub">give the live conversation a face</div></div>
+    </div>
+    <p class="prop-why">Voice mode today is a pulsing red mic button — the conversation itself is invisible until
+    text appears after the turn. A dedicated stage gives it presence: the brand orb breathing through
+    <b>listening / thinking / speaking</b>, live romanized captions as you speak (the transliteration shipped
+    today), and the assistant's status line while tools run, so 10 seconds of Swiggy never feels like dead air.</p>
+    <div class="ba">
+      <div class="panel before"><span class="tag">BEFORE</span>
+        <div class="screen" style="align-items:center;justify-content:center;gap:16px">
+          <div style="width:44px;height:44px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;box-shadow:0 0 0 8px rgba(239,68,68,.15)">🎙</div>
+          <div style="font-size:12px;color:var(--muted)">Recording… (nothing else on screen)</div>
+          <div style="font-size:11px;color:#b9b2c4">transcript appears after the turn ends</div>
+        </div>
+      </div>
+      <div class="panel after" style="padding:0"><span class="tag">AFTER</span>
+        <div class="voicepane">
+          <div class="orb"></div>
+          <div class="vstates">
+            <span class="vstate">Listening</span>
+            <span class="vstate on">Thinking</span>
+            <span class="vstate">Speaking</span>
+          </div>
+          <div class="caption">“main Zomato par kuch order karna chaah raha tha…”<span class="cursor"></span></div>
+          <div class="vstatus">Zomato pe pizza options dekh raha hoon — ek second…</div>
+          <div class="vhint">TAP ANYWHERE TO INTERRUPT · ESC TO EXIT</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 ============ -->
+  <section class="prop" id="p5">
+    <div class="prop-head"><span class="prop-num">05</span>
+      <div><h2>Address chip</h2><div class="prop-sub">never deliver to the wrong house again</div></div>
+    </div>
+    <p class="prop-why">Food and grocery flows silently resolve to <b>saved address №1</b>. The user only finds
+    out at the cart — or after ordering to the office at 9 PM. A slim, always-visible delivery chip above the
+    composer (auto-picked, GPS-aware per issue #18) makes the resolution visible and switchable in one tap,
+    before any search even runs.</p>
+    <div class="ba">
+      <div class="panel before"><span class="tag">BEFORE</span>
+        <div class="screen">
+          <div class="u-bubble">Order my usual biryani</div>
+          <div class="a-card">Done! Order placed — delivering to <b>Office, Sector 44 Gurgaon</b> 🛵</div>
+          <div class="a-card" style="border-color:#e9b8b8;background:#fdf4f4">…par main toh ghar pe hoon 😭 <span style="font-size:10px;color:#a14848">(discovered too late)</span></div>
+          <div class="composer">Message Companion…</div>
+        </div>
+      </div>
+      <div class="panel after"><span class="tag">AFTER</span>
+        <div class="screen">
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            <div class="addrchip">📍 Delivering to Home — Civil Lines ▾</div>
+            <div class="addrmenu">
+              <div class="ai active"><span>🏠</span><span><span class="lbl">Home</span><br><span class="sub">Civil Lines, Delhi · 110054</span></span><span class="tick">✓</span></div>
+              <div class="ai"><span>🏢</span><span><span class="lbl">Office</span><br><span class="sub">Sector 44, Gurgaon</span></span></div>
+              <div class="ai"><span>＋</span><span><span class="lbl">Add new address</span></span></div>
+            </div>
+          </div>
+          <div class="u-bubble" style="margin-top:6px">Order my usual biryani</div>
+          <div class="a-card">Biryani Blues se Chicken Dum Biryani — <b>Home (Civil Lines)</b> pe, 35 min. Confirm karein?</div>
+          <div class="composer">Message Companion…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ matrix ============ -->
+  <div class="matrix">
+    <div class="mh"><span>Proposal</span><span>Effort</span><span>Impact</span><span>Unblocked by</span></div>
+    <div class="mr"><b>01 · Human activity trail</b><span class="eff s">S · 1–2 d</span><div class="impact"><i style="width:88%"></i></div><span style="font-size:12px;color:var(--muted)">observable_trace already in envelope</span></div>
+    <div class="mr"><b>02 · Compare strip</b><span class="eff m">M · 3–4 d</span><div class="impact"><i style="width:97%"></i></div><span style="font-size:12px;color:var(--muted)">multi-provider fan-out shipped today</span></div>
+    <div class="mr"><b>03 · Cart dock</b><span class="eff s">S · 1–2 d</span><div class="impact"><i style="width:80%"></i></div><span style="font-size:12px;color:var(--muted)">session_cart round-trips every turn</span></div>
+    <div class="mr"><b>04 · Voice stage</b><span class="eff m">M · 3–5 d</span><div class="impact"><i style="width:92%"></i></div><span style="font-size:12px;color:var(--muted)">romanize endpoint shipped today</span></div>
+    <div class="mr"><b>05 · Address chip</b><span class="eff s">S · 2 d</span><div class="impact"><i style="width:85%"></i></div><span style="font-size:12px;color:var(--muted)">session_addresses + issue #18 GPS pick</span></div>
+  </div>
+
+  <p class="closing">Recommended order: <b>01 → 03 → 05</b> in one sprint (all small, all use data the envelope
+  already carries), then <b>02</b> and <b>04</b> as the two flagship moments for the Mihir Labs launch.
+  Every component above uses only existing theme tokens — ship them and the app still looks like one hand drew it.</p>
+
+</div>
+</body>
+</html>

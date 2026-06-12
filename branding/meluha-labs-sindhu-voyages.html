@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meluha Labs — Sindhu: Twenty Voyages</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fdfaf3; --surface: #fff; --border: #ece3d6; --ink: #221b2e;
+    --muted: #7a7388; --saffron: #ff8a1e; --marigold: #ffb347;
+    --rose: #e85d7a; --indigo: #2b2f72; --brick: #c2502a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: 'Satoshi', sans-serif; padding: 56px 32px 96px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 44px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin-top: 8px; font-size: 17px; max-width: 700px; line-height: 1.55; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 18px; margin-top: 44px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 26px 24px 22px; position: relative; }
+  .card .mark { display: flex; align-items: center; justify-content: center; height: 124px; }
+  .card h3 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 17.5px; margin-top: 14px; letter-spacing: -0.01em; }
+  .card h3 .num { color: var(--brick); font-size: 12px; letter-spacing: 0.14em; margin-right: 8px; }
+  .card p { color: var(--muted); font-size: 12.8px; line-height: 1.55; margin-top: 6px; }
+  .star { position: absolute; top: 14px; right: 16px; font-size: 12px; color: var(--brick); font-weight: 700; letter-spacing: 0.08em; }
+  .note { margin-top: 52px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 26px 30px; font-size: 15px; line-height: 1.65; max-width: 920px; }
+  .note b { font-family: 'Clash Display', sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>sindhu <span style="font-weight:400;color:#7a7388">— twenty voyages</span></h1>
+  <p class="sub">Explorations downstream of concept 03. Every mark is anchored in something real from
+  Meluha — the flat-bottomed boats on the Mohenjo-daro tablets, Lothal’s tidal dock, the binary chert
+  weights, the fish glyph that dominates the undeciphered script, the shore-finding birds, the monsoon
+  that powered the Akkad run. Ink geometry + the kiln gradient + one indigo accent, throughout.</p>
+
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <linearGradient id="kilnU" gradientUnits="userSpaceOnUse" x1="10" y1="110" x2="110" y2="10">
+        <stop offset="0%" stop-color="#c2502a"/><stop offset="35%" stop-color="#ff8a1e"/>
+        <stop offset="68%" stop-color="#e85d7a"/><stop offset="100%" stop-color="#2b2f72"/>
+      </linearGradient>
+      <linearGradient id="emberG" x1="0%" y1="100%" x2="60%" y2="0%">
+        <stop offset="0%" stop-color="#c2502a"/><stop offset="100%" stop-color="#e85d7a"/>
+      </linearGradient>
+      <linearGradient id="flowG" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#2b2f72"/><stop offset="55%" stop-color="#e85d7a"/>
+        <stop offset="100%" stop-color="#ff8a1e"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <div class="grid">
+
+    <!-- 01 Nauka -->
+    <div class="card"><span class="star">★ shortlist</span>
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M12 96 Q22 88 32 96 T52 96 T72 96 T92 96 T112 96" fill="none" stroke="currentColor" stroke-width="3" opacity="0.4"/>
+        <path d="M24 70 Q60 92 96 70" fill="none" stroke="url(#kilnU)" stroke-width="8" stroke-linecap="round"/>
+        <rect x="47" y="50" width="26" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="3.5"/>
+        <line x1="92" y1="66" x2="104" y2="84" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <line x1="84" y1="70" x2="94" y2="88" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+      </svg></div>
+      <h3><span class="num">01</span>Naukā — the tablet boat</h3>
+      <p>The flat-hulled river boat exactly as Mohenjo-daro’s clay tablets draw it: cabin amidships,
+      twin steering oars astern. The gradient hull is the cargo of the whole brand.</p>
+    </div>
+
+    <!-- 02 Dhruva -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <circle cx="60" cy="64" r="44" fill="none" stroke="currentColor" stroke-width="4"/>
+        <line x1="60" y1="34" x2="60" y2="86" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <path d="M60 82 L60 44 L84 82 Z" fill="url(#emberG)"/>
+        <path d="M60 8 L64.5 16 L60 24 L55.5 16 Z" fill="#2b2f72"/>
+      </svg></div>
+      <h3><span class="num">02</span>Dhruva — steering by the star</h3>
+      <p>Sail inside the horizon ring; one indigo pole star riding above it. Navigation before
+      instruments — hold the unmoving point and go.</p>
+    </div>
+
+    <!-- 03 Vata -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M44 92 L44 28 L96 92 Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M12 42 Q30 36 44 44" fill="none" stroke="url(#flowG)" stroke-width="5" stroke-linecap="round"/>
+        <path d="M8 58 Q28 52 44 60" fill="none" stroke="url(#flowG)" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+        <path d="M12 74 Q30 68 44 76" fill="none" stroke="url(#flowG)" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+      </svg></div>
+      <h3><span class="num">03</span>Vāta — the monsoon engine</h3>
+      <p>Meluha’s sailors rode the seasonal winds to Magan and Dilmun and home again. Three gusts of
+      gradient filling an ink sail: trade as captured weather.</p>
+    </div>
+
+    <!-- 04 Mina -->
+    <div class="card"><span class="star">★ shortlist</span>
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M20 62 Q52 30 88 62 Q52 94 20 62 Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+        <line x1="88" y1="62" x2="106" y2="46" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        <line x1="88" y1="62" x2="106" y2="78" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="42" cy="62" r="6.5" fill="url(#emberG)"/>
+        <line x1="52" y1="18" x2="52" y2="30" stroke="#2b2f72" stroke-width="4" stroke-linecap="round"/>
+        <line x1="66" y1="20" x2="66" y2="28" stroke="#2b2f72" stroke-width="4" stroke-linecap="round"/>
+      </svg></div>
+      <h3><span class="num">04</span>Mīna — the fish sign</h3>
+      <p>The single most frequent glyph in the Indus script — scholars read it as “min”: fish, and
+      perhaps star. River life and navigation in one undeciphered pun, with its script marks kept.</p>
+    </div>
+
+    <!-- 05 Setu -->
+    <div class="card"><span class="star">★ shortlist</span>
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M22 36 V76 Q22 90 36 90 H84 Q98 90 98 76 V36" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+        <path d="M30 70 Q39 62 48 70 T66 70 T84 70 L90 70" fill="none" stroke="url(#flowG)" stroke-width="5" stroke-linecap="round"/>
+        <path d="M60 40 L60 22 L74 40 Z" fill="#2b2f72"/>
+      </svg></div>
+      <h3><span class="num">05</span>Setu — the Lothal dock</h3>
+      <p>The world’s first tidal dockyard, drawn as it was engineered: a brick basin open to the sea,
+      water held inside, one indigo sail arriving through the gate.</p>
+    </div>
+
+    <!-- 06 Tula -->
+    <div class="card"><span class="star">★ shortlist</span>
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <rect x="34" y="74" width="52" height="26" rx="7" fill="none" stroke="currentColor" stroke-width="4"/>
+        <rect x="43" y="48" width="34" height="20" rx="6" fill="none" stroke="currentColor" stroke-width="4"/>
+        <rect x="51" y="26" width="18" height="16" rx="5" fill="url(#emberG)"/>
+      </svg></div>
+      <h3><span class="num">06</span>Tulā — the binary weights</h3>
+      <p>Meluha’s chert cubes doubled in perfect ratio — 1, 2, 4, 8 — the same stone standard from
+      Harappa to Bahrain. Measurement as trust; the smallest unit glows.</p>
+    </div>
+
+    <!-- 07 Marga -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M14 84 C14 50 34 50 39 72 C43 90 53 90 57 72 C61 50 77 50 81 72 C85 90 99 88 104 66"
+              fill="none" stroke="url(#kilnU)" stroke-width="6.5" stroke-linecap="round"/>
+        <line x1="10" y1="100" x2="110" y2="100" stroke="currentColor" stroke-width="3" opacity="0.35" stroke-linecap="round"/>
+      </svg></div>
+      <h3><span class="num">07</span>Mārga — the meander m</h3>
+      <p>The river’s own course writes the initial: one continuous meandering stroke that reads as a
+      lowercase “m”. The letterform candidate of the set.</p>
+    </div>
+
+    <!-- 08 Dvipa -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M12 38 Q24 30 36 38 T60 38 T84 38 T108 38" fill="none" stroke="url(#flowG)" stroke-width="4.5" stroke-linecap="round" opacity="0.6"/>
+        <path d="M12 86 Q24 78 36 86 T60 86 T84 86 T108 86" fill="none" stroke="url(#flowG)" stroke-width="4.5" stroke-linecap="round"/>
+        <path d="M38 68 Q60 44 82 68 Z" fill="url(#emberG)"/>
+        <circle cx="60" cy="50" r="4.5" fill="#2b2f72"/>
+      </svg></div>
+      <h3><span class="num">08</span>Dvīpa — the citadel mound</h3>
+      <p>Every Indus city rose on a made mound between waters — flood-proof by design. The kiln-fired
+      island, the indigo beacon on top, the river on both sides.</p>
+    </div>
+
+    <!-- 09 Urmi -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <circle cx="60" cy="60" r="18" fill="none" stroke="url(#kilnU)" stroke-width="4.5"/>
+        <circle cx="60" cy="60" r="32" fill="none" stroke="url(#kilnU)" stroke-width="4" opacity="0.55"/>
+        <circle cx="60" cy="60" r="46" fill="none" stroke="url(#kilnU)" stroke-width="3.5" opacity="0.28"/>
+        <circle cx="60" cy="60" r="6.5" fill="#2b2f72"/>
+      </svg></div>
+      <h3><span class="num">09</span>Ūrmi — the anchor ripple</h3>
+      <p>A stone anchor drops; rings spread to the banks. The quietest mark here — one decision,
+      widening influence. Kin to the mihir mandala, but born of water.</p>
+    </div>
+
+    <!-- 10 Karnadhara -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M20 56 Q60 78 100 56" fill="none" stroke="url(#kilnU)" stroke-width="7.5" stroke-linecap="round"/>
+        <line x1="78" y1="50" x2="94" y2="88" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        <line x1="92" y1="46" x2="108" y2="84" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        <ellipse cx="96" cy="91" rx="5" ry="7" fill="#2b2f72" transform="rotate(22 96 91)"/>
+        <ellipse cx="110" cy="87" rx="5" ry="7" fill="#2b2f72" transform="rotate(22 110 87)"/>
+      </svg></div>
+      <h3><span class="num">10</span>Karṇadhāra — the helmsman</h3>
+      <p>The tablet boats steer with two stern oars — no rudder pin yet invented. The pair of indigo
+      blades is the hand on the course; the hull is everything carried.</p>
+    </div>
+
+    <!-- 11 Patha -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <line x1="12" y1="88" x2="108" y2="88" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="24" cy="46" r="3.5" fill="#2b2f72"/><circle cx="41" cy="32" r="3.5" fill="#2b2f72"/>
+        <circle cx="60" cy="26" r="4.5" fill="#2b2f72"/><circle cx="79" cy="32" r="3.5" fill="#2b2f72"/>
+        <circle cx="96" cy="46" r="3.5" fill="#2b2f72"/>
+        <path d="M52 88 L52 62 L74 88 Z" fill="url(#emberG)"/>
+      </svg></div>
+      <h3><span class="num">11</span>Patha — the star route</h3>
+      <p>Cargo below, constellation above: the arc of stars is the road. The mark for “we navigate by
+      fixed points” — a fine story for an evals or research lab.</p>
+    </div>
+
+    <!-- 12 Vahana -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M20 70 Q60 90 100 70" fill="none" stroke="url(#kilnU)" stroke-width="7.5" stroke-linecap="round"/>
+        <rect x="28" y="48" width="17" height="17" rx="4" fill="none" stroke="currentColor" stroke-width="3.5"/>
+        <rect x="51" y="48" width="17" height="17" rx="4" fill="url(#emberG)"/>
+        <rect x="74" y="48" width="17" height="17" rx="4" fill="none" stroke="currentColor" stroke-width="3.5"/>
+      </svg></div>
+      <h3><span class="num">12</span>Vāhana — the manifest</h3>
+      <p>Carnelian, copper, cotton — the three cargos Akkad’s ledgers record from Meluha. Three crates
+      on a gradient hull; the middle one is what you make.</p>
+    </div>
+
+    <!-- 13 Sagara -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <circle cx="60" cy="60" r="46" fill="none" stroke="currentColor" stroke-width="4"/>
+        <line x1="26" y1="46" x2="94" y2="46" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" opacity="0.45"/>
+        <path d="M22 72 Q31 63 40 72 T58 72 T76 72 T94 72 L98 72" fill="none" stroke="url(#flowG)" stroke-width="5" stroke-linecap="round"/>
+      </svg></div>
+      <h3><span class="num">13</span>Sāgara — river meets sea</h3>
+      <p>The estuary inside the horizon: the calm upstream line, the working waves below. Where the
+      known river hands over to open water — the moment of shipping.</p>
+    </div>
+
+    <!-- 14 Shila -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <line x1="60" y1="8" x2="60" y2="32" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <path d="M60 32 L86 86 Q60 102 34 86 Z" fill="url(#emberG)"/>
+        <circle cx="60" cy="58" r="7.5" fill="#fff" stroke="#221b2e" stroke-width="3"/>
+        <path d="M16 106 Q26 98 36 106 T56 106 T76 106 T96 106" fill="none" stroke="currentColor" stroke-width="3" opacity="0.4"/>
+      </svg></div>
+      <h3><span class="num">14</span>Śilā — the pierced anchor</h3>
+      <p>Lothal’s wharf still holds its drilled-stone anchors. Weight with a hole for the rope:
+      stability that is engineered, not assumed.</p>
+    </div>
+
+    <!-- 15 Taraka -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <line x1="60" y1="96" x2="60" y2="34" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <path d="M60 90 L60 48 L88 90 Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M44 28 Q52 16 60 26 M60 26 Q68 16 76 28" fill="none" stroke="#2b2f72" stroke-width="4.5" stroke-linecap="round"/>
+        <path d="M12 104 Q22 96 32 104 T52 104 T72 104 T92 104 T112 104" fill="none" stroke="url(#flowG)" stroke-width="3.5" stroke-linecap="round" opacity="0.5"/>
+      </svg></div>
+      <h3><span class="num">15</span>Tāraka — the shore-finder</h3>
+      <p>Out of sight of land, Indian sailors loosed a bird and followed it home. Release something
+      from the masthead and let it find the coast — discovery as method.</p>
+    </div>
+
+    <!-- 16 Vela -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <line x1="64" y1="14" x2="64" y2="102" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+        <line x1="48" y1="26" x2="64" y2="26" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <line x1="54" y1="42" x2="64" y2="42" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <line x1="48" y1="58" x2="64" y2="58" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <line x1="54" y1="74" x2="64" y2="74" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <line x1="48" y1="90" x2="64" y2="90" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <path d="M14 66 Q26 58 38 66 T62 66 T86 66 T108 66" fill="none" stroke="url(#flowG)" stroke-width="5" stroke-linecap="round"/>
+      </svg></div>
+      <h3><span class="num">16</span>Velā — the tide gauge</h3>
+      <p>Lothal’s dock only works if you can read the tide. A graduated post, the gradient waterline
+      crossing it: measurement of a moving thing — very “labs”.</p>
+    </div>
+
+    <!-- 17 Ghata -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <circle cx="60" cy="60" r="48" fill="none" stroke="currentColor" stroke-width="4"/>
+        <path d="M28 42 H48 V56 H68 V70 H88" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M26 86 Q35 78 44 86 T62 86 T80 86 T94 86" fill="none" stroke="url(#flowG)" stroke-width="5" stroke-linecap="round"/>
+      </svg></div>
+      <h3><span class="num">17</span>Ghāṭa — steps to the water</h3>
+      <p>The Great Bath’s staircases descend into water exactly like every ghat built since — a
+      five-thousand-year-old gesture. Descent, immersion, return.</p>
+    </div>
+
+    <!-- 18 Kupa -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <g stroke="currentColor" stroke-width="3.5" stroke-linecap="round">
+          <line x1="60" y1="8" x2="60" y2="18"/><line x1="60" y1="102" x2="60" y2="112"/>
+          <line x1="8" y1="60" x2="18" y2="60"/><line x1="102" y1="60" x2="112" y2="60"/>
+          <line x1="23" y1="23" x2="30" y2="30"/><line x1="90" y1="90" x2="97" y2="97"/>
+          <line x1="97" y1="23" x2="90" y2="30"/><line x1="30" y1="90" x2="23" y2="97"/>
+        </g>
+        <circle cx="60" cy="60" r="36" fill="none" stroke="currentColor" stroke-width="4"/>
+        <circle cx="60" cy="60" r="24" fill="none" stroke="url(#kilnU)" stroke-width="3.5" opacity="0.55"/>
+        <circle cx="60" cy="60" r="13" fill="url(#emberG)"/>
+      </svg></div>
+      <h3><span class="num">18</span>Kūpa — the ring well</h3>
+      <p>Brick-lined wells ringed every Indus street — private water, public engineering. The radial
+      ticks are the brick courses; the core is the water found.</p>
+    </div>
+
+    <!-- 19 Nadi-nagara -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <g fill="none" stroke="currentColor" stroke-width="3.8">
+          <rect x="18" y="20" width="22" height="17" rx="5"/>
+          <rect x="49" y="20" width="22" height="17" rx="5"/>
+          <rect x="80" y="20" width="22" height="17" rx="5"/>
+          <rect x="33" y="45" width="22" height="17" rx="5"/>
+        </g>
+        <rect x="64" y="45" width="22" height="17" rx="5" fill="url(#emberG)"/>
+        <line x1="16" y1="74" x2="104" y2="74" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" opacity="0.5"/>
+        <path d="M14 92 Q25 83 36 92 T58 92 T80 92 T102 92" fill="none" stroke="url(#flowG)" stroke-width="5.5" stroke-linecap="round"/>
+      </svg></div>
+      <h3><span class="num">19</span>Nadī-nagara — city on the river</h3>
+      <p>The grid above, the current below, one block fired warm: civilization as the seam where
+      planning meets flow. Bridges this set back to concept 02, Nagara.</p>
+    </div>
+
+    <!-- 20 Sangama -->
+    <div class="card">
+      <div class="mark"><svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+        <path d="M12 30 Q42 34 56 56" fill="none" stroke="url(#flowG)" stroke-width="5.5" stroke-linecap="round"/>
+        <path d="M12 90 Q42 86 56 64" fill="none" stroke="#2b2f72" stroke-width="5.5" stroke-linecap="round"/>
+        <path d="M56 60 Q80 60 108 60" fill="none" stroke="url(#kilnU)" stroke-width="7.5" stroke-linecap="round"/>
+      </svg></div>
+      <h3><span class="num">20</span>Saṅgama — the confluence</h3>
+      <p>Sindhu and the lost Sarasvatī meeting and moving on as one stronger stream. The simplest
+      possible “two become more” — a natural mark for a studio of collaborators.</p>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <b>Reading the set:</b> the four starred marks survive the favicon test and carry the clearest
+    stories — <b>01 Naukā</b> (the literal vessel, warmest), <b>04 Mīna</b> (the script’s own glyph,
+    most “Meluha” to anyone who knows, beautiful to everyone who doesn’t), <b>05 Setu</b> (engineering
+    + arrival in one figure), and <b>06 Tulā</b> (trust and measurement; quietly the best “labs”
+    metaphor of the twenty). 09 <i>Ūrmi</i> and 16 <i>Velā</i> are the strongest dark horses if you
+    want something more abstract. All twenty share the grammar of the original Sindhu mark — ink
+    structure, kiln-gradient life, one indigo decision — so any of them can sit beside
+    <i>mihir labs</i> without a translator.
+  </div>
+
+</div>
+</body>
+</html>

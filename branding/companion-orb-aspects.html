@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Companion — Nine Aspects of the Orb</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&f[]=jet-brains-mono@400,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#fdfaf3; --surface:#fff; --border:#ece3d6; --ink:#221b2e; --muted:#7a7388;
+    --saffron:#ff8a1e; --marigold:#ffb347; --rose:#e85d7a; --indigo:#2b2f72;
+    --ease:cubic-bezier(0.22,1,0.36,1);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:'Satoshi',sans-serif; color:var(--ink); padding:56px 32px 96px;
+    background-color:#fdfaf3;
+    background-image:
+      radial-gradient(48% 38% at 50% -8%, rgba(255,138,30,0.20), rgba(255,179,71,0.08) 42%, transparent 68%),
+      radial-gradient(40% 46% at 4% 26%, rgba(43,47,114,0.10), transparent 62%),
+      radial-gradient(44% 50% at 98% 70%, rgba(232,93,122,0.09), transparent 64%),
+      linear-gradient(180deg, #fdfaf3, #f7f2ea);
+    background-attachment:fixed;
+  }
+  body::before {
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.3;
+    background-image:
+      repeating-linear-gradient(45deg, rgba(43,47,114,0.04) 0 1px, transparent 1px 34px),
+      repeating-linear-gradient(-45deg, rgba(43,47,114,0.04) 0 1px, transparent 1px 34px);
+    -webkit-mask:radial-gradient(120% 90% at 50% 0%, #000, transparent 75%);
+    mask:radial-gradient(120% 90% at 50% 0%, #000, transparent 75%);
+  }
+  .wrap { max-width:1100px; margin:0 auto; position:relative; z-index:1; }
+  h1 { font-family:'Clash Display',sans-serif; font-weight:600; font-size:44px; letter-spacing:-0.02em; }
+  .grad-text { background-image:linear-gradient(100deg,#ff8a1e,#e85d7a 50%,#2b2f72); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .sub { color:var(--muted); margin-top:10px; font-size:17px; max-width:720px; line-height:1.6; }
+  .sub b { color:var(--ink); }
+
+  /* ---- aspect card: a card straight out of the app ---- */
+  .aspect { margin-top:36px; background:var(--surface); border:1px solid var(--border);
+    border-radius:22px; padding:30px; display:grid; grid-template-columns:264px 1fr; gap:32px;
+    box-shadow:0 18px 50px -28px rgba(60,40,30,0.4); align-items:center; }
+  .stage { width:264px; height:264px; border-radius:26px; background:#fdfaf3;
+    border:1px solid var(--border); position:relative; display:flex; align-items:center;
+    justify-content:center; overflow:hidden; flex:none; color:#221b2e;
+    --inkc:#221b2e; --bgline:#fdfaf3; }
+  .stage::before { content:""; position:absolute; inset:0; pointer-events:none; opacity:0.55;
+    background-image:
+      repeating-linear-gradient(45deg, rgba(43,47,114,0.05) 0 1px, transparent 1px 26px),
+      repeating-linear-gradient(-45deg, rgba(43,47,114,0.05) 0 1px, transparent 1px 26px);
+    -webkit-mask:radial-gradient(120% 90% at 50% 0%, #000, transparent 80%);
+    mask:radial-gradient(120% 90% at 50% 0%, #000, transparent 80%); }
+  .stage.dark { background:#14101d; border-color:#2a2438; color:#fdfaf3; --inkc:#fdfaf3; --bgline:#14101d; }
+  .stage.dark::before { background-image:
+      repeating-linear-gradient(45deg, rgba(253,250,243,0.05) 0 1px, transparent 1px 26px),
+      repeating-linear-gradient(-45deg, rgba(253,250,243,0.05) 0 1px, transparent 1px 26px); }
+  .mark { width:240px; height:240px; position:relative; flex:none; }
+  .abs { position:absolute; }
+
+  /* minis: same mark markup, scaled down like a favicon */
+  .mini { width:96px; height:96px; border-radius:18px; }
+  .mini .mark, .tiny .mark { position:absolute; left:50%; top:50%; }
+  .mini .mark { transform:translate(-50%,-50%) scale(0.38); }
+  .tiny { width:52px; height:52px; border-radius:12px; }
+  .tiny .mark { transform:translate(-50%,-50%) scale(0.2); }
+
+  /* ---- the app's own primitives, reused as logo atoms ---- */
+  .wheel { border-radius:50%;
+    background:conic-gradient(from 210deg,#ff8a1e,#ffb347,#e85d7a,#2b2f72,#ff8a1e); }
+  .ringmask { -webkit-mask:radial-gradient(circle closest-side, transparent var(--hole,80%), #000 calc(var(--hole,80%) + 1.5%));
+    mask:radial-gradient(circle closest-side, transparent var(--hole,80%), #000 calc(var(--hole,80%) + 1.5%)); }
+  .orb { position:relative; border-radius:50%;
+    background:conic-gradient(from 210deg,#ff8a1e,#ffb347,#e85d7a,#2b2f72,#ff8a1e);
+    box-shadow:0 6px 16px -8px rgba(255,138,30,0.6); }
+  .orb::after { content:""; position:absolute; inset:24%; border-radius:50%;
+    background:#fff; box-shadow:inset 0 0 0 2px rgba(43,47,114,0.25); }
+
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .spin24 { animation:spin 24s linear infinite; }
+  .spin7  { animation:spin 7s linear infinite; }
+  @keyframes dotpulse { 0%,100% { opacity:0.3; } 50% { opacity:1; } }
+  @keyframes glowpulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.04); } }
+  .breathe { animation:glowpulse 5s var(--ease) infinite; }
+
+  /* ---- text column ---- */
+  .aspect h2 { font-family:'Clash Display',sans-serif; font-weight:600; font-size:30px; letter-spacing:-0.01em; }
+  .aspect h2 .labs { font-weight:400; color:var(--muted); }
+  .fact { display:inline-flex; align-items:center; gap:9px; font-size:12.5px; font-weight:500;
+    color:var(--indigo); background:rgba(43,47,114,0.07); border:1px solid rgba(43,47,114,0.14);
+    padding:7px 14px; border-radius:99px; margin-top:10px; }
+  .fact b { color:var(--saffron); font-weight:700; }
+  .story { color:var(--muted); font-size:15.5px; line-height:1.66; margin-top:14px; max-width:620px; }
+  .story b { color:var(--ink); }
+  .minirow { display:flex; gap:16px; align-items:center; margin-top:20px; }
+
+  .note { margin-top:48px; background:var(--surface); border:1px solid var(--border);
+    border-radius:18px; padding:26px 30px; font-size:15px; line-height:1.65; max-width:920px;
+    box-shadow:0 18px 50px -28px rgba(60,40,30,0.4); }
+  .note b { font-family:'Clash Display',sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>nine aspects <span class="grad-text">of the orb</span></h1>
+  <p class="sub">No history pages this time. The source is the product itself: Companion already has a
+  face — the <b>conic dawn-wheel orb</b> users talk to — and a vocabulary: the jali lattice, the
+  gateway arch, the ink pill button, the typing dots, one fluid easing. Each name below is that same
+  orb wearing a different aspect, drawn with <b>nothing but the interface's own primitives</b>.
+  The marks move, because the app does. The logo and the avatar are the same object.</p>
+
+  <!-- ============================ 01 DHYAN ============================ -->
+  <style>
+    .dy-ring { width:172px; height:172px; left:34px; top:34px; --hole:88%; }
+    .dy-r1 { width:118px; height:118px; left:61px; top:61px; border-radius:50%; border:2px solid var(--inkc); opacity:0.14; }
+    .dy-r2 { width:74px; height:74px; left:83px; top:83px; border-radius:50%; border:2px solid var(--inkc); opacity:0.22; }
+    .dy-bindu { width:20px; height:20px; left:110px; top:110px; border-radius:50%; background:#2b2f72; }
+    .stage.dark .dy-bindu { background:#ffb347; }
+  </style>
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <div class="abs wheel ringmask spin24 dy-ring"></div>
+      <div class="abs dy-r1"></div><div class="abs dy-r2"></div>
+      <div class="abs dy-bindu"></div>
+    </div></div>
+    <div>
+      <h2>dhyan <span class="labs">labs</span></h2>
+      <div class="fact"><b>ध्यान</b> aspect 01 — the still core</div>
+      <p class="story">Every screen of Companion breathes around the orb. Here the wheel is pushed all
+      the way out to the rim, the mandala rings quiet down, and the centre does nothing at all — a
+      bindu that refuses to spin. Dhyāna is the word India gave the world for exactly this (it walked
+      east and became Zen): attention as an instrument. <b>The part that doesn't move is the part
+      doing the work.</b></p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <div class="abs wheel ringmask spin24 dy-ring"></div>
+          <div class="abs dy-r1"></div><div class="abs dy-r2"></div>
+          <div class="abs dy-bindu"></div>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <div class="abs wheel ringmask dy-ring"></div>
+          <div class="abs dy-r1"></div><div class="abs dy-r2"></div>
+          <div class="abs dy-bindu"></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ 02 BHEEM ============================ -->
+  <style>
+    .bh-orb { width:96px; height:96px; left:72px; top:26px; }
+    .bh-pill { width:40px; height:100px; left:100px; top:116px; border-radius:99px;
+      background:var(--inkc); box-shadow:0 10px 26px -14px rgba(34,27,46,0.65); }
+  </style>
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <div class="abs bh-pill"></div>
+      <div class="abs orb breathe bh-orb"></div>
+    </div></div>
+    <div>
+      <h2>bheem <span class="labs">labs</span></h2>
+      <div class="fact"><b>भीम</b> aspect 02 — the button &amp; the mace</div>
+      <p class="story">The two strongest things in the interface, stacked: the ink pill button users
+      press, and the orb that answers. Together they are the gada — Bhīma's mace, standing upright
+      like a pillar before it is a weapon. Bhīma's real strength was never the swing; it was that he
+      never broke a vow. <b>Strength, in a product, is a send button that has never dropped a
+      promise.</b></p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <div class="abs bh-pill"></div>
+          <div class="abs orb bh-orb"></div>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <div class="abs bh-pill"></div>
+          <div class="abs orb bh-orb"></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ 03 MIHIR ============================ -->
+  <style>
+    .mi-glow { width:200px; height:200px; left:20px; top:14px; border-radius:50%;
+      background:radial-gradient(circle, rgba(255,138,30,0.28), rgba(255,179,71,0.10) 55%, transparent 72%); }
+    .mi-sun { width:132px; height:132px; left:54px; top:48px; border-radius:50%;
+      background:conic-gradient(from 210deg,#ff8a1e,#ffb347,#e85d7a,#2b2f72,#ff8a1e);
+      box-shadow:0 6px 16px -8px rgba(255,138,30,0.6); }
+    .mi-jali { inset:0;
+      background-image:
+        repeating-linear-gradient(45deg, var(--bgline) 0 3px, transparent 3px 16px),
+        repeating-linear-gradient(-45deg, var(--bgline) 0 3px, transparent 3px 16px); }
+  </style>
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <div class="abs mi-glow"></div>
+      <div class="abs mi-sun spin24"></div>
+      <div class="abs mi-jali"></div>
+    </div></div>
+    <div>
+      <h2>mihir <span class="labs">labs</span></h2>
+      <div class="fact"><b>मिहिर</b> aspect 03 — light through the jali</div>
+      <p class="story">The app lays a faint jali — the carved lattice screen of Indian architecture —
+      over every canvas it draws. Put the morning sun behind it and the body's own
+      <span style="font-family:'JetBrains Mono',monospace;font-size:13px">::before</span> becomes the
+      logo: Mihir, the sun, arriving the way light has always arrived in this country —
+      <b>filtered through a screen that turns glare into pattern.</b> The lattice doesn't block the
+      sun; it makes it legible. That's the whole job description.</p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <div class="abs mi-glow"></div>
+          <div class="abs mi-sun spin24"></div>
+          <div class="abs mi-jali"></div>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <div class="abs mi-sun"></div>
+          <div class="abs mi-jali"></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ 04 DHANU ============================ -->
+  <style>
+    .dh-tickwrap { inset:0; }
+  </style>
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+        <defs>
+          <linearGradient id="dh-bow" gradientUnits="userSpaceOnUse" x1="52" y1="88" x2="156" y2="192">
+            <stop offset="0%" stop-color="#2b2f72"/><stop offset="40%" stop-color="#e85d7a"/>
+            <stop offset="75%" stop-color="#ffb347"/><stop offset="100%" stop-color="#ff8a1e"/>
+          </linearGradient>
+        </defs>
+        <line x1="52.2" y1="88" x2="156" y2="191.8" stroke="currentColor" stroke-width="2.5" opacity="0.4"/>
+        <path d="M52.2 88 A76 76 0 0 0 156 191.8" fill="none" stroke="url(#dh-bow)" stroke-width="10" stroke-linecap="round"/>
+        <line x1="128" y1="116" x2="146" y2="98" stroke="currentColor" stroke-width="4" stroke-linecap="round" opacity="0.3"/>
+        <line x1="118" y1="128" x2="128" y2="118" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity="0.18"/>
+        <circle cx="171" cy="73" r="13" fill="#ff8a1e"/>
+        <circle cx="171" cy="73" r="5.5" fill="#fff"/>
+      </svg>
+    </div></div>
+    <div>
+      <h2>dhanu <span class="labs">labs</span></h2>
+      <div class="fact"><b>धनु</b> aspect 04 — the wheel drawn back</div>
+      <p class="story">Take the orb's wheel, cut an arc of it, and string it: the bow is the
+      interface's own ring under tension. What it looses is a spark of itself — a small orb already
+      flying, white core intact. Dhanurveda made a science of this; Arjuna made a koan of it
+      (<i>"only the eye"</i>). For a lab the sequence is the brand: <b>hold the gradient still,
+      aim long, release one true thing at a time.</b></p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+            <line x1="52.2" y1="88" x2="156" y2="191.8" stroke="currentColor" stroke-width="2.5" opacity="0.4"/>
+            <path d="M52.2 88 A76 76 0 0 0 156 191.8" fill="none" stroke="url(#dh-bow)" stroke-width="10" stroke-linecap="round"/>
+            <line x1="128" y1="116" x2="146" y2="98" stroke="currentColor" stroke-width="4" stroke-linecap="round" opacity="0.3"/>
+            <circle cx="171" cy="73" r="13" fill="#ff8a1e"/>
+            <circle cx="171" cy="73" r="5.5" fill="#fff"/>
+          </svg>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+            <path d="M52.2 88 A76 76 0 0 0 156 191.8" fill="none" stroke="url(#dh-bow)" stroke-width="14" stroke-linecap="round"/>
+            <circle cx="171" cy="73" r="16" fill="#ff8a1e"/>
+            <circle cx="171" cy="73" r="7" fill="#fff"/>
+          </svg>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ 05 SHESH ============================ -->
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <div class="abs spin24" style="inset:0">
+        <svg width="240" height="240" viewBox="0 0 240 240">
+          <defs>
+            <linearGradient id="sh-coil" gradientUnits="userSpaceOnUse" x1="40" y1="200" x2="200" y2="40">
+              <stop offset="0%" stop-color="#ff8a1e"/><stop offset="35%" stop-color="#ffb347"/>
+              <stop offset="68%" stop-color="#e85d7a"/><stop offset="100%" stop-color="#2b2f72"/>
+            </linearGradient>
+          </defs>
+          <path d="M188 120 A68 68 0 0 0 52 120 A54 54 0 0 0 160 120 A40 40 0 0 0 80 120 A26 26 0 0 0 132 120"
+                fill="none" stroke="url(#sh-coil)" stroke-width="11" stroke-linecap="round"/>
+          <circle cx="132" cy="120" r="7.5" fill="#2b2f72"/>
+        </svg>
+      </div>
+      <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+        <circle cx="120" cy="120" r="11" fill="#fff" stroke="rgba(43,47,114,0.35)" stroke-width="2.5"/>
+      </svg>
+    </div></div>
+    <div>
+      <h2>shesh <span class="labs">labs</span></h2>
+      <div class="fact"><b>शेष</b> aspect 05 — the loop that holds</div>
+      <p class="story">Every loading spinner owes Shesha royalties: he held the worlds between
+      universes, the spinner holds yours between sessions. The orb's ring uncoils into a spiral that
+      never closes — <i>śeṣa</i> means <b>remainder</b>, in the Purāṇas and in Aryabhata's
+      arithmetic alike — and at its heart the white core sits perfectly still while the serpent
+      turns around it. The promise underneath every await: <b>nothing you hand us gets dropped.</b></p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <div class="abs spin24" style="inset:0">
+            <svg width="240" height="240" viewBox="0 0 240 240">
+              <path d="M188 120 A68 68 0 0 0 52 120 A54 54 0 0 0 160 120 A40 40 0 0 0 80 120 A26 26 0 0 0 132 120"
+                    fill="none" stroke="url(#sh-coil)" stroke-width="11" stroke-linecap="round"/>
+              <circle cx="132" cy="120" r="7.5" fill="#ffb347"/>
+            </svg>
+          </div>
+          <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+            <circle cx="120" cy="120" r="11" fill="#fff" stroke="rgba(43,47,114,0.35)" stroke-width="2.5"/>
+          </svg>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+            <path d="M188 120 A68 68 0 0 0 52 120 A54 54 0 0 0 160 120 A40 40 0 0 0 80 120 A26 26 0 0 0 132 120"
+                  fill="none" stroke="url(#sh-coil)" stroke-width="16" stroke-linecap="round"/>
+            <circle cx="120" cy="120" r="14" fill="#fff" stroke="rgba(43,47,114,0.4)" stroke-width="4"/>
+          </svg>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ 06 JATAYU ============================ -->
+  <style>
+    .jt-d1 { animation:dotpulse 1.4s ease-in-out infinite; }
+    .jt-d2 { animation:dotpulse 1.4s ease-in-out 0.22s infinite; }
+    .jt-d3 { animation:dotpulse 1.4s ease-in-out 0.44s infinite; }
+  </style>
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+        <defs>
+          <linearGradient id="jt-wing" gradientUnits="userSpaceOnUse" x1="52" y1="178" x2="178" y2="62">
+            <stop offset="0%" stop-color="#ff8a1e"/><stop offset="45%" stop-color="#e85d7a"/>
+            <stop offset="100%" stop-color="#2b2f72"/>
+          </linearGradient>
+        </defs>
+        <path d="M56 196 Q104 186 150 132" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" opacity="0.14"/>
+        <path d="M52 178 Q113 158 178 62" fill="none" stroke="url(#jt-wing)" stroke-width="11" stroke-linecap="round"/>
+        <circle class="jt-d1" cx="38" cy="206" r="7" fill="#2b2f72"/>
+        <circle class="jt-d2" cx="60" cy="208" r="7" fill="#e85d7a"/>
+        <circle class="jt-d3" cx="82" cy="206" r="7" fill="#ff8a1e"/>
+      </svg>
+    </div></div>
+    <div>
+      <h2>jatayu <span class="labs">labs</span></h2>
+      <div class="fact"><b>जटायु</b> aspect 06 — the last three dots</div>
+      <p class="story">The most honest element a chat interface ever shipped is the typing indicator:
+      <i>someone is still there.</i> Jatayu was the Ramayana's typing indicator — the old wing who
+      fought a battle he had already lost so his final message would arrive: <b>which way south.</b>
+      The wing lifts off in the dawn ramp, saffron to indigo, and behind it the three dots keep
+      pulsing — a message still composing, already on its way. Witness everything; make the last
+      byte count.</p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+            <path d="M56 196 Q104 186 150 132" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" opacity="0.2"/>
+            <path d="M52 178 Q113 158 178 62" fill="none" stroke="url(#jt-wing)" stroke-width="11" stroke-linecap="round"/>
+            <circle class="jt-d1" cx="38" cy="206" r="7" fill="#4a4fa0"/>
+            <circle class="jt-d2" cx="60" cy="208" r="7" fill="#e85d7a"/>
+            <circle class="jt-d3" cx="82" cy="206" r="7" fill="#ff8a1e"/>
+          </svg>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <svg class="abs" style="inset:0" width="240" height="240" viewBox="0 0 240 240">
+            <path d="M52 178 Q113 158 178 62" fill="none" stroke="url(#jt-wing)" stroke-width="16" stroke-linecap="round"/>
+            <circle cx="44" cy="206" r="10" fill="#2b2f72"/>
+            <circle cx="74" cy="208" r="10" fill="#e85d7a"/>
+            <circle cx="104" cy="202" r="10" fill="#ff8a1e"/>
+          </svg>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ 07 KURMA ============================ -->
+  <style>
+    .ku-orb { width:72px; height:72px; left:84px; top:18px; }
+    .ku-bar { width:116px; height:20px; left:62px; top:100px; border-radius:99px;
+      background:linear-gradient(var(--bgline), var(--bgline)) padding-box,
+                 linear-gradient(110deg,#ff8a1e,#e85d7a,#2b2f72) border-box;
+      border:2px solid transparent; }
+    .ku-dome { width:160px; height:78px; left:40px; top:132px;
+      border:6px solid var(--inkc); border-radius:12px 12px 160px 160px; }
+    .ku-rib { width:104px; height:50px; left:68px; top:136px;
+      border:4px solid var(--inkc); opacity:0.28; border-radius:8px 8px 110px 110px; }
+  </style>
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <div class="abs orb breathe ku-orb"></div>
+      <div class="abs ku-bar"></div>
+      <div class="abs ku-dome"></div>
+      <div class="abs ku-rib"></div>
+    </div></div>
+    <div>
+      <h2>kurma <span class="labs">labs</span></h2>
+      <div class="fact"><b>कूर्म</b> aspect 07 — the stack</div>
+      <p class="story">The product drawn as a totem, bottom-up: the ribbed shell that bears the
+      weight, the spectrum rail it carries, the orb that gets to do the talking. When the churn
+      began and the mountain started to sink, Vishnu became a tortoise and held it up for a thousand
+      years — unseen, load-bearing, version one of infrastructure. India still lays a
+      <b>kūrma-śilā</b>, a tortoise stone, under every temple it raises. <b>Every pixel rests on a
+      layer that never moves.</b></p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <div class="abs orb ku-orb"></div>
+          <div class="abs ku-bar"></div>
+          <div class="abs ku-dome"></div>
+          <div class="abs ku-rib"></div>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <div class="abs orb ku-orb"></div>
+          <div class="abs ku-bar"></div>
+          <div class="abs ku-dome"></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ 08 MAKAR ============================ -->
+  <style>
+    .mk-arch { width:132px; height:172px; left:54px; top:36px;
+      border:6px solid var(--inkc); border-bottom:none; border-radius:999px 999px 0 0;
+      overflow:hidden; }
+    .mk-jali { position:absolute; inset:0; opacity:0.1;
+      background-image:
+        repeating-linear-gradient(45deg, currentColor 0 1.5px, transparent 1.5px 16px),
+        repeating-linear-gradient(-45deg, currentColor 0 1.5px, transparent 1.5px 16px); }
+    .mk-orb { width:56px; height:56px; left:92px; top:118px; }
+    .mk-key { width:14px; height:14px; left:113px; top:29px; border-radius:50%;
+      background:#ff8a1e; border:2.5px solid #fff; box-shadow:0 2px 8px rgba(255,138,30,0.5); }
+  </style>
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <div class="abs mk-arch"><div class="mk-jali"></div></div>
+      <div class="abs orb breathe mk-orb"></div>
+      <div class="abs mk-key"></div>
+    </div></div>
+    <div>
+      <h2>makar <span class="labs">labs</span></h2>
+      <div class="fact"><b>मकर</b> aspect 08 — the gateway</div>
+      <p class="story">The app's most Indian pixel is a CSS rule: <span style="font-family:'JetBrains Mono',monospace;font-size:13px">border-top-radius: 9999px</span> —
+      the gateway arch every conversation begins under. The makara has guarded that shape for two
+      thousand years: temple doors, ghat spouts, Ganga's own mount, the arch over every threshold
+      worth crossing. Inside the door, the orb turns like the Sankranti sun crossing into Makara —
+      the turn toward light. <b>The mark is the moment before you type.</b></p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <div class="abs mk-arch"><div class="mk-jali"></div></div>
+          <div class="abs orb mk-orb"></div>
+          <div class="abs mk-key"></div>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <div class="abs mk-arch"></div>
+          <div class="abs orb mk-orb"></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ 09 UGRA ============================ -->
+  <style>
+    .ug-disc { width:168px; height:168px; left:36px; top:36px;
+      background:conic-gradient(from 210deg,#ff8a1e,#ffb347,#e85d7a,#2b2f72,#ff8a1e);
+      clip-path:polygon(50% 0%, 63.8% 16.7%, 85.4% 14.6%, 83.3% 36.2%, 100% 50%, 83.3% 63.8%,
+        85.4% 85.4%, 63.8% 83.3%, 50% 100%, 36.2% 83.3%, 14.6% 85.4%, 16.7% 63.8%, 0% 50%,
+        16.7% 36.2%, 14.6% 14.6%, 36.2% 16.7%); }
+    .ug-core { width:64px; height:64px; left:88px; top:88px; border-radius:50%;
+      background:#fff; box-shadow:inset 0 0 0 3px rgba(43,47,114,0.3), 0 4px 14px rgba(34,27,46,0.25); }
+    .ug-bindu { width:12px; height:12px; left:114px; top:114px; border-radius:50%; background:#221b2e; }
+  </style>
+  <div class="aspect">
+    <div class="stage"><div class="mark">
+      <div class="abs ug-disc spin7"></div>
+      <div class="abs ug-core"></div>
+      <div class="abs ug-bindu"></div>
+    </div></div>
+    <div>
+      <h2>ugra <span class="labs">labs</span></h2>
+      <div class="fact"><b>उग्र</b> aspect 09 — the fierce setting</div>
+      <p class="story">Same orb, teeth out. Ugra is the aspect held in reserve — the eighth name of
+      Rudra, the face Vishnu wore exactly once, as Narasimha, for the problem that slipped through
+      every other rule. The wheel grows eight points and spins three times faster than anywhere else
+      in the system — Sudarshana, the discus aspect — <b>but the core stays white and the bindu
+      stays still: calm pilot, terrible wheel.</b> Gentle by default; this setting exists, and that
+      is enough.</p>
+      <div class="minirow">
+        <div class="stage dark mini"><div class="mark">
+          <div class="abs ug-disc spin7"></div>
+          <div class="abs ug-core"></div>
+          <div class="abs ug-bindu"></div>
+        </div></div>
+        <div class="stage tiny"><div class="mark">
+          <div class="abs ug-disc"></div>
+          <div class="abs ug-core"></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>System logic:</b> one orb, nine aspects. Every mark above decomposes into primitives the app
+    already ships — the conic dawn-wheel, the white core, the ink pill, the jali, the gateway arch,
+    the typing dots, the spectrum rail — so any of them can collapse back into the plain brand-orb
+    avatar inside the product, and the avatar can bloom into the full mark on the landing page.
+    The logo and the bot are the same object, which no borrowed iconography could have done.
+    <b>Where each one shines:</b> <i>dhyan</i> and <i>shesh</i> are the strongest pure marks (still
+    core, open loop — both read at 16&nbsp;px); <i>kurma</i> and <i>makar</i> tell the best product
+    stories (the stack, the threshold); <i>ugra</i> is the boldest — a brand with a documented fierce
+    mode; <i>bheem</i> is the wittiest (the button is the mace); <i>mihir</i> is the most beautiful
+    in motion as a loading screen; <i>jatayu</i> belongs to chat itself — the typing dots are already
+    yours. <b>Motion rule inherited from the app:</b> wheels turn at 24s, ugra alone at 7s, dots
+    pulse at 1.4s — all on the one fluid easing.
+  </div>
+
+</div>
+</body>
+</html>

@@ -101,6 +101,62 @@ function relationBetween(links: GraphLink[], source: string, target: string) {
   return links.find((link) => link.source === source && link.target === target);
 }
 
+function TabPills({
+  activeTab,
+  onChange,
+}: {
+  activeTab: 'graph' | 'leads';
+  onChange: (tab: 'graph' | 'leads') => void;
+}) {
+  return (
+    <>
+      {(['graph', 'leads'] as const).map((tab) => (
+        <button
+          key={tab}
+          onClick={() => onChange(tab)}
+          className={`rounded-full px-4 py-1.5 text-xs font-semibold capitalize transition-colors ${
+            activeTab === tab ? 'bg-slate-950 text-white' : 'text-slate-500 hover:text-slate-950'
+          }`}
+        >
+          {tab}
+        </button>
+      ))}
+    </>
+  );
+}
+
+function NodeInspector({
+  node,
+  style,
+}: {
+  node: GraphNode;
+  style: { label: string; dot: string; ring: string; bg: string };
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${style.bg}`}>
+          {style.label}
+        </span>
+        <h3 className="mt-3 break-words text-lg font-bold text-slate-950">{node.label}</h3>
+        <p className="mt-1 break-all text-xs text-slate-500">{node.id}</p>
+      </div>
+      <div className="space-y-2">
+        {Object.entries(node.properties || {}).length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500">No metadata fields.</div>
+        ) : (
+          Object.entries(node.properties).map(([key, value]) => (
+            <div key={key} className="rounded-lg bg-slate-50 p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</div>
+              <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-slate-800">{formatValue(value)}</pre>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function NodeCard({
   node,
   selected,
@@ -273,22 +329,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
           </div>
 
           <div className="hidden rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm md:flex">
-            <button
-              onClick={() => setActiveTab('graph')}
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
-                activeTab === 'graph' ? 'bg-slate-950 text-white' : 'text-slate-500 hover:text-slate-950'
-              }`}
-            >
-              Graph
-            </button>
-            <button
-              onClick={() => setActiveTab('leads')}
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
-                activeTab === 'leads' ? 'bg-slate-950 text-white' : 'text-slate-500 hover:text-slate-950'
-              }`}
-            >
-              Leads
-            </button>
+            <TabPills activeTab={activeTab} onChange={setActiveTab} />
           </div>
 
           <button
@@ -301,6 +342,24 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
           </button>
         </div>
       </header>
+
+      <div className="flex shrink-0 items-center gap-3 border-b border-slate-200/80 bg-white/60 px-4 py-2 md:hidden">
+        <div className="flex shrink-0 rounded-full border border-slate-200 bg-white/80 p-1 shadow-sm">
+          <TabPills activeTab={activeTab} onChange={setActiveTab} />
+        </div>
+        <select
+          value={selectedUserId}
+          onChange={(e) => setSelectedUserId(e.target.value)}
+          aria-label="Select user"
+          className="h-9 min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+        >
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name || u.id}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 overflow-hidden">
         <aside className="hidden w-72 shrink-0 border-r border-slate-200/80 bg-white/45 md:flex md:flex-col">
@@ -494,33 +553,13 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
                     </div>
                   </section>
 
-                  <aside className="rounded-xl border border-slate-200 bg-white/75 p-4 shadow-sm shadow-slate-900/5">
+                  <aside className="hidden rounded-xl border border-slate-200 bg-white/75 p-4 shadow-sm shadow-slate-900/5 xl:block">
                     <div className="mb-4 flex items-center gap-2">
                       <Info size={15} className="text-slate-500" />
                       <span className="text-sm font-bold text-slate-950">Selected Node</span>
                     </div>
                     {selectedNode && selectedStyle ? (
-                      <div className="space-y-4">
-                        <div>
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${selectedStyle.bg}`}>
-                            {selectedStyle.label}
-                          </span>
-                          <h3 className="mt-3 break-words text-lg font-bold text-slate-950">{selectedNode.label}</h3>
-                          <p className="mt-1 break-all text-xs text-slate-500">{selectedNode.id}</p>
-                        </div>
-                        <div className="space-y-2">
-                          {Object.entries(selectedNode.properties || {}).length === 0 ? (
-                            <div className="rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500">No metadata fields.</div>
-                          ) : (
-                            Object.entries(selectedNode.properties).map(([key, value]) => (
-                              <div key={key} className="rounded-lg bg-slate-50 p-3">
-                                <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</div>
-                                <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-slate-800">{formatValue(value)}</pre>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
+                      <NodeInspector node={selectedNode} style={selectedStyle} />
                     ) : (
                       <div className="flex min-h-52 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white/50 p-6 text-center text-sm text-slate-500">
                         <Sparkles size={18} />
@@ -528,6 +567,31 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
                       </div>
                     )}
                   </aside>
+                </div>
+              )}
+
+              {selectedNode && selectedStyle && (
+                <div className="fixed inset-0 z-[200] xl:hidden">
+                  <div
+                    className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm"
+                    onClick={() => setSelectedNode(null)}
+                  />
+                  <div className="absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto rounded-t-3xl border-t border-slate-200 bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-[0_-20px_60px_-15px_rgba(15,23,42,0.25)]">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Info size={15} className="text-slate-500" />
+                        <span className="text-sm font-bold text-slate-950">Selected Node</span>
+                      </div>
+                      <button
+                        onClick={() => setSelectedNode(null)}
+                        aria-label="Close node details"
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:text-slate-950"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <NodeInspector node={selectedNode} style={selectedStyle} />
+                  </div>
                 </div>
               )}
             </div>

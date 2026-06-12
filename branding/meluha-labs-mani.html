@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meluha Labs — Maṇi, the Etched Bead</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&f[]=jet-brains-mono@400,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fdfaf3; --surface: #fff; --border: #ece3d6; --ink: #221b2e;
+    --muted: #7a7388; --saffron: #ff8a1e; --marigold: #ffb347;
+    --rose: #e85d7a; --indigo: #2b2f72; --brick: #c2502a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: 'Satoshi', sans-serif; padding: 56px 32px 96px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 44px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin-top: 8px; font-size: 17px; max-width: 700px; line-height: 1.55; }
+  section { margin-top: 60px; }
+  h2 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 26px; letter-spacing: -0.01em; }
+  .eyebrow { font-family: 'Clash Display', sans-serif; font-size: 13px; font-weight: 600; color: var(--brick); letter-spacing: 0.16em; text-transform: uppercase; }
+  .why { color: var(--muted); font-size: 15.5px; line-height: 1.65; margin: 10px 0 24px; max-width: 760px; }
+  .quotes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; }
+  .q { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 22px 24px; }
+  .q blockquote { font-family: 'Clash Display', sans-serif; font-weight: 500; font-size: 17px; line-height: 1.45; }
+  .q cite { display: block; margin-top: 10px; font-style: normal; font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+  .row { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)); gap: 18px; margin-top: 26px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 32px; display: flex; align-items: center; justify-content: center; min-height: 220px; position: relative; }
+  .card.dark { background: #14101d; border-color: #2a2438; }
+  .gcard { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 24px; position: relative; }
+  .gcard .mark { display: flex; align-items: center; justify-content: center; height: 116px; }
+  .gcard h3 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 16.5px; margin-top: 12px; }
+  .gcard p { color: var(--muted); font-size: 12.6px; line-height: 1.55; margin-top: 5px; }
+  .label { position: absolute; top: 14px; left: 18px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .card.dark .label { color: rgba(255,255,255,0.55); }
+  .lockup { display: flex; align-items: center; gap: 20px; }
+  .wordmark { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 40px; letter-spacing: -0.015em; color: var(--ink); line-height: 1; }
+  .wordmark .labs { font-weight: 400; color: var(--muted); }
+  .card.dark .wordmark { color: #fdfaf3; } .card.dark .wordmark .labs { color: #9d93b3; }
+  .devanagari { font-size: 13px; color: var(--muted); letter-spacing: 0.18em; margin-top: 10px; }
+  .favrow { display: flex; gap: 22px; align-items: center; }
+  .favrow .f { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px; line-height: 0; }
+  .favrow .f.d { background: #14101d; border-color: #2a2438; }
+  .note { margin-top: 56px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 26px 30px; font-size: 15px; line-height: 1.65; max-width: 920px; }
+  .note b { font-family: 'Clash Display', sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Researched, then designed</p>
+  <h1>meluha <span style="font-weight:400;color:#7a7388">— what the name actually carries</span></h1>
+  <p class="sub">Meluha is unusual among ancient names: it exists almost entirely in <b>other people’s
+  writing</b>. Its own script is undeciphered — but Sumer and Akkad wrote about it constantly, and
+  always the same way: <b>the far country whose ships arrive carrying marvels.</b> Not the bricks, not
+  the grid streets — that’s the archaeologist’s Meluha. The world’s Meluha was a reputation.</p>
+
+  <!-- ============================= THE EVIDENCE ============================= -->
+  <section>
+    <p class="eyebrow">The evidence</p>
+    <div class="quotes">
+      <div class="q"><blockquote>“Black land, may your trees be great trees… May your bulls be great
+        bulls… may your silver be gold!”</blockquote>
+        <cite>Enki blesses Meluha — Enki and the World Order, c. 2000 BCE (ETCSL 1.1.3)</cite></div>
+      <div class="q"><blockquote>“Big ships brought him blocks of lapis lazuli and bright carnelian
+        from Meluha.”</blockquote>
+        <cite>Gudea of Lagash, temple cylinders, c. 2100 BCE</cite></div>
+      <div class="q"><blockquote>“Meluha no longer sends its produce; Dilmun’s boats are idle.”</blockquote>
+        <cite>The Curse of Akkad — when trade with Meluha stops, it reads as civilizational grief</cite></div>
+      <div class="q"><blockquote>“Šu-ilišu, interpreter of the Meluhhan language.”</blockquote>
+        <cite>Cylinder seal, Ur, c. 2100 BCE (EME.BAL.ME.LUH.HA.KI) — a man made his career translating us</cite></div>
+    </div>
+    <p class="why" style="margin-top:24px">And the physical proof: <b>etched carnelian beads</b> —
+    fired carnelian decorated with white alkaline-etched circles, a technology <b>invented in the
+    Indus</b> — found in the Royal Cemetery of Ur (2600–2450 BCE). Sumerian royalty were buried
+    wearing things made in Meluha. That is the brand, four and a half thousand years before the word:
+    <b>a thing made here, precise enough and beautiful enough that the world’s most powerful people
+    kept it for eternity.</b></p>
+  </section>
+
+  <!-- ============================= THE MARK ============================= -->
+  <section>
+    <p class="eyebrow">The thesis mark</p>
+    <h2>Maṇi — the etched bead, on its thread</h2>
+    <p class="why">The bead itself: the eye-shaped carnelian lens, kiln gradient for the fired stone,
+    the authentic white etched circle at its heart — which is simultaneously the Indus script’s
+    dotted-circle sign and the bindu of Indian geometry. One ink thread runs through it (the drill ran
+    1.5&nbsp;mm channels through 10&nbsp;cm of stone — drilling was the hard technology), passing
+    behind the bead and emerging in front: the same dimensional move as the mihir orbit. The small
+    indigo bead following on the thread is the next thing being made. <b>Below the story: we make the
+    precious thing; the thread is the world it travels.</b></p>
+
+    <svg width="0" height="0" style="position:absolute">
+      <defs>
+        <linearGradient id="kiln" gradientUnits="userSpaceOnUse" x1="10" y1="100" x2="110" y2="20">
+          <stop offset="0%" stop-color="#c2502a"/><stop offset="38%" stop-color="#ff8a1e"/>
+          <stop offset="70%" stop-color="#e85d7a"/><stop offset="100%" stop-color="#2b2f72"/>
+        </linearGradient>
+        <linearGradient id="ember2" x1="0%" y1="100%" x2="60%" y2="0%">
+          <stop offset="0%" stop-color="#c2502a"/><stop offset="55%" stop-color="#ff8a1e"/>
+          <stop offset="100%" stop-color="#e85d7a"/>
+        </linearGradient>
+
+        <g id="mani">
+          <line x1="2" y1="60" x2="30" y2="60" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+          <path d="M16 60 C36 34 84 34 104 60 C84 86 36 86 16 60 Z" fill="url(#kiln)"/>
+          <circle cx="60" cy="60" r="12.5" fill="none" stroke="#fdfaf3" stroke-width="4"/>
+          <circle cx="60" cy="60" r="3.6" fill="#fdfaf3"/>
+          <line x1="104" y1="60" x2="112" y2="60" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="113" cy="60" r="4.5" fill="#2b2f72"/>
+        </g>
+
+        <g id="mani-mono">
+          <line x1="2" y1="60" x2="30" y2="60" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+          <path d="M16 60 C36 34 84 34 104 60 C84 86 36 86 16 60 Z" fill="currentColor"/>
+          <circle cx="60" cy="60" r="12.5" fill="none" stroke="#fdfaf3" stroke-width="4"/>
+          <circle cx="60" cy="60" r="3.6" fill="#fdfaf3"/>
+          <line x1="104" y1="60" x2="112" y2="60" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="113" cy="60" r="4.5" fill="currentColor"/>
+        </g>
+      </defs>
+    </svg>
+
+    <div class="row" style="margin-top:26px">
+      <div class="card"><span class="label">Primary lockup</span>
+        <div class="lockup">
+          <svg width="120" height="120" viewBox="0 0 120 120" style="color:#221b2e"><use href="#mani"/></svg>
+          <div><div class="wordmark">meluha <span class="labs">labs</span></div>
+          <div class="devanagari">मेलुहा</div></div>
+        </div>
+      </div>
+      <div class="card dark"><span class="label">On ink</span>
+        <svg width="124" height="124" viewBox="0 0 120 120" style="color:#fdfaf3"><use href="#mani"/></svg>
+      </div>
+      <div class="card"><span class="label">Favicon scale</span>
+        <div class="favrow">
+          <span class="f"><svg width="22" height="22" viewBox="0 0 120 120" style="color:#221b2e"><use href="#mani"/></svg></span>
+          <span class="f"><svg width="40" height="40" viewBox="0 0 120 120" style="color:#221b2e"><use href="#mani"/></svg></span>
+          <span class="f d"><svg width="40" height="40" viewBox="0 0 120 120" style="color:#fdfaf3"><use href="#mani"/></svg></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= DERIVED CONCEPTS ============================= -->
+  <section>
+    <p class="eyebrow">From the same research</p>
+    <h2>Four more, each from a documented fact</h2>
+    <div class="grid">
+
+      <div class="gcard">
+        <div class="mark"><svg width="108" height="108" viewBox="0 0 120 120" style="color:#221b2e">
+          <path d="M34 28 L46 48 L22 48 Z" fill="#2b2f72"/>
+          <line x1="34" y1="48" x2="34" y2="92" stroke="#2b2f72" stroke-width="4.5" stroke-linecap="round"/>
+          <line x1="86" y1="26" x2="86" y2="92" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+          <circle cx="86" cy="40" r="7" fill="none" stroke="currentColor" stroke-width="3.5"/>
+          <path d="M34 70 Q60 54 86 70" fill="none" stroke="url(#ember2)" stroke-width="5" stroke-linecap="round"/>
+        </svg></div>
+        <h3>Eme-bal — the interpreter</h3>
+        <p>Šu-ilišu’s seal: a cuneiform wedge on one side, an Indus stroke-and-circle on the other,
+        one warm bridge between languages that share no ancestor. For a lab translating between
+        humans and machines, this is almost autobiographical.</p>
+      </div>
+
+      <div class="gcard">
+        <div class="mark"><svg width="108" height="108" viewBox="0 0 120 120" style="color:#221b2e">
+          <line x1="60" y1="96" x2="60" y2="46" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+          <circle cx="60" cy="42" r="24" fill="url(#ember2)"/>
+          <circle cx="36" cy="64" r="11" fill="none" stroke="currentColor" stroke-width="3.5"/>
+          <circle cx="84" cy="64" r="11" fill="none" stroke="currentColor" stroke-width="3.5"/>
+          <line x1="14" y1="96" x2="106" y2="96" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        </svg></div>
+        <h3>Mes-vṛkṣa — the blessed tree</h3>
+        <p>“Black land, may your trees be great trees.” The first recorded blessing of this land, in
+        anyone’s literature. A great-crowned tree with two younger canopies under it: what a lab
+        hopes its work becomes.</p>
+      </div>
+
+      <div class="gcard">
+        <div class="mark"><svg width="108" height="108" viewBox="0 0 120 120" style="color:#221b2e">
+          <rect x="24" y="40" width="34" height="34" rx="8" fill="#2b2f72"/>
+          <rect x="50" y="52" width="40" height="40" rx="9" fill="url(#ember2)" stroke="#fdfaf3" stroke-width="3"/>
+        </svg></div>
+        <h3>Gudea’s blocks</h3>
+        <p>“Blocks of lapis lazuli and bright carnelian from Meluha” — the indigo block and the
+        kiln block, overlapped: raw value arriving as a pair. The most reduced mark of the research
+        set; reads at any size.</p>
+      </div>
+
+      <div class="gcard">
+        <div class="mark"><svg width="108" height="108" viewBox="0 0 120 120" style="color:#221b2e">
+          <path d="M10 78 Q60 44 110 78" fill="none" stroke="currentColor" stroke-width="3.5"/>
+          <path d="M38 64 C44 54 60 54 66 64 C60 74 44 74 38 64 Z" fill="none" stroke="currentColor" stroke-width="3.5"/>
+          <path d="M52 60 C58 50 74 50 80 60 C74 70 58 70 52 60 Z" fill="url(#ember2)"/>
+          <circle cx="66" cy="60" r="2.8" fill="#fdfaf3"/>
+          <path d="M66 56 C72 46 88 46 94 56 C88 66 72 66 66 56 Z" fill="none" stroke="currentColor" stroke-width="3.5"/>
+        </svg></div>
+        <h3>Hāra of Ur — the strand</h3>
+        <p>The necklace as it lay in the royal grave: beads on a curve, one of them ours and lit.
+        Work that ends up strung among the world’s treasures — the network telling of the same
+        bead story.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="note">
+    <b>Why the bead is the answer to “sits apt with Meluha”:</b> every earlier direction borrowed the
+    civilization’s <i>furniture</i> — boats, bricks, stars, seals. The research says the name itself
+    meant something sharper to the people who coined it: <b>the place whose made things end up in
+    your treasury.</b> The etched carnelian bead is the one artifact that is simultaneously (a) the
+    documented export the texts rave about, (b) an Indus-invented technology (the etching and the
+    long-bore drilling), (c) physically present in the Royal Cemetery of Ur, and (d) graphically a
+    gradient lens carrying the dotted-circle — the same sign the script uses and the same geometry the
+    mihir sun lives in. It is precious, made, travelled, and Indian — which is the company. Sources:
+    Enki and the World Order (ETCSL 1.1.3) · Gudea cylinders · The Curse of Akkad · the Šu-ilišu seal
+    (Louvre) · etched carnelian beads of the Royal Cemetery of Ur (British Museum).
+  </div>
+
+</div>
+</body>
+</html>

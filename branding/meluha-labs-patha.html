@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meluha Labs — Patha, the Star Route</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&f[]=jet-brains-mono@400,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fdfaf3; --surface: #fff; --border: #ece3d6; --ink: #221b2e;
+    --muted: #7a7388; --saffron: #ff8a1e; --marigold: #ffb347;
+    --rose: #e85d7a; --indigo: #2b2f72; --brick: #c2502a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: 'Satoshi', sans-serif; padding: 56px 32px 96px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 44px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin-top: 8px; font-size: 17px; max-width: 680px; line-height: 1.55; }
+  section { margin-top: 64px; }
+  h2 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 26px; letter-spacing: -0.01em; }
+  .eyebrow { font-family: 'Clash Display', sans-serif; font-size: 13px; font-weight: 600; color: var(--brick); letter-spacing: 0.16em; text-transform: uppercase; }
+  .why { color: var(--muted); font-size: 15.5px; line-height: 1.65; margin: 10px 0 24px; max-width: 740px; }
+  .row { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 18px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 36px; display: flex; align-items: center; justify-content: center; min-height: 230px; position: relative; }
+  .card.tall { min-height: 420px; }
+  .card.dark { background: #14101d; border-color: #2a2438; }
+  .card.grad { background: linear-gradient(115deg, #c2502a, #e85d7a 55%, #2b2f72); border: none; }
+  .card.night { background: linear-gradient(180deg, #14101d 0%, #221b3e 70%, #2b2f72 100%); border-color: #2a2438; }
+  .label { position: absolute; top: 14px; left: 18px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .card.dark .label, .card.grad .label, .card.night .label { color: rgba(255,255,255,0.55); }
+  .lockup { display: flex; align-items: center; gap: 20px; }
+  .wordmark { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 40px; letter-spacing: -0.015em; color: var(--ink); line-height: 1; }
+  .wordmark .labs { font-weight: 400; color: var(--muted); }
+  .card.dark .wordmark, .card.night .wordmark { color: #fdfaf3; }
+  .card.dark .wordmark .labs, .card.night .wordmark .labs { color: #9d93b3; }
+  .card.grad .wordmark, .card.grad .wordmark .labs { color: #fff; }
+  .devanagari { font-size: 13px; color: var(--muted); letter-spacing: 0.18em; margin-top: 10px; }
+  .favrow { display: flex; gap: 22px; align-items: center; }
+  .favrow .f { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px; line-height: 0; }
+  .favrow .f.d { background: #14101d; border-color: #2a2438; }
+  .spec { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); line-height: 1.9; }
+  .spec b { color: var(--ink); font-weight: 500; }
+  .note { margin-top: 56px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 26px 30px; font-size: 15px; line-height: 1.65; max-width: 900px; }
+  .note b { font-family: 'Clash Display', sans-serif; }
+  .appicon { width: 96px; height: 96px; border-radius: 26px; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 30px rgba(34,27,46,0.18); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Concept 11 → developed</p>
+  <h1>patha <span style="font-weight:400;color:#7a7388">— the star route</span></h1>
+  <p class="sub">Cargo below, constellation above: the arc of stars is the road. Developed here with the
+  same dimensional play as the <i>mihir labs</i> Graha sun — and rooted one layer deeper into India:
+  the star-arc is drawn as a <b>nakshatra road</b>, the 27 lunar mansions that were this land’s
+  original fixed points for time and navigation.</p>
+
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <linearGradient id="ember" x1="0%" y1="100%" x2="60%" y2="0%">
+        <stop offset="0%" stop-color="#c2502a"/><stop offset="55%" stop-color="#ff8a1e"/>
+        <stop offset="100%" stop-color="#e85d7a"/>
+      </linearGradient>
+      <linearGradient id="flow" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#2b2f72"/><stop offset="55%" stop-color="#e85d7a"/>
+        <stop offset="100%" stop-color="#ff8a1e"/>
+      </linearGradient>
+
+      <!-- ============ PATHA v2 — the developed mark ============ -->
+      <!-- Geometry: star road = circle R110 centred (60,150); horizon y=86; -->
+      <!-- mast at x=72 pierces the road between two mansions.               -->
+      <g id="patha">
+        <!-- the vessel -->
+        <path d="M40 84 L72 84 L72 42 Z" fill="url(#ember)"/>
+        <line x1="72" y1="84" x2="72" y2="30" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <!-- the horizon and its echo -->
+        <line x1="12" y1="86" x2="108" y2="86" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        <path d="M30 97 Q40 91 50 97 T70 97 T90 97" fill="none" stroke="url(#flow)" stroke-width="3.5" stroke-linecap="round" opacity="0.45"/>
+        <!-- the nakshatra road: one arc of the 27 -->
+        <path d="M14 50 A110 110 0 0 1 106 50" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.4"/>
+        <circle cx="20" cy="47.5" r="3" fill="#2b2f72"/>
+        <circle cx="40" cy="41.8" r="3" fill="#2b2f72"/>
+        <circle cx="60" cy="40" r="4.8" fill="#2b2f72"/>
+        <circle cx="80" cy="41.8" r="3" fill="#2b2f72"/>
+        <circle cx="100" cy="47.5" r="3" fill="#2b2f72"/>
+        <!-- apex rays: the steering star -->
+        <g stroke="#2b2f72" stroke-width="2" stroke-linecap="round">
+          <line x1="60" y1="30" x2="60" y2="34"/><line x1="60" y1="46" x2="60" y2="50"/>
+          <line x1="50" y1="40" x2="54" y2="40"/><line x1="66" y1="40" x2="70" y2="40"/>
+        </g>
+        <!-- mast cap re-drawn over the road: the vessel threads the route -->
+        <circle cx="72" cy="30" r="2.6" fill="currentColor"/>
+      </g>
+
+      <!-- mono variant -->
+      <g id="patha-mono">
+        <path d="M40 84 L72 84 L72 42 Z" fill="currentColor"/>
+        <line x1="72" y1="84" x2="72" y2="30" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <line x1="12" y1="86" x2="108" y2="86" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        <path d="M14 50 A110 110 0 0 1 106 50" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.45"/>
+        <circle cx="20" cy="47.5" r="3" fill="currentColor"/>
+        <circle cx="40" cy="41.8" r="3" fill="currentColor"/>
+        <circle cx="60" cy="40" r="4.8" fill="currentColor"/>
+        <circle cx="80" cy="41.8" r="3" fill="currentColor"/>
+        <circle cx="100" cy="47.5" r="3" fill="currentColor"/>
+        <circle cx="72" cy="30" r="2.6" fill="currentColor"/>
+      </g>
+
+      <!-- construction plate -->
+      <g id="patha-construction">
+        <!-- grid -->
+        <g stroke="#ece3d6" stroke-width="1">
+          <line x1="0" y1="20" x2="120" y2="20"/><line x1="0" y1="40" x2="120" y2="40"/>
+          <line x1="0" y1="60" x2="120" y2="60"/><line x1="0" y1="86" x2="120" y2="86"/>
+          <line x1="0" y1="100" x2="120" y2="100"/>
+          <line x1="20" y1="0" x2="20" y2="120"/><line x1="40" y1="0" x2="40" y2="120"/>
+          <line x1="60" y1="0" x2="60" y2="120"/><line x1="72" y1="0" x2="72" y2="120"/>
+          <line x1="100" y1="0" x2="100" y2="120"/>
+        </g>
+        <!-- the generating circle, dashed -->
+        <circle cx="60" cy="150" r="110" fill="none" stroke="#e85d7a" stroke-width="1.4" stroke-dasharray="4 4" opacity="0.8"/>
+        <line x1="60" y1="40" x2="60" y2="118" stroke="#e85d7a" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.7"/>
+        <!-- mark, faint -->
+        <g opacity="0.92"><use href="#patha"/></g>
+        <!-- radius callout -->
+        <line x1="60" y1="40" x2="98" y2="112" stroke="#2b2f72" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.7"/>
+      </g>
+    </defs>
+  </svg>
+
+  <!-- ============================= THE STORY ============================= -->
+  <section>
+    <p class="eyebrow">The India in it</p>
+    <h2>The nakshatra road</h2>
+    <p class="why">Before compasses, India’s sky was already a calendar and a map. The moon lodges in a
+    different house each night — twenty-seven <i>nakshatras</i>, named in the Vedas, older than the
+    texts that name them. Farmers sowed by them; sailors out of Lothal steered by them; every Indian
+    almanac still runs on them. The arc in this mark is five mansions of that road, with the steering
+    star raised at the meridian. The sail is Meluha — cargo, craft, ambition — threading its mast
+    through the route itself. <b>Below, the work; above, the fixed points it navigates by.</b>
+    For a lab, that is the whole epistemology in one figure: ship what moves, steer by what doesn’t.</p>
+  </section>
+
+  <!-- ============================= LOCKUPS ============================= -->
+  <section>
+    <p class="eyebrow">Lockups</p>
+    <div class="row">
+      <div class="card"><span class="label">Primary lockup</span>
+        <div class="lockup">
+          <svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e"><use href="#patha"/></svg>
+          <div><div class="wordmark">meluha <span class="labs">labs</span></div>
+          <div class="devanagari">मेलुहा</div></div>
+        </div>
+      </div>
+      <div class="card night"><span class="label">On night sky</span>
+        <svg width="116" height="116" viewBox="0 0 120 120" style="color:#fdfaf3"><use href="#patha"/></svg>
+      </div>
+      <div class="card grad"><span class="label">On gradient</span>
+        <div style="text-align:center">
+          <svg width="78" height="78" viewBox="0 0 120 120" style="color:#fff"><use href="#patha-mono"/></svg>
+          <div class="wordmark" style="font-size:26px;margin-top:10px">meluha labs</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= CONSTRUCTION ============================= -->
+  <section>
+    <p class="eyebrow">Anatomy</p>
+    <h2>Construction</h2>
+    <div class="row2" style="margin-top:22px">
+      <div class="card tall"><span class="label">Construction plate</span>
+        <svg width="360" height="360" viewBox="0 0 120 120" style="color:#221b2e"><use href="#patha-construction"/></svg>
+      </div>
+      <div class="card tall" style="align-items:flex-start; justify-content:flex-start; padding:32px 34px;">
+        <div>
+          <span class="label">Spec</span>
+          <div class="spec" style="margin-top:26px">
+            <b>canvas</b> — 120 × 120 unit grid<br><br>
+            <b>the road</b> — single arc of a circle, R = 110,<br>
+            centre (60, 150): a road so large the canvas<br>
+            only ever sees a fragment — the rest of the 27<br>
+            mansions are implied beyond both edges<br><br>
+            <b>mansions</b> — 5 stars on the arc at Δx = 20;<br>
+            r = 3, apex (the steering star) r = 4.8 + four<br>
+            rays at the cardinal points<br><br>
+            <b>horizon</b> — y = 86, weight 4; one gradient<br>
+            wake-line beneath the hull at y = 97<br><br>
+            <b>vessel</b> — right triangle 32 × 42 (≈ 3:4),<br>
+            kiln-gradient fill; mast at x = 72 — the golden<br>
+            third of the route — rising to y = 30 so it<br>
+            <b>pierces the arc</b> between two mansions;<br>
+            ink cap redrawn above the road (the Graha<br>
+            pass-through, inherited)<br><br>
+            <b>colour logic</b> — ink structure · kiln-gradient<br>
+            life (the sail) · indigo decision (the stars)
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= APPLICATIONS ============================= -->
+  <section>
+    <p class="eyebrow">Applications</p>
+    <div class="row">
+      <div class="card"><span class="label">App icon</span>
+        <div style="display:flex; gap:26px; align-items:center;">
+          <div class="appicon" style="background:#fdfaf3; border:1px solid #ece3d6;">
+            <svg width="68" height="68" viewBox="0 0 120 120" style="color:#221b2e"><use href="#patha"/></svg>
+          </div>
+          <div class="appicon" style="background:linear-gradient(180deg,#14101d,#2b2f72);">
+            <svg width="68" height="68" viewBox="0 0 120 120" style="color:#fdfaf3"><use href="#patha"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="card"><span class="label">Favicon scale</span>
+        <div class="favrow">
+          <span class="f"><svg width="20" height="20" viewBox="0 0 120 120" style="color:#221b2e"><use href="#patha-mono"/></svg></span>
+          <span class="f"><svg width="28" height="28" viewBox="0 0 120 120" style="color:#221b2e"><use href="#patha-mono"/></svg></span>
+          <span class="f"><svg width="44" height="44" viewBox="0 0 120 120" style="color:#221b2e"><use href="#patha"/></svg></span>
+          <span class="f d"><svg width="44" height="44" viewBox="0 0 120 120" style="color:#fdfaf3"><use href="#patha"/></svg></span>
+        </div>
+      </div>
+      <div class="card dark"><span class="label">Mono stamp</span>
+        <svg width="104" height="104" viewBox="0 0 120 120" style="color:#9d93b3"><use href="#patha-mono"/></svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= THE FAMILY ============================= -->
+  <section>
+    <p class="eyebrow">The family</p>
+    <h2>Beside the mihir sun</h2>
+    <p class="why">The two marks are built from the same grammar and tell sibling stories:
+    <i>mihir</i> studies the fixed point (the sun, ringed by its orbit); <i>meluha</i> steers by them
+    (the star road, threaded by the sail). One observatory, one harbour.</p>
+    <div class="row2">
+      <div class="card"><span class="label">mihir labs — graha</span>
+        <svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e">
+          <ellipse cx="60" cy="60" rx="54" ry="20" fill="none" stroke="currentColor" stroke-width="3" transform="rotate(-24 60 60)" opacity="0.85"/>
+          <circle cx="60" cy="60" r="27" fill="url(#flow)"/>
+          <circle cx="95.7" cy="31.5" r="5.5" fill="#2b2f72" stroke="#fdfaf3" stroke-width="2"/>
+        </svg>
+      </div>
+      <div class="card"><span class="label">meluha labs — patha</span>
+        <svg width="104" height="104" viewBox="0 0 120 120" style="color:#221b2e"><use href="#patha"/></svg>
+      </div>
+    </div>
+  </section>
+
+  <div class="note">
+    <b>Motion note:</b> on the landing page the mark loads in narrative order — horizon first, sail
+    rises, then the five mansions light <i>west to east</i> (the moon’s direction through the
+    nakshatras), the steering star’s rays last. On hover, the wake-line drifts one phase. In dark
+    contexts the night-sky card above is the canonical treatment: the road brightens, the horizon
+    stays ink. <b>Why this one wins the “labs” argument:</b> it is the only mark of the twenty whose
+    story is literally a research method — fixed points, navigation, verification against the sky —
+    while staying unmistakably of this land: the route overhead is the oldest continuously-used star
+    system on earth, and it is Indian.
+  </div>
+
+</div>
+</body>
+</html>
