@@ -576,7 +576,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
                     className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm"
                     onClick={() => setSelectedNode(null)}
                   />
-                  <div className="absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto rounded-t-3xl border-t border-slate-200 bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-[0_-20px_60px_-15px_rgba(15,23,42,0.25)]">
+                  <div className="absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto rounded-t-3xl border-t border-slate-200 bg-white p-5 pb-[calc(1.25rem+var(--safe-bottom))] shadow-[0_-20px_60px_-15px_rgba(15,23,42,0.25)]">
                     <div className="mb-4 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Info size={15} className="text-slate-500" />

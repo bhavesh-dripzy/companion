@@ -104,7 +104,7 @@ export function OrdersPopup({
   const todayCount = orders.filter((o) => o.category === "today" && o.status !== "Cancelled" && o.status !== "Delivered").length;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]">
       {/* Intense dark backdrop blur */}
       <motion.div
         initial={{ opacity: 0 }}

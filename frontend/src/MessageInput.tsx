@@ -49,7 +49,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   }, [message]);
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 px-3 md:px-5 pt-4 md:pt-5 pb-[calc(env(safe-area-inset-bottom)+12px)] md:pb-5 bg-gradient-to-t from-[#f7f2ea]/90 via-[#f7f2ea]/40 to-transparent pointer-events-none">
+    <div className="absolute bottom-0 left-0 right-0 px-3 md:px-5 pt-4 md:pt-5 pb-[calc(var(--safe-bottom)+12px)] md:pb-5 bg-gradient-to-t from-[#f7f2ea]/90 via-[#f7f2ea]/40 to-transparent pointer-events-none">
       <div className="max-w-4xl mx-auto space-y-2.5 md:space-y-3 pointer-events-auto">
         {showQuickActions && (
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">

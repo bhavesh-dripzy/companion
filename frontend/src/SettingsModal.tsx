@@ -376,7 +376,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   ] as const;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-slate-950/40 backdrop-blur-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 pt-[max(0.5rem,var(--safe-top))] pb-[max(0.5rem,var(--safe-bottom))] bg-slate-950/40 backdrop-blur-md">
       <div className="w-full max-w-3xl bg-white/95 border border-slate-200 rounded-2xl md:rounded-3xl shadow-2xl shadow-slate-900/20 flex flex-col max-h-[95vh] md:max-h-[90vh] overflow-hidden">
         <div className="flex items-center justify-between px-5 md:px-8 py-4 md:py-5 border-b border-slate-200">
           <h2 className="text-base md:text-lg font-bold flex items-center gap-2 text-slate-900">

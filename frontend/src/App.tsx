@@ -1285,7 +1285,7 @@ function App() {
   }
 
   return (
-    <div className="flex h-[100dvh] w-screen overflow-hidden font-sans select-none relative pt-[env(safe-area-inset-top)] box-border">
+    <div className="flex h-[100dvh] w-screen overflow-hidden font-sans select-none relative pt-[var(--safe-top)] box-border">
       <LeftSidebar
         username={username}
         isAdmin={isAdmin}

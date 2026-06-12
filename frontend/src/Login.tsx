@@ -46,7 +46,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden dawn-bloom">
+    <div className="min-h-screen flex items-center justify-center p-6 pt-[calc(1.5rem+var(--safe-top))] pb-[calc(1.5rem+var(--safe-bottom))] relative overflow-hidden dawn-bloom">
       {/* Faint concentric mandala behind the whole login moment */}
       <div className="mandala-accent absolute inset-0 pointer-events-none" aria-hidden />
 

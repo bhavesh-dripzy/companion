@@ -58,7 +58,7 @@ export function RemindersPopup({
   const completedCount = reminders.filter((r) => r.completed).length;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]">
       {/* Dimmed backdrop with intense glass blur */}
       <motion.div
         initial={{ opacity: 0 }}

@@ -7,6 +7,14 @@
 
 :root {
   color-scheme: light;
+  /* Device safe-area — the single seam every header/drawer/overlay consumes.
+     env() covers iOS and Android WebView ≥140; the var() side is injected
+     from native WindowInsets by Capacitor's SystemBars plugin on Android
+     builds where env() reports 0 under forced edge-to-edge (targetSdk 35+). */
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
 }
 
 /* ===========================================================================
