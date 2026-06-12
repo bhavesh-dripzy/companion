@@ -54,6 +54,8 @@ import {
   ShopProductCardGrid,
   VideoCardGrid,
 } from './components/SerpCards';
+import { SwipeDeckTray } from './components/SwipeDeck';
+import { deckForAttachment } from './components/deckTiles';
 import {
   ExternalLink,
   MapPin,
@@ -1429,9 +1431,7 @@ export const AttachmentList: React.FC<{
   const compareColumns = buildCompareColumns(
     attachments.filter((att): att is Attachment => !!att && typeof att === 'object'),
   );
-  const cards = attachments
-    .filter((att): att is Attachment => !!att && typeof att === 'object')
-    .map((att, idx) => {
+  const renderClassic = (att: Attachment, idx: number): React.ReactNode => {
       const kind = String(att.kind || '').toLowerCase();
       if (kind === 'menu_cards') {
         return <MenuCardGrid key={`menu-${idx}`} attachment={att} />;
@@ -1779,6 +1779,27 @@ export const AttachmentList: React.FC<{
             </a>
           )}
         </div>
+      );
+  };
+
+  // Deck-first presentation: any multi-result attachment renders as a
+  // swipeable one-card-at-a-time deck, with the classic grid one toggle
+  // away. Single-snapshot kinds fall through to their bespoke cards.
+  const cards = attachments
+    .filter((att): att is Attachment => !!att && typeof att === 'object')
+    .map((att, idx) => {
+      const classic = renderClassic(att, idx);
+      if (!classic) return null;
+      const deck = deckForAttachment(att);
+      if (!deck) return classic;
+      return (
+        <SwipeDeckTray
+          key={`deck-${idx}`}
+          group={deck}
+          classic={classic}
+          onQuickPrompt={onQuickPrompt}
+          disabled={quickPromptDisabled}
+        />
       );
     })
     .filter(Boolean);

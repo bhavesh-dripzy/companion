@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Companion — Swipe Deck concept</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fdfaf3; --surface:#ffffff; --border:#ece3d6; --ink:#221b2e; --ink-soft:#6b6177;
+    --saffron:#ff8a1e; --marigold:#ffb347; --indigo:#2b2f72; --rose:#e85d7a; --green:#1a9d6b;
+    --shadow-card:0 24px 60px -28px rgba(60,40,30,.45);
+    --ease:cubic-bezier(.22,1,.36,1);
+    --mono:'JetBrains Mono',monospace; --disp:'Clash Display',sans-serif; --body:'Satoshi',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--ink);font-family:var(--body)}
+  body{
+    min-height:100vh;padding:56px 24px 80px;position:relative;overflow-x:hidden;
+    background-image:
+      radial-gradient(110% 70% at 8% -8%, rgba(255,138,30,.10), transparent 55%),
+      radial-gradient(120% 80% at 100% 110%, rgba(43,47,114,.10), transparent 55%),
+      repeating-linear-gradient(45deg, rgba(43,47,114,.035) 0 1px, transparent 1px 14px);
+  }
+  body::after{ /* mandala watermark */
+    content:'';position:fixed;right:-220px;top:-220px;width:640px;height:640px;border-radius:50%;
+    background:
+      conic-gradient(from 0deg, rgba(255,138,30,.06), rgba(232,93,122,.05), rgba(43,47,114,.06), rgba(255,138,30,.06));
+    -webkit-mask:radial-gradient(circle, transparent 28%, #000 29%, #000 31%, transparent 32%, transparent 40%, #000 41%, #000 42%, transparent 43%, transparent 58%, #000 59%, #000 61%, transparent 62%);
+            mask:radial-gradient(circle, transparent 28%, #000 29%, #000 31%, transparent 32%, transparent 40%, #000 41%, #000 42%, transparent 43%, transparent 58%, #000 59%, #000 61%, transparent 62%);
+    pointer-events:none;z-index:0;
+  }
+
+  .page{max-width:1280px;margin:0 auto;position:relative;z-index:1}
+  .page-head{text-align:center;margin-bottom:48px}
+  .eyebrow{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.32em;color:var(--saffron);text-transform:uppercase}
+  .page-head h1{font-family:var(--disp);font-weight:700;font-size:clamp(34px,5vw,54px);letter-spacing:-.015em;margin:10px 0 12px}
+  .page-head h1 em{font-style:normal;background:linear-gradient(100deg,var(--saffron),var(--rose) 55%,var(--indigo));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .page-head p{max-width:620px;margin:0 auto;font-size:15px;line-height:1.65;color:var(--ink-soft)}
+  .page-head .stamp-date{display:inline-block;margin-top:16px;font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--ink-soft);border:1px solid var(--border);border-radius:99px;padding:5px 14px;background:rgba(255,255,255,.7)}
+
+  .stage{display:flex;flex-wrap:wrap;gap:56px;justify-content:center;align-items:flex-start}
+  .frame-caption{margin-top:18px;text-align:center;font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--ink-soft);text-transform:uppercase}
+  .frame-caption b{color:var(--ink)}
+
+  /* ---------- phone frame ---------- */
+  .phone{
+    width:393px;background:#10101c;border-radius:54px;padding:12px;
+    box-shadow:0 50px 110px -40px rgba(34,27,46,.55), inset 0 0 0 2px #2a2a3c;
+  }
+  .phone-screen{
+    background:var(--bg);border-radius:43px;overflow:hidden;position:relative;
+    display:flex;flex-direction:column;height:824px;
+    background-image:
+      radial-gradient(90% 50% at 0% 0%, rgba(255,138,30,.09), transparent 60%),
+      repeating-linear-gradient(45deg, rgba(43,47,114,.03) 0 1px, transparent 1px 13px);
+  }
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:16px 28px 4px;font-family:var(--mono);font-size:12.5px;font-weight:600}
+  .statusbar .pills{display:flex;gap:5px;align-items:center}
+  .statusbar .pills i{display:block;border-radius:2px;background:var(--ink)}
+  .statusbar .sig{width:15px;height:9px;-webkit-mask:linear-gradient(90deg,#000 18%,transparent 18% 27%,#000 27% 45%,transparent 45% 54%,#000 54% 72%,transparent 72% 81%,#000 81%);mask:linear-gradient(90deg,#000 18%,transparent 18% 27%,#000 27% 45%,transparent 45% 54%,#000 54% 72%,transparent 72% 81%,#000 81%)}
+  .statusbar .bat{width:22px;height:10px;border-radius:3px;background:linear-gradient(90deg,var(--green) 76%,rgba(34,27,46,.2) 76%)}
+  .app-head{display:flex;align-items:center;gap:10px;padding:12px 22px 10px}
+  .orb{width:30px;height:30px;border-radius:50%;background:conic-gradient(from 210deg,var(--saffron),var(--rose),var(--indigo),var(--saffron));position:relative;box-shadow:0 4px 12px -4px rgba(232,93,122,.6)}
+  .orb::after{content:'';position:absolute;inset:7px;border-radius:50%;background:#fff}
+  .app-head b{font-family:var(--disp);font-weight:600;font-size:17px;letter-spacing:-.01em}
+  .app-head span{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;color:var(--green);border:1px solid rgba(26,157,107,.3);background:rgba(26,157,107,.08);border-radius:99px;padding:4px 10px}
+  .assistant-line{margin:2px 18px 12px;display:flex;gap:9px;align-items:flex-start}
+  .assistant-line .dot{width:7px;height:7px;border-radius:50%;background:var(--saffron);margin-top:7px;flex:none}
+  .assistant-line p{font-size:13.5px;line-height:1.5;color:var(--ink);background:rgba(255,255,255,.85);border:1px solid var(--border);border-radius:4px 16px 16px 16px;padding:10px 14px;box-shadow:0 8px 22px -16px rgba(60,40,30,.4)}
+  .assistant-line p u{text-decoration:none;font-weight:700;color:var(--indigo)}
+
+  /* ---------- shared deck chrome ---------- */
+  .deck-zone{flex:1;display:flex;flex-direction:column;padding:0 20px;min-height:0}
+  .deck{position:relative;flex:1;min-height:0;perspective:1400px}
+  .deck-meta{display:flex;align-items:center;gap:12px;padding:14px 4px 2px}
+  .deck-meta .count{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.12em;color:var(--ink-soft);white-space:nowrap}
+  .segs{flex:1;display:flex;gap:4px}
+  .segs i{flex:1;height:3px;border-radius:2px;background:rgba(43,47,114,.12);transition:background .4s}
+  .segs i.done{background:linear-gradient(90deg,var(--saffron),var(--rose))}
+  .segs i.live{background:var(--indigo)}
+  .saved-chip{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--green);background:rgba(26,157,107,.1);border:1px solid rgba(26,157,107,.25);border-radius:99px;padding:4px 10px;white-space:nowrap}
+
+  .actions{display:flex;justify-content:center;align-items:center;gap:22px;padding:14px 0 10px}
+  .act{display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--ink-soft);text-transform:uppercase}
+  .act .ring{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--border);background:var(--surface);box-shadow:0 10px 24px -14px rgba(60,40,30,.5);transition:transform .25s var(--ease), box-shadow .25s}
+  .act:hover .ring{transform:translateY(-3px) scale(1.06)}
+  .act:active .ring{transform:scale(.94)}
+  .act.small .ring{width:42px;height:42px}
+  .act.skip .ring{color:#b3525e;border-color:#f1d4d4}
+  .act.save .ring{width:62px;height:62px;border:none;background:linear-gradient(135deg,var(--saffron),var(--rose));color:#fff;box-shadow:0 16px 32px -14px rgba(232,93,122,.8)}
+  .act svg{width:44%;height:44%}
+  .home-indicator{width:130px;height:5px;border-radius:3px;background:rgba(34,27,46,.85);margin:6px auto 12px}
+
+  /* ---------- the card ---------- */
+  .card{position:absolute;inset:0;transition:transform .55s var(--ease), opacity .45s ease;will-change:transform;touch-action:none}
+  .card.dragging{transition:none;cursor:grabbing}
+  .card-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .65s var(--ease)}
+  .card.flipped .card-inner{transform:rotateY(180deg)}
+  .face{
+    position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;
+    background:var(--surface);border:1px solid var(--border);border-radius:24px;overflow:hidden;
+    box-shadow:var(--shadow-card);display:flex;flex-direction:column;
+  }
+  .face.back{transform:rotateY(180deg)}
+  .veil{position:absolute;inset:0;border-radius:24px;background:#fdfaf3;opacity:0;pointer-events:none;transition:opacity .5s;z-index:4}
+
+  .hero{position:relative;height:47%;flex:none;overflow:hidden;color:#fff}
+  .hero.light{color:var(--ink)}
+  .hero .art{position:absolute;inset:0;width:100%;height:100%}
+  .chiprow{position:absolute;top:14px;left:14px;right:14px;display:flex;gap:7px;z-index:2}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;border-radius:99px;padding:5px 11px;background:rgba(255,255,255,.92);color:var(--ink);box-shadow:0 6px 16px -8px rgba(0,0,0,.4)}
+  .chip .pdot{width:7px;height:7px;border-radius:50%;flex:none}
+  .chip.kind{background:rgba(20,16,30,.42);color:#fff;backdrop-filter:blur(4px)}
+  .hero.light .chip.kind{background:rgba(34,27,46,.08);color:var(--ink)}
+  .hero-foot{position:absolute;left:14px;right:14px;bottom:12px;display:flex;justify-content:space-between;align-items:flex-end;z-index:2}
+  .ribbon{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;background:rgba(255,255,255,.94);color:var(--ink);padding:6px 11px;border-radius:9px;box-shadow:0 8px 18px -8px rgba(0,0,0,.45)}
+  .roundel{font-family:var(--disp);font-weight:700;font-size:17px;background:var(--green);color:#fff;border-radius:12px;padding:7px 11px;box-shadow:0 10px 22px -10px rgba(26,157,107,.9)}
+
+  .cardbody{flex:1;display:flex;flex-direction:column;padding:16px 18px 16px;min-height:0}
+  .titleline{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .titleline h3{font-family:var(--disp);font-weight:600;font-size:21px;letter-spacing:-.01em;line-height:1.15}
+  .titleline .pricetag{font-family:var(--mono);font-weight:700;font-size:15px;white-space:nowrap}
+  .titleline .pricetag em{display:block;font-style:normal;font-weight:400;font-size:9px;letter-spacing:.08em;color:var(--ink-soft);text-align:right}
+  .sub{margin-top:5px;font-size:12.5px;line-height:1.5;color:var(--ink-soft)}
+  .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:auto;padding-top:12px}
+  .stat{border:1px solid var(--border);border-radius:13px;padding:8px 10px;background:rgba(253,250,243,.6)}
+  .stat label{display:block;font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.16em;color:var(--ink-soft);text-transform:uppercase}
+  .stat b{display:block;font-size:14.5px;font-weight:700;margin-top:3px;letter-spacing:-.01em}
+  .stat span{display:block;font-size:10px;color:var(--ink-soft);margin-top:1px}
+  .ctarow{display:flex;gap:8px;margin-top:12px}
+  .cta{flex:1.4;border:none;border-radius:13px;padding:12px;font-family:var(--body);font-weight:700;font-size:13px;color:#fff;cursor:pointer;box-shadow:0 12px 26px -12px var(--ctaglow,rgba(34,27,46,.6));transition:transform .2s var(--ease),filter .2s}
+  .cta:hover{transform:translateY(-1px);filter:brightness(1.06)}
+  .ghost{flex:1;border:1px solid var(--border);background:var(--surface);border-radius:13px;padding:12px;font-family:var(--body);font-weight:700;font-size:13px;color:var(--ink);cursor:pointer;transition:border-color .2s}
+  .ghost:hover{border-color:var(--ink-soft)}
+
+  /* back face */
+  .backhead{display:flex;align-items:center;gap:8px;padding:16px 18px 0}
+  .backhead .chip{box-shadow:none;border:1px solid var(--border)}
+  .back h4{font-family:var(--disp);font-weight:600;font-size:19px;letter-spacing:-.01em;padding:12px 18px 4px}
+  .specs{flex:1;overflow:auto;padding:6px 18px;min-height:0}
+  .specs .row{display:flex;justify-content:space-between;gap:14px;padding:9.5px 2px;border-bottom:1px dashed var(--border);font-size:12.5px}
+  .specs .row:last-child{border-bottom:none}
+  .specs .k{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);padding-top:2px;white-space:nowrap}
+  .specs .v{font-weight:600;text-align:right;line-height:1.45}
+  .backfoot{padding:10px 18px 16px}
+  .backfoot .cta{width:100%}
+  .fliphint{display:block;text-align:center;font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--ink-soft);text-transform:uppercase;padding-bottom:12px}
+
+  /* stamps */
+  .stamp{position:absolute;top:26px;z-index:6;font-family:var(--disp);font-weight:700;font-size:21px;letter-spacing:.12em;padding:7px 16px;border:3.5px solid;border-radius:12px;opacity:0;pointer-events:none;background:rgba(255,255,255,.88);backdrop-filter:blur(2px)}
+  .stamp.save{left:20px;transform:rotate(-13deg);color:var(--green);border-color:var(--green)}
+  .stamp.skip{right:20px;transform:rotate(13deg);color:#b3525e;border-color:#b3525e}
+
+  /* first-card nudge */
+  @keyframes nudge{0%,100%{transform:translateX(0) rotate(0)}30%{transform:translateX(16px) rotate(1.6deg)}60%{transform:translateX(-9px) rotate(-1deg)}}
+  .deck.fresh .card[data-depth="0"] .card-inner{animation:nudge 1.5s var(--ease) 1.1s 1}
+
+  /* end-of-deck */
+  .deck-end{position:absolute;inset:0;border-radius:24px;border:1.5px dashed var(--border);display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:8px;padding:30px;background:rgba(255,255,255,.6)}
+  .deck-end.show{display:flex;animation:endin .6s var(--ease)}
+  @keyframes endin{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}
+  .deck-end .orb{width:44px;height:44px;margin-bottom:8px}
+  .deck-end h4{font-family:var(--disp);font-weight:600;font-size:21px}
+  .deck-end p{font-size:13px;color:var(--ink-soft);line-height:1.55}
+  .deck-end .ghost{flex:none;padding:11px 22px;margin-top:10px}
+
+  /* ---------- browser frame (web variant) ---------- */
+  .web-wrap{flex:1 1 700px;max-width:780px;min-width:0}
+  .browser{background:var(--surface);border:1px solid var(--border);border-radius:18px;overflow:hidden;box-shadow:0 50px 110px -50px rgba(34,27,46,.4)}
+  .browser-chrome{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:#faf6ed}
+  .browser-chrome .dots{display:flex;gap:6px}
+  .browser-chrome .dots i{width:11px;height:11px;border-radius:50%}
+  .browser-chrome .url{flex:1;max-width:340px;margin:0 auto;font-family:var(--mono);font-size:11px;color:var(--ink-soft);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 14px;text-align:center}
+  .web-app{padding:0;background:
+      radial-gradient(80% 60% at 0% 0%, rgba(255,138,30,.07), transparent 55%),
+      radial-gradient(80% 70% at 100% 100%, rgba(43,47,114,.07), transparent 55%),
+      var(--bg)}
+  .web-top{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border)}
+  .web-top b{font-family:var(--disp);font-weight:600;font-size:16px}
+  .querypill{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:99px;padding:8px 16px;box-shadow:0 6px 16px -10px rgba(60,40,30,.4)}
+  .querypill .dot{width:7px;height:7px;border-radius:50%;background:var(--saffron)}
+  .web-main{display:grid;grid-template-columns:64px minmax(0,420px) 64px 218px;gap:0;align-items:center;justify-content:center;padding:26px 22px 18px}
+  .web-deck-col{display:flex;flex-direction:column;min-width:0}
+  .web-deck-col .deck{height:540px;flex:none}
+  .arrowbtn{justify-self:center;width:46px;height:46px;border-radius:50%;border:1.5px solid var(--border);background:var(--surface);display:grid;place-items:center;cursor:pointer;box-shadow:0 10px 24px -14px rgba(60,40,30,.5);transition:transform .25s var(--ease)}
+  .arrowbtn:hover{transform:scale(1.1)}
+  .arrowbtn:active{transform:scale(.92)}
+  .arrowbtn svg{width:18px;height:18px}
+  .arrowbtn.right{color:var(--green)}
+  .arrowbtn.left{color:#b3525e}
+  .saved-rail{align-self:stretch;border-left:1px dashed var(--border);padding:6px 0 6px 20px;margin-left:20px;display:flex;flex-direction:column;min-height:0}
+  .saved-rail h5{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:12px}
+  .saved-rail h5 b{color:var(--green)}
+  .tray{display:flex;flex-direction:column;gap:8px;overflow:auto}
+  .tray .mini{display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px 11px;animation:trayin .45s var(--ease)}
+  @keyframes trayin{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
+  .tray .mini .pdot{width:8px;height:8px;border-radius:50%;flex:none}
+  .tray .mini div{min-width:0}
+  .tray .mini b{display:block;font-size:11.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tray .mini span{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;color:var(--ink-soft);text-transform:uppercase}
+  .tray .empty{font-size:11.5px;color:var(--ink-soft);line-height:1.6;border:1.5px dashed var(--border);border-radius:12px;padding:14px}
+  .web-foot{display:flex;justify-content:center;gap:26px;padding:10px 0 18px;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--ink-soft);text-transform:uppercase}
+  .web-foot kbd{font-family:var(--mono);border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;background:var(--surface);padding:2px 7px;color:var(--ink);margin-right:5px}
+
+  /* legend */
+  .legend{margin-top:72px;text-align:center}
+  .legend h6{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.3em;color:var(--ink-soft);text-transform:uppercase;margin-bottom:18px}
+  .legend .kinds{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:880px;margin:0 auto}
+  .legend .kinds span{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;border:1px solid var(--border);background:rgba(255,255,255,.75);border-radius:99px;padding:6px 13px;color:var(--ink)}
+  .legend .kinds span i{font-style:normal;color:var(--saffron);margin-right:5px}
+  .legend p{margin-top:18px;font-size:12.5px;color:var(--ink-soft)}
+
+  @media (max-width:900px){
+    .web-main{grid-template-columns:50px minmax(0,1fr) 50px;padding:20px 12px}
+    .saved-rail{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="page-head">
+    <span class="eyebrow">Companion · Interaction concept</span>
+    <h1>One result. <em>One swipe.</em></h1>
+    <p>Every card the assistant generates — restaurants, flights, videos, products, stocks, news, events, hotels — becomes a full-bleed tile in a single deck. Drag right to shortlist, left to pass, tap to flip for the spec sheet.</p>
+    <span class="stamp-date">SWIPE-DECK · V1 · 12 JUN 2026</span>
+  </header>
+
+  <section class="stage">
+
+    <!-- =============== PHONE =============== -->
+    <div class="phone-wrap" data-deck-scope="phone">
+      <div class="phone">
+        <div class="phone-screen">
+          <div class="statusbar">
+            <span>9:41</span>
+            <span class="pills"><i class="sig"></i><i class="bat"></i></span>
+          </div>
+          <div class="app-head">
+            <div class="orb"></div><b>Companion</b><span>LIVE</span>
+          </div>
+          <div class="assistant-line">
+            <span class="dot"></span>
+            <p>Sorted your <u>“plans for the weekend?”</u> — 8 picks across food, travel, money &amp; more. Swipe through.</p>
+          </div>
+          <div class="deck-zone">
+            <div class="deck fresh" data-deck>
+              <div class="deck-end">
+                <div class="orb"></div>
+                <h4>That’s the lot.</h4>
+                <p class="end-summary">8 reviewed · 0 shortlisted</p>
+                <button class="ghost" data-restart>Deal again</button>
+              </div>
+            </div>
+            <div class="deck-meta">
+              <span class="count" data-count>1 of 8</span>
+              <div class="segs" data-segs></div>
+              <span class="saved-chip" data-savedchip>0 SAVED</span>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="act small" data-undo>
+              <span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></span>
+              undo
+            </button>
+            <button class="act skip" data-skip>
+              <span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+              pass
+            </button>
+            <button class="act save" data-save>
+              <span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></span>
+              shortlist
+            </button>
+          </div>
+          <div class="home-indicator"></div>
+        </div>
+      </div>
+      <div class="frame-caption"><b>Phone</b> · drag the card · tap to flip</div>
+    </div>
+
+    <!-- =============== WEB =============== -->
+    <div class="web-wrap" data-deck-scope="web">
+      <div class="browser">
+        <div class="browser-chrome">
+          <span class="dots"><i style="background:#f3b1a6"></i><i style="background:#ffd9a0"></i><i style="background:#b8dcc4"></i></span>
+          <span class="url">houzzat.in/chat</span>
+        </div>
+        <div class="web-app">
+          <div class="web-top">
+            <div class="orb"></div><b>Companion</b>
+            <span class="querypill"><span class="dot"></span>plans for the weekend?</span>
+          </div>
+          <div class="web-main">
+            <button class="arrowbtn left" data-skip title="Pass (←)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+            <div class="web-deck-col">
+              <div class="deck fresh" data-deck>
+                <div class="deck-end">
+                  <div class="orb"></div>
+                  <h4>That’s the lot.</h4>
+                  <p class="end-summary">8 reviewed · 0 shortlisted</p>
+                  <button class="ghost" data-restart>Deal again</button>
+                </div>
+              </div>
+              <div class="deck-meta">
+                <span class="count" data-count>1 of 8</span>
+                <div class="segs" data-segs></div>
+                <span class="saved-chip" data-savedchip>0 SAVED</span>
+              </div>
+            </div>
+            <button class="arrowbtn right" data-save title="Shortlist (→)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            </button>
+            <aside class="saved-rail">
+              <h5>Shortlist · <b data-traycount>0</b></h5>
+              <div class="tray" data-tray>
+                <div class="empty">Swipe right (or press →) and picks pile up here, ready to act on in one go.</div>
+              </div>
+            </aside>
+          </div>
+          <div class="web-foot">
+            <span><kbd>←</kbd>pass</span>
+            <span><kbd>→</kbd>shortlist</span>
+            <span><kbd>↵</kbd>flip details</span>
+            <span><kbd>U</kbd>undo</span>
+          </div>
+        </div>
+      </div>
+      <div class="frame-caption"><b>Web</b> · arrows, keyboard or drag — same deck</div>
+    </div>
+
+  </section>
+
+  <section class="legend">
+    <h6>Every envelope kind maps onto the same tile contract</h6>
+    <div class="kinds">
+      <span><i>◆</i>restaurant_cards</span><span><i>◆</i>menu_cards</span><span><i>◆</i>flight_cards</span>
+      <span><i>◆</i>hotel_cards</span><span><i>◆</i>video_cards</span><span><i>◆</i>news_cards</span>
+      <span><i>◆</i>zepto_product_cards</span><span><i>◆</i>instamart_product_cards</span><span><i>◆</i>shop_product_cards</span>
+      <span><i>◆</i>kite_instrument_cards</span><span><i>◆</i>dining_cards</span><span><i>◆</i>event_cards</span>
+      <span><i>◆</i>movie_cards</span><span><i>◆</i>place_cards</span><span><i>◆</i>coupon_cards</span>
+      <span><i>◆</i>order_cards</span><span><i>◆</i>slot_cards</span><span><i>◆</i>metric_card</span>
+    </div>
+    <p>hero (provider-branded art) · title + price · 3 key stats · primary CTA — flip side carries the full spec sheet.</p>
+  </section>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ */
+/* card data — one entry per envelope kind, detail-rich front + back  */
+/* ------------------------------------------------------------------ */
+const CARDS = [
+  {
+    kind:'Restaurant', provider:'Zomato', brand:'#e23744',
+    hero:`<div class="hero" style="background:radial-gradient(120% 90% at 85% -10%,rgba(255,179,71,.35),transparent 60%),linear-gradient(150deg,#8e0e1c,#e23744 56%,#ff6b4a)">
+      <svg class="art" viewBox="0 0 340 220" preserveAspectRatio="xMidYMid slice">
+        <circle cx="262" cy="186" r="86" fill="rgba(255,255,255,.13)"/>
+        <circle cx="262" cy="186" r="62" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="1.5"/>
+        <circle cx="262" cy="186" r="40" fill="rgba(255,255,255,.15)"/>
+        <path d="M70 150 C60 128 84 122 74 100 M100 150 C90 128 114 122 104 100 M130 150 C120 128 144 122 134 100"
+              fill="none" stroke="rgba(255,255,255,.5)" stroke-width="3.5" stroke-linecap="round"/>
+        <rect x="48" y="150" width="110" height="14" rx="7" fill="rgba(255,255,255,.28)"/>
+      </svg>
+      <div class="hero-foot"><span class="ribbon">FLAT 20% OFF · AXIS CARDS</span><span class="roundel">4.6★</span></div>
+    </div>`,
+    title:'Burma Burma', price:'₹1,600', priceNote:'for two',
+    sub:'Burmese · Tea room · Indiranagar — 2.1 km away, open till 11 PM',
+    stats:[{l:'Rating',b:'4.6 ★',s:'12.4k votes'},{l:'Delivery',b:'35–40 min',s:'live ETA'},{l:'Cost',b:'₹1,600',s:'for two'}],
+    cta:'View menu', cta2:'Directions',
+    specs:[['Address','80 Ft Rd, Indiranagar'],['Hours','12 PM – 11 PM daily'],['Bestsellers','Khao Suey · Tea-leaf salad'],['Offers','2 live · best: 20% Axis'],['Table tonight','2 seats free at 8 PM'],['Avg delivery','38 min over last week'],['Veg-only','Yes · no alcohol']]
+  },
+  {
+    kind:'Flight', provider:'Google Flights', brand:'#4285f4',
+    hero:`<div class="hero" style="background:radial-gradient(100% 80% at 100% 0%,rgba(66,133,244,.5),transparent 55%),linear-gradient(160deg,#10133a,#2b2f72 70%,#3a4fa8)">
+      <svg class="art" viewBox="0 0 340 220" preserveAspectRatio="xMidYMid slice">
+        <circle cx="50" cy="160" r="5" fill="#ffb347"/><circle cx="290" cy="160" r="5" fill="#fff"/>
+        <path d="M50 160 Q170 36 290 160" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/>
+        <g transform="translate(170,96) rotate(14)"><path d="M0-9 L3 5 L0 2 L-3 5 Z" fill="#ffb347" transform="scale(2.4)"/></g>
+        <text x="50" y="192" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="#fff" text-anchor="middle">BLR</text>
+        <text x="290" y="192" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="#fff" text-anchor="middle">DEL</text>
+        <text x="50" y="208" font-family="JetBrains Mono" font-size="10" fill="rgba(255,255,255,.6)" text-anchor="middle">06:10</text>
+        <text x="290" y="208" font-family="JetBrains Mono" font-size="10" fill="rgba(255,255,255,.6)" text-anchor="middle">08:55</text>
+        <circle cx="64" cy="40" r="1.4" fill="rgba(255,255,255,.8)"/><circle cx="110" cy="24" r="1" fill="rgba(255,255,255,.5)"/><circle cx="246" cy="34" r="1.3" fill="rgba(255,255,255,.7)"/><circle cx="300" cy="58" r="1" fill="rgba(255,255,255,.5)"/>
+      </svg>
+      <div class="hero-foot"><span class="ribbon">NON-STOP · 2H 45M</span></div>
+    </div>`,
+    title:'BLR → DEL · IndiGo', price:'₹5,240', priceNote:'one way',
+    sub:'Fri 19 Jun · 6E 204 · Kempegowda T1 → Indira Gandhi T2',
+    stats:[{l:'Departs',b:'06:10',s:'Fri 19 Jun'},{l:'Duration',b:'2h 45m',s:'non-stop'},{l:'Fare',b:'₹5,240',s:'saver'}],
+    cta:'View fares', cta2:'Track price',
+    specs:[['Aircraft','Airbus A321neo'],['Baggage','15 kg check-in + 7 kg cabin'],['On-time','84% last 30 days'],['Fare type','Saver · seat extra'],['Seats left','9 at this fare'],['Price trend','↓ ₹380 since yesterday'],['CO₂','92 kg · 8% below route avg']]
+  },
+  {
+    kind:'Video', provider:'YouTube', brand:'#ff0033',
+    hero:`<div class="hero" style="background:radial-gradient(90% 90% at 80% 10%,rgba(255,0,51,.35),transparent 60%),linear-gradient(160deg,#17090d,#2b0e14 60%,#451018)">
+      <svg class="art" viewBox="0 0 340 220" preserveAspectRatio="xMidYMid slice">
+        <g fill="rgba(255,255,255,.14)">
+          <rect x="20" y="168" width="6" height="22" rx="3"/><rect x="32" y="158" width="6" height="32" rx="3"/><rect x="44" y="172" width="6" height="18" rx="3"/><rect x="56" y="150" width="6" height="40" rx="3"/><rect x="68" y="166" width="6" height="24" rx="3"/><rect x="80" y="160" width="6" height="30" rx="3"/><rect x="92" y="174" width="6" height="16" rx="3"/>
+        </g>
+        <rect x="252" y="20" width="70" height="26" rx="8" fill="rgba(0,0,0,.55)"/>
+        <text x="287" y="38" font-family="JetBrains Mono" font-weight="600" font-size="13" fill="#fff" text-anchor="middle">18:42</text>
+        <g transform="translate(170,104)">
+          <rect x="-37" y="-27" width="74" height="54" rx="17" fill="#ff0033"/>
+          <path d="M-8-13 L16 0 L-8 13 Z" fill="#fff"/>
+        </g>
+        <rect x="0" y="214" width="340" height="6" fill="rgba(255,255,255,.15)"/>
+        <rect x="0" y="214" width="129" height="6" fill="#ff0033"/>
+      </svg>
+    </div>`,
+    title:'How UPI rewired India’s money', price:'18:42', priceNote:'runtime',
+    sub:'Backstage Economics · 1.2M views · 3 weeks ago — resume at 7:04',
+    stats:[{l:'Length',b:'18:42',s:'7 chapters'},{l:'Likes',b:'64k',s:'98% positive'},{l:'Watched',b:'38%',s:'resume 7:04'}],
+    cta:'Watch now', cta2:'Queue',
+    specs:[['Channel','Backstage Economics · 2.4M subs'],['Uploaded','21 May 2026'],['Quality','4K · HDR'],['Language','English · हिन्दी subs'],['Chapters','7 · jumps to “NPCI rails”'],['Mentions','NPCI · PhonePe · RBI'],['Your history','3 videos from this channel']]
+  },
+  {
+    kind:'Product', provider:'Zepto', brand:'#5b21b6',
+    hero:`<div class="hero" style="background:radial-gradient(110% 80% at 15% -10%,rgba(167,139,250,.45),transparent 60%),linear-gradient(150deg,#3b1675,#5b21b6 62%,#7c3aed);background-size:auto,auto">
+      <svg class="art" viewBox="0 0 340 220" preserveAspectRatio="xMidYMid slice">
+        <g fill="rgba(255,255,255,.12)">
+          <path d="M30 30h8M34 26v8M310 70h8M314 66v8M60 190h8M64 186v8M296 178h8M300 174v8M120 36h8M124 32v8"/>
+        </g>
+        <g stroke="rgba(255,255,255,.12)" stroke-width="2"><path d="M30 30h8M34 26v8M310 70h8M314 66v8M60 190h8M64 186v8M296 178h8M300 174v8M120 36h8M124 32v8"/></g>
+        <g transform="translate(218,118)">
+          <path d="M-34-52 L34-52 L46-30 L46 56 Q46 64 38 64 L-38 64 Q-46 64 -46 56 L-46-30 Z" fill="rgba(255,255,255,.92)"/>
+          <path d="M-34-52 L34-52 L46-30 L-46-30 Z" fill="rgba(255,255,255,.65)"/>
+          <text x="0" y="14" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="#5b21b6" text-anchor="middle">AMUL</text>
+          <text x="0" y="36" font-family="JetBrains Mono" font-size="11" fill="#7461a8" text-anchor="middle">GOLD · 1L</text>
+        </g>
+        <g transform="translate(84,84)">
+          <circle r="44" fill="#ffb347"/>
+          <text y="-2" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="#221b2e" text-anchor="middle">₹66</text>
+          <text y="16" font-family="JetBrains Mono" font-size="9" fill="#221b2e" text-anchor="middle">×2 PACK</text>
+        </g>
+      </svg>
+      <div class="hero-foot"><span class="ribbon">ARRIVES IN 8 MIN</span></div>
+    </div>`,
+    title:'Amul Gold Milk 1L × 2', price:'₹66', priceNote:'MRP ₹68',
+    sub:'Zepto · Indiranagar dark store — in stock, your usual Tuesday order',
+    stats:[{l:'Price',b:'₹66',s:'3% off MRP'},{l:'Pack',b:'2 × 1L',s:'full cream'},{l:'ETA',b:'8 min',s:'14 in stock'}],
+    cta:'Add to cart', cta2:'Swap brand',
+    specs:[['MRP','₹68 · you save ₹2'],['Shelf life','2 days · refrigerate'],['Substitute','Nandini Shubham ₹54'],['Last ordered','4 days ago · ×2'],['Store','Indiranagar dark store'],['Cart pairing','Bread + eggs usually follow'],['Stock','14 units left']]
+  },
+  {
+    kind:'Stock', provider:'Kite', brand:'#f6461a',
+    hero:`<div class="hero light" style="background:linear-gradient(180deg,#fffdf7,#fdf6e8);box-shadow:inset 0 -1px 0 #ece3d6">
+      <svg class="art" viewBox="0 0 340 220" preserveAspectRatio="none">
+        <g stroke="rgba(43,47,114,.07)" stroke-width="1">
+          <path d="M0 60h340M0 100h340M0 140h340M0 180h340"/>
+          <path d="M68 20v200M136 20v200M204 20v200M272 20v200"/>
+        </g>
+        <path d="M0 168 L40 150 L78 158 L116 128 L152 138 L192 102 L228 116 L264 84 L302 92 L340 62 L340 220 L0 220 Z" fill="rgba(26,157,107,.13)"/>
+        <path d="M0 168 L40 150 L78 158 L116 128 L152 138 L192 102 L228 116 L264 84 L302 92 L340 62" fill="none" stroke="#1a9d6b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="340" cy="62" r="5" fill="#1a9d6b"/>
+        <text x="22" y="70" font-family="JetBrains Mono" font-weight="700" font-size="30" fill="#221b2e">INFY</text>
+        <text x="22" y="88" font-family="JetBrains Mono" font-size="10" fill="#6b6177">NSE · IT SERVICES</text>
+      </svg>
+      <div class="hero-foot"><span class="ribbon" style="background:rgba(26,157,107,.12);color:#13734e;box-shadow:none">▲ +1.82% TODAY</span></div>
+    </div>`,
+    title:'Infosys · INFY', price:'₹1,642.30', priceNote:'LTP 3:12 PM',
+    sub:'NSE · IT Services — you hold 12 shares, up 8.4% overall',
+    stats:[{l:'LTP',b:'₹1,642.30',s:'+₹29.40'},{l:'Today',b:'+1.82%',s:'vs NIFTY +0.6%'},{l:'Volume',b:'4.1M',s:'1.3× avg'}],
+    cta:'Buy', cta2:'Watchlist',
+    specs:[['Open','₹1,615.00'],['Day range','₹1,608 – ₹1,648'],['52-wk range','₹1,358 – ₹1,733'],['P/E','24.1 · sector 27.8'],['Market cap','₹6.8L Cr'],['Your holding','12 shares · avg ₹1,515'],['Next event','Q1 results · 14 Jul']]
+  },
+  {
+    kind:'News', provider:'Mint', brand:'#e07c00',
+    hero:`<div class="hero light" style="background:linear-gradient(180deg,#fffdf8,#fbf4e6);box-shadow:inset 0 -1px 0 #ece3d6">
+      <svg class="art" viewBox="0 0 340 220" preserveAspectRatio="xMidYMid slice">
+        <path d="M22 30 H318 M22 36 H318" stroke="#221b2e" stroke-width="2"/>
+        <text x="22" y="62" font-family="JetBrains Mono" font-weight="700" font-size="13" fill="#e07c00" letter-spacing="4">MINT · MARKETS</text>
+        <g fill="rgba(34,27,46,.14)">
+          <rect x="22" y="84" width="186" height="9" rx="4"/><rect x="22" y="100" width="160" height="9" rx="4"/>
+          <rect x="22" y="124" width="186" height="5" rx="2.5"/><rect x="22" y="135" width="178" height="5" rx="2.5"/><rect x="22" y="146" width="184" height="5" rx="2.5"/><rect x="22" y="157" width="120" height="5" rx="2.5"/>
+        </g>
+        <rect x="228" y="84" width="90" height="78" rx="8" fill="rgba(224,124,0,.16)"/>
+        <text x="273" y="118" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="#e07c00" text-anchor="middle">UPI</text>
+        <text x="273" y="138" font-family="JetBrains Mono" font-size="9" fill="#a06010" text-anchor="middle">CREDIT LINES</text>
+        <path d="M22 182 H318" stroke="rgba(34,27,46,.25)" stroke-width="1" stroke-dasharray="3 4"/>
+        <text x="22" y="202" font-family="JetBrains Mono" font-size="9" fill="#6b6177" letter-spacing="2">FINTECH · 11:05 IST · 4 MIN READ</text>
+      </svg>
+    </div>`,
+    title:'RBI clears credit lines on UPI for fintechs', price:'4 min', priceNote:'read',
+    sub:'Mint · Markets — 2h ago. Slice and Jupiter rally on the circular.',
+    stats:[{l:'Source',b:'Mint',s:'Markets desk'},{l:'Published',b:'11:05 IST',s:'today'},{l:'Signal',b:'Positive',s:'for fintechs'}],
+    cta:'Read article', cta2:'Summarise',
+    specs:[['Byline','Gopika Gopakumar'],['Section','Fintech · Policy'],['Companies','NPCI · Slice · Jupiter'],['Why it matters','Credit on UPI opens ~₹2L Cr market'],['Related','3 stories this week'],['Paywall','No'],['Your watch','Kite: NIFTY FIN +0.9% on the news']]
+  },
+  {
+    kind:'Event', provider:'District', brand:'#6f3ff5',
+    hero:`<div class="hero" style="background:radial-gradient(80% 60% at 50% 0%,rgba(232,93,122,.4),transparent 60%),linear-gradient(170deg,#170b33,#321565 65%,#52258f)">
+      <svg class="art" viewBox="0 0 340 220" preserveAspectRatio="xMidYMid slice">
+        <path d="M120 0 L60 220 L180 220 Z" fill="rgba(255,255,255,.07)"/>
+        <path d="M230 0 L170 220 L290 220 Z" fill="rgba(255,179,71,.1)"/>
+        <g fill="#0d0620">
+          <path d="M0 220 Q20 196 40 208 Q60 192 80 206 Q100 190 120 204 Q140 192 160 206 Q180 190 200 204 Q220 194 240 207 Q260 191 280 205 Q300 195 320 206 Q330 200 340 204 L340 220 Z"/>
+        </g>
+        <g fill="rgba(255,255,255,.7)">
+          <circle cx="48" cy="34" r="1.5"/><circle cx="96" cy="20" r="1"/><circle cx="150" cy="44" r="1.2"/><circle cx="210" cy="26" r="1.5"/><circle cx="276" cy="40" r="1"/><circle cx="312" cy="22" r="1.3"/>
+        </g>
+        <g transform="translate(282,64)">
+          <rect x="-40" y="-34" width="80" height="68" rx="12" fill="rgba(255,255,255,.94)"/>
+          <text y="-8" font-family="JetBrains Mono" font-weight="700" font-size="11" fill="#e85d7a" text-anchor="middle">SAT</text>
+          <text y="14" font-family="Clash Display" font-weight="700" font-size="24" fill="#221b2e" text-anchor="middle">27</text>
+          <text y="28" font-family="JetBrains Mono" font-size="9" fill="#6b6177" text-anchor="middle">JUN</text>
+        </g>
+      </svg>
+      <div class="hero-foot"><span class="ribbon">FROM ₹1,499 · 4.2K GOING</span></div>
+    </div>`,
+    title:'Prateek Kuhad — Silhouettes Tour', price:'₹1,499', priceNote:'onwards',
+    sub:'Phoenix Marketcity, Whitefield — Sat 27 Jun, doors 6 PM',
+    stats:[{l:'Date',b:'Sat 27 Jun',s:'7 PM show'},{l:'From',b:'₹1,499',s:'4 tiers'},{l:'Interest',b:'4.2k',s:'going'}],
+    cta:'Get tickets', cta2:'Remind me',
+    specs:[['Venue','Phoenix Marketcity, Whitefield'],['Doors','6 PM · show 7 PM'],['Tiers','Silver ₹1,499 → Fanpit ₹4,999'],['Age','16+ · ID required'],['Getting there','Whitefield metro · 2 km'],['Offers','HDFC 10% off · max ₹500'],['Your calendar','Free that evening']]
+  },
+  {
+    kind:'Hotel', provider:'Google Hotels', brand:'#4285f4',
+    hero:`<div class="hero" style="background:radial-gradient(90% 70% at 80% 0%,rgba(255,179,71,.35),transparent 55%),linear-gradient(170deg,#0e3140,#15596b 60%,#7a5f3f)">
+      <svg class="art" viewBox="0 0 340 220" preserveAspectRatio="xMidYMid slice">
+        <circle cx="282" cy="46" r="20" fill="rgba(255,236,200,.85)"/>
+        <circle cx="274" cy="40" r="20" fill="rgba(14,49,64,.0)"/>
+        <g fill="rgba(8,28,38,.85)">
+          <rect x="30" y="110" width="52" height="110" rx="4"/>
+          <rect x="94" y="78" width="64" height="142" rx="4"/>
+          <rect x="170" y="128" width="46" height="92" rx="4"/>
+          <rect x="226" y="96" width="58" height="124" rx="4"/>
+        </g>
+        <g fill="#ffb347">
+          <rect x="40" y="122" width="7" height="7" rx="1.5"/><rect x="58" y="122" width="7" height="7" rx="1.5"/><rect x="40" y="140" width="7" height="7" rx="1.5"/><rect x="58" y="158" width="7" height="7" rx="1.5"/>
+          <rect x="104" y="92" width="8" height="8" rx="1.5"/><rect x="122" y="92" width="8" height="8" rx="1.5"/><rect x="140" y="110" width="8" height="8" rx="1.5"/><rect x="104" y="128" width="8" height="8" rx="1.5"/><rect x="122" y="146" width="8" height="8" rx="1.5"/>
+          <rect x="180" y="140" width="7" height="7" rx="1.5"/><rect x="198" y="158" width="7" height="7" rx="1.5"/>
+          <rect x="236" y="108" width="7" height="7" rx="1.5"/><rect x="254" y="108" width="7" height="7" rx="1.5"/><rect x="270" y="126" width="7" height="7" rx="1.5"/><rect x="236" y="144" width="7" height="7" rx="1.5"/>
+        </g>
+      </svg>
+      <div class="hero-foot"><span class="ribbon">FREE CANCEL TILL 24 JUN</span><span class="roundel">4.8★</span></div>
+    </div>`,
+    title:'The Leela Palace', price:'₹18,400', priceNote:'per night',
+    sub:'Old Airport Rd, Bengaluru — Sat → Sun, 1 night, 2 guests',
+    stats:[{l:'Rating',b:'4.8 ★',s:'2.1k reviews'},{l:'Night',b:'₹18,400',s:'incl. taxes'},{l:'Distance',b:'6.5 km',s:'from you'}],
+    cta:'Check rates', cta2:'Gallery',
+    specs:[['Check-in','2 PM · early on request'],['Cancellation','Free till 24 Jun, 6 PM'],['Breakfast','Included · Citrus café'],['Amenities','Pool · Spa · Gym · Butler'],['Rooms left','3 at this rate'],['Member rate','−8% with sign-in'],['Compare','Oberoi ₹16,900 · ITC ₹14,200']]
+  }
+];
+
+/* ------------------------------------------------------------------ */
+/* deck engine — drag, fly-off, flip, undo; shared by phone & web     */
+/* ------------------------------------------------------------------ */
+const SWIPE_DIST = 90, SWIPE_VEL = 0.55;
+
+class SwipeDeck{
+  constructor(scope){
+    this.scope = scope;
+    this.deckEl = scope.querySelector('[data-deck]');
+    this.endEl = this.deckEl.querySelector('.deck-end');
+    this.countEl = scope.querySelector('[data-count]');
+    this.segsEl = scope.querySelector('[data-segs]');
+    this.savedChip = scope.querySelector('[data-savedchip]');
+    this.trayEl = scope.querySelector('[data-tray]');
+    this.trayCount = scope.querySelector('[data-traycount]');
+    this.cards = CARDS;
+    this.segsEl.innerHTML = this.cards.map(()=>'<i></i>').join('');
+    scope.querySelectorAll('[data-skip]').forEach(b=>b.addEventListener('click',()=>this.swipe(-1)));
+    scope.querySelectorAll('[data-save]').forEach(b=>b.addEventListener('click',()=>this.swipe(1)));
+    scope.querySelectorAll('[data-undo]').forEach(b=>b.addEventListener('click',()=>this.undo()));
+    this.deckEl.querySelector('[data-restart]').addEventListener('click',()=>this.reset());
+    this.bindDrag();
+    this.reset();
+  }
+
+  reset(){
+    this.deckEl.querySelectorAll('.card').forEach(el=>el.remove());
+    this.els = this.cards.map((c,i)=>this.buildCard(c,i));
+    this.els.slice().reverse().forEach(el=>this.deckEl.appendChild(el));
+    this.idx = 0; this.history = []; this.savedCount = 0;
+    this.endEl.classList.remove('show');
+    this.deckEl.classList.add('fresh');
+    if(this.trayEl){ this.trayEl.innerHTML = '<div class="empty">Swipe right (or press →) and picks pile up here, ready to act on in one go.</div>'; }
+    this.updateStack(); this.updateMeta();
+  }
+
+  buildCard(c,i){
+    const el = document.createElement('div');
+    el.className = 'card'; el.dataset.i = i;
+    const statCells = c.stats.map(s=>`<div class="stat"><label>${s.l}</label><b>${s.b}</b><span>${s.s}</span></div>`).join('');
+    const specRows = c.specs.map(([k,v])=>`<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+    const chips = `<div class="chiprow">
+        <span class="chip"><span class="pdot" style="background:${c.brand}"></span>${c.provider}</span>
+        <span class="chip kind">${c.kind}</span>
+      </div>`;
+    el.innerHTML = `
+      <div class="card-inner">
+        <div class="face front" style="--ctaglow:${c.brand}66">
+          ${c.hero}
+          <div class="cardbody">
+            <div class="titleline"><h3>${c.title}</h3><span class="pricetag">${c.price}<em>${c.priceNote}</em></span></div>
+            <p class="sub">${c.sub}</p>
+            <div class="stats">${statCells}</div>
+            <div class="ctarow"><button class="cta" style="background:${c.brand}">${c.cta}</button><button class="ghost">${c.cta2}</button></div>
+          </div>
+          <div class="veil"></div>
+        </div>
+        <div class="face back" style="--ctaglow:${c.brand}66">
+          <div class="backhead">
+            <span class="chip"><span class="pdot" style="background:${c.brand}"></span>${c.provider}</span>
+            <span class="chip kind" style="background:rgba(34,27,46,.07);color:var(--ink)">${c.kind} · details</span>
+          </div>
+          <h4>${c.title}</h4>
+          <div class="specs">${specRows}</div>
+          <div class="backfoot"><button class="cta" style="background:${c.brand}">${c.cta}</button></div>
+          <span class="fliphint">tap to flip back</span>
+        </div>
+      </div>
+      <div class="stamp save">SHORTLIST</div>
+      <div class="stamp skip">PASS</div>`;
+    el.querySelector('.face.front .hero').insertAdjacentHTML('afterbegin', chips);
+    return el;
+  }
+
+  updateStack(){
+    this.els.forEach((el,i)=>{
+      const d = i - this.idx;
+      el.dataset.depth = d;
+      if(d < 0 || d > 3){ el.style.display='none'; return; }
+      el.style.display='block';
+      el.style.zIndex = 10 - d;
+      el.style.pointerEvents = d===0 ? 'auto' : 'none';
+      el.style.opacity = 1;
+      el.style.transform = `translateY(${d*15}px) scale(${1 - d*0.05})`;
+      el.querySelector('.veil').style.opacity = d*0.22;
+    });
+    if(this.idx >= this.els.length){
+      this.endEl.querySelector('.end-summary').textContent =
+        `${this.els.length} reviewed · ${this.savedCount} shortlisted`;
+      this.endEl.classList.add('show');
+    } else this.endEl.classList.remove('show');
+  }
+
+  updateMeta(){
+    const n = this.els.length;
+    this.countEl.textContent = this.idx >= n ? 'done' : `${this.idx+1} of ${n}`;
+    [...this.segsEl.children].forEach((s,i)=>{
+      s.className = i < this.idx ? 'done' : (i === this.idx ? 'live' : '');
+    });
+    this.savedChip.textContent = `${this.savedCount} SAVED`;
+    if(this.trayCount) this.trayCount.textContent = this.savedCount;
+  }
+
+  top(){ return this.idx < this.els.length ? this.els[this.idx] : null; }
+
+  bindDrag(){
+    let el=null, sx=0, sy=0, dx=0, dy=0, t0=0, vx=0, lastX=0, lastT=0, dragging=false;
+    this.deckEl.addEventListener('pointerdown', e=>{
+      if(e.target.closest('button')) return;
+      el = this.top(); if(!el) return;
+      this.deckEl.classList.remove('fresh');
+      dragging=true; sx=e.clientX; sy=e.clientY; dx=dy=vx=0; lastX=sx; lastT=t0=performance.now();
+      el.classList.add('dragging');
+      el.setPointerCapture && this.deckEl.setPointerCapture(e.pointerId);
+    });
+    this.deckEl.addEventListener('pointermove', e=>{
+      if(!dragging || !el) return;
+      dx = e.clientX - sx; dy = e.clientY - sy;
+      const now = performance.now(), dt = Math.max(now-lastT,1);
+      vx = 0.7*vx + 0.3*(e.clientX-lastX)/dt; lastX=e.clientX; lastT=now;
+      el.style.transform = `translate(${dx}px,${dy*0.4}px) rotate(${dx*0.06}deg)`;
+      el.querySelector('.stamp.save').style.opacity = Math.min(Math.max(dx,0)/SWIPE_DIST,1);
+      el.querySelector('.stamp.skip').style.opacity = Math.min(Math.max(-dx,0)/SWIPE_DIST,1);
+      const next = this.els[this.idx+1];
+      if(next){
+        const p = Math.min(Math.abs(dx)/140,1);
+        next.style.transform = `translateY(${15-7*p}px) scale(${0.95+0.035*p})`;
+      }
+    });
+    const up = e=>{
+      if(!dragging || !el) return;
+      dragging=false;
+      el.classList.remove('dragging');
+      const dist = Math.hypot(dx,dy), dur = performance.now()-t0;
+      if(dist < 8 && dur < 450){            /* tap → flip */
+        el.classList.toggle('flipped');
+        this.settle(el);
+      } else if(Math.abs(dx) > SWIPE_DIST || Math.abs(vx) > SWIPE_VEL){
+        this.commit(el, dx>0 || (Math.abs(dx)<=SWIPE_DIST && vx>0) ? 1 : -1, dy);
+      } else this.settle(el);
+      el=null;
+    };
+    this.deckEl.addEventListener('pointerup', up);
+    this.deckEl.addEventListener('pointercancel', up);
+  }
+
+  settle(el){
+    el.querySelectorAll('.stamp').forEach(s=>s.style.opacity=0);
+    el.style.transform = 'translateY(0) scale(1)';
+    const next = this.els[this.idx+1];
+    if(next) next.style.transform = 'translateY(15px) scale(0.95)';
+  }
+
+  commit(el, dir, dy=0){
+    const w = this.deckEl.clientWidth || 360;
+    el.querySelector(dir>0 ? '.stamp.save' : '.stamp.skip').style.opacity = 1;
+    el.style.transition = 'transform .55s cubic-bezier(.3,.7,.45,1), opacity .5s ease .1s';
+    el.style.transform = `translate(${dir*(w*1.6)}px,${dy+50}px) rotate(${dir*24}deg)`;
+    el.style.opacity = 0;
+    const card = this.cards[+el.dataset.i];
+    this.history.push({el, dir});
+    if(dir>0){ this.savedCount++; this.addToTray(card); }
+    this.idx++;
+    setTimeout(()=>{
+      el.style.transition=''; el.classList.remove('flipped');
+      el.querySelectorAll('.stamp').forEach(s=>s.style.opacity=0);
+      this.updateStack();
+    }, 380);
+    this.updateMeta();
+  }
+
+  swipe(dir){
+    const el = this.top(); if(!el) return;
+    this.deckEl.classList.remove('fresh');
+    this.commit(el, dir);
+  }
+
+  flip(){
+    const el = this.top(); if(!el) return;
+    el.classList.toggle('flipped');
+  }
+
+  undo(){
+    const last = this.history.pop(); if(!last) return;
+    const {el, dir} = last;
+    if(dir>0){
+      this.savedCount = Math.max(0,this.savedCount-1);
+      if(this.trayEl && this.trayEl.lastElementChild && !this.trayEl.lastElementChild.classList.contains('empty'))
+        this.trayEl.lastElementChild.remove();
+      if(this.trayEl && !this.trayEl.children.length)
+        this.trayEl.innerHTML = '<div class="empty">Swipe right (or press →) and picks pile up here, ready to act on in one go.</div>';
+    }
+    this.idx--;
+    this.updateStack();
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      el.style.opacity = 1;
+      el.style.transform = 'translateY(0) scale(1)';
+    }));
+    this.updateMeta();
+  }
+
+  addToTray(card){
+    if(!this.trayEl) return;
+    const empty = this.trayEl.querySelector('.empty'); if(empty) empty.remove();
+    this.trayEl.insertAdjacentHTML('beforeend',
+      `<div class="mini"><span class="pdot" style="background:${card.brand}"></span><div><b>${card.title}</b><span>${card.provider} · ${card.kind}</span></div></div>`);
+  }
+}
+
+const decks = [...document.querySelectorAll('[data-deck-scope]')].map(s=>new SwipeDeck(s));
+const webDeck = decks.find(d=>d.scope.dataset.deckScope==='web');
+
+document.addEventListener('keydown', e=>{
+  if(!webDeck || e.target.closest('input,textarea')) return;
+  if(e.key==='ArrowLeft'){ e.preventDefault(); webDeck.swipe(-1); }
+  if(e.key==='ArrowRight'){ e.preventDefault(); webDeck.swipe(1); }
+  if(e.key==='Enter'){ e.preventDefault(); webDeck.flip(); }
+  if(e.key.toLowerCase()==='u'){ webDeck.undo(); }
+});
+</script>
+</body>
+</html>

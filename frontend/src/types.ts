@@ -85,6 +85,10 @@ export interface RestaurantCardEntry {
   // Only populated for Swiggy (their listing returns cuisines per row);
   // Zomato's keyword-search payload doesn't ship cuisines per result.
   cuisines?: string[];
+  // Swiggy-only: pre-formatted "₹300 for two" string and the locality name
+  // from the listing row.
+  cost_for_two?: string;
+  locality?: string;
   items?: RestaurantCardItem[];
 }
 
