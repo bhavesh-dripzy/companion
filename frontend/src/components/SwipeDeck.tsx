@@ -560,7 +560,7 @@ export const SwipeDeckTray: React.FC<{
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
 }> = ({ group, classic, onQuickPrompt, disabled }) => {
-  const [view, setView] = useState<'deck' | 'grid'>('deck');
+  const [view, setView] = useState<'deck' | 'grid'>('grid');
 
   if (view === 'grid') {
     return (
