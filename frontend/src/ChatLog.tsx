@@ -1914,14 +1914,6 @@ export const ChatLog: React.FC<ChatLogProps> = ({
                   </div>
                 </div>
 
-                {msg.attachments && msg.attachments.length > 0 && (
-                  <AttachmentList
-                    attachments={msg.attachments}
-                    onQuickPrompt={onQuickPrompt}
-                    quickPromptDisabled={quickPromptDisabled}
-                  />
-                )}
-
                 {msg.role === 'assistant'
                   && i === lastAssistantIdx
                   && !isThinking
@@ -1962,6 +1954,20 @@ export const ChatLog: React.FC<ChatLogProps> = ({
                 )}
               </div>
             </div>
+
+            {/* Cards span the full conversation width — outside the avatar
+                gutter so decks center on the viewport on phones instead of
+                sitting offset to the right. md:pl-11 re-aligns the left edge
+                with the bubble on desktop. */}
+            {msg.attachments && msg.attachments.length > 0 && (
+              <div className="w-full max-w-full md:pl-11">
+                <AttachmentList
+                  attachments={msg.attachments}
+                  onQuickPrompt={onQuickPrompt}
+                  quickPromptDisabled={quickPromptDisabled}
+                />
+              </div>
+            )}
 
             <div
               className={cn(
