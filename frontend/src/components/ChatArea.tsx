@@ -577,7 +577,7 @@ export function ChatArea({
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Companion anything…  Hindi, English, ya Hinglish — sab chalega"
+                placeholder="Ask Companion"
                 disabled={isThinking}
                 rows={1}
                 className="flex-1 bg-transparent border-none outline-none text-[14px] md:text-[14.5px] text-[#221b2e] placeholder-[#a89f95] py-1.5 md:py-2.5 px-1.5 md:px-2 focus:ring-0 min-w-0 resize-none max-h-40 leading-normal md:leading-relaxed"
