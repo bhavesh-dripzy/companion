@@ -221,7 +221,7 @@ def voice_tool_execute_endpoint(
     # def, FastAPI runs this in a threadpool (no running loop), matching the
     # text-chat endpoints (/api/send-message, /api/agent/query) which work.
     try:
-        llm_cfg, err = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
+        llm_cfg, err = resolve_llm_from_env()
         if err or not llm_cfg:
             return VoiceToolExecuteResponse(
                 success=False,
@@ -603,6 +603,12 @@ async def voice_gemini_token_endpoint(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
             )
         )
+        # Sliding-window compression caps what the Live API re-bills as input on
+        # EVERY generation (it re-processes the whole session context each turn,
+        # uncached — measured at ~₹6.7/min before this). Also lifts the 15-min
+        # audio session cap. The system instruction survives compression.
+        trigger_tokens = int(secret_or_env("GEMINI_LIVE_TRIGGER_TOKENS", "4096"))
+        target_tokens = int(secret_or_env("GEMINI_LIVE_TARGET_TOKENS", "2048"))
         live_config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=types.Content(parts=[types.Part(text=system_instruction)]),
@@ -610,6 +616,10 @@ async def voice_gemini_token_endpoint(
             speech_config=speech_config,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
+            context_window_compression=types.ContextWindowCompressionConfig(
+                trigger_tokens=trigger_tokens,
+                sliding_window=types.SlidingWindow(target_tokens=target_tokens),
+            ),
         )
 
         # Defaults give ~1 min to start the session and ~30 min to use it.

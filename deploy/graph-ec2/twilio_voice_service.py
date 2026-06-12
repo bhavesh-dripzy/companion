@@ -163,6 +163,10 @@ async def media_stream(websocket: WebSocket) -> None:
             http_options={"api_version": "v1alpha"},
         )
 
+        # Sliding-window compression caps the context the Live API re-bills on
+        # every generation — phone calls stream continuous audio, so without it
+        # per-turn input cost grows for the whole call (and audio sessions are
+        # hard-capped at 15 min).
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=types.Content(
@@ -174,6 +178,12 @@ async def media_stream(websocket: WebSocket) -> None:
                         voice_name=DEFAULT_VOICE,
                     )
                 )
+            ),
+            context_window_compression=types.ContextWindowCompressionConfig(
+                trigger_tokens=int(os.environ.get("GEMINI_LIVE_TRIGGER_TOKENS", "4096")),
+                sliding_window=types.SlidingWindow(
+                    target_tokens=int(os.environ.get("GEMINI_LIVE_TARGET_TOKENS", "2048"))
+                ),
             ),
         )
 

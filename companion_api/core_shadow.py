@@ -140,7 +140,7 @@ async def _run(
     reply_language: str | None,
     trace_listener: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    llm, reason = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
+    llm, reason = resolve_llm_from_env()
     if llm is None:
         return {"status": "error", "assistant_message": "", "error": reason, "pipeline": "core"}
     request = _to_request(data, user, reply_language)

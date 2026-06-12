@@ -27,6 +27,15 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 OPENAI_MODEL_DEFAULT = "gpt-4o-mini"
 
 
+def _named(name: str, legacy: str, default: str = "") -> str:
+    """Canonical env name first, FOOD_ROUTER-era legacy name as fallback.
+
+    The legacy names predate the core/ rewrite and still live in deployed
+    secrets (companion/app) and service env — honored here, at the single
+    resolution seam, so nothing else in the codebase needs to know them."""
+    return secret_or_env(name) or secret_or_env(legacy, default)
+
+
 @dataclass(frozen=True)
 class ResolvedLlm:
     provider: Provider
@@ -60,7 +69,7 @@ def _gemini_api_key() -> str:
 
 def _gemini(api_key: str) -> ResolvedLlm:
     return ResolvedLlm(
-        "gemini", api_key, secret_or_env("GEMINI_FOOD_ROUTER_MODEL", GEMINI_MODEL_DEFAULT)
+        "gemini", api_key, _named("GEMINI_MODEL", "GEMINI_FOOD_ROUTER_MODEL", GEMINI_MODEL_DEFAULT)
     )
 
 
@@ -68,23 +77,26 @@ def _deepseek(api_key: str) -> ResolvedLlm:
     return ResolvedLlm(
         "deepseek",
         api_key,
-        secret_or_env("DEEPSEEK_FOOD_ROUTER_MODEL", DEEPSEEK_MODEL_DEFAULT),
+        _named("DEEPSEEK_MODEL", "DEEPSEEK_FOOD_ROUTER_MODEL", DEEPSEEK_MODEL_DEFAULT),
         base_url=DEEPSEEK_BASE_URL,
     )
 
 
 def _openai(api_key: str) -> ResolvedLlm:
     return ResolvedLlm(
-        "openai", api_key, secret_or_env("OPENAI_FOOD_ROUTER_MODEL", OPENAI_MODEL_DEFAULT)
+        "openai", api_key, _named("OPENAI_MODEL", "OPENAI_FOOD_ROUTER_MODEL", OPENAI_MODEL_DEFAULT)
     )
 
 
 def resolve_llm_from_env(force: str = "") -> tuple[ResolvedLlm | None, str | None]:
-    """Return (ResolvedLlm, None) when a provider is usable, else (None, reason)."""
+    """Return (ResolvedLlm, None) when a provider is usable, else (None, reason).
+
+    With no `force` argument, the provider override is read from LLM_PROVIDER
+    (legacy FOOD_ROUTER_PROVIDER) here — call sites don't carry env names."""
     gemini_key = _gemini_api_key()
     openai_key = secret_or_env("OPENAI_API_KEY")
     deepseek_key = secret_or_env("DEEPSEEK_API_KEY")
-    forced = (force or "").strip().lower()
+    forced = (force or _named("LLM_PROVIDER", "FOOD_ROUTER_PROVIDER")).strip().lower()
 
     forced_builders = {
         "gemini": (gemini_key, _gemini),
@@ -94,7 +106,7 @@ def resolve_llm_from_env(force: str = "") -> tuple[ResolvedLlm | None, str | Non
     if forced in forced_builders:
         key, build = forced_builders[forced]
         if not key:
-            return None, f"FOOD_ROUTER_PROVIDER={forced} but its API key is unset."
+            return None, f"LLM_PROVIDER={forced} but its API key is unset."
         return build(key), None
 
     # Auto-select: prefer Gemini, then DeepSeek, then OpenAI (legacy order).

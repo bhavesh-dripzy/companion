@@ -8,6 +8,20 @@ import type { VoiceSessionState } from './types';
 // VITE_VOICE_PROVIDER=openai to fall back to the OpenAI Realtime path.
 const VOICE_PROVIDER = (import.meta.env.VITE_VOICE_PROVIDER as string) || 'gemini';
 
+// Trim a tool narration to a speakable brief at a sentence boundary — the
+// chat UI shows the full text + cards; the voice model only needs enough to
+// summarize aloud.
+const SPOKEN_BRIEF_CHARS = 300;
+function spokenBrief(narration: string): string {
+  if (narration.length <= SPOKEN_BRIEF_CHARS) return narration;
+  let out = '';
+  for (const part of narration.split(/(?<=[.!?।])\s+/)) {
+    if (out && out.length + part.length > SPOKEN_BRIEF_CHARS) break;
+    out = `${out} ${part}`.trim();
+  }
+  return `${out || narration.slice(0, SPOKEN_BRIEF_CHARS)} (baaki details user ki screen par cards mein dikh rahi hain)`;
+}
+
 interface VoiceInputProps {
   onVoiceTurn?: (userText: string, assistantText: string) => void;
   // Per-turn callback (Gemini path) — fires once per completed turn.
@@ -62,7 +76,12 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
       if (name === 'companion_execute' && onVoiceToolCall) {
         try {
           const resultText = await onVoiceToolCall(args.intent || '');
-          realtime.respondToToolCall(callId, { result: resultText });
+          // Inject a spoken brief, not the full narration: the result text
+          // lives in the Live session context forever after and is re-billed
+          // as input on every later generation, then re-spoken at audio-out
+          // rates. The chat UI already renders the full narration + cards;
+          // follow-up detail questions re-route through companion_execute.
+          realtime.respondToToolCall(callId, { result: spokenBrief(resultText) });
         } catch {
           realtime.respondToToolCall(callId, { result: 'Tool execution failed. Please try again.' });
         }

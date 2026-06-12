@@ -46,6 +46,38 @@ const WS_HOST =
 // send here in `setup` beyond the model is ignored by the server — so the
 // browser sends a minimal setup and relies on the token's baked-in config.
 
+// Cost controls. The Live API re-bills the full session context as input on
+// every generation, so every silent chunk streamed keeps compounding into
+// later turns. The RMS gate stops streaming silence; the hangover keeps
+// enough trailing silence flowing for server-side VAD to close the turn.
+const SILENCE_HANGOVER_MS = 1500;
+const IDLE_DISCONNECT_MS = 90_000;
+
+// Pre-recorded "ek second..." cues (scripts/generate_voice_cues.py). Playing a
+// local file replaces the old status-line nudge, which forced an extra
+// full-context generation on EVERY tool call. Falls back to the nudge until
+// the assets are generated.
+const TOOL_CUE_COUNT = 3;
+let toolCuesAvailable: boolean | null = null;
+
+async function playToolCue(idx: number): Promise<boolean> {
+  if (toolCuesAvailable === null) {
+    try {
+      const r = await fetch('/voice-cues/cue-0.mp3', { method: 'HEAD' });
+      toolCuesAvailable = r.ok;
+    } catch {
+      toolCuesAvailable = false;
+    }
+  }
+  if (!toolCuesAvailable) return false;
+  try {
+    await new Audio(`/voice-cues/cue-${idx % TOOL_CUE_COUNT}.mp3`).play();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function floatTo16BitPCMBase64(input: Float32Array): string {
   const i16 = new Int16Array(input.length);
   for (let i = 0; i < input.length; i++) {
@@ -81,8 +113,30 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
   const toolPendingRef = useRef(false);
   // True when this connect resumed an ongoing chat (#20) — picks the nudge.
   const resumingRef = useRef(false);
+  // Silence-gate state: ambient floor calibrated per connect, last-voice
+  // timestamp for the hangover, and a short pre-roll ring so speech onsets
+  // aren't clipped when the gate opens.
+  const ambientRef = useRef<number | null>(null);
+  const calibRef = useRef<number[]>([]);
+  const lastVoiceRef = useRef(0);
+  const preRollRef = useRef<string[]>([]);
+  const lastActivityRef = useRef(Date.now());
+  const idleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cueIdxRef = useRef(0);
+  const usageRef = useRef({ prompt: 0, response: 0 });
 
   const disconnect = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearInterval(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (usageRef.current.prompt || usageRef.current.response) {
+      console.info('[gemini-live] session usage', usageRef.current);
+      usageRef.current = { prompt: 0, response: 0 };
+    }
+    ambientRef.current = null;
+    calibRef.current = [];
+    preRollRef.current = [];
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     micStreamRef.current = null;
     procRef.current?.disconnect();
@@ -139,13 +193,44 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
     const src = ctx.createMediaStreamSource(stream);
     const proc = ctx.createScriptProcessor(4096, 1, 1);
     procRef.current = proc;
+    const sendChunk = (ws: WebSocket, data: string) =>
+      ws.send(JSON.stringify({ realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data } } }));
     proc.onaudioprocess = (e) => {
       const ws = wsRef.current;
       // Gate while the model is speaking (echo) OR while a tool call is in
       // flight (stray audio would cancel/cut off the pending tool reply).
       if (!ws || ws.readyState !== WebSocket.OPEN || speakingRef.current || toolPendingRef.current) return;
-      const data = floatTo16BitPCMBase64(e.inputBuffer.getChannelData(0));
-      ws.send(JSON.stringify({ realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data } } }));
+      const ch = e.inputBuffer.getChannelData(0);
+      let sum = 0;
+      for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i];
+      const rms = Math.sqrt(sum / ch.length);
+      // Calibrate the ambient floor for ~2s, streaming everything meanwhile —
+      // if calibration is off the worst case is pre-gate behavior.
+      if (ambientRef.current === null) {
+        calibRef.current.push(rms);
+        if (calibRef.current.length >= 8) {
+          const sorted = [...calibRef.current].sort((a, b) => a - b);
+          ambientRef.current = Math.max(sorted[sorted.length >> 1], 1e-4);
+        }
+        lastVoiceRef.current = Date.now();
+        sendChunk(ws, floatTo16BitPCMBase64(ch));
+        return;
+      }
+      const threshold = Math.max(ambientRef.current * 4, 0.01);
+      const now = Date.now();
+      const data = floatTo16BitPCMBase64(ch);
+      if (rms > threshold) {
+        lastVoiceRef.current = now;
+        lastActivityRef.current = now;
+        for (const pre of preRollRef.current) sendChunk(ws, pre);
+        preRollRef.current = [];
+        sendChunk(ws, data);
+      } else if (now - lastVoiceRef.current < SILENCE_HANGOVER_MS) {
+        sendChunk(ws, data);
+      } else {
+        preRollRef.current.push(data);
+        if (preRollRef.current.length > 2) preRollRef.current.shift();
+      }
     };
     src.connect(proc);
     // ScriptProcessor needs a sink to fire; route through a muted gain node.
@@ -157,11 +242,25 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
 
   const handleMessage = useCallback(
     (obj: any) => {
+      if (obj.usageMetadata) {
+        usageRef.current.prompt += obj.usageMetadata.promptTokenCount || 0;
+        usageRef.current.response += obj.usageMetadata.responseTokenCount || 0;
+      }
       if (obj.setupComplete !== undefined) {
         setState('connected');
         onStateChange?.('connected');
         onPhase?.('listening');
         void startMic();
+        // Idle sessions used to stream silence and re-bill context forever; a
+        // quiet auto-disconnect costs nothing to resume (#20 bakes the thread
+        // into the next token).
+        lastActivityRef.current = Date.now();
+        idleTimerRef.current = setInterval(() => {
+          if (Date.now() - lastActivityRef.current > IDLE_DISCONNECT_MS) {
+            console.info('[gemini-live] idle auto-disconnect');
+            disconnect();
+          }
+        }, 15_000);
         // Nudge an opener; text turns don't produce inputTranscription, so this
         // won't pollute the captured user transcript. Resumed chats get a
         // continue-the-thread nudge instead of a fresh greeting (#20).
@@ -191,34 +290,40 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
           onToolCall?.(fc.name, (fc.args || {}) as Record<string, string>, fc.id);
         }
         // companion_execute is NON_BLOCKING, but in practice the model calls it
-        // and goes silent for the 10-15s the backend needs — dead air. Nudge a
-        // spoken one-liner so it talks WHILE the tool runs; the toolResponse
-        // arrives later with scheduling=INTERRUPT and cuts straight to results.
-        wsRef.current?.send(
-          JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: 'user',
-                  parts: [
-                    {
-                      text:
-                        '(system: the tool is still running. Speak ONE short, natural Hinglish '
-                        + 'status line right now — e.g. "Ek second, dekh raha hoon…" — tailored to '
-                        + 'what the user asked. Do NOT call any tool. Do NOT invent results.)',
-                    },
-                  ],
-                },
-              ],
-              turnComplete: true,
-            },
-          }),
-        );
+        // and goes silent for the 10-15s the backend needs — dead air. A local
+        // pre-recorded cue fills it at zero tokens; the old nudge forced a
+        // full-context generation per tool call (the Live API re-bills the
+        // whole context every generation). Nudge remains the fallback until
+        // the cue assets exist.
+        void (async () => {
+          if (await playToolCue(cueIdxRef.current++)) return;
+          wsRef.current?.send(
+            JSON.stringify({
+              clientContent: {
+                turns: [
+                  {
+                    role: 'user',
+                    parts: [
+                      {
+                        text:
+                          '(system: the tool is still running. Speak ONE short, natural Hinglish '
+                          + 'status line right now — e.g. "Ek second, dekh raha hoon…" — tailored to '
+                          + 'what the user asked. Do NOT call any tool. Do NOT invent results.)',
+                      },
+                    ],
+                  },
+                ],
+                turnComplete: true,
+              },
+            }),
+          );
+        })();
         return;
       }
 
       const sc = obj.serverContent;
       if (!sc) return;
+      lastActivityRef.current = Date.now();
       if (sc.inputTranscription?.text) {
         turnUserRef.current += sc.inputTranscription.text;
         onUserTranscript?.(sc.inputTranscription.text);
@@ -260,7 +365,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions): UseGeminiLiveRetur
         if (u || a) onTurnComplete?.(u, a, hadTool);
       }
     },
-    [onStateChange, onToolCall, onUserTranscript, onAssistantTranscript, onPhase, onCaption, onTurnComplete, startMic, playAudioChunk],
+    [onStateChange, onToolCall, onUserTranscript, onAssistantTranscript, onPhase, onCaption, onTurnComplete, startMic, playAudioChunk, disconnect],
   );
 
   const connect = useCallback(async () => {

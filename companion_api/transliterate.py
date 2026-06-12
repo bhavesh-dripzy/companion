@@ -41,7 +41,7 @@ async def romanize_hinglish(text: str) -> str:
     if not contains_devanagari(text):
         return text
     try:
-        llm, _ = resolve_llm_from_env(secret_or_env("FOOD_ROUTER_PROVIDER"))
+        llm, _ = resolve_llm_from_env()
         if llm is None:
             return text
         out = await complete_json_object(
