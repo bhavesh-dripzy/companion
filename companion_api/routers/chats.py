@@ -6,6 +6,7 @@ the two projection helpers are chats-only and live here.
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -38,6 +39,17 @@ def _message_history_item(item: dict[str, Any]) -> dict[str, Any] | None:
     ]
     if meta:
         response["meta"] = meta
+
+    metadata = item.get("metadata")
+    if isinstance(metadata, dict):
+        blob = metadata.get("attachments_json")
+        if isinstance(blob, str) and blob:
+            try:
+                attachments = json.loads(blob)
+            except ValueError:
+                attachments = None
+            if isinstance(attachments, list) and attachments:
+                response["attachments"] = attachments
 
     return response
 

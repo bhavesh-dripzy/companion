@@ -9,6 +9,7 @@ errors are swallowed (logged) so they can never break a live reply.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import Any
@@ -17,6 +18,37 @@ from companion_api.leadgen_queue import send_turn_event
 from companion_api.messages_repo import ChatRepository, MessageRepository, derive_chat_title
 
 logger = logging.getLogger(__name__)
+
+_MAX_ATTACHMENTS_JSON_BYTES = 300_000
+
+
+def _attachments_for_storage(attachments: Any) -> str | None:
+    """Compact JSON blob of the turn's cards, or None when absent/oversized.
+
+    Stored as a JSON string (not a Dynamo map) so float prices/ratings never
+    hit boto3's no-float rule. Inline QR payloads (`data_b64`) are stripped —
+    they dominate item size and the card re-renders from `upi_link`. The hard
+    cap keeps the message item far below Dynamo's 400KB limit.
+    """
+    if not isinstance(attachments, list) or not attachments:
+        return None
+    slim: list[dict[str, Any]] = []
+    for att in attachments:
+        if not isinstance(att, dict):
+            continue
+        if att.get("data_b64"):
+            att = {k: v for k, v in att.items() if k != "data_b64"}
+            att["oversize"] = True
+        slim.append(att)
+    if not slim:
+        return None
+    try:
+        blob = json.dumps(slim, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return None
+    if len(blob.encode("utf-8")) > _MAX_ATTACHMENTS_JSON_BYTES:
+        return None
+    return blob
 
 
 def persist_turn(
@@ -27,6 +59,7 @@ def persist_turn(
     assistant_text: str,
     task_type: str | None = None,
     provider: str | None = None,
+    attachments: Any = None,
     session_addresses: Any = None,
     user_geo: dict | None = None,
     fallback_title: str = "New chat",
@@ -59,6 +92,7 @@ def persist_turn(
                 provider=provider,
             )
         if assistant_text:
+            attachments_blob = _attachments_for_storage(attachments)
             msg_repo.create(
                 member_id=user,
                 chat_id=resolved_chat_id,
@@ -67,6 +101,7 @@ def persist_turn(
                 text=assistant_text,
                 task_type=task_type,
                 provider=provider,
+                metadata={"attachments_json": attachments_blob} if attachments_blob else None,
             )
         chat_repo.touch(
             member_id=user,

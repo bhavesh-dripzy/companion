@@ -24,6 +24,7 @@ def _persist_and_enqueue_voice_turn(
     assistant_text: str,
     task_type: str | None = None,
     routed_provider: str | None = None,
+    attachments: Any = None,
     session_addresses: Any = None,
 ) -> str | None:
     """Persist a voice turn + enqueue the leadgen event via the shared
@@ -36,6 +37,7 @@ def _persist_and_enqueue_voice_turn(
         assistant_text=assistant_text,
         task_type=task_type,
         provider=routed_provider,
+        attachments=attachments,
         session_addresses=session_addresses,
         fallback_title="Voice chat",
     )
@@ -279,6 +281,7 @@ def voice_tool_execute_endpoint(
 
         assistant_text = result.get("assistant_message", "")
         task_type = result.get("intent_routing", {}).get("task_type") or result.get("task_type")
+        attachments = result.get("attachments")
         # Persist this turn + feed the leadgen pipeline, just like text chat.
         resolved_chat_id = _persist_and_enqueue_voice_turn(
             user=user,
@@ -287,10 +290,9 @@ def voice_tool_execute_endpoint(
             assistant_text=assistant_text,
             task_type=task_type,
             routed_provider=result.get("routed_provider"),
+            attachments=attachments,
             session_addresses=result.get("session_addresses"),
         )
-
-        attachments = result.get("attachments")
         return VoiceToolExecuteResponse(
             success=True,
             result=assistant_text,

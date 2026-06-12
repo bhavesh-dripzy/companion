@@ -223,6 +223,64 @@ def test_persist_turn_lazy_creates_titled_chat(monkeypatch):
     assert roles == ["user", "assistant"]
 
 
+def test_persist_turn_round_trips_attachments(monkeypatch):
+    """Cards survive the restart path: stored as a compact JSON blob on the
+    assistant message and projected back out by the chat-history endpoint."""
+    messages = []
+
+    class FakeChatRepo:
+        def get(self, member_id, chat_id):
+            return {"chat_id": chat_id}
+
+        def touch(self, **kwargs):
+            pass
+
+    class FakeMsgRepo:
+        def create(self, **kwargs):
+            messages.append(kwargs)
+
+    monkeypatch.setattr(turn_persistence, "ChatRepository", FakeChatRepo)
+    monkeypatch.setattr(turn_persistence, "MessageRepository", FakeMsgRepo)
+    monkeypatch.setattr(turn_persistence, "send_turn_event", lambda **k: None)
+
+    cards = [
+        {
+            "kind": "zepto_product_cards",
+            "provider": "zepto",
+            "products": [{"name": "Amul Gold Milk", "price_inr": 58.0}],
+        },
+        {"kind": "image", "data_b64": "x" * 500, "upi_link": "upi://pay?pa=a@upi"},
+    ]
+    turn_persistence.persist_turn(
+        user="alice",
+        chat_id="chat-1",
+        user_text="milk",
+        assistant_text="Here you go",
+        attachments=cards,
+    )
+    assistant = next(m for m in messages if m["role"] == "assistant")
+    blob = assistant["metadata"]["attachments_json"]
+    stored = json.loads(blob)
+    assert stored[0]["products"][0]["price_inr"] == 58.0
+    assert "data_b64" not in stored[1] and stored[1]["oversize"] is True
+
+    from companion_api.routers.chats import _message_history_item
+
+    projected = _message_history_item(
+        {
+            "role": "assistant",
+            "text": "Here you go",
+            "metadata": {"attachments_json": blob},
+        }
+    )
+    assert projected["attachments"][0]["kind"] == "zepto_product_cards"
+
+    oversized = turn_persistence._attachments_for_storage(
+        [{"kind": "info_card", "caption": "y" * 400_000}]
+    )
+    assert oversized is None
+
+
 # ── exception-group flattening (errors.py) ────────────────────────────────
 
 

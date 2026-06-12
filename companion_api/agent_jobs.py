@@ -124,6 +124,7 @@ def finalize_turn(envelope: dict[str, Any], data: dict[str, Any], user: str) -> 
         assistant_text=str(envelope.get("assistant_message") or ""),
         task_type=envelope.get("task_type"),
         provider=envelope.get("routed_provider"),
+        attachments=envelope.get("attachments"),
         session_addresses=data.get("session_addresses"),
         user_geo=geo,
     )

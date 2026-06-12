@@ -592,6 +592,9 @@ function App() {
             ...(typeof item.provider === 'string' && item.provider ? { provider: item.provider } : {}),
             ...(typeof item.created_at === 'string' ? { created_at: item.created_at } : {}),
             ...(typeof item.message_id === 'string' ? { message_id: item.message_id } : {}),
+            ...(Array.isArray(item.attachments) && item.attachments.length > 0
+              ? { attachments: item.attachments }
+              : {}),
           }))
           .filter((item: Message) => item.content.trim()),
       );
