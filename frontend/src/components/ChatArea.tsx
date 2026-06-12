@@ -174,6 +174,10 @@ export function ChatArea({
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
+    if (!inputValue.trim()) {
+      ta.style.height = '36px';
+      return;
+    }
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
   }, [inputValue]);
@@ -553,15 +557,15 @@ export function ChatArea({
 
             <form
               onSubmit={handleSubmit}
-              className="w-full bg-white/[0.86] border border-[#ece3d6]/80 backdrop-blur-md shadow-[0_14px_36px_-22px_rgba(60,40,30,0.45)] rounded-[18px] flex items-end p-1.5 gap-2 focus-within:shadow-[0_18px_42px_-22px_rgba(60,40,30,0.5)] transition-shadow duration-300"
+              className="w-full bg-white/[0.86] border border-[#ece3d6]/80 backdrop-blur-md shadow-[0_14px_36px_-22px_rgba(60,40,30,0.45)] rounded-2xl md:rounded-[18px] flex items-center p-1 md:p-1.5 gap-1.5 md:gap-2 focus-within:shadow-[0_18px_42px_-22px_rgba(60,40,30,0.5)] transition-shadow duration-300"
             >
               <button
                 type="button"
                 tabIndex={-1}
-                className="w-9 h-9 text-[#a89f95] hover:text-[#2b2f72] hover:bg-[#2b2f72]/8 rounded-[11px] flex items-center justify-center transition-colors shrink-0 cursor-pointer self-end mb-0.5"
+                className="w-8 h-8 md:w-9 md:h-9 text-[#a89f95] hover:text-[#2b2f72] hover:bg-[#2b2f72]/8 rounded-[10px] md:rounded-[11px] flex items-center justify-center transition-colors shrink-0 cursor-pointer"
                 title="Attachment menu (coming soon)"
               >
-                <Paperclip className="w-4.5 h-4.5" />
+                <Paperclip className="w-4 h-4 md:w-4.5 md:h-4.5" />
               </button>
 
               {/* Multi-line textarea (Enter to send, Shift+Enter for newline)
@@ -576,10 +580,10 @@ export function ChatArea({
                 placeholder="Ask Companion anything…  Hindi, English, ya Hinglish — sab chalega"
                 disabled={isThinking}
                 rows={1}
-                className="flex-1 bg-transparent border-none outline-none text-[14.5px] text-[#221b2e] placeholder-[#a89f95] py-2.5 px-2 focus:ring-0 min-w-0 resize-none max-h-40 leading-relaxed"
+                className="flex-1 bg-transparent border-none outline-none text-[14px] md:text-[14.5px] text-[#221b2e] placeholder-[#a89f95] py-1.5 md:py-2.5 px-1.5 md:px-2 focus:ring-0 min-w-0 resize-none max-h-40 leading-normal md:leading-relaxed"
               />
 
-              <div className="self-end mb-0.5">
+              <div className="shrink-0 [&_button]:!w-8 [&_button]:!h-8 md:[&_button]:!w-9 md:[&_button]:!h-9">
                 <VoiceInput
                   onVoiceTurn={onVoiceTurn}
                   onVoiceTurnComplete={onVoiceTurnComplete}
@@ -597,13 +601,13 @@ export function ChatArea({
                 type="submit"
                 disabled={!inputValue.trim() || isThinking}
                 aria-label="Send message"
-                className={`w-10 h-10 rounded-[13px] flex items-center justify-center transition-all shrink-0 cursor-pointer self-end mb-0.5 ${
+                className={`w-9 h-9 md:w-10 md:h-10 rounded-xl md:rounded-[13px] flex items-center justify-center transition-all shrink-0 cursor-pointer ${
                   inputValue.trim() && !isThinking
                     ? 'btn-ink opacity-100 text-white'
                     : 'bg-[#f3eee6] text-[#bcb3a6]'
                 }`}
               >
-                <Send className="w-4 h-4 stroke-[2.2]" />
+                <Send className="w-3.5 h-3.5 md:w-4 md:h-4 stroke-[2.2]" />
               </button>
             </form>
           </div>
