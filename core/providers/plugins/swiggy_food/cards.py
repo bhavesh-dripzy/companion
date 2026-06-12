@@ -96,6 +96,12 @@ def _card_entry(resto: Any) -> dict[str, Any] | None:
         clean = [c.strip() for c in cuisines if isinstance(c, str) and c.strip()]
         if clean:
             out["cuisines"] = clean[:4]
+    cost = resto.get("costForTwo") or resto.get("cost_for_two")
+    if isinstance(cost, str) and cost.strip():
+        out["cost_for_two"] = cost.strip()
+    area = resto.get("areaName") or resto.get("locality")
+    if isinstance(area, str) and area.strip():
+        out["locality"] = area.strip()
     return out
 
 

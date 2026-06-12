@@ -50,6 +50,8 @@ def _row_from_structured(item: Any, *, query: str | None) -> dict[str, Any] | No
     mrp_paise = item.get("mrp")
     price_inr = round(float(price_paise) / 100, 2) if isinstance(price_paise, int | float) else None
     mrp_inr = round(float(mrp_paise) / 100, 2) if isinstance(mrp_paise, int | float) else None
+    qty = item.get("availableQuantity")
+    is_ad = item.get("isAd")
     return {
         "product_variant_id": pvid.strip(),
         "store_product_id": spid.strip(),
@@ -59,6 +61,8 @@ def _row_from_structured(item: Any, *, query: str | None) -> dict[str, Any] | No
         "mrp_inr": mrp_inr,
         "pack_size": item.get("packSize") or item.get("pack_size") or item.get("unit"),
         "image_url": item.get("imageUrl") or item.get("image_url"),
+        "available_quantity": qty if isinstance(qty, int) else None,
+        "is_ad": is_ad if isinstance(is_ad, bool) else None,
         "query": query,
     }
 
@@ -98,6 +102,8 @@ def _product_card(row: dict[str, Any]) -> dict[str, Any] | None:
         "price_text": row.get("price_text"),
         "pack_size": row.get("pack_size"),
         "image_url": row.get("image_url"),
+        "available_quantity": row.get("available_quantity"),
+        "is_ad": row.get("is_ad"),
         "query": row.get("query"),
     }
 
