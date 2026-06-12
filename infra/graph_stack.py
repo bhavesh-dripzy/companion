@@ -240,17 +240,25 @@ class GraphStack(Stack):
             f"NEO4J_SECRET=$(aws secretsmanager get-secret-value --secret-id {project_name}/neo4j-key --region {self.region} --query SecretString --output text)",
             "NEO4J_PASSWORD=$(python3 -c \"import json; print(json.loads('''$NEO4J_SECRET''')['password'])\")",
             
-            # Run Neo4j Docker container on localhost (Bolt 7687, Browser 7474)
+            # Mount the persistent data volume at /var/lib/neo4j so graph data
+            # survives instance replacement (AMI updates). The attachment lands
+            # after boot, so wait for the device; format only if blank.
+            "for i in $(seq 1 60); do { [ -e /dev/sdf ] || [ -e /dev/nvme1n1 ]; } && break; sleep 5; done",
+            "DATA_DEV=$([ -e /dev/sdf ] && echo /dev/sdf || echo /dev/nvme1n1)",
+            "blkid $DATA_DEV || mkfs -t xfs $DATA_DEV",
+            "mkdir -p /var/lib/neo4j",
+            'echo "UUID=$(blkid -s UUID -o value $DATA_DEV) /var/lib/neo4j xfs defaults,nofail 0 2" >> /etc/fstab',
+            "mount -a",
+
+            # Run Neo4j Docker container on localhost (Bolt 7687, Browser 7474).
+            # NOTE: must stay a single line — adjacent-string continuations here
+            # once concatenated into a garbled command ("docker: invalid
+            # reference format") and Neo4j silently never started.
             "mkdir -p /var/lib/neo4j/data /var/lib/neo4j/logs",
-            "docker run -d \\"
-            "  --name neo4j \\"
-            "  -p 127.0.0.1:7687:7687 \\"
-            "  -p 127.0.0.1:7474:7474 \\"
-            "  -v /var/lib/neo4j/data:/data \\"
-            "  -v /var/lib/neo4j/logs:/logs \\"
-            "  --env NEO4J_AUTH=neo4j/$NEO4J_PASSWORD \\"
-            "  --restart always \\"
-            "  neo4j:5-community",
+            "docker run -d --name neo4j"
+            " -p 127.0.0.1:7687:7687 -p 127.0.0.1:7474:7474"
+            " -v /var/lib/neo4j/data:/data -v /var/lib/neo4j/logs:/logs"
+            " --env NEO4J_AUTH=neo4j/$NEO4J_PASSWORD --restart always neo4j:5-community",
             
             # Download and extract application code from S3 Asset
             "mkdir -p /var/www/companion",
@@ -263,9 +271,33 @@ class GraphStack(Stack):
             "/var/www/companion/venv/bin/pip install -r /var/www/companion/requirements.txt",
             "/var/www/companion/venv/bin/pip install uvicorn fastapi neo4j pydantic pydantic-settings cryptography",
             
-            # Configure Caddy Repository and Install Caddy
-            "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/setup.rpm.sh' | bash",
-            "dnf install -y caddy",
+            # Install Caddy as a pinned static binary. The Cloudsmith RPM repo
+            # doesn't support Amazon Linux 2023 ("Unable to find a match:
+            # caddy"), which left graph.houzzat.in with no TLS listener at all.
+            # Instance is t4g (Graviton) — arm64 binary.
+            "curl -fL https://github.com/caddyserver/caddy/releases/download/v2.10.0/caddy_2.10.0_linux_arm64.tar.gz -o /tmp/caddy.tgz"
+            " && tar -xzf /tmp/caddy.tgz -C /usr/local/bin caddy"
+            " || curl -fL 'https://caddyserver.com/api/download?os=linux&arch=arm64' -o /usr/local/bin/caddy",
+            "chmod +x /usr/local/bin/caddy",
+            "mkdir -p /etc/caddy",
+
+            # Systemd unit for the static caddy binary (no package = no unit)
+            "cat <<EOF > /etc/systemd/system/caddy.service\n"
+            "[Unit]\n"
+            "Description=Caddy reverse proxy\n"
+            "After=network.target\n"
+            "\n"
+            "[Service]\n"
+            "Type=simple\n"
+            "User=root\n"
+            "Environment=HOME=/root\n"
+            "ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile\n"
+            "Restart=always\n"
+            "LimitNOFILE=65535\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
+            "EOF",
             
             # Setup graph-service environment and systemd services
             "mkdir -p /etc/companion",
@@ -357,10 +389,12 @@ class GraphStack(Stack):
             "echo '--- Bootstrap Completed ---'",
         )
 
-        # 9. EC2 Instance
+        # 9. EC2 Instance. Construct id bumped to V2 to force a one-time
+        # replacement: the original instance was bootstrapped by the broken
+        # user-data (no Neo4j, no Caddy) and user-data only runs on first boot.
         instance = ec2.Instance(
             self,
-            "GraphInstance",
+            "GraphInstanceV2",
             instance_type=ec2.InstanceType("t4g.small"),
             machine_image=ec2.MachineImage.latest_amazon_linux2023(
                 cpu_type=ec2.AmazonLinuxCpuType.ARM_64
@@ -382,6 +416,26 @@ class GraphStack(Stack):
                     ),
                 )
             ],
+        )
+
+        # 9b. Persistent Neo4j data volume — survives instance replacement
+        # (RETAIN + separate attachment), so AMI bumps can't wipe the graph
+        # again. User-data formats it once and mounts it at /var/lib/neo4j.
+        data_volume = ec2.Volume(
+            self,
+            "GraphDataVolume",
+            availability_zone=instance.instance_availability_zone,
+            size=cdk.Size.gibibytes(20),
+            volume_type=ec2.EbsDeviceVolumeType.GP3,
+            encrypted=True,
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+        ec2.CfnVolumeAttachment(
+            self,
+            "GraphDataAttachment",
+            device="/dev/sdf",
+            instance_id=instance.instance_id,
+            volume_id=data_volume.volume_id,
         )
 
         # 10. Elastic IP (EIP)
