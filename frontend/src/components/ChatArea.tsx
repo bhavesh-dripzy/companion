@@ -19,7 +19,7 @@ import { VoiceInput } from '../VoiceInput';
 import { INDIA_FACTS, nextFactIndex } from '../data/indiaFacts';
 import { Mandala } from './Mandala';
 import { SmartCard, type SmartCardSlide } from './SmartCard';
-import { api } from '../api';
+import { prefetchHeroGreeting, readCachedGreeting } from '../heroGreeting';
 import type { Message, SessionAddress } from '../types';
 
 interface ChatAreaProps {
@@ -218,45 +218,38 @@ export function ChatArea({
   const avatarLetter = welcomeName.charAt(0).toUpperCase() || 'C';
 
   // Personalized AI hero greeting — generated server-side each load from the
-  // user's profile (name/city/interests), live weather at their saved address,
-  // and the time of day (DeepSeek, with a static fallback). The raw account
-  // username (e.g. "admin_bhavesh") is never shown: first paint uses the last
-  // generated line cached per user (else a neutral "Namaste."), then swaps in
-  // the fresh line when it arrives.
-  const greetingCacheKey = `companion.heroGreeting.${(username || 'anon').trim()}`;
-  const readCachedGreeting = () => {
-    try {
-      return localStorage.getItem(greetingCacheKey) || '';
-    } catch {
-      return '';
-    }
-  };
-  const [greeting, setGreeting] = useState<string>(() => readCachedGreeting() || 'Namaste.');
+  // user's profile, live weather and time of day. The fetch is started early
+  // (login / app boot) via prefetchHeroGreeting; this consumes the shared
+  // promise. First paint uses the last generated line cached per user (else a
+  // neutral "Namaste."), then crossfades to the fresh line when it arrives.
+  const [greeting, setGreeting] = useState<string>(
+    () => readCachedGreeting(username) || 'Namaste.',
+  );
   const [greetingReady, setGreetingReady] = useState(false);
+  const [greetingSwapping, setGreetingSwapping] = useState(false);
+  const greetingRef = useRef(greeting);
+  greetingRef.current = greeting;
   useEffect(() => {
     let alive = true;
-    const cached = readCachedGreeting();
+    const cached = readCachedGreeting(username);
     if (cached) setGreeting(cached);
-    api
-      .get('/api/hero/greeting/')
-      .then((res: { greeting?: string }) => {
-        if (alive && res && res.greeting) {
-          setGreeting(res.greeting);
-          setGreetingReady(true);
-          try {
-            localStorage.setItem(greetingCacheKey, res.greeting);
-          } catch {
-            /* private mode — skip caching */
-          }
-        }
-      })
-      .catch(() => {
-        /* keep the cached/neutral greeting */
-      });
+    prefetchHeroGreeting(username).then((fresh) => {
+      if (!alive || !fresh) return;
+      if (fresh === greetingRef.current) {
+        setGreetingReady(true);
+        return;
+      }
+      setGreetingSwapping(true);
+      window.setTimeout(() => {
+        if (!alive) return;
+        setGreeting(fresh);
+        setGreetingSwapping(false);
+        setGreetingReady(true);
+      }, 320);
+    });
     return () => {
       alive = false;
     };
-    // Re-fetch if the signed-in user changes.
   }, [username]);
 
   // Heritage fact shown in the smart card; advances when the card wraps.
@@ -459,14 +452,19 @@ export function ChatArea({
                   className="relative z-10 my-auto flex flex-col items-center"
                 >
                   {/* Headline — AI-generated personalized greeting (name, time of
-                      day, local weather, interests). Fades/swaps in when ready;
-                      the user's name renders in the brand gradient. */}
+                      day, local weather, interests); the user's name renders in
+                      the brand gradient. Height is reserved for two lines so the
+                      card below doesn't jump when the fresh line crossfades in. */}
                   <h1
-                    className={`font-display font-semibold text-[clamp(28px,5vw,46px)] leading-[1.08] tracking-tight mb-6 text-[#221b2e] max-w-[680px] transition-all duration-700 ease-out ${
-                      greetingReady ? 'opacity-100 blur-0' : 'opacity-90'
+                    className={`font-display font-semibold text-[clamp(28px,5vw,46px)] leading-[1.08] tracking-tight mb-6 text-[#221b2e] max-w-[680px] min-h-[3.3em] md:min-h-[2.2em] flex items-center justify-center transition-all duration-500 ease-out ${
+                      greetingSwapping
+                        ? 'opacity-0 blur-[7px] -translate-y-1'
+                        : greetingReady
+                          ? 'opacity-100 blur-0 translate-y-0'
+                          : 'opacity-85'
                     }`}
                   >
-                    {greetingWithAccent(greeting, username)}
+                    <span>{greetingWithAccent(greeting, username)}</span>
                   </h1>
 
                   {/* One smart slot — heritage fact / contextual nudge / cart. */}

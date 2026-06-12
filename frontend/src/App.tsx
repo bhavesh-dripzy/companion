@@ -10,6 +10,7 @@ import { OrdersPopup } from './components/OrdersPopup';
 import { CartDock } from './components/CartDock';
 import { VoiceStage } from './components/VoiceStage';
 import { api, clearToken, clearRefreshToken, getToken } from './api';
+import { lastKnownUser, prefetchHeroGreeting, rememberLastUser } from './heroGreeting';
 import type {
   Attachment,
   ChatSummary,
@@ -417,9 +418,15 @@ function App() {
         setLoading(false);
         return;
       }
+      // Greeting fetch races the auth round-trip so the hero is usually
+      // ready by the time ChatArea mounts.
+      const guessUser = lastKnownUser();
+      if (guessUser) prefetchHeroGreeting(guessUser);
       try {
         const data = await api.get('/api/auth/status/');
         setUsername(data.username);
+        rememberLastUser(data.username);
+        if (data.username !== guessUser) prefetchHeroGreeting(data.username);
         setIsAuthenticated(true);
         loadInitialData();
       } catch (err) {

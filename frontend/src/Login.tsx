@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { api, setToken, setRefreshToken, clearRefreshToken } from './api';
+import { prefetchHeroGreeting, rememberLastUser } from './heroGreeting';
 import { randomFact } from './data/indiaFacts';
 import type { AuthResponse } from './types';
 
@@ -34,6 +35,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       } else {
         clearRefreshToken();
       }
+      rememberLastUser(data.username);
+      prefetchHeroGreeting(data.username);
       onLoginSuccess(data.username);
     } catch (err: any) {
       setError(err.message || 'Login failed');
