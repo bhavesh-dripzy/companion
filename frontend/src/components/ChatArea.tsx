@@ -18,6 +18,7 @@ import { AddressChip } from './AddressChip';
 import { VoiceInput } from '../VoiceInput';
 import { INDIA_FACTS, nextFactIndex } from '../data/indiaFacts';
 import { Mandala } from './Mandala';
+import { SmartCard, type SmartCardSlide } from './SmartCard';
 import { api } from '../api';
 import type { Message, SessionAddress } from '../types';
 
@@ -51,6 +52,33 @@ interface ChatAreaProps {
   /** Hero image shown on the empty state. Overridable so we don't
    *  hard-fail offline / blocked-CDN setups. */
   heroImageUrl?: string;
+}
+
+/**
+ * Wraps the user's name inside the AI greeting in the brand gradient
+ * (saffron→rose). The greeting is a free-form server string, so the name is
+ * located by matching name-ish tokens of the account handle ("admin_bhavesh"
+ * → "Bhavesh"); when nothing matches, the greeting renders unstyled.
+ */
+const GENERIC_HANDLE_TOKENS = new Set(['admin', 'user', 'test', 'demo']);
+function greetingWithAccent(text: string, username?: string): React.ReactNode {
+  const tokens = (username || '')
+    .split(/[^a-zA-Z]+/)
+    .filter((t) => t.length >= 3 && !GENERIC_HANDLE_TOKENS.has(t.toLowerCase()));
+  for (const token of tokens) {
+    const match = text.match(new RegExp(`\\b${token}\\b`, 'i'));
+    if (!match || match.index === undefined) continue;
+    return (
+      <>
+        {text.slice(0, match.index)}
+        <span className="bg-gradient-to-r from-[#ff8a1e] to-[#e85d7a] bg-clip-text text-transparent">
+          {match[0]}
+        </span>
+        {text.slice(match.index + match[0].length)}
+      </>
+    );
+  }
+  return text;
 }
 
 // Prompt ribbon — same wording as the new UI; clicking a chip fires a
@@ -231,22 +259,43 @@ export function ChatArea({
     // Re-fetch if the signed-in user changes.
   }, [username]);
 
-  // Rotating "Did you know?" India heritage fact — picked once per mount.
-  // Rotating heritage fact — swaps every ~12s with a cloud-like fade
-  // (the current fact blurs/fades out, a new random one fades in).
+  // Heritage fact shown in the smart card; advances when the card wraps.
   const [factIdx, setFactIdx] = useState(() => Math.floor(Math.random() * INDIA_FACTS.length));
-  const [factShown, setFactShown] = useState(true);
-  useEffect(() => {
-    const tick = setInterval(() => {
-      setFactShown(false);
-      window.setTimeout(() => {
-        setFactIdx((prev) => nextFactIndex(prev));
-        setFactShown(true);
-      }, 820);
-    }, 12000);
-    return () => clearInterval(tick);
-  }, []);
   const heritageFact = INDIA_FACTS[factIdx];
+
+  const heroSlides = useMemo<SmartCardSlide[]>(() => {
+    const promptOf = (id: string) => PROMPT_OPTIONS.find((o) => o.id === id)?.prompt ?? '';
+    const hour = new Date().getHours();
+    const nudge =
+      hour < 5
+        ? { eyebrow: 'Up late?', icon: '🌙', body: 'Midnight craving? Quick commerce is still awake.', label: 'Order a snack', prompt: promptOf('groceries') }
+        : hour < 11
+          ? { eyebrow: 'This morning', icon: '🌅', body: 'Chai, milk, bread — morning essentials at your door in minutes.', label: 'Order groceries', prompt: promptOf('groceries') }
+          : hour < 16
+            ? { eyebrow: 'Lunchtime', icon: '🍱', body: 'Beat the 1 PM rush — order lunch before the queues form.', label: 'Order food', prompt: promptOf('food') }
+            : hour < 20
+              ? { eyebrow: 'This evening', icon: '🎶', body: "Plans tonight? See what's on around you.", label: 'Find events', prompt: promptOf('movie') }
+              : { eyebrow: 'Tonight', icon: '🍽', body: 'Dinner sorted? Order now and skip the late rush.', label: 'Order dinner', prompt: promptOf('food') };
+    return [
+      { id: 'fact', eyebrow: 'Did you know', icon: '💡', tone: 'saffron', body: heritageFact },
+      {
+        id: 'nudge',
+        eyebrow: nudge.eyebrow,
+        icon: nudge.icon,
+        tone: 'indigo',
+        body: nudge.body,
+        cta: { label: nudge.label, onClick: () => onSuggestionClick(nudge.prompt) },
+      },
+      {
+        id: 'cart',
+        eyebrow: 'Pick up where you left off',
+        icon: '🛒',
+        tone: 'green',
+        body: 'Anything waiting in your cart? Give it a quick look before it goes stale.',
+        cta: { label: 'Open my cart', onClick: () => onSuggestionClick(promptOf('reminder')) },
+      },
+    ];
+  }, [heritageFact, onSuggestionClick]);
 
   // Big, continuously-morphing mandala behind the hero: two stacked layers
   // crossfade to a freshly-generated pattern every ~7s (CSS adds a slow spin),
@@ -297,6 +346,9 @@ export function ChatArea({
               className="hidden sm:inline-block w-2 h-2 rounded-full bg-[#1a9d6b] ml-7"
               style={{ boxShadow: '-11px 0 0 #fff, -22px 0 0 #ff8a1e' }}
             />
+            <span className="hidden sm:inline text-[9px] font-bold tracking-[0.18em] uppercase text-[#a89db4] ml-3 mt-px">
+              From Bharat, For Bharat
+            </span>
           </div>
         </div>
 
@@ -371,85 +423,58 @@ export function ChatArea({
             className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6 no-scrollbar"
           >
             {messages.length === 0 ? (
-              <div className="h-full min-h-0 flex flex-col justify-start md:justify-center items-center text-center px-5 py-6 select-none w-full max-w-4xl mx-auto z-10 relative overflow-y-auto overflow-x-hidden md:overflow-hidden no-scrollbar">
-                {/* Big, continuously-morphing mandala (India palette) behind the
-                    hero — two layers crossfade to new generated patterns + slow spin.
-                    Shown whole (the ornate centre included) with a soft edge-fade. */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(880px,160%)] aspect-square pointer-events-none [mask-image:radial-gradient(circle_at_50%_50%,#000_58%,transparent_78%)] [-webkit-mask-image:radial-gradient(circle_at_50%_50%,#000_58%,transparent_78%)]">
-                  {[0, 1].map((layer) => (
-                    <Mandala
-                      key={layer}
-                      seed={mandalaSeeds[layer]}
-                      size={880}
-                      className={`absolute inset-0 w-full h-full mandala-spin transition-opacity duration-[2200ms] ease-in-out ${
-                        mandalaActive === layer ? 'opacity-[0.46]' : 'opacity-0'
-                      }`}
-                    />
-                  ))}
+              <div className="h-full min-h-0 flex flex-col justify-start md:justify-center items-center text-center px-5 py-1 md:py-6 select-none w-full max-w-4xl mx-auto z-10 relative overflow-y-auto overflow-x-hidden md:overflow-hidden no-scrollbar">
+                {/* Backdrop (mandala + veil) clipped to the hero so the oversized
+                    absolute layers never inflate the mobile scroll area. */}
+                <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
+                  {/* Big, continuously-morphing mandala (India palette) behind the
+                      hero — two layers crossfade to new generated patterns + slow spin.
+                      Shown whole (the ornate centre included) with a soft edge-fade. */}
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(880px,160%)] aspect-square [mask-image:radial-gradient(circle_at_50%_50%,#000_58%,transparent_78%)] [-webkit-mask-image:radial-gradient(circle_at_50%_50%,#000_58%,transparent_78%)]">
+                    {[0, 1].map((layer) => (
+                      <Mandala
+                        key={layer}
+                        seed={mandalaSeeds[layer]}
+                        size={880}
+                        className={`absolute inset-0 w-full h-full mandala-spin transition-opacity duration-[2200ms] ease-in-out ${
+                          mandalaActive === layer ? 'opacity-[0.46]' : 'opacity-0'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  {/* Soft ivory veil right behind the text block — lifts the
+                      headline/fact off the ornate mandala centre so it reads cleanly. */}
+                  <div
+                    className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[680px] h-[480px]"
+                    style={{
+                      background:
+                        'radial-gradient(ellipse 54% 58% at 50% 50%, rgba(253,250,243,0.94), rgba(253,250,243,0.66) 50%, transparent 76%)',
+                    }}
+                  />
                 </div>
-                {/* Soft ivory veil right behind the text block — lifts the
-                    headline/fact off the ornate mandala centre so it reads cleanly. */}
-                <div
-                  className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[680px] h-[480px] pointer-events-none"
-                  style={{
-                    background:
-                      'radial-gradient(ellipse 54% 58% at 50% 50%, rgba(253,250,243,0.94), rgba(253,250,243,0.66) 50%, transparent 76%)',
-                  }}
-                  aria-hidden
-                />
                 <motion.div
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.05, duration: 0.6, ease: 'easeOut' }}
                   className="relative z-10 my-auto flex flex-col items-center"
                 >
-                  {/* Tagline — the brand line, kept short. */}
-                  <div className="text-[12px] font-bold tracking-[0.18em] uppercase brand-gradient-text mb-3.5">
-                    ★ From Bharat, For Bharat ★
-                  </div>
-
                   {/* Headline — AI-generated personalized greeting (name, time of
-                      day, local weather, interests). Fades/swaps in when ready. */}
+                      day, local weather, interests). Fades/swaps in when ready;
+                      the user's name renders in the brand gradient. */}
                   <h1
-                    className={`font-display font-semibold text-[clamp(28px,5vw,46px)] leading-[1.08] tracking-tight mb-3.5 text-[#221b2e] max-w-[680px] transition-all duration-700 ease-out ${
+                    className={`font-display font-semibold text-[clamp(28px,5vw,46px)] leading-[1.08] tracking-tight mb-6 text-[#221b2e] max-w-[680px] transition-all duration-700 ease-out ${
                       greetingReady ? 'opacity-100 blur-0' : 'opacity-90'
                     }`}
                   >
-                    {greeting}
+                    {greetingWithAccent(greeting, username)}
                   </h1>
 
-                  {/* Subtitle */}
-                  <p className="text-[15px] md:text-base text-[#7a7388] max-w-[520px] mb-6">
-                    Order food &amp; groceries, book cabs, find events, track investments,
-                    set reminders, all in one place, in your language.
-                  </p>
-
-                  {/* Rotating heritage "Did you know?" fact — cloud fade */}
-                  <div className={`heritage-fact fact-rotate mb-7 ${factShown ? '' : 'is-fading'}`} aria-live="polite">
-                    <span>💡</span>
-                    <span>
-                      Did you know? <b>{heritageFact}</b>
-                    </span>
-                  </div>
-
-                  {/* Quick-prompt chips — wired to the existing handlers. */}
-                  <div className="flex flex-wrap gap-2.5 justify-center max-w-[640px]">
-                    {PROMPT_OPTIONS.map((option) => {
-                      const IconComponent = option.icon;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() => onSuggestionClick(option.prompt)}
-                          disabled={isThinking}
-                          className={`flex items-center gap-2 border rounded-[13px] px-3.5 py-2.5 text-[13.5px] font-medium bg-white/80 backdrop-blur-sm shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${option.color}`}
-                        >
-                          <IconComponent className="w-4 h-4" />
-                          <span>{option.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {/* One smart slot — heritage fact / contextual nudge / cart. */}
+                  <SmartCard
+                    slides={heroSlides}
+                    ctaDisabled={isThinking}
+                    onWrap={() => setFactIdx((prev) => nextFactIndex(prev))}
+                  />
                 </motion.div>
               </div>
             ) : (

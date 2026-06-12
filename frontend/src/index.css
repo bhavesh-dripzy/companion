@@ -149,20 +149,6 @@
   font-weight: 700;
 }
 
-/* Cloud-like rotation: the fact blurs + fades + lifts out, the new one drifts
-   back in. Toggled by the `.is-fading` class while the text swaps. */
-.fact-rotate {
-  transition:
-    opacity 0.8s var(--ease-fluid),
-    filter 0.8s var(--ease-fluid),
-    transform 0.8s var(--ease-fluid);
-}
-.fact-rotate.is-fading {
-  opacity: 0;
-  filter: blur(7px);
-  transform: translateY(-6px) scale(0.97);
-}
-
 /* Very slow continuous rotation for the big hero mandala. */
 @keyframes mandala-rotate { to { transform: rotate(360deg); } }
 .mandala-spin { animation: mandala-rotate 180s linear infinite; transform-origin: 50% 50%; will-change: transform; }
