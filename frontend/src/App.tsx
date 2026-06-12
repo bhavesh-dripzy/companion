@@ -9,7 +9,7 @@ import { RemindersPopup } from './components/RemindersPopup';
 import { OrdersPopup } from './components/OrdersPopup';
 import { CartDock } from './components/CartDock';
 import { VoiceStage } from './components/VoiceStage';
-import { api, clearToken, getToken } from './api';
+import { api, clearToken, clearRefreshToken, getToken } from './api';
 import type {
   Attachment,
   ChatSummary,
@@ -717,6 +717,7 @@ function App() {
 
   const handleLogout = () => {
     clearToken();
+    clearRefreshToken();
     setIsAuthenticated(false);
     setUsername('');
     setMessages([]);

@@ -60,14 +60,19 @@ def _jwt_secret() -> str:
 # ---------------------------------------------------------------------------
 
 ACCESS_TOKEN_EXPIRE_HOURS = 24
+REMEMBER_ME_EXPIRE_HOURS = 24 * 30
 
 
-def create_access_token(username: str) -> str:
-    """Issue a legacy self-signed JWT (used only when Cognito is unavailable)."""
+def create_access_token(username: str, long_lived: bool = False) -> str:
+    """Issue a legacy self-signed JWT (used only when Cognito is unavailable).
+
+    `long_lived` extends expiry from 24h to 30 days for remember-me logins.
+    """
+    hours = REMEMBER_ME_EXPIRE_HOURS if long_lived else ACCESS_TOKEN_EXPIRE_HOURS
     payload = {
         "sub": username,
         "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=hours),
     }
     return jwt.encode(payload, _jwt_secret(), algorithm="HS256")
 

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { api, setToken } from './api';
+import { api, setToken, setRefreshToken, clearRefreshToken } from './api';
 import { randomFact } from './data/indiaFacts';
 import type { AuthResponse } from './types';
 
@@ -10,6 +10,7 @@ interface LoginProps {
 export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -22,8 +23,17 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const data: AuthResponse = await api.post('/api/login/', { username, password });
+      const data: AuthResponse = await api.post('/api/login/', {
+        username,
+        password,
+        remember_me: rememberMe,
+      });
       setToken(data.access_token);
+      if (data.refresh_token) {
+        setRefreshToken(data.refresh_token);
+      } else {
+        clearRefreshToken();
+      }
       onLoginSuccess(data.username);
     } catch (err: any) {
       setError(err.message || 'Login failed');
@@ -89,6 +99,18 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               required
             />
           </div>
+
+          <label className="flex items-center gap-2.5 cursor-pointer select-none w-fit">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-4 h-4 rounded accent-[#2b2f72] cursor-pointer"
+            />
+            <span className="text-[13px] font-medium text-[#4a4458]">
+              Remember me on this device
+            </span>
+          </label>
 
           {error && (
             <div className="p-3 bg-[#e85d7a]/10 border border-[#e85d7a]/30 rounded-xl text-[#c23e5b] text-sm text-center">

@@ -7,6 +7,8 @@ export interface AuthResponse {
   access_token: string;
   token_type: string;
   username: string;
+  refresh_token?: string | null;
+  expires_in?: number | null;
 }
 
 export interface ToolProvider {
