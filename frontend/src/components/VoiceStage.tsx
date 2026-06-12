@@ -36,7 +36,7 @@ export const VoiceStage: React.FC<VoiceStageProps> = ({
   const captionRole = assistantCaption?.trim() ? 'assistant' : userCaption?.trim() ? 'user' : null;
 
   return (
-    <div className="fixed left-1/2 -translate-x-1/2 bottom-[108px] md:bottom-[118px] z-30 w-[min(92vw,560px)] pointer-events-none">
+    <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--safe-bottom)+108px)] md:bottom-[118px] z-30 w-[min(92vw,560px)] pointer-events-none">
       <div className="pointer-events-auto bg-[#14101d]/95 backdrop-blur-md border border-[#3a3450] rounded-2xl px-4 py-3 shadow-[0_24px_60px_-24px_rgba(20,16,29,0.9)] flex items-center gap-4">
         {/* Brand orb — conic dawn gradient, breathing ring while active. */}
         <div className="relative w-12 h-12 shrink-0">

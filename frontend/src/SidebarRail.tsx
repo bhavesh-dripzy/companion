@@ -133,7 +133,7 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
         className={`bg-white/85 md:bg-white/40 backdrop-blur-xl border-r border-slate-200/60 flex flex-col shrink-0 select-none transition-transform duration-300 ease-out ${
           // Mobile: fixed slide-in drawer. Desktop: in-flow column with
           // enough width for the chat list to be readable.
-          'fixed md:static inset-y-0 left-0 z-40 w-72 md:w-64 pt-[var(--safe-top)] md:pt-0'
+          'fixed md:static left-0 z-40 w-72 md:w-64 top-[var(--safe-top)] bottom-[var(--safe-bottom)] h-auto md:top-auto md:bottom-auto md:inset-y-0 md:h-full'
         } ${
           isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}

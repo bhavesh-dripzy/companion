@@ -10,6 +10,13 @@ const config: CapacitorConfig = {
   appId: 'in.houzzat.companion',
   appName: 'Companion',
   webDir: 'dist',
+  plugins: {
+    SystemBars: {
+      insetsHandling: 'css',
+      style: 'DEFAULT',
+      hidden: false,
+    },
+  },
 };
 
 export default config;

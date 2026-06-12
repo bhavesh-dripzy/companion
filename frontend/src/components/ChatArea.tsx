@@ -518,7 +518,7 @@ export function ChatArea({
           </div>
 
           {/* Bottom composer */}
-          <div className="p-4 bg-gradient-to-t from-[#f7f2ea]/95 via-[#f7f2ea]/30 to-transparent sticky bottom-0 left-0 right-0 z-20">
+          <div className="px-4 pt-4 pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#f7f2ea]/95 via-[#f7f2ea]/30 to-transparent sticky bottom-0 left-0 right-0 z-20">
             {/* Delivery address chip — visible + switchable BEFORE any
                 food/grocery search runs (no more wrong-house surprises). */}
             {sessionAddresses.length > 0 && onPickAddress && (

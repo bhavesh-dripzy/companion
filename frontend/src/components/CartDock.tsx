@@ -109,7 +109,7 @@ export const CartDock: React.FC<CartDockProps> = (props) => {
   if (entries.length === 0 || dismissed) return null;
 
   return (
-    <div className="fixed right-4 md:right-6 bottom-28 md:bottom-32 z-40 flex flex-col items-end gap-2">
+    <div className="fixed right-4 md:right-6 bottom-[calc(var(--safe-bottom)+7rem)] md:bottom-32 z-40 flex flex-col items-end gap-2">
       {entries.map((entry) => {
         const open = openKey === entry.key;
         return (
