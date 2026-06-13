@@ -49,6 +49,11 @@ _RESPONSE_PROMPT = (
     "An empty result list from a successful tool is valid data, not an error — say "
     "what it means using facts from the results (e.g. 'no showtimes today; it "
     "releases on 17 July'), and suggest the natural next step.\n"
+    "Respect release dates: if a result carries a release_date LATER than today's "
+    "date (shown in the clock line above), that title is NOT yet showing — say it "
+    "'releases on <date>', never 'now showing' / 'currently playing' / 'in "
+    "cinemas'. Only call a title currently showing when it has actual showtimes or "
+    "a release_date today or earlier.\n"
     "If an asked-about item is missing from this turn's results but appears in the "
     "'already seen earlier this session' lines, use that known price (note it was "
     "seen earlier) instead of claiming the item doesn't exist.\n"
@@ -77,17 +82,55 @@ def _conversation(ctx: PipelineContext) -> str:
     return "Conversation so far:\n" + "\n".join(lines)
 
 
+# Fields that label one card entry, in priority order. Spans every card kind
+# so the narrator's ground-truth line names entries from movies, shows, events,
+# flights, videos, news, instruments, … not just food rows.
+_ENTRY_LABEL_FIELDS = (
+    "name",
+    "item_name",
+    "title",
+    "movie_name",
+    "theatre_name",
+    "venue_name",
+    "tradingsymbol",
+    "place_name",
+    "code",
+    "fund",
+)
+# Top-level wire keys that are never the entry list.
+_NON_ENTRY_KEYS = frozenset({"kind", "source", "provider", "mime_type"})
+
+
+def _entry_list(wire: dict[str, Any]) -> list[Any]:
+    """The card's entry list, whatever field holds it (restaurants / movies /
+    flight_options / videos / …). Picks the longest top-level list-of-dicts so
+    any card kind — current or future — yields its true entry count without
+    enumerating field names. Fixes the narrator misreading multi-entry movie /
+    show / flight / video cards as '0 entries' → 'nothing found'."""
+    best: list[Any] = []
+    for key, value in wire.items():
+        if key in _NON_ENTRY_KEYS:
+            continue
+        if isinstance(value, list) and value and isinstance(value[0], dict) and len(value) > len(best):
+            best = value
+    return best
+
+
+def _entry_label(entry: dict[str, Any]) -> str:
+    for field in _ENTRY_LABEL_FIELDS:
+        value = entry.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 def _card_line(attachment: Any) -> str:
     """One 'Cards rendered' line: platform, kind, and the top entry names —
     ground truth the narrator can cite even when raw tool blobs are truncated."""
     wire = attachment.to_wire()
     source = str(wire.get("source") or wire.get("provider") or "").split(".")[0] or "unknown"
-    entries = wire.get("restaurants") or wire.get("items") or wire.get("products") or []
-    names = [
-        str(e.get("name") or e.get("item_name") or "").strip()
-        for e in entries[:6]
-        if isinstance(e, dict)
-    ]
+    entries = _entry_list(wire)
+    names = [_entry_label(e) for e in entries[:6] if isinstance(e, dict)]
     names = [n for n in names if n]
     extra = f", +{len(entries) - 6} more" if names and len(entries) > 6 else ""
     tail = f": {', '.join(names)}{extra}" if names else ""

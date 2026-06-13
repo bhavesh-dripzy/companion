@@ -195,6 +195,51 @@ def test_narrate_card_lines_name_platform_and_entries():
     assert "[zomato] menu_cards (1 entries): Royal Faluda" in summary
 
 
+def test_narrate_card_lines_cover_non_food_kinds():
+    """Movies / shows / flights / videos used to report '(0 entries)' (the entry
+    list lives under movies/shows/flight_options/videos, not restaurants/items)
+    — so the narrator read them as 'nothing found'. The generic extractor now
+    reports the true count + names where a label field exists."""
+    from types import SimpleNamespace
+
+    from core.contracts.session import SessionState
+    from core.pipeline.stages.narrate import _results_summary
+
+    ctx = SimpleNamespace(
+        provider_results=[],
+        blocked=[],
+        session=SessionState(),
+        attachments=[
+            Attachment(
+                kind="show_cards",
+                source="district.search_shows",
+                provider="district",
+                shows=[
+                    {"show_id": "1", "movie_name": "Kalki 2898 AD"},
+                    {"show_id": "2", "movie_name": "Jawan 2"},
+                ],
+            ),
+            Attachment(
+                kind="flight_cards",
+                source="serp.google_flights",
+                provider="serp",
+                flight_options=[{"price": 5240}, {"price": 4980}, {"price": 6110}],
+            ),
+            Attachment(
+                kind="video_cards",
+                source="serp.youtube",
+                provider="serp",
+                videos=[{"title": "How UPI rewired India's money"}],
+            ),
+        ],
+    )
+    summary = _results_summary(ctx)
+    # True counts (was 0 before), and names where a label field exists.
+    assert "[district] show_cards (2 entries): Kalki 2898 AD, Jawan 2" in summary
+    assert "[serp] flight_cards (3 entries)" in summary  # no per-row label → count only
+    assert "[serp] video_cards (1 entries): How UPI rewired India's money" in summary
+
+
 def test_pipeline_fanout_keeps_placeholders_provider_scoped():
     """End-to-end bhavesh regression: a two-provider comparison turn, then a
     follow-up — each provider's executor must see only its own learned ids."""
