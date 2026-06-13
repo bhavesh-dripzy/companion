@@ -18,9 +18,11 @@ from typing import Any
 
 from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode
-from core.contracts.tool_result import ProviderResult
+from core.contracts.tool_call import ToolCall
+from core.contracts.tool_result import ErrorCode, ProviderResult
+from core.middleware.errors import NeedsLocationError, result_from_exception
 from core.providers.base import ExecCtx
-from core.providers.mcp.connection import StdioSpec
+from core.providers.mcp.connection import StdioSpec, call_tool
 from core.providers.mcp.info_cards import build_info_cards
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
@@ -44,6 +46,43 @@ class ZeptoProvider(McpProvider):
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         url = os.getenv("ZEPTO_MCP_URL", _DEFAULT_URL)
         return remote_stdio_spec(url, user_id=ctx.user_id)
+
+    async def run(self, calls: list[ToolCall], ctx: ExecCtx) -> ProviderResult:
+        """Guard: return needs_location immediately if no GPS — avoids opening MCP session."""
+        geo = ctx.user_geo if isinstance(ctx.user_geo, dict) else {}
+        lat = geo.get("latitude", geo.get("lat"))
+        lng = geo.get("longitude", geo.get("lng"))
+        if lat is None or lng is None:
+            exc = NeedsLocationError("User location required to find your Zepto store.")
+            return ProviderResult(
+                provider=self.id,
+                results=[result_from_exception(c.tool, self.id, exc, arguments=c.arguments) for c in calls],
+                ok=False,
+                error=ErrorCode.NEEDS_LOCATION,
+                error_detail=str(exc),
+            )
+        return await super().run(calls, ctx)
+
+    async def before_run(self, session: Any, ctx: ExecCtx) -> None:
+        await super().before_run(session, ctx)
+        geo = ctx.user_geo if isinstance(ctx.user_geo, dict) else {}
+        lat = float(geo.get("latitude", geo.get("lat")))
+        lng = float(geo.get("longitude", geo.get("lng")))
+        ctx.placeholders["__USER_LAT__"] = lat
+        ctx.placeholders["__USER_LNG__"] = lng
+        # Proactively register the store for this MCP session so the planner's
+        # get_location_serviceability step is optional (each session is stateless).
+        try:
+            await call_tool(session, "get_location_serviceability", {"latitude": lat, "longitude": lng})
+            ctx.scratch["zepto_store_registered"] = True
+        except Exception:
+            pass  # planner-emitted serviceability call will be the fallback
+
+    def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
+        # Short-circuit the planner's serviceability call when already done proactively.
+        if tool == "get_location_serviceability" and ctx.scratch.get("zepto_store_registered"):
+            return {"is_error": False, "data": {"raw_text": "Store already registered for this session."}}
+        return None
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         return [

@@ -303,6 +303,7 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
+  const [pendingLocationQuery, setPendingLocationQuery] = useState<string | null>(null);
 
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
   const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
@@ -869,7 +870,36 @@ function App() {
     throw new Error('This is taking longer than expected — please try again.');
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleGrantLocation = async (geo: GeoCoordinate) => {
+    const query = pendingLocationQuery;
+    if (!query) return;
+    setPendingLocationQuery(null);
+    setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, askLocation: false } : m));
+    setIsThinking(true);
+    try {
+      const data: QueryResponse = await runTurn(buildAgentBody(query, geo));
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: data.assistant_message,
+        meta: (Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : []) as string[],
+        toolsOk: data.tool_execution?.ok !== false,
+        toolsError: data.tool_execution?.ok === false ? data.tool_execution?.error : undefined,
+        trace: data.observable_trace,
+        attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
+        provider: typeof data.routed_provider === 'string' && data.routed_provider ? data.routed_provider : undefined,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err: any) {
+      const msg = err?.reason === 'permission_denied'
+        ? "Location access was denied. Please allow it in browser settings and try again."
+        : "Couldn't get your location. Please try again.";
+      setMessages((prev) => [...prev, { role: 'assistant', content: msg }]);
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  const handleSendMessage = async (content: string, geoOverride?: import('./types').GeoCoordinate | null) => {
     const text = (content || '').trim();
     if (!text) return;
     const userMsg: Message = { role: 'user', content: text };
@@ -877,7 +907,7 @@ function App() {
     setIsThinking(true);
 
     try {
-      let data: QueryResponse = await runTurn(buildAgentBody(text, userLocation));
+      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? userLocation));
 
       const errorCode = (data as any)?.tool_execution?.error_code;
       if (errorCode === 'needs_location') {
@@ -894,11 +924,19 @@ function App() {
             unsupported: 'This browser does not expose location services.',
             unknown: 'I could not read your location.',
           };
-          setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', content: friendly[reason] || friendly.unknown },
-          ]);
-          return;
+          // If the first response had partial results (e.g. Instamart worked, Zepto needed location),
+          // show those results with a "Share location" button to retry Zepto.
+          if (data.assistant_message) {
+            setPendingLocationQuery(text);
+            // Flag the message so ChatMessageItem renders the grant-location button.
+            data = { ...data, _askLocation: true } as any;
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', content: friendly[reason] || friendly.unknown },
+            ]);
+            return;
+          }
         }
       }
 
@@ -914,6 +952,7 @@ function App() {
         attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
         provider:
           typeof data.routed_provider === 'string' && data.routed_provider ? data.routed_provider : undefined,
+        askLocation: !!(data as any)._askLocation,
       };
 
       if (data.session_state && typeof data.session_state === 'object') setSessionState(data.session_state);
@@ -1346,6 +1385,7 @@ function App() {
               if (!isThinking) handleSendMessage(prompt);
             }}
             quickPromptDisabled={isThinking}
+            onGrantLocation={handleGrantLocation}
             onVoiceTurn={handleVoiceTurn}
             onVoiceTurnComplete={handleVoiceTurnComplete}
             onVoiceToolCall={handleVoiceToolCall}

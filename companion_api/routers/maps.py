@@ -11,11 +11,23 @@ from companion_api.google_maps import (
     GeoPoint,
     GoogleMapsError,
     compute_route,
+    geocode_address,
     google_maps_configured,
 )
 from companion_api.models import MapsRouteRequest
 
 router = APIRouter()
+
+
+@router.get("/api/maps/geocode/")
+def maps_geocode(q: str, _user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """Geocode a free-text address/area into lat+lng. Used by the location picker."""
+    if not q.strip():
+        raise HTTPException(status_code=422, detail="q is required")
+    point = geocode_address(q.strip(), region="in")
+    if point is None:
+        raise HTTPException(status_code=404, detail="Location not found")
+    return {"latitude": point.latitude, "longitude": point.longitude, "formatted": q.strip()}
 
 
 @router.get("/api/maps/status/")

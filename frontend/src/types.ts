@@ -747,6 +747,9 @@ export interface Message {
   // substring-scanning the assistant text for "swiggy"/"zomato" — which
   // almost never appears in natural Hinglish replies about Burger King.
   provider?: string;
+  // When Zepto needed location but geo failed, mark this message so the UI
+  // can show a "Share location" button to retry with fresh coordinates.
+  askLocation?: boolean;
 }
 
 export interface SessionRestaurant {

@@ -20,7 +20,7 @@ import { INDIA_FACTS, nextFactIndex } from '../data/indiaFacts';
 import { Mandala } from './Mandala';
 import { SmartCard, type SmartCardSlide } from './SmartCard';
 import { prefetchHeroGreeting, readCachedGreeting } from '../heroGreeting';
-import type { Message, SessionAddress } from '../types';
+import type { GeoCoordinate, Message, SessionAddress } from '../types';
 
 interface ChatAreaProps {
   messages: Message[];
@@ -52,6 +52,7 @@ interface ChatAreaProps {
   /** Hero image shown on the empty state. Overridable so we don't
    *  hard-fail offline / blocked-CDN setups. */
   heroImageUrl?: string;
+  onGrantLocation?: (geo: GeoCoordinate) => void;
 }
 
 /**
@@ -150,6 +151,7 @@ export function ChatArea({
   getVoiceContext,
   selectedAddressId,
   onPickAddress,
+  onGrantLocation,
 }: ChatAreaProps) {
   const [inputValue, setInputValue] = useState('');
   // In-chat message search — preserved from the prior skin so users can
@@ -498,6 +500,7 @@ export function ChatArea({
                       onSelectAddress={onSelectAddress}
                       onQuickPrompt={onQuickPrompt}
                       quickPromptDisabled={quickPromptDisabled}
+                      onGrantLocation={onGrantLocation}
                     />
                   );
                 })}

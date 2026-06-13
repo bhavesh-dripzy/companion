@@ -34,7 +34,7 @@ EXECUTION CONTRACT (deterministic plumbing only — every literal argument is YO
 
 9. PAST-ORDER PRIMING is NOT automatic. Call `get_past_order_items` ONLY when the user asks "what do I usually buy / reorder / my regulars". Do not sprinkle it before searches.
 
-10. SERVICEABILITY / STORE — call `get_location_serviceability` (with the `__USER_LAT__`/`__USER_LNG__` strings) once at the start of a fresh shopping turn, or when the user changes city, to register the store context. `select_store` is rarely needed — serviceability already wires the primary store.
+10. SERVICEABILITY / STORE — MANDATORY FIRST STEP EVERY TURN: The Zepto MCP session is stateless — the store must be registered at the start of every turn. You MUST always emit `get_location_serviceability` with `{"latitude":"__USER_LAT__","longitude":"__USER_LNG__"}` as the FIRST tool in tool_plan, before any search, cart, or order tool. Never skip or defer this step for any reason — a missing store registration causes every downstream tool to fail with "store not selected". `select_store` is rarely needed — serviceability already wires the primary store.
 
 11. ORDERS — `list_order_history` ({limit defaults 10, pageNumber}); `get_order_detail` needs `orderId` (use `__ZEPTO_ORDER_ID__`). `check_payment_status` ONLY if a prior create_online_payment_order / check_payment_status response told you to poll.
 

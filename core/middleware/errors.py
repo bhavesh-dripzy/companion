@@ -37,6 +37,10 @@ class UnresolvedPlaceholderError(ProviderError):
     code = ErrorCode.UNRESOLVED_PLACEHOLDER
 
 
+class NeedsLocationError(ProviderError):
+    code = ErrorCode.NEEDS_LOCATION
+
+
 class ToolTimeoutError(ProviderError):
     code = ErrorCode.TOOL_TIMEOUT
 

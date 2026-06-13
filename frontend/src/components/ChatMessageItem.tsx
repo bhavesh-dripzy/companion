@@ -15,7 +15,8 @@ import { motion } from 'motion/react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { AddressChoices, AttachmentList, looksLikeAddressPrompt } from '../ChatLog';
 import { ActivityTrail } from './ActivityTrail';
-import type { Message, SessionAddress } from '../types';
+import { LocationPicker } from './LocationPicker';
+import type { GeoCoordinate, Message, SessionAddress } from '../types';
 
 interface ChatMessageItemProps {
   msg: Message;
@@ -35,6 +36,8 @@ interface ChatMessageItemProps {
    *  agent (e.g. "Add Margherita Pizza to my Zomato cart"). */
   onQuickPrompt?: (prompt: string) => void;
   quickPromptDisabled?: boolean;
+  /** Called with geocoded coordinates when the user submits the location picker. */
+  onGrantLocation?: (geo: GeoCoordinate) => void;
 }
 
 const formatBubbleTimestamp = (iso?: string): string => {
@@ -54,6 +57,7 @@ export function ChatMessageItem({
   onSelectAddress,
   onQuickPrompt,
   quickPromptDisabled,
+  onGrantLocation,
 }: ChatMessageItemProps) {
   const isUser = msg.role === 'user';
   const [liked, setLiked] = React.useState<'up' | 'down' | null>(null);
@@ -118,6 +122,11 @@ export function ChatMessageItem({
             when the body actually asks the user to pick one. */}
         {showAddressPicker && onSelectAddress && (
           <AddressChoices addresses={sessionAddresses} onSelect={onSelectAddress} />
+        )}
+
+        {/* Inline location picker — shown when Zepto needed GPS but it was unavailable */}
+        {!isUser && msg.askLocation && isLatestAssistant && !isThinking && onGrantLocation && (
+          <LocationPicker onConfirm={onGrantLocation} />
         )}
 
         {/* Human activity trail — replaces the raw meta chips + "View trace
