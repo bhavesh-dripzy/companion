@@ -226,7 +226,24 @@ class GraphStack(Stack):
             )
         )
 
-        # 8. User Data (Shell Script to run at boot)
+        # 8a. Persistent Neo4j data volume — created here so its volume_id
+        # can be interpolated into the user-data env file below. The volume's
+        # AZ is pinned to the first AZ of the region; the instance lands in a
+        # public subnet of the default VPC (same AZ by default). On instance
+        # replacement the old volume is RETAIN'd and user-data re-attaches it
+        # so graph data survives AMI bumps.
+        data_volume = ec2.Volume(
+            self,
+            "GraphDataVolumeV2",
+            availability_zone=cdk.Fn.select(0, cdk.Fn.get_azs(self.region)),
+            size=cdk.Size.gibibytes(20),
+            volume_type=ec2.EbsDeviceVolumeType.GP3,
+            encrypted=True,
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+        data_volume.apply_removal_policy(RemovalPolicy.RETAIN)
+
+        # 8b. User Data (Shell Script to run at boot)
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(
             "echo '--- Starting Bootstrap ---'",
@@ -240,6 +257,37 @@ class GraphStack(Stack):
             f"NEO4J_SECRET=$(aws secretsmanager get-secret-value --secret-id {project_name}/neo4j-key --region {self.region} --query SecretString --output text)",
             "NEO4J_PASSWORD=$(python3 -c \"import json; print(json.loads('''$NEO4J_SECRET''')['password'])\")",
             
+            # Write the companion env file early so the attach-volume block
+            # below can read GRAPH_DATA_VOLUME_ID from it.
+            "mkdir -p /etc/companion",
+            f"cat <<EOF > /etc/companion/env\n"
+            f"AWS_REGION={self.region}\n"
+            f"PROFILE_CACHE_TABLE={self.profile_cache.table_name}\n"
+            f"LEAD_CACHE_TABLE={self.lead_cache.table_name}\n"
+            f"MESSAGES_TABLE={project_name}-messages\n"
+            f"LEADGEN_QUEUE_URL={self.turns_queue.queue_url}\n"
+            f"PROJECT_NAME={project_name}\n"
+            f"GRAPH_DATA_VOLUME_ID={data_volume.volume_id}\n"
+            f"EOF",
+
+            # Attach the persistent data volume at /dev/sdf via the EC2 API.
+            # We can't use a CfnVolumeAttachment here: on instance replacement
+            # it races with the old attachment and fails with "vol-X is
+            # already attached". Doing it in user-data after the instance
+            # is up means the old instance is fully gone, and the attach
+            # can be retried.
+            "DATA_VOL_ID=$(grep '^GRAPH_DATA_VOLUME_ID=' /etc/companion/env | cut -d= -f2-)",
+            "INSTANCE_ID=$(curl -s -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "
+            "  -H 'X-aws-ec2-metadata-token: $(curl -s -X PUT "
+            "    'http://169.254.169.254/latest/api/token' "
+            "    -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')' "
+            "  http://169.254.169.254/latest/meta-data/instance-id)",
+            "if [ -n \"$DATA_VOL_ID\" ] && [ -n \"$INSTANCE_ID\" ]; then "
+            "  aws ec2 attach-volume --volume-id \"$DATA_VOL_ID\" --instance-id \"$INSTANCE_ID\" "
+            "    --device /dev/sdf --region $(grep '^AWS_REGION=' /etc/companion/env | cut -d= -f2-) "
+            "    || echo 'attach-volume failed (volume may already be attached); continuing'; "
+            "fi",
+
             # Mount the persistent data volume at /var/lib/neo4j so graph data
             # survives instance replacement (AMI updates). The attachment lands
             # after boot, so wait for the device; format only if blank.
@@ -298,23 +346,6 @@ class GraphStack(Stack):
             "[Install]\n"
             "WantedBy=multi-user.target\n"
             "EOF",
-            
-            # Setup graph-service environment and systemd services
-            "mkdir -p /etc/companion",
-            f"cat <<EOF > /etc/companion/env\n"
-            f"AWS_REGION={self.region}\n"
-            # Use the CDK-created cache tables (which GraphEc2Role is granted
-            # write access to and the API Lambda reads). Hardcoding
-            # "{project_name}-profile-cache" / defaulting LEAD_CACHE_TABLE to
-            # "{project_name}-lead-cache" pointed the worker at tables it
-            # couldn't write to AND the dashboard never reads — silently
-            # breaking leadgen + profile personalization.
-            f"PROFILE_CACHE_TABLE={self.profile_cache.table_name}\n"
-            f"LEAD_CACHE_TABLE={self.lead_cache.table_name}\n"
-            f"MESSAGES_TABLE={project_name}-messages\n"
-            f"LEADGEN_QUEUE_URL={self.turns_queue.queue_url}\n"
-            f"PROJECT_NAME={project_name}\n"
-            f"EOF",
             
             # Systemd Service for fastapi graph-service
             "cat <<EOF > /etc/systemd/system/graph-service.service\n"
@@ -422,27 +453,7 @@ class GraphStack(Stack):
             ],
         )
 
-        # 9b. Persistent Neo4j data volume — survives instance replacement
-        # (RETAIN + separate attachment), so AMI bumps can't wipe the graph
-        # again. User-data formats it once and mounts it at /var/lib/neo4j.
-        data_volume = ec2.Volume(
-            self,
-            "GraphDataVolume",
-            availability_zone=instance.instance_availability_zone,
-            size=cdk.Size.gibibytes(20),
-            volume_type=ec2.EbsDeviceVolumeType.GP3,
-            encrypted=True,
-            removal_policy=RemovalPolicy.RETAIN,
-        )
-        ec2.CfnVolumeAttachment(
-            self,
-            "GraphDataAttachment",
-            device="/dev/sdf",
-            instance_id=instance.instance_id,
-            volume_id=data_volume.volume_id,
-        )
-
-        # 10. Elastic IP (EIP)
+        # 9. Elastic IP (EIP)
         eip = ec2.CfnEIP(
             self,
             "GraphEip",
