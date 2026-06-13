@@ -35,8 +35,10 @@ DEFAULT_SYSTEM_PROMPT = (
     "Be warm, friendly, and concise. Keep responses brief."
 )
 
-app = FastAPI(title="Companion Voice Bridge")
 
+# ---------------------------------------------------------------------------
+# Secrets loading (must be defined before _load_secrets() is called below)
+# ---------------------------------------------------------------------------
 
 def _load_secrets() -> None:
     """Load Gemini API key from AWS Secrets Manager."""
@@ -65,6 +67,15 @@ def _gemini_api_key() -> str:
     if not key:
         raise RuntimeError("GEMINI_API_KEY not configured")
     return key
+
+
+# Pre-load secrets at startup so GEMINI_API_KEY is available for WebSocket sessions.
+# The systemd unit does NOT set this env var; it only loads /etc/companion/env which
+# lacks it. _load_secrets() reads {project_name}/app from Secrets Manager — the same
+# secret the Lambda and leadgen-worker load explicitly.
+_load_secrets()
+
+app = FastAPI(title="Companion Voice Bridge")
 
 
 # ---------------------------------------------------------------------------

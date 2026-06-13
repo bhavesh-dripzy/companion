@@ -376,7 +376,11 @@ class GraphStack(Stack):
             "    reverse_proxy 127.0.0.1:8000\n"
             "}\n"
             f"voice.{domain_name} {{\n"
-            "    reverse_proxy 127.0.0.1:8001\n"
+            "    reverse_proxy 127.0.0.1:8001 {\n"
+            "        # Allow long-lived WebSocket connections for Twilio Media Streams\n"
+            "        # (audio sessions can run 15+ minutes without dropping).\n"
+            "        max_duration 0\n"
+            "    }\n"
             "}\n"
             "EOF",
             
