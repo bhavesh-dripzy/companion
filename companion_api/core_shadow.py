@@ -96,13 +96,20 @@ def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
     """Legacy ``{ok, error?, error_code?}`` summary for the frontend.
 
     error_code prefers a provider's granular code (e.g. ``needs_location``) and
-    falls back to the coarse ErrorCode enum."""
+    falls back to the coarse ErrorCode enum. location_needed_by names the provider
+    that failed with needs_location so the frontend can retry only that one."""
+    from core.contracts.tool_result import ErrorCode
+
     failed = [r for r in results if not r.ok]
     if not failed:
         return {"ok": True}
     first = failed[0]
     error_code: str | None = None
     error_msg = first.error_detail
+    location_needed_by: str | None = None
+    for r in results:
+        if r.error == ErrorCode.NEEDS_LOCATION and location_needed_by is None:
+            location_needed_by = r.provider
     for tr in first.results:
         if tr.ok:
             continue
@@ -112,7 +119,10 @@ def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
             error_msg = tr.error_detail
     if error_code is None and first.error is not None:
         error_code = first.error.value
-    return {"ok": False, "error": error_msg or "Tool execution failed.", "error_code": error_code}
+    out: dict[str, Any] = {"ok": False, "error": error_msg or "Tool execution failed.", "error_code": error_code}
+    if location_needed_by:
+        out["location_needed_by"] = location_needed_by
+    return out
 
 
 def _to_envelope(response: TurnResponse, chat_id: str | None) -> dict[str, Any]:

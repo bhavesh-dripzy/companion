@@ -31,6 +31,12 @@ _RESPONSE_PROMPT = (
     "If some tools failed while others succeeded, lead with what succeeded and "
     "mention the failure only if it blocks what the user asked for. NEVER give a "
     "blanket 'technical issue' apology while results are being shown.\n"
+    "When a grocery provider (swiggy_instamart or zepto) fails with a "
+    "NOT_SERVICEABLE error (address not in delivery zone, item out of stock, or "
+    "area not covered), explicitly tell the user that platform cannot deliver to "
+    "their address, then suggest trying the other grocery platform by name — e.g. "
+    "if Instamart is not serviceable suggest Zepto, and vice versa. Keep it brief "
+    "and actionable: one sentence on why it failed, one sentence suggesting the alternative.\n"
     "You DO have live web access through tools: news/headlines on any topic, "
     "video search, flights, hotels, product prices, maps, and stock quotes. NEVER "
     "tell the user you lack real-time news, web, or video access, and never cite a "
@@ -141,7 +147,12 @@ def _results_summary(ctx: PipelineContext) -> str:
     parts: list[str] = []
     for result in ctx.provider_results:
         for tool_result in result.results:
-            status = "ok" if tool_result.ok else f"error:{tool_result.error}"
+            if tool_result.ok:
+                status = "ok"
+            else:
+                status = f"error:{tool_result.error}"
+                if tool_result.error and tool_result.error.value == "not_serviceable":
+                    status = "NOT_SERVICEABLE"
             blob = _result_blob(ctx, result.provider, tool_result)
             parts.append(f"[{result.provider}.{tool_result.tool} {status}] {blob}")
     if ctx.blocked:

@@ -27,17 +27,23 @@ from companion_api.cognito_auth import (
     verify_cognito_token,
 )
 from companion_api.secrets import secret_or_env
+import companion_api.settings  # noqa: F401 — load .env before legacy cred reads
 
 # ---------------------------------------------------------------------------
 # Legacy admin (env vars only — no hardcoded credentials)
 # ---------------------------------------------------------------------------
 
-_LEGACY_ADMIN_USERNAME = os.getenv("LEGACY_ADMIN_USERNAME", "").strip()
-_LEGACY_ADMIN_PASSWORD = os.getenv("LEGACY_ADMIN_PASSWORD", "").strip()
+
+def _legacy_creds() -> tuple[str, str]:
+    return (
+        os.getenv("LEGACY_ADMIN_USERNAME", "").strip(),
+        os.getenv("LEGACY_ADMIN_PASSWORD", "").strip(),
+    )
 
 
 def _legacy_admin_enabled() -> bool:
-    return bool(_LEGACY_ADMIN_USERNAME and _LEGACY_ADMIN_PASSWORD)
+    user, password = _legacy_creds()
+    return bool(user and password)
 
 
 def _jwt_secret() -> str:
@@ -46,8 +52,9 @@ def _jwt_secret() -> str:
     if explicit:
         return explicit
     if _legacy_admin_enabled():
+        user, password = _legacy_creds()
         return hashlib.sha256(
-            f"companion:{_LEGACY_ADMIN_USERNAME}:{_LEGACY_ADMIN_PASSWORD}".encode()
+            f"companion:{user}:{password}".encode()
         ).hexdigest()
     # No JWT_SECRET and no legacy admin — generate an ephemeral key.
     # This means tokens won't survive restarts; Cognito is required for
@@ -95,7 +102,8 @@ def validate_admin_login(username: str, password: str) -> bool:
     """Validate legacy admin credentials (env-var based)."""
     if not _legacy_admin_enabled():
         return False
-    return username == _LEGACY_ADMIN_USERNAME and password == _LEGACY_ADMIN_PASSWORD
+    expected_user, expected_password = _legacy_creds()
+    return username == expected_user and password == expected_password
 
 
 # ---------------------------------------------------------------------------

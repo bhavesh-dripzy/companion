@@ -34,6 +34,18 @@ class Route:
         self._prompt = prompt or _orchestrator_prompt()
 
     async def run(self, ctx: PipelineContext) -> None:
+        # force_providers bypasses the orchestrator entirely — used for location retries
+        # so the retry doesn't stick to the previous provider and miss Zepto.
+        if ctx.request.force_providers:
+            ctx.routing = fallback_routing(None)
+            ctx.routing = ctx.routing.__class__(
+                task_type="food_delivery",
+                providers=list(ctx.request.force_providers),
+                reasoning="forced by request",
+                previous_provider=None,
+            )
+            ctx.tracer.event("route", task=ctx.routing.task_type, providers=list(ctx.routing.providers))
+            return
         previous = extract_previous_provider(ctx.request.history)
         framed = frame_message(ctx.request.message, previous)
         try:

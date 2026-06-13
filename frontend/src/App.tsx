@@ -304,6 +304,7 @@ function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const [pendingLocationQuery, setPendingLocationQuery] = useState<string | null>(null);
+  const [pendingLocationProvider, setPendingLocationProvider] = useState<string | null>(null);
 
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
   const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
@@ -412,6 +413,9 @@ function App() {
   );
 
   const { location: userLocation, ensureLocation } = useUserLocation();
+  // Persists geo across turns once the user grants it (hook only auto-captures on mount).
+  const [grantedGeo, setGrantedGeo] = useState<import('./types').GeoCoordinate | null>(null);
+  const effectiveGeo = grantedGeo ?? userLocation;
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -797,7 +801,7 @@ function App() {
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
 
-  const buildAgentBody = (content: string, geo?: GeoCoordinate | null) => {
+  const buildAgentBody = (content: string, geo?: GeoCoordinate | null, forceProviders?: string[] | null) => {
     const body: Record<string, any> = {
       message: content,
       address_id: selectedAddressId || '',
@@ -845,6 +849,7 @@ function App() {
     if (sessionKiteOpenOrders.length > 0) body.session_kite_open_orders = sessionKiteOpenOrders;
     if (sessionKiteOrderTicket) body.session_kite_order_ticket = sessionKiteOrderTicket;
     if (chatId) body.chat_id = chatId;
+    if (forceProviders && forceProviders.length > 0) body.force_providers = forceProviders;
     return body;
   };
 
@@ -872,13 +877,16 @@ function App() {
 
   const handleGrantLocation = async (geo: GeoCoordinate) => {
     const query = pendingLocationQuery;
+    const provider = pendingLocationProvider;
     if (!query) return;
     setPendingLocationQuery(null);
+    setPendingLocationProvider(null);
+    setGrantedGeo(geo);
     setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, askLocation: false } : m));
     setIsThinking(true);
     try {
-      const data: QueryResponse = await runTurn(buildAgentBody(query, geo));
-      const assistantMsg: Message = {
+      const data: QueryResponse = await runTurn(buildAgentBody(query, geo, provider ? [provider] : null));
+const assistantMsg: Message = {
         role: 'assistant',
         content: data.assistant_message,
         meta: (Array.isArray(data.selected_tool_providers) ? data.selected_tool_providers : []) as string[],
@@ -907,12 +915,13 @@ function App() {
     setIsThinking(true);
 
     try {
-      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? userLocation));
+      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? effectiveGeo));
 
       const errorCode = (data as any)?.tool_execution?.error_code;
       if (errorCode === 'needs_location') {
         try {
           const fresh = await ensureLocation();
+          setGrantedGeo(fresh);
           data = await runTurn(buildAgentBody(text, fresh));
         } catch (geoErr: any) {
           const reason = geoErr?.reason ?? 'unknown';
@@ -928,6 +937,7 @@ function App() {
           // show those results with a "Share location" button to retry Zepto.
           if (data.assistant_message) {
             setPendingLocationQuery(text);
+            setPendingLocationProvider((data as any).tool_execution?.location_needed_by ?? null);
             // Flag the message so ChatMessageItem renders the grant-location button.
             data = { ...data, _askLocation: true } as any;
           } else {

@@ -262,22 +262,25 @@ export interface ZeptoCart {
 }
 
 // Instamart product / cart shapes — mirrors the Zepto types above but
-// keyed on Instamart's ``spin_id`` (per-variant cart key). Products are
-// flattened to one entry per variant (pack size) so each card maps 1:1
-// to a cart line.
-export interface InstamartProductCardEntry {
+export interface InstamartVariant {
   spin_id: string;
-  product_id?: string | null;
-  parent_product_id?: string | null;
-  name: string;
-  brand?: string | null;
   quantity_description?: string | null;
   price_inr?: number | null;
   mrp_inr?: number | null;
   image_url?: string | null;
   in_stock?: boolean;
+}
+
+// Product-level entry: one card per product, variants listed inside.
+// The last variant (index -1) is the smallest pack shown by default.
+export interface InstamartProductCardEntry {
+  product_id?: string | null;
+  parent_product_id?: string | null;
+  name: string;
+  brand?: string | null;
   is_promoted?: boolean;
   query?: string | null;
+  variants: InstamartVariant[];
 }
 
 export interface InstamartCartItem {

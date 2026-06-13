@@ -30,27 +30,37 @@ def _products_block(session_instamart_products: Any) -> str | None:
         if not isinstance(entry, dict):
             continue
         name = str(entry.get("name") or "").strip()
-        spin = str(entry.get("spin_id") or "").strip()
-        if not name or not spin:
+        if not name:
             continue
-        price = entry.get("price_inr")
-        pack = entry.get("quantity_description")
-        tail_bits: list[str] = []
-        if pack:
-            tail_bits.append(str(pack))
-        if isinstance(price, int | float) and not isinstance(price, bool):
-            tail_bits.append(f"₹{price:g}")
-        tail = f" — {' / '.join(tail_bits)}" if tail_bits else ""
-        rows.append(f"  - {name}{tail} → spinId={spin}")
+        brand = str(entry.get("brand") or "").strip()
+        header = f"  - {name}" + (f" ({brand})" if brand else "") + ":"
+        variants = entry.get("variants")
+        if not isinstance(variants, list) or not variants:
+            continue
+        var_lines: list[str] = []
+        for var in variants:
+            if not isinstance(var, dict):
+                continue
+            spin_id = str(var.get("spin_id") or "").strip()
+            if not spin_id:
+                continue
+            qty = str(var.get("quantity_description") or "").strip() or "?"
+            price = var.get("price_inr")
+            price_str = f" ₹{price:g}" if isinstance(price, int | float) and not isinstance(price, bool) else ""
+            var_lines.append(f"      {qty}{price_str} → spinId={spin_id}")
+        if not var_lines:
+            continue
+        rows.append(header)
+        rows.extend(var_lines)
     if not rows:
         return None
     return (
         "Instamart products already shown to the user this session — "
-        "when the user picks one by name (or asks to add it / change "
-        "qty / remove it), copy the literal spinId below into "
+        "when the user picks one by name, copy the literal spinId below into "
         "`update_cart.items[]` instead of re-running `search_products`. "
-        "Each row is one variant (pack size) — the user must explicitly "
-        "pick a variant before any add-to-cart:\n" + "\n".join(rows)
+        "Each product lists its variants (pack sizes) — if the user hasn't "
+        "specified a variant, ask them to pick one before adding to cart:\n"
+        + "\n".join(rows)
     )
 
 

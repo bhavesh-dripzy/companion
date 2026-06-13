@@ -104,6 +104,11 @@ _AGNOSTIC_GROUPS = (
     ("zomato", "swiggy_food"),
     ("swiggy_instamart", "zepto"),
 )
+
+# Grocery providers always fan out on every generic discovery turn — both
+# platforms are checked until the user explicitly names one. Food ordering
+# uses stickiness instead (once mid-order on Zomato, stay there).
+_ALWAYS_FANOUT: frozenset[str] = frozenset({"swiggy_instamart", "zepto"})
 _PROVIDER_NAME_HINTS = (
     "zomato",
     "swiggy",
@@ -147,8 +152,13 @@ def expand_agnostic(
         return decision
     if message_is_transactional(message):
         return decision
-    if decision.previous_provider and decision.previous_provider in decision.providers:
-        return decision
+    # Grocery providers (Instamart + Zepto) always fanout on generic discovery —
+    # skip stickiness so both are checked every turn until the user names one.
+    # Food ordering (Zomato/Swiggy) keeps stickiness — stays on current provider mid-flow.
+    in_always_fanout = any(p in _ALWAYS_FANOUT for p in decision.providers)
+    if not in_always_fanout:
+        if decision.previous_provider and decision.previous_provider in decision.providers:
+            return decision
     providers: list[str] = []
     for group in _AGNOSTIC_GROUPS:
         if any(p in group for p in decision.providers):

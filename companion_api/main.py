@@ -15,6 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 from starlette.responses import Response as StarletteResponse
 
+import companion_api.settings  # loads .env before auth reads LEGACY_ADMIN_*
+
 from companion_api.auth import (
     get_current_user,
 )

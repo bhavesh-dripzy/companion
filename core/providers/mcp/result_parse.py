@@ -67,8 +67,9 @@ def tool_result_payload(result: Any) -> dict[str, Any]:
             out["images"] = images
         if attachments:
             out["attachments"] = attachments
-        if getattr(result, "structuredContent", None) is not None:
-            out["data"] = result.structuredContent
+        structured = getattr(result, "structuredContent", None)
+        if structured:  # non-empty only — empty {} still has useful content blocks
+            out["data"] = structured
             return out
         out["data"] = _parse_content_blocks(result)
         return out

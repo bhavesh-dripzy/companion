@@ -21,6 +21,7 @@ class ErrorCode(str, Enum):
     INVALID_ARGS = "invalid_args"  # failed schema validation
     UNRESOLVED_PLACEHOLDER = "unresolved_placeholder"  # __CART_ID__ never supplied
     NEEDS_LOCATION = "needs_location"  # provider needs GPS coords, none available
+    NOT_SERVICEABLE = "not_serviceable"  # address not in delivery zone / item out of stock
     TOOL_TIMEOUT = "tool_timeout"
     UPSTREAM_ERROR = "upstream_error"  # provider returned an error envelope
     CONFIRMATION_REQUIRED = "confirmation_required"

@@ -1,27 +1,19 @@
-// Swiggy Instamart-specific chat card components.
+// Swiggy Instamart chat card components.
 //
-// Mirrors ZeptoCards.tsx but keyed on Instamart's ``spin_id`` (per-variant
-// cart key). Two card kinds:
-//   * `instamart_product_cards` — grid of grocery products with a one-tap
-//     "Add to cart" action. The button synthesises a `update_cart` intent
-//     ("Add <variant name> to my Instamart cart") and pushes it through the
-//     same /api/agent/query/ pipeline as a typed message, so the planner
-//     copies the spinId out of session_instamart_products and the executor
-//     adds it without a round-trip search.
-//   * `instamart_cart_card` — live receipt of the current Instamart cart,
-//     with a "Place order" CTA that fires the provider-specific checkout
-//     prompt.
-//
-// Theme is amber (Swiggy's brand colour) — distinct from Zepto violet so
-// the chat scroll stays scannable.
+// One card per product (not per variant). The last variant in the array
+// (smallest/cheapest pack — Instamart returns descending order) is shown
+// by default. Clicking the variant pill opens a bottom sheet where the
+// user picks a pack size; the ADD button fires a natural-language prompt
+// that the planner resolves to the correct spinId via session context.
 
 import React, { useState } from 'react';
-import { Plus, ShoppingCart, Sparkles, Receipt, Tag } from 'lucide-react';
+import { Plus, ShoppingCart, X, Receipt, Tag } from 'lucide-react';
 import type {
   Attachment,
   InstamartCart,
   InstamartCartItem,
   InstamartProductCardEntry,
+  InstamartVariant,
 } from '../types';
 import { cn } from '../utils';
 import { themeFor } from '../ChatLog';
@@ -59,122 +51,272 @@ const InstamartGridHeader: React.FC<{
   );
 };
 
-// Per-variant product tile. The Add-to-cart CTA names the brand + name +
-// pack so the planner uniquely resolves the spinId out of the session
-// product index (Instamart product names are often ambiguous across pack
-// sizes — "Amul Gold Milk" 500ml vs 1L share the same displayName).
+// Bottom sheet for picking a variant (pack size).
+const VariantSelectorSheet: React.FC<{
+  product: InstamartProductCardEntry;
+  selectedIdx: number;
+  onSelect: (idx: number) => void;
+  onAdd: (variant: InstamartVariant) => void;
+  onClose: () => void;
+  disabled?: boolean;
+}> = ({ product, selectedIdx, onSelect, onAdd, onClose, disabled }) => {
+  const theme = themeFor('instamart');
+  const selected = product.variants[selectedIdx];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div
+        className="relative w-full max-w-lg bg-white rounded-t-2xl shadow-xl pb-safe"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <div>
+            <p className="text-[15px] font-bold text-slate-900">Select variant</p>
+            {selected?.quantity_description && (
+              <p className="text-[12px] text-slate-400 mt-0.5">
+                Quantity: {selected.quantity_description}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* Variant grid */}
+        <div className="px-4 pb-3 grid grid-cols-3 gap-2.5 max-h-[45vh] overflow-y-auto">
+          {product.variants.map((v, idx) => {
+            const isSelected = idx === selectedIdx;
+            const outOfStock = v.in_stock === false;
+            const price = formatPriceFromInr(v.price_inr);
+            return (
+              <button
+                key={v.spin_id}
+                type="button"
+                disabled={outOfStock}
+                onClick={() => onSelect(idx)}
+                className={cn(
+                  'flex flex-col items-center gap-1.5 p-2 rounded-xl border-2 transition-all text-left',
+                  isSelected ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 bg-white hover:border-slate-300',
+                  outOfStock && 'opacity-40 cursor-not-allowed',
+                )}
+              >
+                <div className="w-full aspect-square rounded-lg overflow-hidden bg-slate-50">
+                  {v.image_url ? (
+                    <img
+                      src={v.image_url}
+                      alt={v.quantity_description ?? product.name}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="w-full h-full flex items-center justify-center"
+                      style={{ background: `${theme.brandHex}14` }}
+                    >
+                      <ShoppingCart size={18} style={{ color: theme.brandHex }} />
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] font-semibold text-slate-700 text-center leading-tight">
+                  {v.quantity_description || '—'}
+                </p>
+                {price && (
+                  <p className="text-[12px] font-bold text-slate-900">{price}</p>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Bottom bar */}
+        <div className="border-t border-slate-100 px-4 py-3 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0">
+            {selected?.image_url ? (
+              <img
+                src={selected.image_url}
+                alt={product.name}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center" style={{ background: `${theme.brandHex}14` }}>
+                <ShoppingCart size={14} style={{ color: theme.brandHex }} />
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-semibold text-slate-800 truncate">{product.name}</p>
+            <p className="text-[10px] text-slate-400 truncate">{product.brand || ''}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {selected && (
+              <span className="text-[13px] font-bold text-slate-900">
+                {formatPriceFromInr(selected.price_inr)}
+              </span>
+            )}
+            <button
+              type="button"
+              disabled={disabled || !selected || selected.in_stock === false}
+              onClick={() => selected && onAdd(selected)}
+              className={cn(
+                'px-5 py-2 rounded-xl text-[13px] font-bold text-white transition-all',
+                'hover:brightness-110 active:scale-95',
+                'disabled:opacity-50 disabled:cursor-not-allowed',
+              )}
+              style={{ backgroundColor: theme.brandHex }}
+            >
+              ADD
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Single product card — one card per product, smaller footprint.
 const InstamartProductTile: React.FC<{
   item: InstamartProductCardEntry;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
 }> = ({ item, onQuickPrompt, disabled }) => {
   const [imageBroken, setImageBroken] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // Default to last variant (smallest/cheapest — Instamart returns descending)
+  const [selectedIdx, setSelectedIdx] = useState(item.variants.length - 1);
   const theme = themeFor('instamart');
-  const price = formatPriceFromInr(item.price_inr);
-  const mrp = formatPriceFromInr(item.mrp_inr);
-  const showStrike =
-    typeof item.mrp_inr === 'number'
-    && typeof item.price_inr === 'number'
-    && item.mrp_inr > item.price_inr;
-  const showImage = !!item.image_url && !imageBroken;
-  const outOfStock = item.in_stock === false;
 
-  const handleAdd = () => {
-    if (!onQuickPrompt || disabled || outOfStock) return;
+  const variant = item.variants[selectedIdx] ?? item.variants[0];
+  const outOfStock = variant?.in_stock === false;
+  const price = formatPriceFromInr(variant?.price_inr);
+  const showImage = !!variant?.image_url && !imageBroken;
+  const hasMoreVariants = item.variants.length > 1;
+
+  const buildPrompt = (v: InstamartVariant) => {
     const brand = (item.brand || '').trim();
-    const pack = (item.quantity_description || '').trim();
     const headline = [brand, item.name].filter(Boolean).join(' ');
-    const tail = pack ? ` (${pack})` : '';
-    onQuickPrompt(`Add 1 ${headline}${tail} to my Instamart cart.`);
+    const pack = (v.quantity_description || '').trim();
+    return `Add 1 ${headline}${pack ? ` (${pack})` : ''} to my Instamart cart.`;
+  };
+
+  const handleAdd = (v: InstamartVariant) => {
+    if (!onQuickPrompt || disabled || v.in_stock === false) return;
+    setSheetOpen(false);
+    onQuickPrompt(buildPrompt(v));
   };
 
   return (
-    <div
-      className={cn(
-        'flex flex-col w-[170px] shrink-0 snap-start bg-white rounded-2xl border border-slate-200/80 overflow-hidden transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
-        outOfStock && 'opacity-60',
-      )}
-    >
-      <div className="relative aspect-square bg-slate-50 overflow-hidden">
-        {showImage ? (
-          <img
-            src={item.image_url ?? ''}
-            alt={item.name}
-            loading="lazy"
-            onError={() => setImageBroken(true)}
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
-          >
-            <ShoppingCart size={26} style={{ color: theme.brandHex }} />
-          </div>
+    <>
+      <div
+        className={cn(
+          'flex flex-col w-[130px] shrink-0 snap-start bg-white rounded-xl border border-slate-200/80 overflow-hidden transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
+          outOfStock && 'opacity-60',
         )}
-        {item.is_promoted && (
-          <span className="absolute top-1.5 left-1.5 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-slate-900/70 text-white">
-            ★ Featured
-          </span>
-        )}
-      </div>
-
-      <div className="flex flex-col flex-1 px-2.5 pt-2 pb-2.5 gap-1">
-        <p className="text-[11.5px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[28px]">
-          {item.name}
-        </p>
-        {item.quantity_description && (
-          <p className="text-[10px] text-slate-400 truncate">{item.quantity_description}</p>
-        )}
-        <div className="flex items-baseline gap-1.5 mt-auto">
-          {price && (
-            <span className="text-[12.5px] font-extrabold text-slate-900">{price}</span>
+      >
+        {/* Image + ADD button overlay */}
+        <div className="relative aspect-square bg-slate-50 overflow-hidden">
+          {showImage ? (
+            <img
+              src={variant.image_url ?? ''}
+              alt={item.name}
+              loading="lazy"
+              onError={() => setImageBroken(true)}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div
+              className="w-full h-full flex items-center justify-center"
+              style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
+            >
+              <ShoppingCart size={22} style={{ color: theme.brandHex }} />
+            </div>
           )}
-          {showStrike && (
-            <span className="text-[10px] text-slate-400 line-through">{mrp}</span>
+          {item.is_promoted && (
+            <span className="absolute top-1.5 left-1.5 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-slate-900/70 text-white">
+              ★ Ad
+            </span>
+          )}
+          {/* ADD button — bottom right corner overlapping image */}
+          <button
+            type="button"
+            onClick={() => !disabled && !outOfStock && (hasMoreVariants ? setSheetOpen(true) : handleAdd(variant))}
+            disabled={disabled || outOfStock}
+            className={cn(
+              'absolute bottom-1.5 right-1.5 w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md transition-all',
+              'hover:brightness-110 active:scale-90',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
+            )}
+            style={{ backgroundColor: theme.brandHex }}
+            title={outOfStock ? 'Out of stock' : `Add ${item.name}`}
+          >
+            <Plus size={16} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        {/* Info */}
+        <div className="flex flex-col px-2 pt-1.5 pb-2 gap-1">
+          <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[26px]">
+            {item.name}
+          </p>
+          {/* Variant pill(s) */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <button
+              type="button"
+              onClick={() => hasMoreVariants && setSheetOpen(true)}
+              className={cn(
+                'px-1.5 py-0.5 rounded-md border border-slate-300 text-[9.5px] font-semibold text-slate-600 bg-white leading-none',
+                hasMoreVariants && 'hover:border-slate-400 cursor-pointer',
+                !hasMoreVariants && 'cursor-default',
+              )}
+            >
+              {variant?.quantity_description || '—'}
+            </button>
+            {hasMoreVariants && (
+              <button
+                type="button"
+                onClick={() => setSheetOpen(true)}
+                className="px-1.5 py-0.5 rounded-md border border-slate-300 text-[9.5px] font-semibold text-slate-500 bg-white leading-none hover:border-slate-400"
+              >
+                …
+              </button>
+            )}
+          </div>
+          {/* Price */}
+          {price && (
+            <p className="text-[12.5px] font-extrabold text-slate-900 mt-0.5">{price}</p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={disabled || !onQuickPrompt || outOfStock}
-          className={cn(
-            'mt-1 inline-flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-all',
-            'hover:brightness-110 active:scale-95',
-            'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100',
-          )}
-          style={{ backgroundColor: theme.brandHex }}
-          title={
-            outOfStock
-              ? 'Out of stock'
-              : disabled
-                ? 'Waiting for current reply'
-                : `Add ${item.name} to your Instamart cart`
-          }
-        >
-          {outOfStock ? (
-            <span>Out of stock</span>
-          ) : (
-            <>
-              <Plus size={11} strokeWidth={3} />
-              <span>Add</span>
-            </>
-          )}
-        </button>
       </div>
-    </div>
+
+      {sheetOpen && (
+        <VariantSelectorSheet
+          product={item}
+          selectedIdx={selectedIdx}
+          onSelect={setSelectedIdx}
+          onAdd={handleAdd}
+          onClose={() => setSheetOpen(false)}
+          disabled={disabled}
+        />
+      )}
+    </>
   );
 };
 
-// Product grid — same horizontal scroller pattern, grouped per query so
-// multi-search responses (when implemented) get one row per keyword.
 export const InstamartProductCardGrid: React.FC<{
   attachment: Attachment;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
 }> = ({ attachment, onQuickPrompt, disabled }) => {
-  const products = Array.isArray(attachment.instamart_products) ? attachment.instamart_products : [];
+  const products = Array.isArray(attachment.products) ? attachment.products : [];
   if (products.length === 0) return null;
 
   const groups = new Map<string, InstamartProductCardEntry[]>();
@@ -189,14 +331,14 @@ export const InstamartProductCardGrid: React.FC<{
       {Array.from(groups.entries()).map(([query, items], gIdx) => (
         <div key={query || `group-${gIdx}`} className="w-full">
           <InstamartGridHeader
-            icon={<Sparkles size={11} />}
-            title={query ? `Results for "${query}"` : 'Grocery picks'}
-            subtitle={`${items.length} item${items.length === 1 ? '' : 's'}`}
+            icon={<ShoppingCart size={11} />}
+            title={query ? `"${query}"` : 'Grocery picks'}
+            subtitle={`${items.length} product${items.length === 1 ? '' : 's'}`}
           />
-          <div className="flex flex-row gap-2.5 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+          <div className="flex flex-row gap-2 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
             {items.map((p, idx) => (
               <InstamartProductTile
-                key={p.spin_id || `${p.name}-${idx}`}
+                key={p.product_id || `${p.name}-${idx}`}
                 item={p}
                 onQuickPrompt={onQuickPrompt}
                 disabled={disabled}
@@ -209,10 +351,6 @@ export const InstamartProductCardGrid: React.FC<{
   );
 };
 
-// Cart row — one line per item. Quantity buttons fire "set to N" prompts
-// because Instamart's update_cart is REPLACE-ALL semantics: every step
-// must re-list the desired final state. The planner reads the current
-// cart out of the session index when re-emitting update_cart.
 const InstamartCartItemRow: React.FC<{
   item: InstamartCartItem;
   onQuickPrompt?: (prompt: string) => void;
@@ -283,7 +421,6 @@ const InstamartCartItemRow: React.FC<{
             'w-7 h-7 rounded-md text-[14px] font-bold flex items-center justify-center text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors',
             'disabled:opacity-40 disabled:cursor-not-allowed',
           )}
-          title={qty <= 1 ? `Remove ${item.name}` : `Decrease quantity`}
         >
           −
         </button>
@@ -297,7 +434,6 @@ const InstamartCartItemRow: React.FC<{
             'disabled:opacity-40 disabled:cursor-not-allowed',
           )}
           style={{ backgroundColor: theme.brandHex }}
-          title={`Increase quantity of ${item.name}`}
         >
           +
         </button>
@@ -389,7 +525,6 @@ export const InstamartCartCard: React.FC<{
                     'disabled:cursor-not-allowed disabled:opacity-50',
                   )}
                   style={{ backgroundColor: theme.brandHex }}
-                  title={disabled ? 'Waiting for current reply' : 'Place this Instamart order'}
                 >
                   <Tag size={12} />
                   <span>Place order</span>

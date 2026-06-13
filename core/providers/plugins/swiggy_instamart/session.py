@@ -32,4 +32,4 @@ def merge_products(
         envelope = tr.data if isinstance(tr.data, dict) else {}
         query = str((tr.arguments or {}).get("query") or "").strip() or None
         fresh.extend(products_from_search(envelope, query=query))
-    return lru_merge(prior, fresh, key=lambda e: e.get("spin_id"), cap=_MAX_PRODUCTS)
+    return lru_merge(prior, fresh, key=lambda e: e.get("product_id"), cap=_MAX_PRODUCTS)

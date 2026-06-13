@@ -29,6 +29,7 @@ class TurnRequest(BaseModel):
     reply_language: str | None = None  # e.g. "hinglish" for voice turns
     user_geo: dict[str, Any] | None = None
     enabled_providers: list[str] | None = None
+    force_providers: list[str] | None = None  # skip router, run exactly these providers
 
 
 class TurnResponse(BaseModel):

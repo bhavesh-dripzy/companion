@@ -32,6 +32,12 @@ _VALIDATION_SIGNS = re.compile(
     re.IGNORECASE,
 )
 
+_SERVICEABILITY_SIGNS = re.compile(
+    r"not serviceable|not available|out of stock|address.*not found|not deliver|"
+    r"delivery not available|serviceable area|outside.*delivery|cannot deliver",
+    re.IGNORECASE,
+)
+
 _REPAIR_PROMPT = (
     "A tool call was rejected by the server. Fix the arguments so the call passes "
     "the tool's JSON schema while preserving the original intent. Use the server "
@@ -52,15 +58,22 @@ def error_text(envelope: Any) -> str:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     try:
-        return json.dumps(data, ensure_ascii=False)[:500] if data is not None else ""
+        dumped = json.dumps(data, ensure_ascii=False) if data is not None else ""
+        # Treat empty-ish JSON values as no error message so callers fall back to a generic message.
+        if dumped in ("", "{}", "[]", "null"):
+            return ""
+        return dumped[:500]
     except (TypeError, ValueError):
         return str(data)[:500]
 
 
 def classify_envelope(envelope: Any) -> ErrorCode:
-    """INVALID_ARGS when the server text reads like schema validation, else UPSTREAM_ERROR."""
-    if _VALIDATION_SIGNS.search(error_text(envelope)):
+    """Classify an error envelope into a typed ErrorCode."""
+    text = error_text(envelope)
+    if _VALIDATION_SIGNS.search(text):
         return ErrorCode.INVALID_ARGS
+    if _SERVICEABILITY_SIGNS.search(text):
+        return ErrorCode.NOT_SERVICEABLE
     return ErrorCode.UPSTREAM_ERROR
 
 
