@@ -44,7 +44,9 @@ class Route:
                 reasoning="forced by request",
                 previous_provider=None,
             )
-            ctx.tracer.event("route", task=ctx.routing.task_type, providers=list(ctx.routing.providers))
+            ctx.tracer.event(
+                "route", task=ctx.routing.task_type, providers=list(ctx.routing.providers)
+            )
             return
         previous = extract_previous_provider(ctx.request.history)
         framed = frame_message(ctx.request.message, previous)

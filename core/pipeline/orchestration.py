@@ -156,9 +156,11 @@ def expand_agnostic(
     # skip stickiness so both are checked every turn until the user names one.
     # Food ordering (Zomato/Swiggy) keeps stickiness — stays on current provider mid-flow.
     in_always_fanout = any(p in _ALWAYS_FANOUT for p in decision.providers)
-    if not in_always_fanout:
-        if decision.previous_provider and decision.previous_provider in decision.providers:
-            return decision
+    previous_in_decision = (
+        decision.previous_provider and decision.previous_provider in decision.providers
+    )
+    if not in_always_fanout and previous_in_decision:
+        return decision
     providers: list[str] = []
     for group in _AGNOSTIC_GROUPS:
         if any(p in group for p in decision.providers):

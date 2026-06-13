@@ -400,31 +400,35 @@ const zeptoDeck = (att: Attachment): DeckGroup | null => {
 const instamartDeck = (att: Attachment): DeckGroup | null => {
   const list = Array.isArray(att.instamart_products) ? att.instamart_products : [];
   const tiles = list.map((p, i): DeckTile => {
-    const price = inr(p.price_inr);
-    const mrp = inr(p.mrp_inr);
+    // Product-level rows carry `variants: [{spin_id, price_inr, ...}]`. Pick the
+    // smallest pack (last variant — Instamart returns descending) as the default
+    // card chip. `InstamartProductTile` lets the user pick a different variant.
+    const variant = p.variants?.[p.variants.length - 1] ?? p.variants?.[0];
+    const price = inr(variant?.price_inr);
+    const mrp = inr(variant?.mrp_inr);
     const hasDiscount = !!mrp && !!price && mrp !== price;
     const headline = [p.brand?.trim(), p.name].filter(Boolean).join(' ');
-    const tail = p.quantity_description?.trim() ? ` (${p.quantity_description.trim()})` : '';
-    const outOfStock = p.in_stock === false;
+    const tail = variant?.quantity_description?.trim() ? ` (${variant.quantity_description.trim()})` : '';
+    const outOfStock = variant?.in_stock === false;
     return {
-      id: String(p.spin_id || `${p.name}-${i}`),
+      id: String(variant?.spin_id || p.product_id || `${p.name}-${i}`),
       kind: 'Grocery',
       provider: att.provider || 'instamart',
       title: p.name,
-      image: p.image_url,
+      image: variant?.image_url,
       icon: <ShoppingBasket size={20} />,
       ribbon: outOfStock ? 'OUT OF STOCK' : p.is_promoted ? 'SPONSORED' : undefined,
       price,
       priceNote: hasDiscount ? `MRP ${mrp}` : undefined,
-      sub: compact([p.brand, p.quantity_description]).join(' · ') || undefined,
+      sub: compact([p.brand, variant?.quantity_description]).join(' · ') || undefined,
       stats: compact([
         stat('Price', price, hasDiscount ? `MRP ${mrp}` : undefined),
-        stat('Pack', p.quantity_description),
+        stat('Pack', variant?.quantity_description),
         stat('Stock', outOfStock ? 'Out' : 'In stock'),
       ]),
       specs: compact([
         spec('Brand', p.brand),
-        spec('Pack', p.quantity_description),
+        spec('Pack', variant?.quantity_description),
         spec('MRP', mrp),
         spec('Matched query', p.query),
       ]),

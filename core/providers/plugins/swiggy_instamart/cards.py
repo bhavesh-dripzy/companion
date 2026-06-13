@@ -58,25 +58,30 @@ def products_from_search(envelope: dict[str, Any], *, query: str | None) -> list
             if not spin_id:
                 continue
             offer_inr, mrp_inr = _coerce_price_inr(var.get("price"))
-            variants.append({
-                "spin_id": spin_id,
-                "quantity_description": str(var.get("quantityDescription") or "").strip() or None,
-                "price_inr": offer_inr,
-                "mrp_inr": mrp_inr,
-                "image_url": str(var.get("imageUrl") or "").strip() or None,
-                "in_stock": bool(var.get("isInStockAndAvailable")),
-            })
+            variants.append(
+                {
+                    "spin_id": spin_id,
+                    "quantity_description": str(var.get("quantityDescription") or "").strip()
+                    or None,
+                    "price_inr": offer_inr,
+                    "mrp_inr": mrp_inr,
+                    "image_url": str(var.get("imageUrl") or "").strip() or None,
+                    "in_stock": bool(var.get("isInStockAndAvailable")),
+                }
+            )
         if not variants:
             continue
-        out.append({
-            "product_id": product_id or None,
-            "parent_product_id": parent_product_id or None,
-            "name": parent_name,
-            "brand": brand or None,
-            "is_promoted": is_promoted,
-            "query": query or None,
-            "variants": variants,
-        })
+        out.append(
+            {
+                "product_id": product_id or None,
+                "parent_product_id": parent_product_id or None,
+                "name": parent_name,
+                "brand": brand or None,
+                "is_promoted": is_promoted,
+                "query": query or None,
+                "variants": variants,
+            }
+        )
     return out
 
 
