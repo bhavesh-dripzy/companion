@@ -43,6 +43,23 @@ def test_build_planner_prompt_fills_slot_or_appends():
     assert "TOOLS (use ONLY these exact tool names):" in appended
 
 
+def test_location_continuity_attaches_only_for_geo_planners():
+    tools = [Tool(name="t", provider="p")]
+    # A preamble that opts into geo (documents the constraint) inherits the rule.
+    geo = build_planner_prompt(
+        'set constraints.requested_location_text to the named place.\n{{TOOLS}}', tools
+    )
+    assert "LOCATION CONTINUITY" in geo
+    # A non-geo planner (no requested_location_text) never gets the noise.
+    non_geo = build_planner_prompt("Plan kite trades.\n{{TOOLS}}", tools)
+    assert "LOCATION CONTINUITY" not in non_geo
+    # A planner that already documents its own continuity isn't double-stamped.
+    own = build_planner_prompt(
+        "requested_location_text rules; LOCATION CONTINUITY handled here.\n{{TOOLS}}", tools
+    )
+    assert own.count("LOCATION CONTINUITY") == 1
+
+
 def test_arg_hint_from_params():
     tool = Tool(
         name="x",
