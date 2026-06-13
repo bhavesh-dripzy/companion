@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
-_VOICE_BRIDGE_URL = os.getenv("TWILIO_VOICE_BRIDGE_URL", "https://voice.houzzat.in")
+_VOICE_BRIDGE_URL = os.getenv("TWILIO_VOICE_BRIDGE_URL", "https://voice.jatayulabs.com")
 
 
 def _credentials(user_id: str | None) -> tuple[str, str, str]:

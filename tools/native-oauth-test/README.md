@@ -37,7 +37,7 @@ generated locally against live secrets):
 cd <repo> && AWS_PROFILE=companion AWS_REGION=ap-south-1 PYTHONPATH=. .venv/bin/python -c "
 from core.providers.mcp.oauth import start_web_oauth
 r = start_web_oauth(mcp_url='https://mcp.zepto.co.in/mcp',
-    callback_url='https://houzzat.in/api/mcp/oauth/callback',
+    callback_url='https://app.jatayulabs.com/api/mcp/oauth/callback',
     user_id='admin_bhavesh', provider_label='Zepto MCP', provider_id='zepto')
 print(r['authorization_url'])
 "
@@ -45,7 +45,7 @@ print(r['authorization_url'])
 
 Swap `zepto`/`mcp.zepto.co.in` for `district` (`https://mcp-server.district.in/mcp`) to
 test District instead. Zomato/Swiggy return `completion: redirect` (their callback is
-our hosted URL, not localhost) — for those the WebView intercepts `houzzat.in/...?mcp_oauth=success`.
+our hosted URL, not localhost) — for those the WebView intercepts `app.jatayulabs.com/...?mcp_oauth=success`.
 
 ## Finish (turn the captured URL into vaulted tokens)
 

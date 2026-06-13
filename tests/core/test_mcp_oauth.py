@@ -10,7 +10,7 @@ import core.providers.mcp.oauth_complete as oauth_complete
 
 pytestmark = pytest.mark.unit
 
-CALLBACK = "https://houzzat.in/api/mcp/oauth/callback"
+CALLBACK = "https://app.jatayulabs.com/api/mcp/oauth/callback"
 MCP_URL = "https://mcp.example.com/mcp"
 METADATA = {
     "authorization_server_url": "https://auth.example",

@@ -35,7 +35,7 @@ jobs:
                   "commands": [
                       "mkdir -p /etc/caddy",
                       "cat <<EOF > /etc/caddy/Caddyfile",
-                      "graph.houzzat.in {",
+                      "graph.jatayulabs.com {",
                       "    reverse_proxy 127.0.0.1:8000",
                       "}",
                       "EOF",

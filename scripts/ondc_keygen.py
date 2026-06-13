@@ -107,7 +107,7 @@ def store(payload: dict[str, str], *, update: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate + store ONDC NP keys")
-    parser.add_argument("--subscriber-id", default="ondc.houzzat.in")
+    parser.add_argument("--subscriber-id", default="ondc.jatayulabs.com")
     parser.add_argument("--unique-key-id", default="companion-key-1")
     parser.add_argument("--update", action="store_true", help="rotate existing keys")
     parser.add_argument(

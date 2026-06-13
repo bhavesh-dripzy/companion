@@ -25,7 +25,7 @@ REMINDERS_TABLE = os.getenv("REMINDERS_TABLE", "companion-reminders")
 PROFILE_CACHE_TABLE = os.getenv("PROFILE_CACHE_TABLE", "companion-profile-cache")
 LEAD_CACHE_TABLE = os.getenv("LEAD_CACHE_TABLE", "companion-lead-cache")
 LEADGEN_QUEUE_URL = os.getenv("LEADGEN_QUEUE_URL", "")
-GRAPH_SERVICE_URL = os.getenv("GRAPH_SERVICE_URL", "https://graph.houzzat.in")
+GRAPH_SERVICE_URL = os.getenv("GRAPH_SERVICE_URL", "https://graph.jatayulabs.com")
 GRAPH_SERVICE_TOKEN_SECRET = os.getenv("GRAPH_SERVICE_TOKEN_SECRET", "companion/graph-service-token")
 
 REMINDER_TARGET_ARN = os.getenv("REMINDER_TARGET_ARN", "")
@@ -66,5 +66,5 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")
 TWILIO_VOICE_BRIDGE_URL = os.getenv(
-    "TWILIO_VOICE_BRIDGE_URL", "https://voice.houzzat.in"
+    "TWILIO_VOICE_BRIDGE_URL", "https://voice.jatayulabs.com"
 )

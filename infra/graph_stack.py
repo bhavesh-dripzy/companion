@@ -24,7 +24,7 @@ class GraphStack(Stack):
         construct_id: str,
         *,
         project_name: str,
-        domain_name: str = "houzzat.in",
+        domain_name: str = "jatayulabs.com",
         enable_custom_domain: bool = True,
         **kwargs,
     ) -> None:

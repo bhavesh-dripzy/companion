@@ -7,7 +7,7 @@ const REFRESH_KEY = "companion_refresh_token";
 // native app the bundle is served from a local origin, so calls must target the
 // deployed backend absolutely (CORS is open; auth is a Bearer header).
 const API_BASE = Capacitor.isNativePlatform()
-  ? ((import.meta.env.VITE_API_BASE as string | undefined) || 'https://houzzat.in')
+  ? ((import.meta.env.VITE_API_BASE as string | undefined) || 'https://app.jatayulabs.com')
   : '';
 
 function apiUrl(path: string): string {

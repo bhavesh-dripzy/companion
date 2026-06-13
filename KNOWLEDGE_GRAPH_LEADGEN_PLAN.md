@@ -25,7 +25,7 @@
   leads) into the planner/responder — so "order lunch to office" auto-resolves to
   *"Sector 13, DLF, Gurugram"* and "looking at ACs" surfaces/links a lead.
 - **No VPC on the hot path.** The API Lambda stays out of any VPC. Only the EC2's
-  graph-service (token + TLS, on a `houzzat.in` subdomain) and the on-box worker touch
+  graph-service (token + TLS, on a `jatayulabs.com` subdomain) and the on-box worker touch
   Neo4j. Neo4j's Bolt port is never exposed to the internet.
 - **Scope now:** *Foundation + Personalization*. Monetization (lead scoring, dedup at
   scale, merchant export) is schema-scaffolded but built later.
@@ -44,7 +44,7 @@
 | Org id | `o-3l3nevgp99` |
 | Region | `ap-south-1` (Mumbai) |
 | Deployed stack | `companion-serverless` |
-| Route 53 zone | `houzzat.in` (in companion-dev) |
+| Route 53 zone | `jatayulabs.com` (in companion-dev) |
 
 **Access method (cross-account assume-role):** root cannot assume IAM roles, so we created
 a least-privilege deployer in the management account:
@@ -81,7 +81,7 @@ a least-privilege deployer in the management account:
 
 - **Compute:** FastAPI app (`companion_api/main.py`, ~65 KB) wrapped with Mangum on a
   **single Lambda, *not* in a VPC** (Docker image, Python 3.12 + Node 20, 1024 MB / 120 s).
-  A second 512 MB Lambda handles scheduled reminders. API Gateway HTTP API at `houzzat.in`.
+  A second 512 MB Lambda handles scheduled reminders. API Gateway HTTP API at `app.jatayulabs.com`.
 - **Data:** **DynamoDB**, 4 tables (PAY_PER_REQUEST, PITR):
   - `companion-families` — PK `family_id`
   - `companion-members` — PK `member_id`; GSIs `phone-number-index`, `family-index`
@@ -158,7 +158,7 @@ a least-privilege deployer in the management account:
                                                    └──────┬───────┘
                                                           │ long-poll
    EC2  (companion-dev, ap-south-1, public IP/EIP)        │
-   graph.houzzat.in (Caddy auto-TLS :443)  ───────────────┼──────────────┐
+   graph.jatayulabs.com (Caddy auto-TLS :443)  ───────────────┼──────────────┐
    ┌──────────────────────────────────────────────────────▼────────────┐ │
    │  extraction-worker (python):                                       │ │
    │    SQS msg → LLM extract (entities/relations/leads)                │ │
@@ -354,7 +354,7 @@ app/services/leadgen/graph_client.py    # Neo4j driver wrapper + Cypher upserts 
 deploy/graph-ec2/worker.py              # SQS poller → extractor → graph → cache
 deploy/graph-ec2/graph_service.py       # FastAPI: /profile /leads /query /health
 deploy/graph-ec2/cloud-init.yaml        # bootstrap (Neo4j + worker + service + Caddy)
-deploy/graph-ec2/Caddyfile              # graph.houzzat.in reverse proxy, auto-TLS
+deploy/graph-ec2/Caddyfile              # graph.jatayulabs.com reverse proxy, auto-TLS
 ```
 
 ### 8.4 Repository pattern (matches existing `dynamodb.py`)
@@ -382,7 +382,7 @@ class ProfileCacheRepository:
 | Instance | **t4g.medium** (4 GB; comfortable for Neo4j heap+pagecache + worker + Caddy). Budget: t4g.small (2 GB). |
 | Storage | 20–30 GB gp3 EBS (encrypted) |
 | Network | default VPC, public subnet, **Elastic IP** |
-| DNS | Route 53 A record `graph.houzzat.in` → EIP |
+| DNS | Route 53 A record `graph.jatayulabs.com` → EIP |
 | Ports (SG) | inbound **443** (graph-service via Caddy) from anywhere or AWS ranges; **22** SSH from your IP only; **Bolt 7687 / 7474 NOT exposed** (localhost only) |
 | IAM instance profile | `sqs:ReceiveMessage/DeleteMessage` on the queue; `dynamodb` r/w on cache+messages; `secretsmanager:GetSecretValue` on `companion/app`, `companion/graph-*` |
 
@@ -392,7 +392,7 @@ class ProfileCacheRepository:
    auth password from Secrets Manager, volumes on EBS. Apply schema constraints (§6.2).
 3. Deploy **worker** + **graph-service** (systemd units or compose), env from Secrets
    Manager (LLM keys from `companion/app`, Neo4j creds, graph-service bearer token).
-4. Install **Caddy** with `Caddyfile` → auto-TLS for `graph.houzzat.in`, reverse-proxy to
+4. Install **Caddy** with `Caddyfile` → auto-TLS for `graph.jatayulabs.com`, reverse-proxy to
    the local graph-service; require `Authorization: Bearer <token>`.
 5. Health checks + CloudWatch agent (basic logs/metrics).
 
@@ -470,7 +470,7 @@ path that still gives a *real* graph DB.
 
 ### Phase 1 — Foundation (graph + cache + pipeline, agent unchanged)
 1. CDK: `profile-cache` table, SQS queue + DLQ, secrets. `cdk deploy`.
-2. Provision EC2 (Neo4j + worker + graph-service + Caddy), `graph.houzzat.in` DNS + TLS.
+2. Provision EC2 (Neo4j + worker + graph-service + Caddy), `graph.jatayulabs.com` DNS + TLS.
 3. App: `MessageRepository` (wire `companion-messages`), SQS enqueue after `run_agent_turn`.
 4. Worker: SQS → extractor → Neo4j upsert → cache write-through. Schema constraints applied.
 5. Read APIs: `GET /api/profile/me` (Lambda reads cache), `GET /api/leads` (admin → graph-service).
@@ -536,7 +536,7 @@ $P ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kern
 $P secretsmanager list-secrets --query 'SecretList[].Name'
 ```
 Confirm: API Lambda has **no VpcConfig**; exact table physical names; a default VPC +
-public subnet exist; `houzzat.in.` zone present; an SSH key pair (or use SSM); latest
+public subnet exist; `jatayulabs.com.` zone present; an SSH key pair (or use SSM); latest
 arm64 AL2023 AMI id.
 
 ---

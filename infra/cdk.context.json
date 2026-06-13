@@ -1,7 +1,7 @@
 {
-  "hosted-zone:account=616551057455:domainName=houzzat.in:region=ap-south-1": {
-    "Id": "/hostedzone/Z0920071233P86HKLP96I",
-    "Name": "houzzat.in."
+  "hosted-zone:account=616551057455:domainName=jatayulabs.com:region=ap-south-1": {
+    "Id": "/hostedzone/Z06469251192ERBYD7UA2",
+    "Name": "jatayulabs.com."
   },
   "vpc-provider:account=616551057455:filter.isDefault=true:region=ap-south-1:returnAsymmetricSubnets=true": {
     "vpcId": "vpc-0c4b8733d234b69aa",
@@ -84,5 +84,9 @@
         ]
       }
     ]
+  },
+  "hosted-zone:account=616551057455:domainName=jatayulabs.com:region=us-east-1": {
+    "Id": "/hostedzone/Z06469251192ERBYD7UA2",
+    "Name": "jatayulabs.com."
   }
 }

@@ -65,7 +65,7 @@ def main() -> int:
     label, mcp_url = PROVIDERS[args.provider]
     started = start_web_oauth(
         mcp_url=mcp_url,
-        callback_url="https://houzzat.in/api/mcp/oauth/callback",
+        callback_url="https://app.jatayulabs.com/api/mcp/oauth/callback",
         user_id=args.user,
         provider_label=label,
         provider_id=args.provider,

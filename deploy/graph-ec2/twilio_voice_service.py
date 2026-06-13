@@ -1,6 +1,6 @@
 """Gemini Live ↔ Twilio bidirectional voice bridge.
 
-Deployed on Companion EC2 behind Caddy (wss://voice.houzzat.in/media-stream).
+Deployed on Companion EC2 behind Caddy (wss://voice.jatayulabs.com/media-stream).
 Receives Twilio Media Streams audio, transcodes mulaw↔PCM, and streams to/from
 Gemini Live API for natural bidirectional conversation.
 

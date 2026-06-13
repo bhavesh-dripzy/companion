@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="e" x1="0%" y1="100%" x2="60%" y2="0%">
+      <stop offset="0%" stop-color="#c2502a"/><stop offset="55%" stop-color="#ff8a1e"/><stop offset="100%" stop-color="#e85d7a"/>
+    </linearGradient>
+    <linearGradient id="jt" gradientUnits="userSpaceOnUse" x1="36" y1="62" x2="78" y2="32">
+      <stop offset="0%" stop-color="#ff8a1e"/><stop offset="100%" stop-color="#ffb347"/>
+    </linearGradient>
+    <linearGradient id="jm" gradientUnits="userSpaceOnUse" x1="26" y1="78" x2="80" y2="44">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="50%" stop-color="#4a52cc"/><stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="jb" gradientUnits="userSpaceOnUse" x1="16" y1="92" x2="82" y2="56">
+      <stop offset="0%" stop-color="#0f6e2e"/><stop offset="100%" stop-color="#1f9a45"/>
+    </linearGradient>
+  </defs>
+  <line x1="14" y1="96" x2="106" y2="96" stroke="#221b2e" stroke-width="4" stroke-linecap="round"/>
+  <path d="M16 92 Q50 84 82 56" fill="none" stroke="url(#jb)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M26 78 Q54 68 80 44" fill="none" stroke="url(#jm)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M36 62 Q60 52 78 32" fill="none" stroke="url(#jt)" stroke-width="4" stroke-linecap="round"/>
+</svg>

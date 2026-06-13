@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jatayu Labs, palette directions (no orange)</title>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&f[]=jet-brains-mono@400,500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Hindi&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #f3efe6; color: #1d1a2a; font-family: 'Satoshi', sans-serif; padding: 56px 28px 96px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 40px; letter-spacing: -0.02em; }
+  .intro { color: #6f6a80; margin-top: 10px; max-width: 70ch; line-height: 1.6; font-size: 16px; }
+  .card { background: #fff; border: 1px solid #e7e0d4; border-radius: 24px; margin-top: 30px; overflow: hidden; display: grid; grid-template-columns: 360px 1fr; }
+  .card .meta { padding: 32px; border-right: 1px solid #efe9dd; }
+  .tag { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: #a08f5f; }
+  .card h2 { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 26px; margin: 8px 0 4px; }
+  .card .deva { font-family: 'Tiro Devanagari Hindi', serif; font-size: 20px; color: #6f6a80; }
+  .card .story { color: #6f6a80; font-size: 14.5px; line-height: 1.6; margin: 14px 0 22px; }
+  .sw { display: flex; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid #efe9dd; }
+  .sw i { flex: 1; height: 44px; display: block; }
+  .hex { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .hex span { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #8a8398; }
+  .mock { padding: 40px 44px; display: flex; flex-direction: column; justify-content: center; }
+  .mock svg { width: 64px; height: 64px; margin-bottom: 18px; }
+  .mock .h { font-family: 'Clash Display', sans-serif; font-weight: 600; font-size: 30px; line-height: 1.08; letter-spacing: -0.02em; max-width: 15ch; }
+  .mock .s { color: #6f6a80; margin-top: 12px; font-size: 14.5px; max-width: 44ch; line-height: 1.5; }
+  .mock .btns { margin-top: 22px; display: flex; gap: 12px; align-items: center; }
+  .btn { font-weight: 700; font-size: 14px; padding: 11px 20px; border-radius: 999px; color: #fff; }
+  .btn.ghost { color: #1d1a2a; background: transparent; border: 1px solid #d9d0c1; }
+  .note { margin-top: 36px; color: #6f6a80; font-size: 14px; line-height: 1.6; }
+  @media (max-width: 760px){ .card{ grid-template-columns: 1fr; } .card .meta{ border-right: none; border-bottom: 1px solid #efe9dd; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>palette directions <span style="font-weight:400;color:#8a8398">/ no orange</span></h1>
+  <p class="intro">Four ways to keep the India story and drop the saffron-ember primary. Each shows the mark (three rising strokes to a focal disc), the headline, and the primary button in that palette. Ivory ground and ink text stay; only the brand colour changes.</p>
+
+  <!-- NEEL -->
+  <div class="card">
+    <div class="meta">
+      <div class="tag">01 / recommended</div>
+      <h2>Neel</h2><div class="deva">नील</div>
+      <p class="story">Indigo, the dye named after India. For four centuries it was the blue the world bought from Bengal and Gujarat, and it is the blue of the Ashoka chakra. Deep indigo to azure, lifted by a little brass.</p>
+      <div class="sw"><i style="background:#243286"></i><i style="background:#2c3a8e"></i><i style="background:#5468cf"></i><i style="background:#c39a2e"></i><i style="background:#fdfaf3"></i></div>
+      <div class="hex"><span>#243286</span><span>#2C3A8E</span><span>#5468CF</span><span>#C39A2E</span></div>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 120 120">
+        <line x1="14" y1="96" x2="106" y2="96" stroke="#1d1a2a" stroke-width="4" stroke-linecap="round"/>
+        <path d="M16 92 Q50 84 82 56" fill="none" stroke="#243286" stroke-width="4" stroke-linecap="round"/>
+        <path d="M26 78 Q54 68 80 44" fill="none" stroke="#5468cf" stroke-width="4" stroke-linecap="round"/>
+        <path d="M36 62 Q60 52 78 32" fill="none" stroke="#c39a2e" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="92" cy="22" r="13" fill="none" stroke="#c39a2e" stroke-width="2"/>
+        <circle cx="92" cy="22" r="8.5" fill="#2c3a8e"/>
+      </svg>
+      <div class="h">Foundational AI for the way India speaks.</div>
+      <div class="s">Jatayu Labs builds the speech and language models behind India's next generation of products.</div>
+      <div class="btns"><span class="btn" style="background:linear-gradient(115deg,#243286,#2c3a8e 45%,#5468cf)">Meet Companion</span><span class="btn ghost">Read the story</span></div>
+    </div>
+  </div>
+
+  <!-- MOR -->
+  <div class="card">
+    <div class="meta">
+      <div class="tag">02 / peacock</div>
+      <h2>Mor</h2><div class="deva">मोर</div>
+      <p class="story">The morpankh, India's national bird. A blue-green that shifts with the light, ancient in temple and miniature alike. Peacock teal into emerald, with a warm gold accent.</p>
+      <div class="sw"><i style="background:#0c5f6e"></i><i style="background:#0e7080"></i><i style="background:#16a18a"></i><i style="background:#d2a32f"></i><i style="background:#fdfaf3"></i></div>
+      <div class="hex"><span>#0C5F6E</span><span>#0E7080</span><span>#16A18A</span><span>#D2A32F</span></div>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 120 120">
+        <line x1="14" y1="96" x2="106" y2="96" stroke="#10202a" stroke-width="4" stroke-linecap="round"/>
+        <path d="M16 92 Q50 84 82 56" fill="none" stroke="#0c5f6e" stroke-width="4" stroke-linecap="round"/>
+        <path d="M26 78 Q54 68 80 44" fill="none" stroke="#16a18a" stroke-width="4" stroke-linecap="round"/>
+        <path d="M36 62 Q60 52 78 32" fill="none" stroke="#d2a32f" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="92" cy="22" r="13" fill="none" stroke="#d2a32f" stroke-width="2"/>
+        <circle cx="92" cy="22" r="8.5" fill="#0e7080"/>
+      </svg>
+      <div class="h">Foundational AI for the way India speaks.</div>
+      <div class="s">Jatayu Labs builds the speech and language models behind India's next generation of products.</div>
+      <div class="btns"><span class="btn" style="background:linear-gradient(115deg,#0c5f6e,#0e7080 45%,#16a18a)">Meet Companion</span><span class="btn ghost">Read the story</span></div>
+    </div>
+  </div>
+
+  <!-- NEEL & MANJISTHA -->
+  <div class="card">
+    <div class="meta">
+      <div class="tag">03 / miniature painting</div>
+      <h2>Neel &amp; Manjistha</h2><div class="deva">नील और मंजिष्ठा</div>
+      <p class="story">The two dyes a miniature painter ground by hand: indigo from the leaf, manjistha (madder) red from the root. The palette of Pahari and Rajput painting. Deep red here, never orange.</p>
+      <div class="sw"><i style="background:#2a338a"></i><i style="background:#3f49b0"></i><i style="background:#9e2b3a"></i><i style="background:#c39a2e"></i><i style="background:#fdfaf3"></i></div>
+      <div class="hex"><span>#2A338A</span><span>#3F49B0</span><span>#9E2B3A</span><span>#C39A2E</span></div>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 120 120">
+        <line x1="14" y1="96" x2="106" y2="96" stroke="#1c1730" stroke-width="4" stroke-linecap="round"/>
+        <path d="M16 92 Q50 84 82 56" fill="none" stroke="#2a338a" stroke-width="4" stroke-linecap="round"/>
+        <path d="M26 78 Q54 68 80 44" fill="none" stroke="#3f49b0" stroke-width="4" stroke-linecap="round"/>
+        <path d="M36 62 Q60 52 78 32" fill="none" stroke="#9e2b3a" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="92" cy="22" r="13" fill="none" stroke="#9e2b3a" stroke-width="2"/>
+        <circle cx="92" cy="22" r="8.5" fill="#2a338a"/>
+      </svg>
+      <div class="h">Foundational AI for the way India speaks.</div>
+      <div class="s">Jatayu Labs builds the speech and language models behind India's next generation of products.</div>
+      <div class="btns"><span class="btn" style="background:linear-gradient(115deg,#2a338a,#3f49b0 55%,#9e2b3a)">Meet Companion</span><span class="btn ghost">Read the story</span></div>
+    </div>
+  </div>
+
+  <!-- PANNA -->
+  <div class="card">
+    <div class="meta">
+      <div class="tag">04 / mughal emerald</div>
+      <h2>Panna</h2><div class="deva">पन्ना</div>
+      <p class="story">Emerald, the stone Mughal courts prized above all others, often inscribed and set in gold. A deep, regal green with a gold accent. Calm, premium, distinctly not a startup orange.</p>
+      <div class="sw"><i style="background:#0e5a40"></i><i style="background:#116b4e"></i><i style="background:#149069"></i><i style="background:#c9a227"></i><i style="background:#fdfaf3"></i></div>
+      <div class="hex"><span>#0E5A40</span><span>#116B4E</span><span>#149069</span><span>#C9A227</span></div>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 120 120">
+        <line x1="14" y1="96" x2="106" y2="96" stroke="#14241d" stroke-width="4" stroke-linecap="round"/>
+        <path d="M16 92 Q50 84 82 56" fill="none" stroke="#0e5a40" stroke-width="4" stroke-linecap="round"/>
+        <path d="M26 78 Q54 68 80 44" fill="none" stroke="#149069" stroke-width="4" stroke-linecap="round"/>
+        <path d="M36 62 Q60 52 78 32" fill="none" stroke="#c9a227" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="92" cy="22" r="13" fill="none" stroke="#c9a227" stroke-width="2"/>
+        <circle cx="92" cy="22" r="8.5" fill="#116b4e"/>
+      </svg>
+      <div class="h">Foundational AI for the way India speaks.</div>
+      <div class="s">Jatayu Labs builds the speech and language models behind India's next generation of products.</div>
+      <div class="btns"><span class="btn" style="background:linear-gradient(115deg,#0e5a40,#116b4e 45%,#149069)">Meet Companion</span><span class="btn ghost">Read the story</span></div>
+    </div>
+  </div>
+
+  <p class="note">In these mocks the three feather strokes now wear the palette itself (dark, mid, accent) instead of the tiranga, so there is no orange anywhere. If you would rather keep the literal tiranga feathers in the mark and only change the buttons and focal disc, that is a one line switch. Tell me which palette wins and I will apply it across the live landing page.</p>
+</div>
+</body>
+</html>

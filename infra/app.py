@@ -22,7 +22,7 @@ env_name = (
 is_prod = env_name == "prod"
 resource_prefix = project_name if is_prod else f"{project_name}-{env_name}"
 stack_prefix = project_name if is_prod else f"{project_name}-{env_name}"
-domain_name = "houzzat.in" if is_prod else f"{env_name}.houzzat.in"
+domain_name = "jatayulabs.com" if is_prod else f"{env_name}.jatayulabs.com"
 
 env = cdk.Environment(account=account, region=region)
 

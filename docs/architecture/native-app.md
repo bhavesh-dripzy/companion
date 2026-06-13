@@ -9,10 +9,10 @@ with no copy-paste. See [mcp-phone-onboarding.md](./mcp-phone-onboarding.md).
 
 ## Layout
 
-- `frontend/capacitor.config.ts` — appId `in.houzzat.companion`, `webDir: dist` (the
+- `frontend/capacitor.config.ts` — appId `com.jatayulabs.companion`, `webDir: dist` (the
   web build is **bundled**, not remote-loaded).
 - `frontend/src/api.ts` — when `Capacitor.isNativePlatform()`, API calls target
-  `https://houzzat.in` (override with `VITE_API_BASE`). CORS is open and auth is a
+  `https://app.jatayulabs.com` (override with `VITE_API_BASE`). CORS is open and auth is a
   Bearer header, so this needs no backend change.
 - `frontend/src/native.ts` — `runNativeMcpConnect(provider)`: negotiate OAuth, open the
   login in the intercepting WebView, catch the localhost redirect (`loadstart`/`loaderror`
@@ -63,7 +63,7 @@ npm run build && npx cap sync
 
 `runNativeMcpConnect` calls `GET /api/mcp/oauth/start` (completion-mode negotiation) and
 `POST /api/mcp/oauth/complete/` — **both are new backend endpoints not yet deployed**. Until
-the backend is deployed to houzzat.in, the in-app Connect button will fail (the pure
+the backend is deployed to app.jatayulabs.com, the in-app Connect button will fail (the pure
 interception mechanism still tests fine via the Expo harness, which needs no backend). Deploy
 the `dev` changes, then the in-app flow works against live.
 

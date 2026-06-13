@@ -53,7 +53,7 @@ class CompanionStack(Stack):
         construct_id: str,
         *,
         project_name: str,
-        domain_name: str = "houzzat.in",
+        domain_name: str = "jatayulabs.com",
         enable_custom_domain: bool = True,
         profile_cache: dynamodb.ITable = None,
         turns_queue: sqs.IQueue = None,
@@ -132,7 +132,7 @@ class CompanionStack(Stack):
                 ],
                 callback_urls=[
                     "http://localhost:8000/api/auth/callback",
-                    f"https://{domain_name}/api/auth/callback",
+                    f"https://app.{domain_name}/api/auth/callback",
                 ],
             ),
             prevent_user_existence_errors=True,
@@ -438,7 +438,7 @@ class CompanionStack(Stack):
             api_domain = apigwv2.CfnDomainName(
                 self,
                 "ApiCustomDomain",
-                domain_name=domain_name,
+                domain_name=f"app.{domain_name}",
                 domain_name_configurations=[
                     apigwv2.CfnDomainName.DomainNameConfigurationProperty(
                         certificate_arn=certificate.certificate_arn,
@@ -451,7 +451,7 @@ class CompanionStack(Stack):
                 self,
                 "ApiMapping",
                 api_id=api.ref,
-                domain_name=domain_name,
+                domain_name=f"app.{domain_name}",
                 stage="$default",
             ).add_dependency(api_domain)
 
@@ -459,6 +459,7 @@ class CompanionStack(Stack):
                 self,
                 "ApiAliasRecord",
                 zone=zone,
+                record_name="app",
                 target=route53.RecordTarget.from_alias(
                     targets.ApiGatewayv2DomainProperties(
                         regional_domain_name=api_domain.attr_regional_domain_name,

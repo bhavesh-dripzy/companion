@@ -50,7 +50,7 @@ env or `companion/app` secret) to pin those providers to paste mode — no deplo
 ## Config
 
 - `PUBLIC_BASE_URL` (`companion/app` secret) — must be the SPA origin
-  (`https://houzzat.in`): it is both the registered OAuth callback domain and where
+  (`https://app.jatayulabs.com`): it is both the registered OAuth callback domain and where
   the post-OAuth bounce-back lands (the login token lives in that origin's
   localStorage). The Google Calendar OAuth app's console redirect URI must match it.
 - `MCP_OAUTH_PASTE_PROVIDERS` — force paste completion per provider id.
@@ -58,5 +58,5 @@ env or `companion/app` secret) to pin those providers to paste mode — no deplo
 ## Long-term
 
 Zepto/District/Groww maintain redirect-domain allowlists that already include agent
-platforms (e.g. `claude.ai`). Getting `houzzat.in` allowlisted upgrades them to the
+platforms (e.g. `claude.ai`). Getting `app.jatayulabs.com` allowlisted upgrades them to the
 seamless `redirect` mode with zero code change.

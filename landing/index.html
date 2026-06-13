@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jatayu Labs, speech and language models built in India</title>
+<meta name="description" content="Jatayu Labs is an Indian research and product company building speech and language models for the way India actually talks. Companion is our first product.">
+<meta property="og:title" content="Jatayu Labs">
+<meta property="og:description" content="Speech and language models, built in India, for the many ways India speaks.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://jatayulabs.com">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&f[]=jet-brains-mono@400,500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Hindi:ital@0;1&family=Mukta:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fdfaf3; --surface: #ffffff; --border: #ece3d6; --ink: #221b2e;
+    --muted: #7a7388; --saffron: #ff8a1e; --marigold: #ffb347;
+    --rose: #e85d7a; --indigo: #4a52cc; --brick: #c2502a;
+    --maxw: 1120px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: 'Satoshi', system-ui, sans-serif;
+    font-size: 17px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
+  a { color: inherit; text-decoration: none; }
+
+  h1, h2, h3, .wordmark { font-family: 'Clash Display', sans-serif; letter-spacing: -0.02em; }
+  .deva { font-family: 'Tiro Devanagari Hindi', 'Mukta', serif; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--indigo);
+  }
+
+  /* ── gradients reused as text fills ── */
+  .ember-text {
+    background: linear-gradient(115deg, var(--brick), var(--saffron) 55%, var(--rose));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  /* ── nav ── */
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    background: rgba(253,250,243,0.72);
+    border-bottom: 1px solid transparent; transition: border-color .3s, background .3s;
+  }
+  nav.scrolled { border-bottom-color: var(--border); background: rgba(253,250,243,0.9); }
+  .nav-in { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand .wordmark { font-size: 21px; font-weight: 600; line-height: 1; }
+  .brand .wordmark .labs { font-weight: 400; color: var(--muted); }
+  .nav-links { display: flex; align-items: center; gap: 30px; }
+  .nav-links a { font-size: 14.5px; color: var(--muted); transition: color .2s; }
+  .nav-links a:hover { color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; font-family: 'Satoshi', sans-serif;
+    font-size: 14.5px; font-weight: 700; padding: 11px 20px; border-radius: 999px;
+    transition: transform .2s, box-shadow .2s, background .2s; cursor: pointer; border: none;
+  }
+  .btn-primary {
+    color: #fff; background: linear-gradient(120deg, #3c45c2, #515bdb 55%, #6068e6);
+    box-shadow: 0 6px 20px -8px rgba(74,82,204,0.5);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 28px -8px rgba(74,82,204,0.6); }
+  .btn-ghost { color: var(--ink); background: transparent; border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--ink); transform: translateY(-2px); }
+  .nav-links .btn { color: #fff; }
+
+  /* ── hero ── */
+  .hero { position: relative; padding: 96px 0 84px; text-align: center; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; left: 50%; top: 38%; transform: translate(-50%,-50%);
+    width: 980px; height: 720px; pointer-events: none; z-index: 0;
+    background: radial-gradient(60% 55% at 50% 45%, rgba(74,82,204,0.16), rgba(232,93,122,0.10) 42%, rgba(255,138,30,0.06) 66%, transparent 80%);
+    filter: blur(4px);
+  }
+  .hero .wrap { position: relative; z-index: 1; }
+  .hero-mark { width: 96px; height: 96px; margin: 0 auto 26px; display: block; color: var(--ink); }
+  .hero .deva-tag { font-size: 22px; color: var(--brick); letter-spacing: 0.12em; margin-bottom: 14px; }
+  h1 {
+    font-weight: 600; font-size: clamp(38px, 6.2vw, 72px); line-height: 1.04;
+    max-width: 16ch; margin: 0 auto;
+  }
+  .hero p.lead {
+    font-size: clamp(17px, 2.1vw, 21px); color: var(--muted); line-height: 1.55;
+    max-width: 56ch; margin: 24px auto 0;
+  }
+  .hero .cta-row { display: flex; gap: 14px; justify-content: center; margin-top: 38px; flex-wrap: wrap; }
+  .hero .cta-row .btn { padding: 14px 26px; font-size: 15.5px; }
+
+  /* ── language marquee ── */
+  .langs { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 22px 0; background: var(--surface); overflow: hidden; }
+  .langs .label { text-align: center; color: var(--muted); font-size: 13px; margin-bottom: 14px; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em; }
+  .marquee { display: flex; gap: 0; white-space: nowrap; }
+  .marquee-track { display: flex; gap: 44px; padding-right: 44px; animation: slide 38s linear infinite; }
+  .marquee-track span { font-family: 'Tiro Devanagari Hindi','Mukta',serif; font-size: 26px; color: var(--ink); opacity: 0.78; }
+  @keyframes slide { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+  @media (prefers-reduced-motion: reduce) { .marquee-track { animation: none; } }
+
+  /* ── generic section ── */
+  section.block { padding: 96px 0; }
+  .reveal { opacity: 0; transform: translateY(22px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* ── story ── */
+  .story-grid { display: grid; grid-template-columns: 1fr 1.35fr; gap: 64px; align-items: center; }
+  .story-mark { width: 100%; max-width: 320px; color: var(--ink); }
+  .story h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 600; margin: 14px 0 22px; line-height: 1.1; }
+  .story p { color: #4a4357; margin-bottom: 18px; font-size: 18px; }
+  .story .pull {
+    font-family: 'Clash Display', sans-serif; font-weight: 500; font-size: 23px; line-height: 1.35;
+    color: var(--ink); border-left: 3px solid var(--indigo); padding-left: 20px; margin: 26px 0 6px;
+  }
+  .story .deva-words { margin-top: 22px; display: flex; gap: 26px; flex-wrap: wrap; }
+  .story .deva-words div { font-size: 13px; color: var(--muted); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.08em; }
+  .story .deva-words b { display: block; font-family: 'Tiro Devanagari Hindi','Mukta',serif; font-size: 26px; color: var(--indigo); letter-spacing: normal; font-weight: 400; margin-bottom: 3px; }
+
+  /* ── models ── */
+  .sec-head { max-width: 640px; margin-bottom: 52px; }
+  .sec-head h2 { font-size: clamp(28px, 4vw, 44px); font-weight: 600; margin: 12px 0 14px; line-height: 1.08; }
+  .sec-head p { color: var(--muted); font-size: 18px; }
+  .model-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+  .model-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 32px 30px;
+    transition: transform .3s, box-shadow .3s, border-color .3s;
+  }
+  .model-card:hover { transform: translateY(-4px); box-shadow: 0 24px 48px -28px rgba(34,27,46,0.32); border-color: #e0d4c2; }
+  .model-card .ic { width: 54px; height: 54px; color: var(--ink); margin-bottom: 22px; }
+  .model-card h3 { font-size: 22px; font-weight: 600; display: flex; align-items: baseline; gap: 10px; }
+  .model-card h3 .d { font-family: 'Tiro Devanagari Hindi','Mukta',serif; font-size: 18px; color: var(--brick); font-weight: 400; letter-spacing: normal; }
+  .model-card p { color: var(--muted); font-size: 15.5px; margin-top: 12px; line-height: 1.6; }
+  .model-card .stat { margin-top: 20px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--indigo); letter-spacing: 0.04em; }
+
+  /* ── companion ── */
+  .companion { background: var(--ink); color: var(--bg); border-radius: 32px; overflow: hidden; position: relative; }
+  .companion::after {
+    content: ""; position: absolute; right: -120px; top: -120px; width: 460px; height: 460px;
+    background: radial-gradient(50% 50% at 50% 50%, rgba(120,100,220,0.42), rgba(232,93,122,0.26) 48%, rgba(255,138,30,0.12) 68%, transparent 75%);
+    pointer-events: none;
+  }
+  .companion-in { display: grid; grid-template-columns: 1.1fr 1fr; gap: 50px; align-items: center; padding: 64px; position: relative; z-index: 1; }
+  .companion .eyebrow { color: var(--marigold); }
+  .companion h2 { font-size: clamp(30px, 4vw, 46px); font-weight: 600; margin: 14px 0 20px; line-height: 1.06; color: #fff; }
+  .companion p { color: #c8c1d4; font-size: 18px; margin-bottom: 16px; }
+  .companion .note { font-size: 14.5px; color: #9d93b3; }
+  .companion .cta-row { margin-top: 30px; }
+  .companion .btn-ghost { color: #fff; border-color: rgba(255,255,255,0.25); }
+  .companion .btn-ghost:hover { border-color: #fff; }
+  /* phone-ish chat preview */
+  .chat {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12); border-radius: 22px;
+    padding: 22px; backdrop-filter: blur(4px);
+  }
+  .bubble { border-radius: 16px; padding: 12px 16px; margin-bottom: 12px; font-size: 15px; max-width: 86%; line-height: 1.45; }
+  .bubble.user { background: linear-gradient(115deg, var(--brick), var(--saffron)); color: #fff; margin-left: auto; border-bottom-right-radius: 5px; }
+  .bubble.bot { background: rgba(255,255,255,0.1); color: #f3eee4; border-bottom-left-radius: 5px; }
+  .bubble .deva { font-family: 'Mukta', sans-serif; }
+  /* live-app demo: drop a real screen recording into landing/assets/ */
+  .device { position: relative; border-radius: 34px; padding: 11px; background: linear-gradient(160deg,#2a2438,#14101d); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 34px 70px -34px rgba(0,0,0,0.65); max-width: 340px; margin: 0 auto; }
+  .device-screen { display: block; width: 100%; aspect-ratio: 23 / 45; object-fit: cover; border-radius: 24px; background: #221b2e; }
+  .device-cap { text-align: center; color: #9d93b3; font-size: 11px; letter-spacing: 0.14em; margin-top: 12px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+
+  /* ── principles ── */
+  .principles { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; }
+  .principle { padding: 30px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); }
+  .principle .n { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--rose); letter-spacing: 0.14em; }
+  .principle h3 { font-size: 22px; font-weight: 600; margin: 14px 0 8px; }
+  .principle p { color: var(--muted); font-size: 15px; }
+
+  /* ── closing cta ── */
+  .closing { text-align: center; }
+  .closing h2 { font-size: clamp(30px, 4.6vw, 52px); font-weight: 600; line-height: 1.05; max-width: 18ch; margin: 0 auto 18px; }
+  .closing .deva-tag { font-size: 30px; color: var(--brick); margin-bottom: 18px; }
+  .closing p { color: var(--muted); font-size: 18px; max-width: 50ch; margin: 0 auto 32px; }
+
+  /* ── footer ── */
+  footer { border-top: 1px solid var(--border); padding: 64px 0 40px; background: var(--surface); }
+  .foot-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 40px; }
+  .foot-brand .wordmark { font-size: 24px; font-weight: 600; }
+  .foot-brand .wordmark .labs { color: var(--muted); font-weight: 400; }
+  .foot-brand .deva { font-size: 20px; color: var(--brick); margin-top: 6px; }
+  .foot-brand p { color: var(--muted); font-size: 14.5px; margin-top: 14px; max-width: 30ch; }
+  .foot-col h4 { font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+  .foot-col a { display: block; font-size: 15px; color: #4a4357; margin-bottom: 11px; transition: color .2s; }
+  .foot-col a:hover { color: var(--brick); }
+  .foot-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 54px; padding-top: 26px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13.5px; flex-wrap: wrap; gap: 10px; }
+  .foot-bottom .mono { letter-spacing: 0.04em; }
+
+  @media (max-width: 860px) {
+    .nav-links a:not(.btn) { display: none; }
+    .story-grid, .companion-in, .model-grid, .principles, .foot-grid { grid-template-columns: 1fr; }
+    .companion-in { padding: 40px 28px; }
+    .companion { border-radius: 24px; }
+    .story-mark { max-width: 200px; margin-bottom: 10px; }
+    .foot-grid { gap: 30px; }
+    section.block { padding: 72px 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════ shared SVG defs: gradients + marks ════ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="ember" x1="0%" y1="100%" x2="60%" y2="0%">
+      <stop offset="0%" stop-color="#c2502a"/><stop offset="55%" stop-color="#ff8a1e"/><stop offset="100%" stop-color="#e85d7a"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2b2f72"/><stop offset="55%" stop-color="#e85d7a"/><stop offset="100%" stop-color="#ff8a1e"/>
+    </linearGradient>
+
+    <!-- jatayu feathers: the tiranga across three strokes -->
+    <linearGradient id="jat-top" gradientUnits="userSpaceOnUse" x1="36" y1="62" x2="78" y2="32">
+      <stop offset="0%" stop-color="#ff8a1e"/><stop offset="100%" stop-color="#ffb347"/>
+    </linearGradient>
+    <linearGradient id="jat-mid" gradientUnits="userSpaceOnUse" x1="26" y1="78" x2="80" y2="44">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="50%" stop-color="#4a52cc"/><stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="jat-bot" gradientUnits="userSpaceOnUse" x1="16" y1="92" x2="82" y2="56">
+      <stop offset="0%" stop-color="#0f6e2e"/><stop offset="100%" stop-color="#1f9a45"/>
+    </linearGradient>
+
+    <!-- Jatayu: ground line, three tiranga feathers, a guiding star with an indigo needle pointing south -->
+    <g id="m-jatayu">
+      <line x1="14" y1="96" x2="106" y2="96" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      <path d="M16 92 Q50 84 82 56" fill="none" stroke="url(#jat-bot)" stroke-width="4" stroke-linecap="round"/>
+      <path d="M26 78 Q54 68 80 44" fill="none" stroke="url(#jat-mid)" stroke-width="4" stroke-linecap="round"/>
+      <path d="M36 62 Q60 52 78 32" fill="none" stroke="url(#jat-top)" stroke-width="4" stroke-linecap="round"/>
+    </g>
+
+    <!-- Shravan / listening: incoming arcs settling into a fired point -->
+    <g id="m-stt">
+      <line x1="14" y1="96" x2="106" y2="96" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      <path d="M30 86 A40 40 0 0 1 30 36" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" opacity="0.35"/>
+      <path d="M42 82 A28 28 0 0 1 42 44" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" opacity="0.6"/>
+      <path d="M54 78 A16 16 0 0 1 54 50" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" opacity="0.85"/>
+      <circle cx="78" cy="64" r="10" fill="url(#ember)"/>
+      <circle cx="96" cy="64" r="3" fill="#2b2f72"/>
+    </g>
+
+    <!-- Vani / voice: a fired source, sound rising outward, one indigo ray -->
+    <g id="m-tts">
+      <line x1="14" y1="96" x2="106" y2="96" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="40" cy="64" r="10" fill="url(#ember)"/>
+      <path d="M58 50 A20 20 0 0 1 58 78" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" opacity="0.8"/>
+      <path d="M72 40 A34 34 0 0 1 72 88" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" opacity="0.5"/>
+      <path d="M86 30 A48 48 0 0 1 86 98" fill="none" stroke="#2b2f72" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    </g>
+
+    <!-- Bhasha / language: the shirorekha, hanging strokes, one fired matra -->
+    <g id="m-lang">
+      <line x1="20" y1="40" x2="100" y2="40" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      <line x1="34" y1="40" x2="34" y2="92" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M34 92 Q34 70 56 70" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="66" y1="40" x2="66" y2="92" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" opacity="0.6"/>
+      <circle cx="86" cy="64" r="9" fill="url(#ember)"/>
+      <line x1="86" y1="28" x2="86" y2="40" stroke="#2b2f72" stroke-width="3" stroke-linecap="round"/>
+    </g>
+  </defs>
+</svg>
+
+<!-- ════ nav ════ -->
+<nav id="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="/">
+      <svg width="30" height="30" viewBox="0 0 120 120" aria-hidden="true"><use href="#m-jatayu"/></svg>
+      <span class="wordmark">jatayu <span class="labs">labs</span></span>
+    </a>
+    <div class="nav-links">
+      <a href="#story">Story</a>
+      <a href="#models">Models</a>
+      <a href="#companion">Companion</a>
+      <a href="mailto:hello@jatayulabs.com">Contact</a>
+      <a class="btn btn-primary" href="https://app.jatayulabs.com">Open Companion</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ════ hero ════ -->
+<header class="hero">
+  <div class="wrap">
+    <svg class="hero-mark" viewBox="0 0 120 120" aria-label="Jatayu Labs mark"><use href="#m-jatayu"/></svg>
+    <div class="deva-tag deva">जटायु</div>
+    <h1>Foundational AI for the way India speaks.</h1>
+    <p class="lead">Jatayu Labs builds the speech and language models behind India's next generation of products. Companion is the first.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#companion">Meet Companion</a>
+      <a class="btn btn-ghost" href="#story">Read the story</a>
+    </div>
+  </div>
+</header>
+
+<!-- ════ language strip ════ -->
+<div class="langs">
+  <div class="label">built for the many tongues of India</div>
+  <div class="marquee">
+    <div class="marquee-track" id="mq">
+      <span>हिन्दी</span><span>বাংলা</span><span>தமிழ்</span><span>తెలుగు</span><span>मराठी</span><span>ગુજરાતી</span><span>ಕನ್ನಡ</span><span>മലയാളം</span><span>ਪੰਜਾਬੀ</span><span>ଓଡ଼ିଆ</span><span>অসমীয়া</span><span>اردو</span><span>English</span>
+    </div>
+  </div>
+</div>
+
+<!-- ════ story ════ -->
+<section class="block story" id="story">
+  <div class="wrap story-grid reveal">
+    <div>
+      <svg class="story-mark" viewBox="0 0 120 120" aria-label="Jatayu mark"><use href="#m-jatayu"/></svg>
+    </div>
+    <div>
+      <div class="eyebrow">नाम की कहानी &middot; the story of the name</div>
+      <h2>Why Jatayu.</h2>
+      <p>Jatayu is the watchful one of the Ramayana, the great bird who saw Sita carried off and rose against Ravana, old and outmatched as he was. Defeated, he spent his last breath on the one thing that mattered, the direction Ravana had flown. One true word, and the rescue had its beginning.</p>
+      <p class="pull">Sight is worth little without the word that follows it.</p>
+      <p>An intelligence worth building works the same way. It watches closely, it understands what it sees, and it returns the one word that lets a person act, at the moment it counts. That is the standard we hold our models to.</p>
+      <div class="deva-words">
+        <div><b class="deva">साक्षी</b>witness</div>
+        <div><b class="deva">दिशा</b>direction</div>
+        <div><b class="deva">धर्म</b>dharma</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════ models ════ -->
+<section class="block" id="models" style="background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">what we are building</div>
+      <h2>A stack for Indian speech and language.</h2>
+      <p>The foundation under everything we ship. Trained on how people here really speak, switch tongues mid sentence, and say what they mean.</p>
+    </div>
+    <div class="model-grid">
+      <div class="model-card reveal">
+        <svg class="ic" viewBox="0 0 120 120"><use href="#m-stt"/></svg>
+        <h3>Speech to Text <span class="d deva">श्रवण</span></h3>
+        <p>Listening that hears Hindi, English, and the Hinglish in between, with the accents and code switching that real conversations are made of.</p>
+        <div class="stat">hears &middot; transcribes &middot; understands</div>
+      </div>
+      <div class="model-card reveal">
+        <svg class="ic" viewBox="0 0 120 120"><use href="#m-tts"/></svg>
+        <h3>Text to Speech <span class="d deva">वाणी</span></h3>
+        <p>Voices with the warmth and cadence of Indian languages, not a borrowed accent read off a foreign page.</p>
+        <div class="stat">speaks &middot; in your tongue</div>
+      </div>
+      <div class="model-card reveal">
+        <svg class="ic" viewBox="0 0 120 120"><use href="#m-lang"/></svg>
+        <h3>Language <span class="d deva">भाषा</span></h3>
+        <p>Models that know the festivals, the food, the cities, and the way a request is really phrased here.</p>
+        <div class="stat">reasons &middot; in context</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════ companion ════ -->
+<section class="block" id="companion">
+  <div class="wrap">
+    <div class="companion reveal">
+      <div class="companion-in">
+        <div>
+          <div class="eyebrow">our first flight</div>
+          <h2>Companion</h2>
+          <p>An everything assistant for India. Order food, track a grocery run, plan an evening out, manage money and reminders, in Hindi, English, or Hinglish, whatever feels natural.</p>
+          <p>It is the first vertical built on our stack.</p>
+          <p class="note">Companion is a placeholder name. As each vertical finds its own shape, it will earn its own name.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://app.jatayulabs.com">Open Companion</a>
+            <a class="btn btn-ghost" href="#models">See the stack</a>
+          </div>
+        </div>
+        <div class="device" aria-label="Companion running on the live app">
+          <video class="device-screen" autoplay loop muted playsinline preload="metadata" poster="assets/companion-demo-poster.jpg">
+            <source src="assets/companion-demo.webm" type="video/webm">
+            <source src="assets/companion-demo.mp4" type="video/mp4">
+          </video>
+          <div class="device-cap">recorded on the live app</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════ principles ════ -->
+<section class="block" style="background:var(--surface);border-top:1px solid var(--border);">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">how we work</div>
+      <h2>Three lines from one old story.</h2>
+    </div>
+    <div class="principles">
+      <div class="principle reveal"><div class="n">01</div><h3>Watch with care.</h3><p>Perception is not a feature we bolt on at the end. We build to notice clearly, the way a guardian keeps watch over what matters.</p></div>
+      <div class="principle reveal"><div class="n">02</div><h3>Say what is true.</h3><p>An honest answer, an honest limit, an honest error. The word we hand back is the real one, not the convenient one.</p></div>
+      <div class="principle reveal"><div class="n">03</div><h3>Make the last word count.</h3><p>When everything is on the line, one precise word can change all that follows. We treat every signal like the one that sets the search in motion.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════ closing cta ════ -->
+<section class="block closing">
+  <div class="wrap reveal">
+    <div class="deva-tag deva">जटायु</div>
+    <h2>Built in India, for the many ways India speaks.</h2>
+    <p>We are early, and we are hiring the people who want to build this from the ground up.</p>
+    <div class="cta-row" style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;">
+      <a class="btn btn-primary" href="mailto:hello@jatayulabs.com">Say hello</a>
+      <a class="btn btn-ghost" href="https://app.jatayulabs.com">Try Companion</a>
+    </div>
+  </div>
+</section>
+
+<!-- ════ footer ════ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <div class="brand" style="gap:11px;">
+          <svg width="28" height="28" viewBox="0 0 120 120"><use href="#m-jatayu"/></svg>
+          <span class="wordmark">jatayu <span class="labs">labs</span></span>
+        </div>
+        <div class="deva">जटायु</div>
+        <p>Speech and language models, built in India, for the way India actually talks.</p>
+      </div>
+      <div class="foot-col">
+        <h4>Models</h4>
+        <a href="#models">Speech to Text</a>
+        <a href="#models">Text to Speech</a>
+        <a href="#models">Language</a>
+      </div>
+      <div class="foot-col">
+        <h4>Products</h4>
+        <a href="https://app.jatayulabs.com">Companion</a>
+        <a href="#story">Our story</a>
+        <a href="mailto:hello@jatayulabs.com">Careers</a>
+      </div>
+      <div class="foot-col">
+        <h4>Connect</h4>
+        <a href="mailto:hello@jatayulabs.com">hello@jatayulabs.com</a>
+        <a href="https://jatayulabs.com">jatayulabs.com</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Jatayu Labs. Made in India.</span>
+      <span class="mono">watch with care &middot; say what is true &middot; make the last word count</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // sticky nav border on scroll
+  const nav = document.getElementById('nav');
+  const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 8);
+  window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+
+  // duplicate the language track so the marquee loops seamlessly
+  const mq = document.getElementById('mq');
+  if (mq) mq.parentElement.appendChild(mq.cloneNode(true));
+
+  // scroll reveal
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
+</body>
+</html>
