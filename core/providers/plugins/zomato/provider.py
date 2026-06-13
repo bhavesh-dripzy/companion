@@ -36,6 +36,7 @@ from core.providers.plugins.zomato.digest import summarize
 from core.providers.plugins.zomato.menu_cards import build_menu_cards
 from core.providers.plugins.zomato.menu_index import merge_menu
 from core.providers.plugins.zomato.payment_cards import build_payment_cards
+from core.providers.plugins.zomato.placeholders import ZomatoResolver
 from core.providers.plugins.zomato.planner_context import build_context
 from core.providers.plugins.zomato.session import ZomatoSession, merge_restaurants
 
@@ -69,6 +70,9 @@ class ZomatoProvider(McpProvider):
     auth_mode = AuthMode.OAUTH
     session_cls = ZomatoSession
     saved_addresses_tool = "get_saved_addresses_for_user"
+    # Name-aware __RESTAURANT_ID__ learning: a search for a named outlet picks
+    # the matching result, not Zomato's fuzzy first hit (see placeholders.py).
+    resolver = ZomatoResolver()
 
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
         url = os.getenv("ZOMATO_MCP_URL", _DEFAULT_URL)
