@@ -227,21 +227,33 @@ const FIXTURES: { name: string; att: Attachment }[] = [
       provider: 'instamart',
       instamart_products: [
         {
-          spin_id: 'i1',
+          product_id: 'p1',
           name: 'Taaza Toned Milk',
           brand: 'Amul',
-          quantity_description: '500 ml',
-          price_inr: 29,
-          mrp_inr: 30,
-          in_stock: true,
+          query: 'milk',
+          variants: [
+            {
+              spin_id: 'i1',
+              quantity_description: '500 ml',
+              price_inr: 29,
+              mrp_inr: 30,
+              in_stock: true,
+            },
+          ],
         },
         {
-          spin_id: 'i2',
+          product_id: 'p2',
           name: 'Greek Yogurt Blueberry',
           brand: 'Epigamia',
-          quantity_description: '90 g',
-          price_inr: 60,
-          in_stock: false,
+          query: 'yogurt',
+          variants: [
+            {
+              spin_id: 'i2',
+              quantity_description: '90 g',
+              price_inr: 60,
+              in_stock: false,
+            },
+          ],
         },
       ],
     },

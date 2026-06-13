@@ -56,7 +56,10 @@ class ZeptoProvider(McpProvider):
             exc = NeedsLocationError("User location required to find your Zepto store.")
             return ProviderResult(
                 provider=self.id,
-                results=[result_from_exception(c.tool, self.id, exc, arguments=c.arguments) for c in calls],
+                results=[
+                    result_from_exception(c.tool, self.id, exc, arguments=c.arguments)
+                    for c in calls
+                ],
                 ok=False,
                 error=ErrorCode.NEEDS_LOCATION,
                 error_detail=str(exc),
@@ -73,7 +76,9 @@ class ZeptoProvider(McpProvider):
         # Proactively register the store for this MCP session so the planner's
         # get_location_serviceability step is optional (each session is stateless).
         try:
-            await call_tool(session, "get_location_serviceability", {"latitude": lat, "longitude": lng})
+            await call_tool(
+                session, "get_location_serviceability", {"latitude": lat, "longitude": lng}
+            )
             ctx.scratch["zepto_store_registered"] = True
         except Exception:
             pass  # planner-emitted serviceability call will be the fallback
@@ -81,7 +86,10 @@ class ZeptoProvider(McpProvider):
     def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
         # Short-circuit the planner's serviceability call when already done proactively.
         if tool == "get_location_serviceability" and ctx.scratch.get("zepto_store_registered"):
-            return {"is_error": False, "data": {"raw_text": "Store already registered for this session."}}
+            return {
+                "is_error": False,
+                "data": {"raw_text": "Store already registered for this session."},
+            }
         return None
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:

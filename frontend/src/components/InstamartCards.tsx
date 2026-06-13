@@ -316,7 +316,9 @@ export const InstamartProductCardGrid: React.FC<{
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
 }> = ({ attachment, onQuickPrompt, disabled }) => {
-  const products = Array.isArray(attachment.products) ? attachment.products : [];
+  const products = Array.isArray(attachment.instamart_products)
+    ? attachment.instamart_products
+    : [];
   if (products.length === 0) return null;
 
   const groups = new Map<string, InstamartProductCardEntry[]>();

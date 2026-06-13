@@ -46,7 +46,11 @@ def _products_block(session_instamart_products: Any) -> str | None:
                 continue
             qty = str(var.get("quantity_description") or "").strip() or "?"
             price = var.get("price_inr")
-            price_str = f" ₹{price:g}" if isinstance(price, int | float) and not isinstance(price, bool) else ""
+            price_str = (
+                f" ₹{price:g}"
+                if isinstance(price, int | float) and not isinstance(price, bool)
+                else ""
+            )
             var_lines.append(f"      {qty}{price_str} → spinId={spin_id}")
         if not var_lines:
             continue
@@ -59,8 +63,7 @@ def _products_block(session_instamart_products: Any) -> str | None:
         "when the user picks one by name, copy the literal spinId below into "
         "`update_cart.items[]` instead of re-running `search_products`. "
         "Each product lists its variants (pack sizes) — if the user hasn't "
-        "specified a variant, ask them to pick one before adding to cart:\n"
-        + "\n".join(rows)
+        "specified a variant, ask them to pick one before adding to cart:\n" + "\n".join(rows)
     )
 
 

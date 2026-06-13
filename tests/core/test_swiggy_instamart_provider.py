@@ -88,9 +88,13 @@ def test_builds_per_variant_product_cards_from_real_data():
     assert products, "expected ≥1 product card"
     blob = json.dumps(products)
     assert "S8PF9T8YLG" in blob, "the real spinId from the live capture should appear"
-    amul = next(p for p in products if p["spin_id"] == "S8PF9T8YLG")
-    assert amul["name"] == "Amul Gold Milk 1 Ltr" and amul["price_inr"] == 72.0
-    assert amul["query"] == "milk"
+    # Product-level rows carry `variants: [{spin_id, price_inr, ...}]` — the
+    # live capture's Amul Gold Milk has one variation (spinId S8PF9T8YLG).
+    amul = next(p for p in products if p["name"] == "Amul Gold Milk 1 Ltr")
+    assert amul["brand"] == "Amul" and amul["query"] == "milk"
+    spin = next(v for v in amul["variants"] if v["spin_id"] == "S8PF9T8YLG")
+    assert spin["price_inr"] == 72.0 and spin["mrp_inr"] == 72.0
+    assert spin["in_stock"] is True
 
 
 def test_builds_cart_card_and_session_cart():
@@ -122,9 +126,16 @@ def test_builds_cart_card_and_session_cart():
     assert provider.merge({}, result)["session_instamart_cart"]["items"]
 
 
-def test_session_products_lru_keyed_by_spin_id():
+def test_session_products_lru_keyed_by_product_id():
     merged = SwiggyInstamartProvider().merge({}, _result())
     products = merged.get("session_instamart_products") or []
     assert products, "expected session_instamart_products carried forward"
-    ids = [p["spin_id"] for p in products]
-    assert "S8PF9T8YLG" in ids and len(ids) == len(set(ids)), "deduped spinId LRU"
+    # LRU is deduped by product_id; each product row carries its full variants list.
+    product_ids = [p["product_id"] for p in products]
+    assert "LLB1MIIY7S" in product_ids and len(product_ids) == len(set(product_ids)), (
+        "deduped productId LRU"
+    )
+    # The Amul Gold Milk row (productId LLB1MIIY7S) keeps its single variation.
+    amul = next(p for p in products if p["product_id"] == "LLB1MIIY7S")
+    spin_ids = [v["spin_id"] for v in amul["variants"]]
+    assert "S8PF9T8YLG" in spin_ids
