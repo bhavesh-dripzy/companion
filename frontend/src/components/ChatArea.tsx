@@ -181,7 +181,7 @@ export function ChatArea({
     const ta = textareaRef.current;
     if (!ta) return;
     if (!inputValue.trim()) {
-      ta.style.height = '36px';
+      ta.style.height = '24px';
       return;
     }
     ta.style.height = 'auto';
@@ -344,6 +344,14 @@ export function ChatArea({
                   transition={{ delay: 0.05, duration: 0.6, ease: 'easeOut' }}
                   className="relative z-10 my-auto flex flex-col items-center"
                 >
+                  {/* Brand logo mark */}
+                  <div
+                    className="w-14 h-14 rounded-2xl mb-5 flex items-center justify-center shadow-md"
+                    style={{ background: 'linear-gradient(135deg, #2b2f72 0%, #6c4fbd 100%)' }}
+                  >
+                    <span className="text-white font-bold text-2xl leading-none select-none">C</span>
+                  </div>
+
                   {/* Headline — AI-generated personalized greeting (name, time of
                       day, local weather, interests); the user's name renders in
                       the brand gradient. Height is reserved for two lines so the
