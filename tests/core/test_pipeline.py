@@ -23,7 +23,7 @@ from core.registry.seed import builtin_tools
 
 pytestmark = pytest.mark.unit
 
-_LLM = ResolvedLlm(provider="deepseek", api_key="x", model="m")
+_LLM = ResolvedLlm(provider="sarvam", api_key="x", model="m")
 
 
 class _FakeZomato:

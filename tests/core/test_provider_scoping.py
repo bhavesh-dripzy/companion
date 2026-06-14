@@ -320,7 +320,7 @@ def test_pipeline_fanout_keeps_placeholders_provider_scoped():
         publisher=NoopPublisher(),
         complete_json=complete,
     )
-    llm = ResolvedLlm(provider="deepseek", api_key="x", model="m")
+    llm = ResolvedLlm(provider="sarvam", api_key="x", model="m")
 
     first = asyncio.run(runner.run(TurnRequest(message="compare falooda", user_id="u1"), llm))
     assert first.session.placeholders == {

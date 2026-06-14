@@ -808,7 +808,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     AI Model Provider
                   </label>
                   <div className="space-y-2">
-                    {['Auto-detect', 'Gemini', 'OpenAI', 'DeepSeek'].map((provider) => (
+                    {['Auto-detect', 'Sarvam', 'Gemini', 'OpenAI'].map((provider) => (
                       <button
                         key={provider}
                         className={cn(

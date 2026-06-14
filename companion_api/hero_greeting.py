@@ -1,7 +1,7 @@
 """Personalized hero greeting for the app's empty/landing state.
 
 Generates one short, catchy, personalized line for the logged-in user by
-feeding an LLM (DeepSeek, falling back to the auto-resolved provider) a small
+feeding an LLM (Sarvam, falling back to the auto-resolved provider) a small
 context bundle:
 
   * who they are            — name / city / top interest, from the profile cache
@@ -198,9 +198,9 @@ def generate_greeting(
         logger.debug("greeting LLM import failed", exc_info=True)
         return None
 
-    resolved, err = resolve_llm_from_env(force="deepseek")
+    resolved, err = resolve_llm_from_env(force="sarvam")
     if resolved is None:
-        # DeepSeek not configured — fall back to whatever provider is available.
+        # Sarvam not configured — fall back to whatever provider is available.
         resolved, err = resolve_llm_from_env()
     if resolved is None:
         logger.info("greeting: no LLM provider available (%s)", err)

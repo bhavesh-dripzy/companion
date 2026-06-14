@@ -1,7 +1,7 @@
 """LLM provider resolution from environment / secrets.
 
-Ported from `app/services/llm_config.py`. Resolution order and model defaults are
-preserved so the core path selects the same provider the legacy router did.
+Sarvam (India-hosted, OpenAI-compatible) is the primary provider; Gemini and
+OpenAI remain as fallbacks. A `force`/`LLM_PROVIDER` override always wins.
 """
 
 from __future__ import annotations
@@ -19,11 +19,13 @@ except Exception:  # pragma: no cover - import fallback
         return (os.getenv(name) or default).strip()
 
 
-Provider = Literal["gemini", "openai", "deepseek"]
+Provider = Literal["gemini", "openai", "sarvam"]
 
+# Sarvam AI — India-hosted, OpenAI-compatible. Sarvam-M (24B) was deprecated on
+# the managed API (mid-2026); sarvam-30b / sarvam-105b are the current models.
+SARVAM_MODEL_DEFAULT = "sarvam-30b"
+SARVAM_BASE_URL = "https://api.sarvam.ai/v1"
 GEMINI_MODEL_DEFAULT = "gemini-2.5-flash-lite"
-DEEPSEEK_MODEL_DEFAULT = "deepseek-chat"
-DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 OPENAI_MODEL_DEFAULT = "gpt-4o-mini"
 
 
@@ -41,7 +43,7 @@ class ResolvedLlm:
     provider: Provider
     api_key: str
     model: str
-    base_url: str | None = None  # for OpenAI-compatible providers (DeepSeek)
+    base_url: str | None = None  # for OpenAI-compatible providers (Sarvam)
 
 
 def _repo_root() -> Path:
@@ -73,18 +75,18 @@ def _gemini(api_key: str) -> ResolvedLlm:
     )
 
 
-def _deepseek(api_key: str) -> ResolvedLlm:
-    return ResolvedLlm(
-        "deepseek",
-        api_key,
-        _named("DEEPSEEK_MODEL", "DEEPSEEK_FOOD_ROUTER_MODEL", DEEPSEEK_MODEL_DEFAULT),
-        base_url=DEEPSEEK_BASE_URL,
-    )
-
-
 def _openai(api_key: str) -> ResolvedLlm:
     return ResolvedLlm(
         "openai", api_key, _named("OPENAI_MODEL", "OPENAI_FOOD_ROUTER_MODEL", OPENAI_MODEL_DEFAULT)
+    )
+
+
+def _sarvam(api_key: str) -> ResolvedLlm:
+    return ResolvedLlm(
+        "sarvam",
+        api_key,
+        secret_or_env("SARVAM_MODEL", SARVAM_MODEL_DEFAULT),
+        base_url=SARVAM_BASE_URL,
     )
 
 
@@ -93,15 +95,15 @@ def resolve_llm_from_env(force: str = "") -> tuple[ResolvedLlm | None, str | Non
 
     With no `force` argument, the provider override is read from LLM_PROVIDER
     (legacy FOOD_ROUTER_PROVIDER) here — call sites don't carry env names."""
+    sarvam_key = secret_or_env("SARVAM_API_KEY")
     gemini_key = _gemini_api_key()
     openai_key = secret_or_env("OPENAI_API_KEY")
-    deepseek_key = secret_or_env("DEEPSEEK_API_KEY")
     forced = (force or _named("LLM_PROVIDER", "FOOD_ROUTER_PROVIDER")).strip().lower()
 
     forced_builders = {
+        "sarvam": (sarvam_key, _sarvam),
         "gemini": (gemini_key, _gemini),
         "openai": (openai_key, _openai),
-        "deepseek": (deepseek_key, _deepseek),
     }
     if forced in forced_builders:
         key, build = forced_builders[forced]
@@ -109,14 +111,14 @@ def resolve_llm_from_env(force: str = "") -> tuple[ResolvedLlm | None, str | Non
             return None, f"LLM_PROVIDER={forced} but its API key is unset."
         return build(key), None
 
-    # Auto-select: prefer Gemini, then DeepSeek, then OpenAI (legacy order).
+    # Auto-select: prefer Sarvam (India-hosted), then Gemini, then OpenAI.
+    if sarvam_key:
+        return _sarvam(sarvam_key), None
     if gemini_key:
         return _gemini(gemini_key), None
-    if deepseek_key:
-        return _deepseek(deepseek_key), None
     if openai_key:
         return _openai(openai_key), None
     return None, (
-        "No LLM key: set GEMINI_API_KEY or GOOGLE_API_KEY (preferred), "
-        "DEEPSEEK_API_KEY, or OPENAI_API_KEY."
+        "No LLM key: set SARVAM_API_KEY (preferred), GEMINI_API_KEY / "
+        "GOOGLE_API_KEY, or OPENAI_API_KEY."
     )

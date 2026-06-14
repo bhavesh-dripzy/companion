@@ -1,7 +1,7 @@
 # Sarvam Half-Cascade Voice PoC
 
 Standalone proof-of-concept for replacing Gemini Live voice with a Sarvam-native
-cascade: **Saaras v3 STT → LLM (Sarvam-M / DeepSeek) → Bulbul TTS**. Touches
+cascade: **Saaras v3 STT → LLM (Sarvam) → Bulbul TTS**. Touches
 nothing in prod — single self-contained script, run with `uv`.
 
 ## Why (June 2026 research)
@@ -69,7 +69,6 @@ The same conversational pattern as prod voice mode:
 | `--no-tts-translit` | disable the Roman→Devanagari transliteration before TTS (on by default — Bulbul mispronounces romanized Hindi; live finding 2026-06-12; costs ₹20/10k chars, ~+300ms TTFA) |
 | `--tts-script deva` | LLM outputs Devanagari instead of Roman Hinglish — A/B which Bulbul pronounces better |
 | `--stt-mode codemix` | English words in Latin + Hindi in Devanagari (vs default `translit` = all-Roman) |
-| `--llm deepseek` | swap the brain to DeepSeek (`DEEPSEEK_API_KEY`) — proves the LLM slot is pluggable |
 | `--llm-model <id>` | e.g. `sarvam-30b` / `sarvam-105b` (on 4xx the script prints the endpoint's model list) |
 | `--tools mock` | canned tool result instead of the real core pipeline (no AWS needed) |
 | `--user <id>` | core-pipeline user with vaulted MCP tokens (default `admin_bhavesh`) |

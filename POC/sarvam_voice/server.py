@@ -142,10 +142,9 @@ async def ws_endpoint(ws: WebSocket):
     loop = asyncio.get_running_loop()
     persona = PERSONA_DEVA if ARGS.tts_script == "deva" else (
         PERSONA_F if ARGS.persona_gender == "f" else PERSONA)
-    llm_rates = PRICES["llm_per_1m_deepseek"] if ARGS.llm == "deepseek" else PRICES["llm_per_1m"]
     state = {
         "messages": [{"role": "system", "content": persona}],
-        "meter": CostMeter(ARGS.tts_model, llm_rates),
+        "meter": CostMeter(ARGS.tts_model, PRICES["llm_per_1m"]),
         "voice": {"model": ARGS.tts_model, "speaker": ARGS.speaker,
                   "pace": 1.0, "temperature": 0.8},
     }
@@ -217,7 +216,6 @@ def main():
     ap.add_argument("--speaker", default=None)
     ap.add_argument("--tts-script", default="roman", choices=["roman", "deva"])
     ap.add_argument("--tts-translit", action=argparse.BooleanOptionalAction, default=True)
-    ap.add_argument("--llm", default="deepseek", choices=["deepseek", "sarvam"])
     ap.add_argument("--llm-model", default=None)
     ap.add_argument("--tools", default="real", choices=["real", "mock"])
     ap.add_argument("--user", default="admin_bhavesh")
@@ -233,13 +231,7 @@ def main():
     KEY = os.environ.get("SARVAM_API_KEY", "")
     if not KEY:
         sys.exit("SARVAM_API_KEY not set — get one at https://dashboard.sarvam.ai")
-    if ARGS.llm == "deepseek":
-        ds = os.environ.get("DEEPSEEK_API_KEY", "")
-        if not ds:
-            sys.exit("DEEPSEEK_API_KEY not set")
-        LLM_CFG = {"base": "https://api.deepseek.com/v1", "key": ds, "model": ARGS.llm_model or "deepseek-chat"}
-    else:
-        LLM_CFG = {"base": "https://api.sarvam.ai/v1", "key": KEY, "model": ARGS.llm_model or "sarvam-30b"}
+    LLM_CFG = {"base": "https://api.sarvam.ai/v1", "key": KEY, "model": ARGS.llm_model or "sarvam-30b"}
 
     if ARGS.tools == "real":
         geo = None

@@ -230,7 +230,7 @@ def hero_greeting(user: str = Depends(get_current_user)) -> dict[str, Any]:
 
     Built from the user's profile (name/city/top interest), current weather at
     their saved address (Open-Meteo, keyless), and the time of day, then phrased
-    by an LLM (DeepSeek with fallback). Best-effort: always returns a usable
+    by an LLM (Sarvam with fallback). Best-effort: always returns a usable
     greeting — degrades to a static time-of-day line if anything is missing.
     """
     from companion_api.hero_greeting import build_hero_greeting

@@ -13,7 +13,7 @@ pytestmark = pytest.mark.unit
 
 def test_shadow_adapts_request_and_envelope(monkeypatch):
     monkeypatch.setattr(
-        cs, "resolve_llm_from_env", lambda *_a: (ResolvedLlm("deepseek", "k", "m"), None)
+        cs, "resolve_llm_from_env", lambda *_a: (ResolvedLlm("sarvam", "k", "m"), None)
     )
 
     class _FakeRunner:
@@ -43,7 +43,7 @@ def test_shadow_adapts_request_and_envelope(monkeypatch):
 
 def test_shadow_envelope_surfaces_providers_and_tool_error(monkeypatch):
     monkeypatch.setattr(
-        cs, "resolve_llm_from_env", lambda *_a: (ResolvedLlm("deepseek", "k", "m"), None)
+        cs, "resolve_llm_from_env", lambda *_a: (ResolvedLlm("sarvam", "k", "m"), None)
     )
 
     class _FakeRunner:

@@ -20,7 +20,7 @@ from core.providers.mcp.connection import StdioSpec
 
 pytestmark = pytest.mark.unit
 
-_LLM = ResolvedLlm(provider="deepseek", api_key="x", model="m")
+_LLM = ResolvedLlm(provider="sarvam", api_key="x", model="m")
 
 
 class _Provider(mcp_base.McpProvider):

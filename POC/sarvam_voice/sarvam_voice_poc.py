@@ -47,7 +47,6 @@ PRICES = {
     "tts_per_10k": {"bulbul:v2": 15.0, "bulbul:v3": 30.0},
     "translit_per_10k": 20.0,
     "llm_per_1m": {"in": 2.5, "out": 10.0},
-    "llm_per_1m_deepseek": {"in": 23.0, "out": 93.0},
 }
 
 PERSONA = (
@@ -538,7 +537,6 @@ def main():
                     help="LLM output script — A/B which Bulbul speaks better")
     ap.add_argument("--tts-translit", action=argparse.BooleanOptionalAction, default=True,
                     help="transliterate Roman Hinglish to Devanagari before TTS (₹20/10k chars)")
-    ap.add_argument("--llm", default="deepseek", choices=["deepseek", "sarvam"])
     ap.add_argument("--llm-model", default=None)
     ap.add_argument("--tools", default="real", choices=["real", "mock"],
                     help="real = in-process core pipeline (Zomato/serp/... like Gemini voice); mock = canned result")
@@ -555,13 +553,7 @@ def main():
     key = os.environ.get("SARVAM_API_KEY", "")
     if not key:
         sys.exit("SARVAM_API_KEY not set — get one at https://dashboard.sarvam.ai (free credits on signup)")
-    if args.llm == "deepseek":
-        ds = os.environ.get("DEEPSEEK_API_KEY", "")
-        if not ds:
-            sys.exit("DEEPSEEK_API_KEY not set")
-        llm_cfg = {"base": "https://api.deepseek.com/v1", "key": ds, "model": args.llm_model or "deepseek-chat"}
-    else:
-        llm_cfg = {"base": f"{SARVAM_BASE}/v1", "key": key, "model": args.llm_model or "sarvam-30b"}
+    llm_cfg = {"base": f"{SARVAM_BASE}/v1", "key": key, "model": args.llm_model or "sarvam-30b"}
 
     executor = None
     if args.tools == "real":
@@ -572,8 +564,7 @@ def main():
         print(f"bootstrapping core pipeline (user={args.user}, restoring MCP tokens)...")
         executor = CoreToolExecutor(args.user, geo)
 
-    llm_rates = PRICES["llm_per_1m_deepseek"] if args.llm == "deepseek" else PRICES["llm_per_1m"]
-    meter = CostMeter(args.tts_model, llm_rates)
+    meter = CostMeter(args.tts_model, PRICES["llm_per_1m"])
     persona = PERSONA_DEVA if args.tts_script == "deva" else PERSONA
     messages = [{"role": "system", "content": persona}]
     print(f"sarvam-voice-poc | llm={llm_cfg['model']} tts={args.tts_model}/{args.speaker} "
