@@ -111,7 +111,12 @@ def _entry_list(wire: dict[str, Any]) -> list[Any]:
     for key, value in wire.items():
         if key in _NON_ENTRY_KEYS:
             continue
-        if isinstance(value, list) and value and isinstance(value[0], dict) and len(value) > len(best):
+        if (
+            isinstance(value, list)
+            and value
+            and isinstance(value[0], dict)
+            and len(value) > len(best)
+        ):
             best = value
     return best
 
