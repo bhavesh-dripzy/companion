@@ -15,7 +15,7 @@ const QUICK_ACTIONS = [
   { label: 'Biryani', query: 'Find good biryani near my saved address' },
   { label: 'Pizza', query: 'Find pizza near my saved address' },
   { label: 'Groceries', query: 'Search milk and brown bread on Zepto' },
-  { label: 'Today’s ETA', query: 'How long to reach office from here?' },
+  { label: "Today's ETA", query: 'How long to reach office from here?' },
 ];
 
 export const MessageInput: React.FC<MessageInputProps> = ({

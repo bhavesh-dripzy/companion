@@ -1374,7 +1374,6 @@ const assistantMsg: Message = {
         onSelectProvider={(id) => openSettings('mcp', id)}
         remindersBadge={remindersBadge || undefined}
         onShowReminders={() => setShowRemindersPopup(true)}
-        onShowOrders={() => setShowOrdersPopup(true)}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
       />

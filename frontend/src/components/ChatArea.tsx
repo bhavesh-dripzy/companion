@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Menu, Send, Paperclip, Car, Utensils, Calendar, Ticket, Bell, Search, X } from 'lucide-react';
+import { Menu, Send, Paperclip, Car, Utensils, Calendar, Ticket, Search, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ChatMessageItem } from './ChatMessageItem';
 import { AddressChip } from './AddressChip';
@@ -89,6 +89,14 @@ function greetingWithAccent(text: string, username?: string): React.ReactNode {
 // real `/api/agent/query/` turn through the parent's onSuggestionClick.
 const PROMPT_OPTIONS = [
   {
+    id: 'groceries',
+    label: 'Groceries',
+    prompt: 'Search milk and brown bread on Swiggy Instamart',
+    icon: Calendar,
+    color:
+      'bg-[#1a9d6b]/8 border-[#1a9d6b]/16 hover:border-[#1a9d6b]/45 text-[#147a53] hover:bg-[#1a9d6b]/12',
+  },
+  {
     id: 'cab',
     label: 'Book a Cab',
     prompt: 'Book a cab from my location to the office',
@@ -105,28 +113,12 @@ const PROMPT_OPTIONS = [
       'bg-[#ff8a1e]/10 border-[#ff8a1e]/18 hover:border-[#ff8a1e]/50 text-[#c2630f] hover:bg-[#ff8a1e]/16',
   },
   {
-    id: 'groceries',
-    label: 'Groceries',
-    prompt: 'Search milk and brown bread on Swiggy Instamart',
-    icon: Calendar,
-    color:
-      'bg-[#1a9d6b]/8 border-[#1a9d6b]/16 hover:border-[#1a9d6b]/45 text-[#147a53] hover:bg-[#1a9d6b]/12',
-  },
-  {
     id: 'movie',
     label: 'Find Events',
     prompt: 'Find live music events near me on District',
     icon: Ticket,
     color:
       'bg-[#e85d7a]/8 border-[#e85d7a]/16 hover:border-[#e85d7a]/45 text-[#c23e5b] hover:bg-[#e85d7a]/12',
-  },
-  {
-    id: 'reminder',
-    label: 'My Cart',
-    prompt: "What's currently in my cart?",
-    icon: Bell,
-    color:
-      'bg-[#ffb347]/12 border-[#ffb347]/20 hover:border-[#ffb347]/55 text-[#b07410] hover:bg-[#ffb347]/18',
   },
 ];
 

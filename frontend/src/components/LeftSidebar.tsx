@@ -23,8 +23,7 @@ import {
   MessageSquare,
   Bell,
   Heart,
-  ShoppingBag,
-  Users,
+
   Settings,
   LogOut,
   Shield,
@@ -52,10 +51,9 @@ interface LeftSidebarProps {
   mcpStatuses: Record<string, McpStatus>;
   onSelectProvider: (id: string) => void;
 
-  // Reminders / Orders popups (local-only)
+  // Reminders popup (local-only)
   remindersBadge?: number;
   onShowReminders: () => void;
-  onShowOrders: () => void;
 
   // Layout
   isCollapsed: boolean;
@@ -147,7 +145,6 @@ export function LeftSidebar({
   onSelectProvider,
   remindersBadge,
   onShowReminders,
-  onShowOrders,
   isCollapsed,
   onToggleCollapse,
 }: LeftSidebarProps) {
@@ -212,19 +209,6 @@ export function LeftSidebar({
       label: 'Health',
       icon: Heart,
       bg: 'bg-rose-50 text-rose-500 border-rose-100',
-    },
-    {
-      id: 'orders',
-      label: 'Orders',
-      icon: ShoppingBag,
-      bg: 'bg-amber-50 text-amber-600 border-amber-100',
-      onClick: onShowOrders,
-    },
-    {
-      id: 'family',
-      label: 'Family',
-      icon: Users,
-      bg: 'bg-indigo-50 text-indigo-600 border-indigo-100',
     },
   ];
 
