@@ -9,7 +9,19 @@
 <meta property="og:description" content="Speech and language models, built in India, for the many ways India speaks.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://jatayulabs.com">
+<meta property="og:site_name" content="Jatayu Labs">
+<meta property="og:image" content="https://jatayulabs.com/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jatayu Labs, Foundational AI for the way India speaks.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Jatayu Labs">
+<meta name="twitter:description" content="Speech and language models, built in India. Companion is the first.">
+<meta name="twitter:image" content="https://jatayulabs.com/assets/og-image.png">
+<meta name="theme-color" content="#fdfaf3">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=satoshi@400,500,700&f[]=jet-brains-mono@400,500&display=swap" rel="stylesheet">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -206,6 +218,73 @@
     .foot-grid { gap: 30px; }
     section.block { padding: 72px 0; }
   }
+  /* ── scroll demo (scrollytelling, all scoped under #sd) ── */
+  #sd{position:relative;height:600vh;background:linear-gradient(180deg,#fdfaf3,#f6efe2)}
+  #sd .stage{position:sticky;top:0;height:100vh;display:flex;align-items:center;justify-content:center;gap:64px;overflow:hidden}
+  #sd .glow{position:absolute;inset:0;background:radial-gradient(45% 50% at 62% 42%,rgba(74,82,204,.12),rgba(232,93,122,.08) 45%,transparent 72%);pointer-events:none}
+  #sd .caps{position:relative;width:360px;height:320px;flex-shrink:0}
+  #sd .cap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;opacity:0;transform:translateY(26px);transition:opacity .6s ease,transform .6s cubic-bezier(.22,1,.36,1)}
+  #sd .cap.active{opacity:1;transform:none}
+  #sd .cap .tag{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;margin-bottom:14px}
+  #sd .cap .hook{font-family:'Clash Display',sans-serif;font-size:48px;font-weight:600;line-height:1.03;letter-spacing:-.025em}
+  #sd .cap .note{margin-top:18px;font-size:15.5px;color:var(--muted);max-width:34ch;line-height:1.5}
+  #sd .cap .dots{margin-top:24px;display:flex;gap:8px}
+  #sd .cap .dots i{width:7px;height:7px;border-radius:50%;background:rgba(34,27,46,.16);transition:all .4s}
+  #sd .cap .dots i.on{background:var(--brick);transform:scale(1.3)}
+  #sd .phone{position:relative;width:312px;height:640px;border-radius:42px;padding:11px;background:linear-gradient(160deg,#2a2438,#14101d);box-shadow:0 40px 80px -36px rgba(34,27,46,.55);flex-shrink:0}
+  #sd .screen{position:relative;width:100%;height:100%;border-radius:32px;overflow:hidden;background:linear-gradient(175deg,#fdfaf3,#f6efe3);display:flex;flex-direction:column}
+  #sd .phdr{height:54px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 15px;border-bottom:1px solid var(--border);background:rgba(253,250,243,.8);z-index:20}
+  #sd .orb{width:27px;height:27px;border-radius:50%;background:conic-gradient(from 210deg,#ff8a1e,#e85d7a,#4a52cc,#1a9d6b,#ff8a1e);box-shadow:inset 0 0 0 3px rgba(253,250,243,.5);position:relative;flex-shrink:0}
+  #sd .orb .d{position:absolute;bottom:-1px;right:-1px;width:8px;height:8px;border-radius:50%;background:#1a9d6b;border:2px solid #fff}
+  #sd .phdr .nm{font-size:15px;font-weight:600}#sd .phdr .st{font-size:10px;color:#1a9d6b}
+  #sd .phdr .rt{margin-left:auto;font-size:10px;color:#94a3b8}
+  #sd .chat{flex:1;min-height:0;position:relative}
+  #sd .scene{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;padding:15px 13px;opacity:0;pointer-events:none;transition:opacity .45s ease}
+  #sd .scene.active{opacity:1;pointer-events:auto}
+  #sd .inp{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:9px 13px 13px}
+  #sd .inp .box{flex:1;background:#fff;border:1px solid var(--border);border-radius:999px;padding:10px 14px;font-size:12.5px;color:#a89e8c}
+  #sd .inp .snd{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#4a52cc,#5a62e0);color:#fff;display:grid;place-items:center;font-size:15px;flex-shrink:0}
+  #sd .msg{align-self:flex-end;max-width:82%;padding:9px 13px;border-radius:16px;border-top-right-radius:5px;font-size:13px;font-weight:500;line-height:1.45;background:linear-gradient(135deg,rgba(74,82,204,.14),rgba(232,93,122,.10) 55%,rgba(255,138,30,.13));border:1px solid rgba(74,82,204,.2);opacity:0;transform:translateX(38px) scale(.96);transition:opacity .5s ease,transform .55s cubic-bezier(.22,1,.36,1)}
+  #sd .resp{display:flex;gap:7px;align-items:flex-start;max-width:90%;opacity:0;transform:translateX(-38px) scale(.96);transition:opacity .5s ease,transform .55s cubic-bezier(.22,1,.36,1)}
+  #sd .resp .b{background:rgba(255,255,255,.92);border:1px solid rgba(236,227,214,.9);border-radius:16px;border-top-left-radius:5px;padding:9px 12px;font-size:13px;line-height:1.45}
+  #sd .card{margin-top:auto;opacity:0;transform:translateY(34px) scale(.9);transition:opacity .55s ease,transform .6s cubic-bezier(.22,1,.36,1)}
+  #sd .scene .msg.in,#sd .scene .resp.in,#sd .scene .card.in{opacity:1;transform:none}
+  #sd .c{background:#fff;border:1px solid var(--border);border-radius:18px;box-shadow:0 18px 40px -22px rgba(60,40,30,.4);overflow:hidden}
+  #sd .chead{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:1px solid #f3ece0}
+  #sd .chead .ci{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;color:#fff;font-size:11px}
+  #sd .chead .cl{font-size:11px;font-weight:700}#sd .chead .cr{margin-left:auto;font-size:10px;color:#94a3b8}
+  #sd .c-hero{position:relative;height:114px;background:#221b2e;overflow:hidden}
+  #sd .c-hero img{width:100%;height:100%;object-fit:cover}
+  #sd .c-hero .shade{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.5),transparent 55%)}
+  #sd .chip{position:absolute;left:10px;top:10px;display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.95);border-radius:999px;padding:3px 8px;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em}
+  #sd .chip i{width:5px;height:5px;border-radius:50%;background:#e23744}
+  #sd .rate{position:absolute;right:10px;bottom:8px;background:#1a9d6b;color:#fff;border-radius:7px;padding:3px 7px;font-size:12px;font-weight:700}
+  #sd .cb{padding:10px 12px}
+  #sd .ct{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  #sd .ct h4{font-size:15px;font-weight:600}#sd .ct .p{font-size:12px;font-weight:700;font-family:'JetBrains Mono',monospace}
+  #sd .cs{font-size:10.5px;color:var(--muted);margin-top:3px}
+  #sd .cta{margin-top:10px;display:flex;gap:6px}
+  #sd .cta .a1{flex:1.4;border:none;border-radius:10px;padding:8px;font-size:11.5px;font-weight:700;color:#fff;background:#e23744}
+  #sd .cta .a2{flex:1;border:1px solid var(--border);background:#fff;border-radius:10px;padding:8px;font-size:11.5px;font-weight:700;color:var(--ink)}
+  #sd .grow{display:flex;align-items:center;gap:9px;padding:7px 12px;border-bottom:1px solid #f5efe4}
+  #sd .gth{width:30px;height:30px;border-radius:8px;flex-shrink:0;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;font-family:'JetBrains Mono',monospace}
+  #sd .grow .gn{font-size:12px;font-weight:600}#sd .grow .gq{font-size:9.5px;color:#94a3b8}
+  #sd .grow .gp{margin-left:auto;font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',monospace}
+  #sd .gf{display:flex;align-items:center;padding:9px 12px}#sd .gf .gt{font-size:10.5px;color:var(--muted)}#sd .gf .gt b{font-family:'JetBrains Mono',monospace;color:var(--ink);font-size:12.5px}
+  #sd .gf .gb{margin-left:auto;background:#1a9d6b;color:#fff;border:none;border-radius:10px;padding:6px 13px;font-size:11px;font-weight:700}
+  #sd .nrow{display:flex;gap:9px;padding:9px 12px;border-bottom:1px solid #f5efe4;align-items:flex-start}
+  #sd .nrow .nd{width:7px;height:7px;border-radius:50%;margin-top:5px;flex-shrink:0}
+  #sd .nrow .nt{font-size:11.5px;font-weight:600;line-height:1.3}#sd .nrow .nm{font-size:9.5px;color:#94a3b8;margin-top:2px;font-family:'JetBrains Mono',monospace}
+  #sd .yt{position:relative;height:140px;background:#221b2e;overflow:hidden}#sd .yt img{width:100%;height:100%;object-fit:cover}
+  #sd .yt .play{position:absolute;inset:0;margin:auto;width:44px;height:44px;border-radius:50%;background:rgba(226,55,68,.92);display:grid;place-items:center}
+  #sd .yt .play::after{content:'';border-left:14px solid #fff;border-top:9px solid transparent;border-bottom:9px solid transparent;margin-left:3px}
+  #sd .yt .dur{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.8);color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;font-family:'JetBrains Mono',monospace}
+  #sd .yb{padding:9px 12px}#sd .yb .yt2{font-size:12px;font-weight:600;line-height:1.3}#sd .yb .ym{font-size:10px;color:#94a3b8;margin-top:4px}
+  #sd .mb{padding:12px 14px}#sd .mtop{display:flex;justify-content:space-between;align-items:baseline}#sd .mn{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.04em}#sd .mc{font-size:11px;font-weight:700;color:#1a9d6b}
+  #sd .mv{font-size:28px;font-weight:700;font-family:'Clash Display',sans-serif;margin-top:3px}
+  #sd .spark{margin-top:9px;width:100%;height:42px}
+  #sd .mr{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #f3ece0;font-size:11px}#sd .mr b{font-family:'JetBrains Mono',monospace}
+  @media (max-width:860px){#sd{height:560vh}#sd .stage{flex-direction:column;gap:14px;justify-content:flex-start;padding-top:38px}#sd .caps{width:86%;height:120px}#sd .cap .hook{font-size:32px}#sd .cap .note,#sd .cap .dots{display:none}#sd .phone{width:270px;height:540px}}
 </style>
 </head>
 <body>
@@ -367,25 +446,88 @@
 <section class="block" id="companion">
   <div class="wrap">
     <div class="companion reveal">
-      <div class="companion-in">
+      <div class="companion-in" style="grid-template-columns:1fr;text-align:center;max-width:660px;margin:0 auto">
         <div>
           <div class="eyebrow">our first flight</div>
           <h2>Companion</h2>
           <p>An everything assistant for India. Order food, track a grocery run, plan an evening out, manage money and reminders, in Hindi, English, or Hinglish, whatever feels natural.</p>
-          <p>It is the first vertical built on our stack.</p>
+          <p>It is the first vertical built on our stack. Scroll on to watch it work.</p>
           <p class="note">Companion is a placeholder name. As each vertical finds its own shape, it will earn its own name.</p>
-          <div class="cta-row">
+          <div class="cta-row" style="justify-content:center">
             <a class="btn btn-primary" href="https://app.jatayulabs.com">Open Companion</a>
             <a class="btn btn-ghost" href="#models">See the stack</a>
           </div>
         </div>
-        <div class="device" aria-label="Companion running on the live app">
-          <video class="device-screen" autoplay loop muted playsinline preload="metadata" poster="assets/companion-demo-poster.jpg">
-            <source src="assets/companion-demo.webm" type="video/webm">
-            <source src="assets/companion-demo.mp4" type="video/mp4">
-          </video>
-          <div class="device-cap">recorded on the live app</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════ scroll demo ════ -->
+<section id="sd">
+  <div class="stage">
+    <div class="glow"></div>
+    <div class="caps">
+      <div class="cap" data-t="0"><div class="tag" style="color:#e23744">Eating out</div><div class="hook">Dinner,<br>sorted.</div><div class="note">Ask in Hinglish. Companion finds what is open, near you, right now.</div><div class="dots"><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="cap" data-t="1"><div class="tag" style="color:#7b2fbf">Quick commerce</div><div class="hook">Groceries<br>in minutes.</div><div class="note">A full cart from one line, delivered in ten.</div><div class="dots"><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="cap" data-t="2"><div class="tag" style="color:#4a52cc">News</div><div class="hook">Today's<br>headlines.</div><div class="note">The day, summarised, the moment you ask.</div><div class="dots"><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="cap" data-t="3"><div class="tag" style="color:#e23744">Video</div><div class="hook">The right<br>video.</div><div class="note">Straight to the one you meant.</div><div class="dots"><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="cap" data-t="4"><div class="tag" style="color:#1a9d6b">Markets</div><div class="hook">Your money,<br>at a glance.</div><div class="note">Markets and your holdings, live.</div><div class="dots"><i></i><i></i><i></i><i></i><i></i></div></div>
+    </div>
+    <div class="phone">
+      <div class="screen">
+        <div class="phdr"><div class="orb"><span class="d"></span></div><div><div class="nm">Companion</div><div class="st">online</div></div><div class="rt">हिं · EN</div></div>
+        <div class="chat">
+          <div class="scene" data-t="0">
+            <div class="msg">Aaj raat 2 logon ke liye paas mein achha dinner spot?</div>
+            <div class="resp"><div class="orb" style="width:24px;height:24px"></div><div class="b">Bilkul! Aapke paas ye 3 spots abhi khule hain.</div></div>
+            <div class="card"><div class="c">
+              <div class="c-hero"><img src="https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=520&q=70&auto=format&fit=crop" referrerpolicy="no-referrer"><div class="shade"></div><span class="chip"><i></i>Zomato</span><span class="rate">4.5★</span></div>
+              <div class="cb"><div class="ct"><h4>Farzi Café</h4><span class="p">₹1,800</span></div><div class="cs">North Indian · Bar · Cyber Hub · 0.8 km</div><div class="cta"><button class="a1">View menu</button><button class="a2">Veg only</button></div></div>
+            </div></div>
+          </div>
+          <div class="scene" data-t="1">
+            <div class="msg">Doodh, bread aur 6 eggs mangwa do</div>
+            <div class="resp"><div class="orb" style="width:24px;height:24px"></div><div class="b">Cart taiyaar, 11 min mein aa jayega.</div></div>
+            <div class="card"><div class="c">
+              <div class="chead"><span class="ci" style="background:#7b2fbf">▦</span><span class="cl">Instamart cart</span><span class="cr">11 min</span></div>
+              <div class="grow"><span class="gth" style="background:linear-gradient(135deg,#4a90d9,#2b6cb0)">DOO</span><div><div class="gn">Amul Taaza Milk</div><div class="gq">500 ml</div></div><span class="gp">₹34</span></div>
+              <div class="grow"><span class="gth" style="background:linear-gradient(135deg,#d9a441,#b97e22)">BRD</span><div><div class="gn">Brown Bread</div><div class="gq">400 g</div></div><span class="gp">₹55</span></div>
+              <div class="grow"><span class="gth" style="background:linear-gradient(135deg,#e8b04b,#cf8a2a)">EGG</span><div><div class="gn">Farm Eggs</div><div class="gq">6 pcs</div></div><span class="gp">₹72</span></div>
+              <div class="gf"><span class="gt">Total <b>₹161</b></span><button class="gb">Place order</button></div>
+            </div></div>
+          </div>
+          <div class="scene" data-t="2">
+            <div class="msg">Aaj ki top 3 khabrein batao</div>
+            <div class="resp"><div class="orb" style="width:24px;height:24px"></div><div class="b">Ye rahi aaj ki badi khabrein.</div></div>
+            <div class="card"><div class="c">
+              <div class="chead"><span class="ci" style="background:#4a52cc">N</span><span class="cl">Top stories</span><span class="cr">just now</span></div>
+              <div class="nrow"><span class="nd" style="background:#e85d7a"></span><div><div class="nt">RBI holds repo rate at 6.5% for the eighth review</div><div class="nm">Economic Times · 2h</div></div></div>
+              <div class="nrow"><span class="nd" style="background:#ff8a1e"></span><div><div class="nt">India clinch the series with a six-wicket win</div><div class="nm">ESPNcricinfo · 4h</div></div></div>
+              <div class="nrow" style="border:none"><span class="nd" style="background:#1a9d6b"></span><div><div class="nt">Monsoon reaches Kerala two days early</div><div class="nm">The Hindu · 5h</div></div></div>
+            </div></div>
+          </div>
+          <div class="scene" data-t="3">
+            <div class="msg">Paneer butter masala recipe ka video</div>
+            <div class="resp"><div class="orb" style="width:24px;height:24px"></div><div class="b">Ye best match hai.</div></div>
+            <div class="card"><div class="c">
+              <div class="yt"><img src="https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=520&q=70&auto=format&fit=crop" referrerpolicy="no-referrer"><span class="play"></span><span class="dur">12:48</span></div>
+              <div class="yb"><div class="yt2">Perfect Paneer Butter Masala, restaurant style</div><div class="ym">Ranveer Brar · 2.1M views</div></div>
+            </div></div>
+          </div>
+          <div class="scene" data-t="4">
+            <div class="msg">Nifty aur mera portfolio kaisa hai?</div>
+            <div class="resp"><div class="orb" style="width:24px;height:24px"></div><div class="b">Markets abhi ye chal rahe hain.</div></div>
+            <div class="card"><div class="c">
+              <div class="chead"><span class="ci" style="background:#387ed1">K</span><span class="cl">Kite · live</span><span class="cr">3:30 PM</span></div>
+              <div class="mb"><div class="mtop"><span class="mn">NIFTY 50</span><span class="mc">▲ 0.82%</span></div><div class="mv">23,501</div>
+                <svg class="spark" viewBox="0 0 280 46" preserveAspectRatio="none"><polyline fill="none" stroke="#1a9d6b" stroke-width="2.5" points="0,34 28,30 56,36 84,22 112,26 140,16 168,20 196,11 224,15 252,7 280,4"/></svg>
+                <div class="mr"><span>Your holdings</span><b style="color:#1a9d6b">+ ₹4,280 today</b></div>
+              </div>
+            </div></div>
+          </div>
         </div>
+        <div class="inp"><div class="box">Message Companion</div><div class="snd">&#8593;</div></div>
       </div>
     </div>
   </div>
@@ -471,6 +613,34 @@
     entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
   }, { threshold: 0.12 });
   document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
+<script>
+(function(){
+  const sd = document.getElementById('sd'); if (!sd) return;
+  const SUBS = 3;
+  const caps = [...sd.querySelectorAll('.cap')];
+  const scenes = [...sd.querySelectorAll('.scene')];
+  const TOTAL = caps.length * SUBS;
+  function render(){
+    const top = sd.offsetTop, travel = sd.offsetHeight - window.innerHeight;
+    const prog = Math.min(1, Math.max(0, (window.scrollY - top) / travel));
+    const step = Math.min(TOTAL - 1, Math.floor(prog * TOTAL));
+    const tool = Math.floor(step / SUBS), sub = step % SUBS;
+    caps.forEach((c, i) => c.classList.toggle('active', i === tool));
+    caps[tool].querySelectorAll('.dots i').forEach((d, i) => d.classList.toggle('on', i === step % 5));
+    scenes.forEach((s, i) => {
+      const on = i === tool;
+      s.classList.toggle('active', on);
+      const r = on ? sub : -1;
+      s.querySelector('.msg').classList.toggle('in', r >= 0);
+      s.querySelector('.resp').classList.toggle('in', r >= 1);
+      s.querySelector('.card').classList.toggle('in', r >= 2);
+    });
+  }
+  window.addEventListener('scroll', () => requestAnimationFrame(render), { passive: true });
+  window.addEventListener('resize', render);
+  render();
+})();
 </script>
 </body>
 </html>

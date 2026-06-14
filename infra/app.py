@@ -5,6 +5,7 @@ import aws_cdk as cdk
 
 from companion_stack import CompanionStack
 from graph_stack import GraphStack
+from landing_stack import LandingStack
 
 
 app = cdk.App()
@@ -46,5 +47,16 @@ CompanionStack(
     lead_cache=graph_stack.lead_cache,
     env=env,
 )
+
+# Apex landing site (prod): jatayulabs.com on S3 + CloudFront. The ACM cert
+# lives in us-east-1 (CloudFront's required region) and is referenced by ARN.
+if is_prod:
+    LandingStack(
+        app,
+        f"{stack_prefix}-landing",
+        domain_name=domain_name,
+        certificate_arn="arn:aws:acm:us-east-1:616551057455:certificate/489a052c-a6a5-437a-9763-2b50a684a394",
+        env=env,
+    )
 
 app.synth()
