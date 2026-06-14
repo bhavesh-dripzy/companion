@@ -51,12 +51,12 @@ def _patch_env(monkeypatch, mapping):
     monkeypatch.delenv("GEMINI_API_KEY_FILE", raising=False)
 
 
-def test_resolve_llm_force_deepseek(monkeypatch):
-    _patch_env(monkeypatch, {"DEEPSEEK_API_KEY": "dk"})
-    llm, reason = llm_config.resolve_llm_from_env(force="deepseek")
+def test_resolve_llm_force_sarvam(monkeypatch):
+    _patch_env(monkeypatch, {"SARVAM_API_KEY": "sk"})
+    llm, reason = llm_config.resolve_llm_from_env(force="sarvam")
     assert reason is None
-    assert llm.provider == "deepseek"
-    assert llm.base_url == llm_config.DEEPSEEK_BASE_URL
+    assert llm.provider == "sarvam"
+    assert llm.base_url == llm_config.SARVAM_BASE_URL
 
 
 def test_resolve_llm_force_missing_key_returns_reason(monkeypatch):
@@ -66,7 +66,14 @@ def test_resolve_llm_force_missing_key_returns_reason(monkeypatch):
     assert "openai" in reason
 
 
-def test_resolve_llm_autoselect_prefers_gemini(monkeypatch):
+def test_resolve_llm_autoselect_prefers_sarvam(monkeypatch):
+    _patch_env(monkeypatch, {"SARVAM_API_KEY": "sk", "GEMINI_API_KEY": "gk", "OPENAI_API_KEY": "ok"})
+    llm, reason = llm_config.resolve_llm_from_env()
+    assert reason is None
+    assert llm.provider == "sarvam"
+
+
+def test_resolve_llm_autoselect_gemini_over_openai(monkeypatch):
     _patch_env(monkeypatch, {"GEMINI_API_KEY": "gk", "OPENAI_API_KEY": "ok"})
     llm, reason = llm_config.resolve_llm_from_env()
     assert reason is None
@@ -112,7 +119,7 @@ def test_openai_client_closed_within_call(monkeypatch):
             closed["value"] = True
 
     monkeypatch.setattr(openai, "AsyncOpenAI", _FakeAsyncOpenAI)
-    llm = ResolvedLlm(provider="deepseek", api_key="k", model="m", base_url="https://x")
+    llm = ResolvedLlm(provider="sarvam", api_key="k", model="m", base_url="https://x")
     out = asyncio.run(_openai_compatible_call(llm=llm, system_prompt="s", user_message="u"))
     assert out == '{"message": "hi"}'
     assert closed["value"] is True

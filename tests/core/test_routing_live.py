@@ -8,7 +8,7 @@ refusals. These assert the exact failing phrasings now route to data_lookup,
 plus controls that timeless knowledge stays normal_query.
 
 Run: `pytest tests/core/test_routing_live.py -m live` (needs GEMINI_API_KEY /
-DEEPSEEK_API_KEY / OPENAI_API_KEY, or APP_SECRET_ID pointing at the app secret).
+SARVAM_API_KEY / OPENAI_API_KEY, or APP_SECRET_ID pointing at the app secret).
 """
 
 from __future__ import annotations

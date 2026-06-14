@@ -124,7 +124,7 @@ a least-privilege deployer in the management account:
 | Hot-path store | **DynamoDB profile-cache** | Lambda-native, no VPC, single-digit-ms reads, ~$5–25/mo. The agent reads the cache, never Neo4j, on the request path. |
 | Graph connectivity | **EC2 worker + token/TLS HTTPS graph-service** | Keeps API Lambda out of any VPC. Neo4j Bolt stays bound to localhost; only the on-box worker talks to it. Admin/lead queries hit the graph-service over HTTPS. |
 | Async transport | **SQS** | Simple for a self-managed EC2 consumer to long-poll (vs. DynamoDB Streams + KCL). Decouples extraction latency/cost from the user reply. |
-| Extraction model | **Gemini 2.5 Flash-Lite** (primary) via existing `llm_config` fallback chain | Already wired, cheap, structured-output capable. DeepSeek/OpenAI as fallback. |
+| Extraction model | **Gemini 2.5 Flash-Lite** (primary) via existing `llm_config` fallback chain | Already wired, cheap, structured-output capable. Sarvam/OpenAI as fallback. |
 | Scope (now) | **Foundation + Personalization** | Your whole brief *is* personalization; monetization needs graph data to exist first. |
 | Consent | **Consent-ready schema; gate export** | India DPDP-safe; capture internally now, block selling until opt-in. |
 

@@ -28,7 +28,7 @@ async def _openai_compatible_call(
         "timeout": _TIMEOUT_SECONDS,
         "max_retries": 2,
     }
-    if llm.provider == "deepseek" and llm.base_url:
+    if llm.base_url:  # OpenAI-compatible third parties (Sarvam)
         kwargs["base_url"] = llm.base_url
     async with AsyncOpenAI(**kwargs) as client:
         completion = await client.chat.completions.create(
@@ -58,7 +58,7 @@ async def _gemini_call(*, llm: ResolvedLlm, system_prompt: str, user_message: st
 
 
 async def _provider_call(*, llm: ResolvedLlm, system_prompt: str, user_message: str) -> str:
-    if llm.provider in ("openai", "deepseek"):
+    if llm.provider in ("openai", "sarvam"):
         return await _openai_compatible_call(
             llm=llm, system_prompt=system_prompt, user_message=user_message
         )
