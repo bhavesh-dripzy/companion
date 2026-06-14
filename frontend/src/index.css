@@ -167,7 +167,7 @@ body {
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  background: linear-gradient(180deg, #FAFCFF 0%, #F4F7FB 100%);
+  background: linear-gradient(135deg, #FAFCFF 0%, #F3F7FD 100%);
   background-attachment: fixed;
 }
 

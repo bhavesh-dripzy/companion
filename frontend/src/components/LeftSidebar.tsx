@@ -294,7 +294,7 @@ export function LeftSidebar({
         onClick={onToggleCollapse}
         aria-hidden
       />
-      <div className="fixed md:relative left-0 z-50 md:z-auto w-72 max-w-[86vw] md:max-w-none bg-white/[0.97] md:bg-white/[0.85] backdrop-blur-xl border-r border-slate-200 flex flex-col text-slate-900 select-none shrink-0 shadow-xl md:shadow-none transition-all duration-300 top-[var(--safe-top)] bottom-[var(--safe-bottom)] h-auto md:top-auto md:bottom-auto md:inset-y-0 md:h-full">
+      <div className="fixed md:relative left-0 z-50 md:z-auto w-72 max-w-[86vw] md:max-w-none bg-[#F6F8FC] backdrop-blur-xl border-r border-[#E9EEF5] flex flex-col text-slate-900 select-none shrink-0 shadow-xl md:shadow-none transition-all duration-300 top-[var(--safe-top)] bottom-[var(--safe-bottom)] h-auto md:top-auto md:bottom-auto md:inset-y-0 md:h-full">
       {/* Header */}
       <div className="py-3 px-4 flex items-center justify-between shrink-0 border-b border-slate-200">
         <div className="flex items-center gap-2.5">
