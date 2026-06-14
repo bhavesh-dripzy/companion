@@ -209,19 +209,35 @@ async def media_stream(websocket: WebSocket) -> None:
 
             # If there's a message to deliver, send it as the first turn
             if message_hint:
-                await session.send(
-                    input=(
-                        f"Please say this to the person: '{message_hint}'. "
-                        "Say it naturally in Hinglish, then wait for their response."
+                await session.send_client_content(
+                    turns=types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    f"Please say this to the person: '{message_hint}'. "
+                                    "Say it naturally in Hinglish, then wait for their response."
+                                )
+                            )
+                        ],
                     ),
-                    end_of_turn=True,
+                    turn_complete=True,
                 )
             else:
                 # Start conversation naturally
-                await session.send(
-                    input="Start the conversation naturally. Greet the person in "
-                    "warm Hinglish and ask how you can help them.",
-                    end_of_turn=True,
+                await session.send_client_content(
+                    turns=types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    "Start the conversation naturally. Greet the person in "
+                                    "warm Hinglish and ask how you can help them."
+                                )
+                            )
+                        ],
+                    ),
+                    turn_complete=True,
                 )
 
             upsample_state = None
@@ -245,12 +261,11 @@ async def media_stream(websocket: WebSocket) -> None:
 
                         # Send to Gemini every ~300ms (9600 bytes at 16kHz)
                         if len(audio_buffer) >= 9600:
-                            await session.send(
-                                input={
-                                    "data": bytes(audio_buffer),
-                                    "mime_type": "audio/pcm;rate=16000",
-                                },
-                                end_of_turn=False,
+                            await session.send_realtime_input(
+                                audio=types.Blob(
+                                    data=bytes(audio_buffer),
+                                    mime_type="audio/pcm;rate=16000",
+                                ),
                             )
                             audio_buffer.clear()
 
