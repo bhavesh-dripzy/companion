@@ -57,7 +57,7 @@ const CategoryGroup: React.FC<{
 
   return (
     <div>
-      <p className="text-[14px] font-bold text-[#221b2e] px-4 pt-4 pb-3">{group.title}</p>
+      <p className="text-[13px] font-semibold text-[#221b2e] px-4 pt-4 pb-3">{group.title}</p>
       <div className={`grid ${colClass} gap-x-2.5 gap-y-4 px-4 pb-4`}>
         {group.categories.map((cat) => (
           <CategoryTile
@@ -82,16 +82,16 @@ export const GroceryCategoryCard: React.FC<GroceryCategoryCardProps> = ({
         className="h-[3px] w-full"
         style={{ background: 'linear-gradient(90deg, #E8632F 0%, #1a9d6b 50%, #7B2CFA 100%)' }}
       />
-      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3 border-b border-[#ece3d6]">
-        <div className="w-8 h-8 rounded-[11px] bg-[#1a9d6b]/10 text-[#1a9d6b] border border-[#1a9d6b]/20 flex items-center justify-center shrink-0">
-          <ShoppingBasket className="w-4 h-4 stroke-[2.2]" />
+      <div className="flex items-start gap-3 px-4 pt-4 pb-3.5 border-b border-[#ece3d6]">
+        <div className="w-11 h-11 rounded-2xl bg-[#1a9d6b]/10 text-[#1a9d6b] flex items-center justify-center shrink-0 mt-0.5">
+          <ShoppingBasket className="w-5 h-5 stroke-[2]" />
         </div>
         <div className="min-w-0">
-          <p className="font-display text-[14px] font-semibold text-[#221b2e] leading-tight">
-            What do you need?
+          <p className="font-sans text-[15px] font-bold text-[#221b2e] leading-snug">
+            Let's get your groceries! 🛒
           </p>
-          <p className="text-[11px] text-[#7a7388] font-medium mt-0.5 truncate">
-            Pick a category — we'll search Instamart & Zepto
+          <p className="text-[12px] text-[#7a7388] font-normal mt-1 leading-snug">
+            I'm searching Instamart & Zepto to get you the best options.
           </p>
         </div>
       </div>

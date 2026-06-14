@@ -224,7 +224,6 @@ const ZeptoCartItemRow: React.FC<{
   const [imageBroken, setImageBroken] = useState(false);
   const theme = themeFor('zepto');
   const qty = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1;
-  const price = formatPriceFromInr(item.price_inr) ?? item.price_text ?? null;
   const lineTotal = typeof item.price_inr === 'number' ? item.price_inr * qty : null;
   const lineTotalLabel = formatPriceFromInr(lineTotal ?? undefined);
   const showImage = !!item.image_url && !imageBroken;

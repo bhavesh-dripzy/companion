@@ -14,7 +14,7 @@ export interface GroceryCategoryGroup {
 
 export const GROCERY_CATEGORY_GROUPS: GroceryCategoryGroup[] = [
   {
-    title: 'All Categories',
+    title: 'Choose a category',
     columns: 4,
     categories: [
       {

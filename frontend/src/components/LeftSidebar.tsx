@@ -23,7 +23,8 @@ import {
   MessageSquare,
   Bell,
   Heart,
-
+  LayoutGrid,
+  CheckSquare,
   Settings,
   LogOut,
   Shield,
@@ -210,6 +211,18 @@ export function LeftSidebar({
       icon: Heart,
       bg: 'bg-rose-50 text-rose-500 border-rose-100',
     },
+    {
+      id: 'apps',
+      label: 'Apps',
+      icon: LayoutGrid,
+      bg: 'bg-blue-50 text-blue-600 border-blue-100',
+    },
+    {
+      id: 'daily-tasks',
+      label: 'Daily Tasks',
+      icon: CheckSquare,
+      bg: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    },
   ];
 
   const handleDeleteClick = (chatId: string) => {
@@ -294,24 +307,18 @@ export function LeftSidebar({
         onClick={onToggleCollapse}
         aria-hidden
       />
-      <div className="fixed md:relative left-0 z-50 md:z-auto w-72 max-w-[86vw] md:max-w-none bg-[#F6F8FC] backdrop-blur-xl border-r border-[#E9EEF5] flex flex-col text-slate-900 select-none shrink-0 shadow-xl md:shadow-none transition-all duration-300 top-[var(--safe-top)] bottom-[var(--safe-bottom)] h-auto md:top-auto md:bottom-auto md:inset-y-0 md:h-full">
-      {/* Header */}
-      <div className="py-3 px-4 flex items-center justify-between shrink-0 border-b border-slate-200">
+      <div className="fixed md:relative left-0 z-50 md:z-auto w-72 max-w-[86vw] md:max-w-none bg-[#F6F8FC] border-r border-[#E9EEF5] flex flex-col text-slate-900 select-none shrink-0 shadow-xl md:shadow-none transition-all duration-300 top-0 bottom-0 h-auto md:top-auto md:bottom-auto md:inset-y-0 md:h-full">
+      {/* Header — top padding accounts for the device status bar */}
+      <div className="pt-[calc(var(--safe-top)+0.875rem)] pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-[#E9EEF5]">
         <div className="flex items-center gap-2.5">
-          <div className="brand-orb w-8 h-8 shrink-0 animate-orb-glow" />
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-900 font-semibold text-[15px] font-sans tracking-tight leading-none">
-                Companion
-              </span>
-              <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-[9px] font-medium font-sans leading-none border border-slate-200">
-                v2.6
-              </span>
-            </div>
-            <span className="text-[11px] text-slate-400 block font-normal mt-0.5 font-sans leading-none">
-              Bharat&rsquo;s everything-assistant
-            </span>
+          {/* Logo mark */}
+          <div className="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center"
+            style={{ background: 'linear-gradient(135deg, #2b2f72 0%, #6c4fbd 100%)' }}>
+            <span className="text-white font-bold text-[15px] leading-none select-none">C</span>
           </div>
+          <span className="text-slate-900 font-semibold text-[15px] font-sans tracking-tight leading-none">
+            Companion
+          </span>
         </div>
 
         <button
@@ -477,7 +484,7 @@ export function LeftSidebar({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 border-t border-slate-200 px-3 py-3 flex items-center justify-between gap-2">
+      <div className="shrink-0 border-t border-slate-200 px-3 pt-3 pb-[calc(var(--safe-bottom)+0.75rem)] flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div className="w-7 h-7 rounded-lg bg-slate-900 text-white flex items-center justify-center font-medium text-[12px] shrink-0">
             {(username || 'C').charAt(0).toUpperCase()}

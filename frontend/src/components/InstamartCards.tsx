@@ -329,9 +329,10 @@ export const InstamartProductCardGrid: React.FC<{
 
   const groups = new Map<string, InstamartProductCardEntry[]>();
   for (const p of products) {
-    const key = (p.query || '').trim() || '';
+    const entry = p as unknown as InstamartProductCardEntry;
+    const key = (entry.query || '').trim() || '';
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(p);
+    groups.get(key)!.push(entry);
   }
 
   return (
@@ -367,7 +368,6 @@ const InstamartCartItemRow: React.FC<{
   const [imageBroken, setImageBroken] = useState(false);
   const theme = themeFor('instamart');
   const qty = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1;
-  const price = formatPriceFromInr(item.price_inr);
   const lineTotal = typeof item.price_inr === 'number' ? item.price_inr * qty : null;
   const lineTotalLabel = formatPriceFromInr(lineTotal ?? undefined);
   const showImage = !!item.image_url && !imageBroken;

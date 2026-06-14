@@ -11,14 +11,11 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Menu, Send, Paperclip, Car, Utensils, Calendar, Ticket, Search, X } from 'lucide-react';
+import { Menu, Send, Sparkles, Car, Utensils, Calendar, Ticket, Search, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ChatMessageItem } from './ChatMessageItem';
 import { AddressChip } from './AddressChip';
 import { VoiceInput } from '../VoiceInput';
-import { INDIA_FACTS, nextFactIndex } from '../data/indiaFacts';
-import { Mandala } from './Mandala';
-import { SmartCard, type SmartCardSlide } from './SmartCard';
 import { prefetchHeroGreeting, readCachedGreeting } from '../heroGreeting';
 import type { GeoCoordinate, Message, SessionAddress } from '../types';
 
@@ -130,7 +127,7 @@ export function ChatArea({
   onSuggestionClick,
   onOpenGroceries,
   onToggleLeft,
-  connectedCount = 0,
+  connectedCount: _connectedCount = 0,
   isSidebarCollapsed = false,
   username,
   sessionAddresses = [],
@@ -227,8 +224,6 @@ export function ChatArea({
   }
 
   // Account chip in the header — the raw handle is fine THERE, never in the hero.
-  const welcomeName = (username && username.trim()) || 'there';
-  const avatarLetter = welcomeName.charAt(0).toUpperCase() || 'C';
 
   // Personalized AI hero greeting — generated server-side each load from the
   // user's profile, live weather and time of day. The fetch is started early
@@ -265,74 +260,7 @@ export function ChatArea({
     };
   }, [username]);
 
-  // Heritage fact shown in the smart card; advances when the card wraps.
-  const [factIdx, setFactIdx] = useState(() => Math.floor(Math.random() * INDIA_FACTS.length));
-  const heritageFact = INDIA_FACTS[factIdx];
 
-  const heroSlides = useMemo<SmartCardSlide[]>(() => {
-    const promptOf = (id: string) => PROMPT_OPTIONS.find((o) => o.id === id)?.prompt ?? '';
-    const hour = new Date().getHours();
-    // `actionId` lets a grocery nudge open the Groceries modal (issue #59)
-    // instead of firing a fixed prompt — single source of truth with the chip.
-    const nudge =
-      hour < 5
-        ? { eyebrow: 'Up late?', icon: '🌙', body: 'Midnight craving? Quick commerce is still awake.', label: 'Order a snack', prompt: promptOf('groceries'), actionId: 'groceries' }
-        : hour < 11
-          ? { eyebrow: 'This morning', icon: '🌅', body: 'Chai, milk, bread — morning essentials at your door in minutes.', label: 'Order groceries', prompt: promptOf('groceries'), actionId: 'groceries' }
-          : hour < 16
-            ? { eyebrow: 'Lunchtime', icon: '🍱', body: 'Beat the 1 PM rush — order lunch before the queues form.', label: 'Order food', prompt: promptOf('food'), actionId: 'food' }
-            : hour < 20
-              ? { eyebrow: 'This evening', icon: '🎶', body: "Plans tonight? See what's on around you.", label: 'Find events', prompt: promptOf('movie'), actionId: 'movie' }
-              : { eyebrow: 'Tonight', icon: '🍽', body: 'Dinner sorted? Order now and skip the late rush.', label: 'Order dinner', prompt: promptOf('food'), actionId: 'food' };
-    return [
-      { id: 'fact', eyebrow: 'Did you know', icon: '💡', tone: 'saffron', body: heritageFact },
-      {
-        id: 'nudge',
-        eyebrow: nudge.eyebrow,
-        icon: nudge.icon,
-        tone: 'indigo',
-        body: nudge.body,
-        cta: {
-          label: nudge.label,
-          onClick: () =>
-            nudge.actionId === 'groceries' && onOpenGroceries
-              ? onOpenGroceries()
-              : onSuggestionClick(nudge.prompt),
-        },
-      },
-      {
-        id: 'cart',
-        eyebrow: 'Pick up where you left off',
-        icon: '🛒',
-        tone: 'green',
-        body: 'Anything waiting in your cart? Give it a quick look before it goes stale.',
-        cta: { label: 'Open my cart', onClick: () => onSuggestionClick(promptOf('reminder')) },
-      },
-    ];
-  }, [heritageFact, onSuggestionClick, onOpenGroceries]);
-
-  // Big, continuously-morphing mandala behind the hero: two stacked layers
-  // crossfade to a freshly-generated pattern every ~7s (CSS adds a slow spin),
-  // so it's always gently changing.
-  const [mandalaSeeds, setMandalaSeeds] = useState<[number, number]>(() => [
-    Math.floor(Math.random() * 1e9),
-    Math.floor(Math.random() * 1e9),
-  ]);
-  const [mandalaActive, setMandalaActive] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => {
-      setMandalaActive((a) => {
-        const next = a === 0 ? 1 : 0;
-        setMandalaSeeds((s) =>
-          next === 0
-            ? [Math.floor(Math.random() * 1e9), s[1]]
-            : [s[0], Math.floor(Math.random() * 1e9)],
-        );
-        return next;
-      });
-    }, 11000);
-    return () => clearInterval(t);
-  }, []);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden relative font-sans select-none">
@@ -350,20 +278,6 @@ export function ChatArea({
             </button>
           )}
 
-          <div className="flex items-center gap-1">
-            <span className="text-[#221b2e] font-semibold text-[15px] tracking-tight font-display">
-              Companion
-            </span>
-            {/* Subtle tricolor nod — green / white gap / saffron dots */}
-            <span
-              aria-hidden
-              className="hidden sm:inline-block w-2 h-2 rounded-full bg-[#1a9d6b] ml-7"
-              style={{ boxShadow: '-11px 0 0 #fff, -22px 0 0 #ff8a1e' }}
-            />
-            <span className="hidden sm:inline text-[9px] font-bold tracking-[0.18em] uppercase text-[#a89db4] ml-3 mt-px">
-              From Bharat, For Bharat
-            </span>
-          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -387,20 +301,6 @@ export function ChatArea({
             <Search className="w-4 h-4 stroke-[2.2]" />
           </button>
 
-          {/* User pill */}
-          <div className="flex items-center gap-2 bg-white/60 text-[#221b2e] border border-[#ece3d6]/80 pl-1.5 pr-3.5 py-1 rounded-[13px] text-xs font-bold shadow-3xs max-h-9 select-none">
-            <div className="w-6 h-6 rounded-[8px] bg-[#221b2e] text-white flex items-center justify-center font-bold text-[11px] shadow-sm select-none">
-              {avatarLetter}
-            </div>
-            <span className="hidden sm:inline text-[#221b2e] font-display capitalize">
-              {welcomeName}
-            </span>
-            {connectedCount > 0 && (
-              <span className="bg-[#1a9d6b] text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-mono font-bold">
-                {connectedCount}
-              </span>
-            )}
-          </div>
         </div>
       </header>
 
@@ -438,34 +338,6 @@ export function ChatArea({
           >
             {messages.length === 0 ? (
               <div className="h-full min-h-0 flex flex-col justify-start md:justify-center items-center text-center px-5 py-1 md:py-6 select-none w-full max-w-4xl mx-auto z-10 relative overflow-y-auto overflow-x-hidden md:overflow-hidden no-scrollbar">
-                {/* Backdrop (mandala + veil) clipped to the hero so the oversized
-                    absolute layers never inflate the mobile scroll area. */}
-                <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
-                  {/* Big, continuously-morphing mandala (India palette) behind the
-                      hero — two layers crossfade to new generated patterns + slow spin.
-                      Shown whole (the ornate centre included) with a soft edge-fade. */}
-                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(880px,160%)] aspect-square [mask-image:radial-gradient(circle_at_50%_50%,#000_58%,transparent_78%)] [-webkit-mask-image:radial-gradient(circle_at_50%_50%,#000_58%,transparent_78%)]">
-                    {[0, 1].map((layer) => (
-                      <Mandala
-                        key={layer}
-                        seed={mandalaSeeds[layer]}
-                        size={880}
-                        className={`absolute inset-0 w-full h-full mandala-spin transition-opacity duration-[2200ms] ease-in-out ${
-                          mandalaActive === layer ? 'opacity-[0.46]' : 'opacity-0'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  {/* Soft ivory veil right behind the text block — lifts the
-                      headline/fact off the ornate mandala centre so it reads cleanly. */}
-                  <div
-                    className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[680px] h-[480px]"
-                    style={{
-                      background:
-                        'radial-gradient(ellipse 54% 58% at 50% 50%, rgba(253,250,243,0.94), rgba(253,250,243,0.66) 50%, transparent 76%)',
-                    }}
-                  />
-                </div>
                 <motion.div
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -488,12 +360,6 @@ export function ChatArea({
                     <span>{greetingWithAccent(greeting, username)}</span>
                   </h1>
 
-                  {/* One smart slot — heritage fact / contextual nudge / cart. */}
-                  <SmartCard
-                    slides={heroSlides}
-                    ctaDisabled={isThinking}
-                    onWrap={() => setFactIdx((prev) => nextFactIndex(prev))}
-                  />
                 </motion.div>
               </div>
             ) : (
@@ -540,7 +406,7 @@ export function ChatArea({
           </div>
 
           {/* Bottom composer */}
-          <div className="px-4 pt-4 pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#F3F7FD]/95 via-[#F3F7FD]/30 to-transparent sticky bottom-0 left-0 right-0 z-20">
+          <div className="px-4 pt-4 pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#F3F7FD]/98 via-[#F3F7FD]/50 to-transparent sticky bottom-0 left-0 right-0 z-20">
             {/* Delivery address chip — visible + switchable BEFORE any
                 food/grocery search runs (no more wrong-house surprises). */}
             {sessionAddresses.length > 0 && onPickAddress && (
@@ -575,33 +441,26 @@ export function ChatArea({
 
             <form
               onSubmit={handleSubmit}
-              className="w-full bg-white/[0.86] border border-[#ece3d6]/80 backdrop-blur-md shadow-[0_14px_36px_-22px_rgba(60,40,30,0.45)] rounded-2xl md:rounded-[18px] flex items-center p-1 md:p-1.5 gap-1.5 md:gap-2 focus-within:shadow-[0_18px_42px_-22px_rgba(60,40,30,0.5)] transition-shadow duration-300"
+              className="w-full bg-white shadow-[0_2px_16px_rgba(0,0,0,0.08)] rounded-full flex items-center pl-4 pr-2 py-2 gap-2 transition-all duration-200"
             >
-              <button
-                type="button"
-                tabIndex={-1}
-                className="w-8 h-8 md:w-9 md:h-9 text-[#a89f95] hover:text-[#2b2f72] hover:bg-[#2b2f72]/8 rounded-[10px] md:rounded-[11px] flex items-center justify-center transition-colors shrink-0 cursor-pointer"
-                title="Attachment menu (coming soon)"
-              >
-                <Paperclip className="w-4 h-4 md:w-4.5 md:h-4.5" />
-              </button>
+              {/* Sparkle icon */}
+              <span className="shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                <Sparkles className="w-4 h-4" />
+              </span>
 
-              {/* Multi-line textarea (Enter to send, Shift+Enter for newline)
-                  preserves the prior MessageInput's behaviour and lets
-                  users paste multi-line prompts cleanly. Auto-grows up
-                  to ~6 lines, then scrolls. */}
               <textarea
                 ref={textareaRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Companion"
+                placeholder="Ask Companion anything…"
                 disabled={isThinking}
                 rows={1}
-                className="flex-1 bg-transparent border-none outline-none text-[14px] md:text-[14.5px] text-[#221b2e] placeholder-[#a89f95] py-1.5 md:py-2.5 px-1.5 md:px-2 focus:ring-0 min-w-0 resize-none max-h-40 leading-normal md:leading-relaxed"
+                className="flex-1 bg-transparent border-none outline-none text-[14px] text-[#1a1530] placeholder-slate-400 focus:ring-0 min-w-0 resize-none leading-normal overflow-hidden"
+                style={{ height: '24px' }}
               />
 
-              <div className="shrink-0 [&_button]:!w-8 [&_button]:!h-8 md:[&_button]:!w-9 md:[&_button]:!h-9">
+              <div className="shrink-0 [&_button]:!w-8 [&_button]:!h-8 [&_button]:!rounded-full [&_button]:!bg-slate-100 [&_button]:!text-slate-500">
                 <VoiceInput
                   onVoiceTurn={onVoiceTurn}
                   onVoiceTurnComplete={onVoiceTurnComplete}
@@ -619,13 +478,13 @@ export function ChatArea({
                 type="submit"
                 disabled={!inputValue.trim() || isThinking}
                 aria-label="Send message"
-                className={`w-9 h-9 md:w-10 md:h-10 rounded-xl md:rounded-[13px] flex items-center justify-center transition-all shrink-0 cursor-pointer ${
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer ${
                   inputValue.trim() && !isThinking
-                    ? 'btn-ink opacity-100 text-white'
-                    : 'bg-[#f3eee6] text-[#bcb3a6]'
+                    ? 'bg-[#7B6FBE] text-white hover:bg-[#6a5fad] active:scale-95'
+                    : 'bg-[#EAE8F5] text-[#B8B0D8] cursor-not-allowed'
                 }`}
               >
-                <Send className="w-3.5 h-3.5 md:w-4 md:h-4 stroke-[2.2]" />
+                <Send className="w-3.5 h-3.5 stroke-[2]" />
               </button>
             </form>
           </div>
