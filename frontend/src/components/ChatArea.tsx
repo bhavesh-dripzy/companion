@@ -29,6 +29,9 @@ interface ChatAreaProps {
   /** Rolling human status from the in-flight turn ("Searching Zomato…"). */
   thinkingStatus?: string | null;
   onSuggestionClick: (text: string) => void;
+  /** Drops the in-chat grocery category picker card into the conversation
+   *  (issue #59) — fired by the Groceries chip + the grocery hero nudge. */
+  onOpenGroceries?: () => void;
   onToggleLeft?: () => void;
   connectedCount?: number;
   isSidebarCollapsed?: boolean;
@@ -133,6 +136,7 @@ export function ChatArea({
   isThinking,
   thinkingStatus,
   onSuggestionClick,
+  onOpenGroceries,
   onToggleLeft,
   connectedCount = 0,
   isSidebarCollapsed = false,
@@ -161,6 +165,17 @@ export function ChatArea({
   // show everything.
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // Ribbon / nudge dispatcher: the Groceries chip (issue #59) drops an
+  // in-chat category picker card into the conversation instead of firing a
+  // fixed prompt; every other chip fires its prompt immediately, as before.
+  const handleQuickAction = (option: { id: string; prompt: string }) => {
+    if (isThinking) return;
+    if (option.id === 'groceries' && onOpenGroceries) {
+      onOpenGroceries();
+      return;
+    }
+    onSuggestionClick(option.prompt);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -265,16 +280,18 @@ export function ChatArea({
   const heroSlides = useMemo<SmartCardSlide[]>(() => {
     const promptOf = (id: string) => PROMPT_OPTIONS.find((o) => o.id === id)?.prompt ?? '';
     const hour = new Date().getHours();
+    // `actionId` lets a grocery nudge open the Groceries modal (issue #59)
+    // instead of firing a fixed prompt — single source of truth with the chip.
     const nudge =
       hour < 5
-        ? { eyebrow: 'Up late?', icon: '🌙', body: 'Midnight craving? Quick commerce is still awake.', label: 'Order a snack', prompt: promptOf('groceries') }
+        ? { eyebrow: 'Up late?', icon: '🌙', body: 'Midnight craving? Quick commerce is still awake.', label: 'Order a snack', prompt: promptOf('groceries'), actionId: 'groceries' }
         : hour < 11
-          ? { eyebrow: 'This morning', icon: '🌅', body: 'Chai, milk, bread — morning essentials at your door in minutes.', label: 'Order groceries', prompt: promptOf('groceries') }
+          ? { eyebrow: 'This morning', icon: '🌅', body: 'Chai, milk, bread — morning essentials at your door in minutes.', label: 'Order groceries', prompt: promptOf('groceries'), actionId: 'groceries' }
           : hour < 16
-            ? { eyebrow: 'Lunchtime', icon: '🍱', body: 'Beat the 1 PM rush — order lunch before the queues form.', label: 'Order food', prompt: promptOf('food') }
+            ? { eyebrow: 'Lunchtime', icon: '🍱', body: 'Beat the 1 PM rush — order lunch before the queues form.', label: 'Order food', prompt: promptOf('food'), actionId: 'food' }
             : hour < 20
-              ? { eyebrow: 'This evening', icon: '🎶', body: "Plans tonight? See what's on around you.", label: 'Find events', prompt: promptOf('movie') }
-              : { eyebrow: 'Tonight', icon: '🍽', body: 'Dinner sorted? Order now and skip the late rush.', label: 'Order dinner', prompt: promptOf('food') };
+              ? { eyebrow: 'This evening', icon: '🎶', body: "Plans tonight? See what's on around you.", label: 'Find events', prompt: promptOf('movie'), actionId: 'movie' }
+              : { eyebrow: 'Tonight', icon: '🍽', body: 'Dinner sorted? Order now and skip the late rush.', label: 'Order dinner', prompt: promptOf('food'), actionId: 'food' };
     return [
       { id: 'fact', eyebrow: 'Did you know', icon: '💡', tone: 'saffron', body: heritageFact },
       {
@@ -283,7 +300,13 @@ export function ChatArea({
         icon: nudge.icon,
         tone: 'indigo',
         body: nudge.body,
-        cta: { label: nudge.label, onClick: () => onSuggestionClick(nudge.prompt) },
+        cta: {
+          label: nudge.label,
+          onClick: () =>
+            nudge.actionId === 'groceries' && onOpenGroceries
+              ? onOpenGroceries()
+              : onSuggestionClick(nudge.prompt),
+        },
       },
       {
         id: 'cart',
@@ -294,7 +317,7 @@ export function ChatArea({
         cta: { label: 'Open my cart', onClick: () => onSuggestionClick(promptOf('reminder')) },
       },
     ];
-  }, [heritageFact, onSuggestionClick]);
+  }, [heritageFact, onSuggestionClick, onOpenGroceries]);
 
   // Big, continuously-morphing mandala behind the hero: two stacked layers
   // crossfade to a freshly-generated pattern every ~7s (CSS adds a slow spin),
@@ -545,7 +568,7 @@ export function ChatArea({
                   <button
                     key={option.id}
                     type="button"
-                    onClick={() => onSuggestionClick(option.prompt)}
+                    onClick={() => handleQuickAction(option)}
                     disabled={isThinking}
                     className={`shrink-0 flex items-center gap-2 border px-3.5 py-1.5 rounded-[13px] text-xs font-semibold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] hover:shadow-sm ${option.color}`}
                   >

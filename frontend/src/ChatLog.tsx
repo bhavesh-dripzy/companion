@@ -26,6 +26,7 @@ import {
 } from './components/DistrictCards';
 import { ZeptoCartCard, ZeptoProductCardGrid } from './components/ZeptoCards';
 import { InstamartCartCard, InstamartProductCardGrid } from './components/InstamartCards';
+import { GroceryCategoryCard } from './components/GroceryCategoryCard';
 import {
   KiteGttCard,
   KiteHoldingsCard,
@@ -1570,6 +1571,17 @@ export const AttachmentList: React.FC<{
           <InstamartCartCard
             key={`instamart-cart-${idx}`}
             cart={att.instamart_cart}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      // Grocery category picker (issue #59) — curated tiles injected when the
+      // user taps the Groceries chip; tapping one searches both providers.
+      if (kind === 'grocery_categories') {
+        return (
+          <GroceryCategoryCard
+            key={`grocery-categories-${idx}`}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />

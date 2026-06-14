@@ -56,19 +56,52 @@ const friendlySteps = (trace: any[]): { text: string; warn?: boolean }[] => {
       case 'plan': {
         const info = PROVIDER_INFO[String(event.provider)] || { label: String(event.provider || '') };
         const n = Number(event.tools) || 0;
-        steps.push({ text: `Planned ${n} step${n === 1 ? '' : 's'} on ${info.label}` });
+        const names: string[] = Array.isArray(event.tool_names) ? event.tool_names : [];
+        const toolsText = names.length > 0 ? ` · ${names.join(', ')}` : '';
+        steps.push({ text: `Planned ${n} step${n === 1 ? '' : 's'} on ${info.label}${toolsText}` });
         break;
       }
       case 'execute': {
         const blocked = Number(event.blocked) || 0;
-        steps.push({
-          text: blocked > 0 ? `Ran the plan — ${blocked} step${blocked === 1 ? '' : 's'} held for your confirmation` : 'Ran the plan',
-        });
+        const providerTools: any[] = Array.isArray(event.provider_tools) ? event.provider_tools : [];
+        if (providerTools.length > 0) {
+          for (const pt of providerTools) {
+            const info = PROVIDER_INFO[String(pt.provider)] || { label: String(pt.provider || '') };
+            const tools: any[] = Array.isArray(pt.tools) ? pt.tools : [];
+            for (const t of tools) {
+              if (!t.ok) {
+                steps.push({ text: `${info.label}: ${t.tool} failed (${t.error || 'unknown'})`, warn: true });
+              } else {
+                steps.push({ text: `${info.label}: ${t.tool} ✓` });
+              }
+            }
+          }
+          if (blocked > 0) {
+            steps.push({ text: `${blocked} step${blocked === 1 ? '' : 's'} held for your confirmation`, warn: true });
+          }
+        } else {
+          steps.push({
+            text: blocked > 0 ? `Ran the plan — ${blocked} step${blocked === 1 ? '' : 's'} held for your confirmation` : 'Ran the plan',
+          });
+        }
         break;
       }
       case 'collect': {
         const n = Number(event.attachments) || 0;
-        if (n > 0) steps.push({ text: `Prepared ${n} card${n === 1 ? '' : 's'} for you` });
+        const byProvider: Record<string, number> = event.by_provider && typeof event.by_provider === 'object' ? event.by_provider : {};
+        const providerEntries = Object.entries(byProvider);
+        if (providerEntries.length > 0) {
+          for (const [pid, count] of providerEntries) {
+            const info = PROVIDER_INFO[pid] || { label: pid };
+            if (count === 0) {
+              steps.push({ text: `${info.label}: no results`, warn: true });
+            } else {
+              steps.push({ text: `${info.label}: ${count} card${count === 1 ? '' : 's'}` });
+            }
+          }
+        } else if (n > 0) {
+          steps.push({ text: `Prepared ${n} card${n === 1 ? '' : 's'} for you` });
+        }
         break;
       }
       default:

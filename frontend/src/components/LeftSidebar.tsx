@@ -250,26 +250,26 @@ export function LeftSidebar({
           }
           onSelectChat(chat.chat_id);
         }}
-        className={`group relative flex items-center justify-between py-1.5 px-2 rounded-[11px] border transition-all duration-300 cursor-pointer ${
+        className={`group relative flex items-center justify-between py-1.5 px-3 rounded-lg transition-all duration-150 cursor-pointer ${
           isActive
-            ? 'bg-[#ff8a1e]/10 border-[#ff8a1e]/25 shadow-[0_2px_6px_-2px_rgba(255,138,30,0.3)] font-semibold text-[#221b2e]'
-            : 'bg-transparent border-transparent hover:bg-white/50 text-[#544e63] hover:text-[#221b2e]'
+            ? 'bg-slate-900/8 text-slate-900'
+            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
         }`}
         title={chat.title || 'Untitled chat'}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <MessageSquare
             className={`w-3.5 h-3.5 shrink-0 transition-colors ${
-              isActive ? 'text-[#ff8a1e]' : 'text-slate-400/70'
+              isActive ? 'text-slate-900' : 'text-slate-400'
             }`}
           />
-          <span className="text-[12.5px] font-bold truncate">
+          <span className={`text-[13px] truncate ${isActive ? 'font-medium text-slate-900' : 'font-normal text-slate-600'}`}>
             {chat.title || 'New conversation'}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[10px] font-mono text-slate-400 select-none pl-1.5 group-hover:text-slate-500 hidden group-hover:inline">
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-[10px] text-slate-400 select-none group-hover:hidden">
             {formatChatTimeLabel(chat)}
           </span>
           <button
@@ -278,21 +278,16 @@ export function LeftSidebar({
               e.stopPropagation();
               handleDeleteClick(chat.chat_id);
             }}
-            className={`p-1 rounded transition-all ${
+            className={`p-1 rounded transition-all hidden group-hover:flex items-center justify-center ${
               isPending
                 ? 'text-rose-600 bg-rose-50'
-                : 'text-slate-300 hover:text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100'
+                : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50'
             }`}
             title={isPending ? 'Click again to delete' : 'Delete chat'}
             aria-label="Delete chat"
           >
             <Trash2 size={11} />
           </button>
-          {!isPending && (
-            <span className="text-[10px] font-mono text-slate-400 select-none pl-1.5 group-hover:hidden">
-              {formatChatTimeLabel(chat)}
-            </span>
-          )}
         </div>
       </div>
     );
@@ -315,21 +310,21 @@ export function LeftSidebar({
         onClick={onToggleCollapse}
         aria-hidden
       />
-      <div className="fixed md:relative left-0 z-50 md:z-auto w-80 max-w-[86vw] md:max-w-none bg-white/[0.97] md:bg-white/[0.66] backdrop-blur-xl border-r border-[#ece3d6]/80 flex flex-col text-[#221b2e] select-none shrink-0 shadow-2xl md:shadow-none transition-all duration-300 top-[var(--safe-top)] bottom-[var(--safe-bottom)] h-auto md:top-auto md:bottom-auto md:inset-y-0 md:h-full">
+      <div className="fixed md:relative left-0 z-50 md:z-auto w-72 max-w-[86vw] md:max-w-none bg-white/[0.97] md:bg-white/[0.85] backdrop-blur-xl border-r border-slate-200 flex flex-col text-slate-900 select-none shrink-0 shadow-xl md:shadow-none transition-all duration-300 top-[var(--safe-top)] bottom-[var(--safe-bottom)] h-auto md:top-auto md:bottom-auto md:inset-y-0 md:h-full">
       {/* Header */}
-      <div className="py-2.5 px-4 flex items-center justify-between shrink-0 border-b border-[#ece3d6]/70">
+      <div className="py-3 px-4 flex items-center justify-between shrink-0 border-b border-slate-200">
         <div className="flex items-center gap-2.5">
-          <div className="brand-orb w-8.5 h-8.5 shrink-0 animate-orb-glow" />
+          <div className="brand-orb w-8 h-8 shrink-0 animate-orb-glow" />
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[#221b2e] font-semibold text-[19px] font-display tracking-tight leading-none">
+              <span className="text-slate-900 font-semibold text-[15px] font-sans tracking-tight leading-none">
                 Companion
               </span>
-              <span className="bg-[#2b2f72]/8 text-[#2b2f72] px-1.5 py-0.5 rounded text-[8.5px] font-extrabold font-mono tracking-tight leading-none border border-[#2b2f72]/15">
+              <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-[9px] font-medium font-sans leading-none border border-slate-200">
                 v2.6
               </span>
             </div>
-            <span className="text-[10.5px] text-[#7a7388] block font-medium mt-0.5 font-sans leading-none">
+            <span className="text-[11px] text-slate-400 block font-normal mt-0.5 font-sans leading-none">
               Bharat&rsquo;s everything-assistant
             </span>
           </div>
@@ -337,14 +332,14 @@ export function LeftSidebar({
 
         <button
           onClick={onToggleCollapse}
-          className="p-1.5 hover:bg-white border border-[#ece3d6]/40 text-[#7a7388] hover:text-[#221b2e] rounded-lg transition-all cursor-pointer flex items-center justify-center shadow-3xs"
+          className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all cursor-pointer flex items-center justify-center"
           title="Collapse sidebar"
         >
           <svg
-            className="w-3.5 h-3.5 text-slate-500"
+            className="w-4 h-4"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.5"
+            strokeWidth="2"
             viewBox="0 0 24 24"
           >
             <rect x="3" y="3" width="18" height="18" rx="3.5" />
@@ -354,25 +349,22 @@ export function LeftSidebar({
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-3.5 pb-3.5 pt-3 space-y-2.5 no-scrollbar">
+      <div className="flex-1 overflow-y-auto px-3 pb-3 pt-2.5 space-y-1 no-scrollbar">
         {/* + New Chat */}
-        <div className="px-0.5">
+        <div className="pb-1">
           <button
             onClick={onNewChat}
-            className="btn-spectrum w-full font-bold text-[13.5px] py-2.5 px-3.5 rounded-xl flex items-center justify-between active:scale-[0.98] cursor-pointer group font-display"
+            className="btn-spectrum w-full font-medium text-[13px] py-2 px-3.5 rounded-xl flex items-center justify-between active:scale-[0.98] cursor-pointer group font-sans"
           >
-            <div className="flex items-center gap-1.5">
-              <Plus className="w-3.5 h-3.5 text-white stroke-[2.5]" />
+            <div className="flex items-center gap-2">
+              <Plus className="w-4 h-4 text-white stroke-[2]" />
               <span>New Chat</span>
             </div>
-            <span className="text-[10px] text-slate-300 px-1.5 py-0.5 bg-white/10 rounded font-mono font-semibold tracking-tight uppercase">
-              new
-            </span>
           </button>
         </div>
 
         {/* Navigation pills */}
-        <nav className="space-y-0.5">
+        <nav className="space-y-0.5 py-1">
           {navigationPages.map((page) => {
             const IconComponent = page.icon;
             const isTabActive = activeTab === page.id;
@@ -383,36 +375,26 @@ export function LeftSidebar({
                   setActiveTab(page.id);
                   page.onClick?.();
                 }}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-all duration-150 font-medium text-[13.5px] font-sans text-left cursor-pointer group ${
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all duration-150 text-[13px] font-sans text-left cursor-pointer group ${
                   isTabActive
-                    ? 'bg-white text-slate-900 font-bold border border-slate-200/60 shadow-[0_1.5px_3px_rgba(0,0,0,0.01)]'
-                    : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <div
-                    className={`p-1 rounded-md border transition-all ${
-                      isTabActive ? page.bg : 'bg-white border-slate-100 group-hover:bg-slate-50 text-slate-500'
-                    }`}
-                  >
-                    <IconComponent className="w-3.5 h-3.5 stroke-[2.2]" />
-                  </div>
-                  <span
-                    className={
-                      isTabActive ? 'font-bold text-slate-900' : 'font-medium text-slate-600'
-                    }
-                  >
+                  <IconComponent className={`w-4 h-4 stroke-[1.75] shrink-0 ${isTabActive ? 'text-white' : 'text-slate-500'}`} />
+                  <span className={`font-medium ${isTabActive ? 'text-white' : 'text-slate-700'}`}>
                     {page.label}
                   </span>
                 </div>
                 {page.badge ? (
-                  <span className="text-[10px] font-extrabold text-white bg-indigo-500 px-1.5 rounded-full font-mono">
+                  <span className="text-[10px] font-semibold text-white bg-indigo-500 px-1.5 py-0.5 rounded-full font-sans">
                     {page.badge}
                   </span>
                 ) : (
                   <ChevronRight
-                    className={`w-3 h-3 transition-all text-slate-300 group-hover:text-slate-500 ${
-                      isTabActive ? 'opacity-100 translate-x-0.5' : 'opacity-0 -translate-x-1'
+                    className={`w-3.5 h-3.5 transition-all ${
+                      isTabActive ? 'text-white/60 opacity-100' : 'text-slate-300 opacity-0 group-hover:opacity-100'
                     }`}
                   />
                 )}
@@ -422,27 +404,27 @@ export function LeftSidebar({
         </nav>
 
         {/* Recent Conversations */}
-        <div className="space-y-2 pt-1">
-          <div className="flex items-center justify-between px-1 pb-0.5">
-            <span className="text-[11px] font-extrabold text-slate-400 font-display uppercase tracking-wider">
+        <div className="space-y-1 pt-2 border-t border-slate-200">
+          <div className="flex items-center justify-between px-3 pb-1">
+            <span className="text-[11px] font-medium text-slate-400 font-sans">
               Recent Conversations
             </span>
             <Search
-              className="w-3.5 h-3.5 text-slate-400 cursor-pointer hover:text-slate-800 transition-colors"
+              className="w-3.5 h-3.5 text-slate-400 cursor-pointer hover:text-slate-700 transition-colors"
               aria-hidden
             />
           </div>
 
           {chats.length === 0 ? (
-            <div className="text-center py-4 px-3 bg-white/40 border border-dashed border-slate-200 rounded-xl text-[11px] font-medium text-slate-400">
-              No conversations yet. Start one with the input below.
+            <div className="mx-1 py-4 px-3 bg-slate-50 border border-slate-200 rounded-lg text-[12px] font-normal text-slate-400 text-center">
+              No conversations yet.
             </div>
           ) : (
             chatGroups
               .filter((g) => g.rows.length > 0)
               .map((g) => (
                 <div key={g.key} className="space-y-0.5">
-                  <div className="text-[9.5px] font-bold text-slate-400/70 uppercase tracking-widest px-2 pb-0.5 select-none">
+                  <div className="text-[10px] font-medium text-slate-400 px-3 pt-1 pb-0.5 select-none">
                     {g.label}
                   </div>
                   {g.rows.map(renderChatRow)}
@@ -452,18 +434,18 @@ export function LeftSidebar({
         </div>
 
         {/* Connected Apps grid (real MCP statuses) */}
-        <div className="space-y-2 pt-3.5 border-t border-slate-200/50">
-          <div className="flex items-center justify-between px-1 pb-0.5">
-            <span className="text-[11px] font-extrabold text-slate-400 font-display uppercase tracking-wider">
+        <div className="space-y-1.5 pt-2 border-t border-slate-200">
+          <div className="flex items-center justify-between px-3 pb-1">
+            <span className="text-[11px] font-medium text-slate-400 font-sans">
               Connected Apps
             </span>
-            <span className="text-[9.5px] font-mono font-bold text-slate-500 bg-slate-200/50 px-1.5 py-0.5 rounded-full select-none">
-              {connectedCount}/{totalCount} Active
+            <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full select-none font-sans">
+              {connectedCount}/{totalCount}
             </span>
           </div>
 
           {availableProviders.length === 0 ? (
-            <div className="text-center py-3 px-3 bg-white/40 border border-dashed border-slate-200 rounded-xl text-[11px] font-medium text-slate-400">
+            <div className="text-center py-3 px-3 bg-slate-50 border border-slate-200 rounded-lg text-[12px] font-normal text-slate-400">
               No providers configured yet.
             </div>
           ) : (
@@ -477,27 +459,27 @@ export function LeftSidebar({
                   <div
                     key={server.id}
                     onClick={() => onSelectProvider(server.id)}
-                    className="group relative flex items-center gap-2 p-2 rounded-lg bg-white/60 hover:bg-white border border-slate-200/40 hover:border-slate-300/80 transition-all duration-200 cursor-pointer shadow-3xs active:scale-[0.98]"
+                    className="group relative flex items-center gap-2 p-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-200/60 hover:border-slate-300 transition-all duration-150 cursor-pointer active:scale-[0.98]"
                     title={`Click to manage ${cleanedName}`}
                   >
                     <div
-                      className={`w-6.5 h-6.5 rounded-md flex items-center justify-center font-bold text-[11px] shrink-0 ${
-                        isConnected ? `${theme.bg} ${theme.fg}` : 'bg-slate-200 text-slate-400'
+                      className={`w-6 h-6 rounded-md flex items-center justify-center font-semibold text-[11px] shrink-0 ${
+                        isConnected ? `${theme.bg} ${theme.fg}` : 'bg-slate-100 text-slate-400'
                       }`}
                     >
                       {providerLetter(server.label, server.id)}
                     </div>
                     <div className="min-w-0 flex-1 flex flex-col justify-center">
-                      <span className="text-[11.5px] font-bold text-slate-800 truncate group-hover:text-indigo-650 transition-colors">
+                      <span className="text-[12px] font-medium text-slate-700 truncate">
                         {cleanedName}
                       </span>
                       <div className="flex items-center gap-1">
                         <span
                           className={`w-1.5 h-1.5 rounded-full ${
-                            isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                            isConnected ? 'bg-emerald-500' : 'bg-slate-300'
                           }`}
                         />
-                        <span className="text-[8.5px] font-medium text-slate-405 select-none">
+                        <span className="text-[10px] font-normal text-slate-400 select-none">
                           {isConnected ? 'Connected' : 'Offline'}
                         </span>
                       </div>
@@ -511,20 +493,20 @@ export function LeftSidebar({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 border-t border-[#ece3d6]/70 bg-white/40 backdrop-blur-sm px-3 py-2.5 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <div className="w-7.5 h-7.5 rounded-[9px] bg-[#221b2e] text-white flex items-center justify-center font-bold text-[12px] shadow-sm shrink-0">
+      <div className="shrink-0 border-t border-slate-200 px-3 py-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <div className="w-7 h-7 rounded-lg bg-slate-900 text-white flex items-center justify-center font-medium text-[12px] shrink-0">
             {(username || 'C').charAt(0).toUpperCase()}
           </div>
-          <span className="text-[12px] font-bold text-[#221b2e] truncate capitalize">
+          <span className="text-[13px] font-medium text-slate-700 truncate capitalize">
             {username || 'Companion'}
           </span>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0">
           {isAdmin && onOpenAdmin && (
             <button
               onClick={onOpenAdmin}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
               title="Admin dashboard"
               aria-label="Admin dashboard"
             >
@@ -533,7 +515,7 @@ export function LeftSidebar({
           )}
           <button
             onClick={onOpenSettings}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
             title="Settings"
             aria-label="Open settings"
           >
@@ -541,7 +523,7 @@ export function LeftSidebar({
           </button>
           <button
             onClick={onLogout}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
             title="Log out"
             aria-label="Log out"
           >

@@ -96,8 +96,24 @@ class Execute:
         ctx.provider_results = await dispatcher.dispatch(
             allowed, ctx_for=lambda pid: _exec_ctx_for(ctx, pid, budget, geo_overrides)
         )
+        provider_tools = [
+            {
+                "provider": r.provider,
+                "ok": r.ok,
+                "tools": [
+                    {
+                        "tool": tr.tool,
+                        "ok": tr.ok,
+                        "error": tr.error.value if tr.error else None,
+                    }
+                    for tr in r.results
+                ],
+            }
+            for r in ctx.provider_results
+        ]
         ctx.tracer.event(
             "execute",
             providers=[r.provider for r in ctx.provider_results],
+            provider_tools=provider_tools,
             blocked=len(ctx.blocked),
         )

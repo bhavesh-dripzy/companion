@@ -55,7 +55,12 @@ class Plan:
             if plan is None:
                 plan = await self._generic_plan(provider, provider_id, framed, ctx)
             ctx.plans[provider_id] = plan
-            ctx.tracer.event("plan", provider=provider_id, tools=len(plan.calls))
+            ctx.tracer.event(
+                "plan",
+                provider=provider_id,
+                tools=len(plan.calls),
+                tool_names=[c.tool for c in plan.calls],
+            )
 
         ctx.calls = [
             call.model_copy(update={"provider": call.provider or provider_id})

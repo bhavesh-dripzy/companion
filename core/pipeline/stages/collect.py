@@ -32,9 +32,12 @@ class Collect:
     name = "collect"
 
     async def run(self, ctx: PipelineContext) -> None:
+        by_provider: dict[str, int] = {}
         for result in _ordered_results(ctx):
             provider = ctx.deps.registry.get(result.provider)
             if provider is None:
                 continue
-            ctx.attachments.extend(provider.build_attachments(result))
-        ctx.tracer.event("collect", attachments=len(ctx.attachments))
+            built = provider.build_attachments(result)
+            ctx.attachments.extend(built)
+            by_provider[result.provider] = by_provider.get(result.provider, 0) + len(built)
+        ctx.tracer.event("collect", attachments=len(ctx.attachments), by_provider=by_provider)

@@ -1038,6 +1038,21 @@ const assistantMsg: Message = {
     }
   };
 
+  // Groceries quick-action (issue #59): instead of firing a fixed search,
+  // drop an in-chat category picker into the conversation. Categories have no
+  // backing MCP tool (both providers are search-only), so this is a purely
+  // client-side turn — a "user" bubble + a cards-only assistant turn carrying
+  // the `grocery_categories` attachment. Tapping a tile sends a real search
+  // (Instamart + Zepto fan-out) through handleSendMessage like any other.
+  const handleOpenGroceries = () => {
+    if (isThinking) return;
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: 'Order groceries' },
+      { role: 'assistant', content: '', attachments: [{ kind: 'grocery_categories' }] },
+    ]);
+  };
+
   // Cards (menu/restaurant/cart) returned by the most recent voice tool call,
   // held until that turn completes so we can attach them to the rendered
   // assistant message in the chat log.
@@ -1376,6 +1391,7 @@ const assistantMsg: Message = {
             onSuggestionClick={(prompt) => {
               if (!isThinking) handleSendMessage(prompt);
             }}
+            onOpenGroceries={handleOpenGroceries}
             onToggleLeft={() => setIsSidebarCollapsed((v) => !v)}
             isSidebarCollapsed={isSidebarCollapsed}
             connectedCount={
