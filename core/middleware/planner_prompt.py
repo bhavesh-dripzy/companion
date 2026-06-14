@@ -71,4 +71,4 @@ def build_planner_prompt(preamble: str, tools: list[Tool]) -> str:
     block = render_tools_block(tools)
     if _TOOLS_SLOT in preamble:
         return preamble.replace(_TOOLS_SLOT, block)
-    return f"{preamble.rstrip()}\n\n" "TOOLS (use ONLY these exact tool names):\n" f"{block}\n"
+    return f"{preamble.rstrip()}\n\nTOOLS (use ONLY these exact tool names):\n{block}\n"
