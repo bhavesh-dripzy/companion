@@ -456,8 +456,8 @@ export function ChatArea({
                 placeholder="Ask Companion anything…"
                 disabled={isThinking}
                 rows={1}
-                className="flex-1 bg-transparent border-none outline-none text-[14px] text-[#1a1530] placeholder-slate-400 focus:ring-0 min-w-0 resize-none leading-normal overflow-hidden"
-                style={{ height: '24px' }}
+                className="flex-1 bg-transparent border-none outline-none text-[14px] text-[#1a1530] placeholder-slate-400 focus:ring-0 min-w-0 resize-none overflow-hidden self-center"
+                style={{ height: '24px', lineHeight: '24px', padding: 0 }}
               />
 
               <div className="shrink-0 [&_button]:!w-8 [&_button]:!h-8 [&_button]:!rounded-full [&_button]:!bg-slate-100 [&_button]:!text-slate-500">
