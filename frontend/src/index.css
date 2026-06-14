@@ -167,13 +167,7 @@ body {
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* Warm ivory parchment + soft saffron→indigo dawn bloom (mockup body). */
-  background-color: #fdfaf3;
-  background-image:
-    radial-gradient(48% 38% at 50% -8%, rgba(255, 138, 30, 0.20), rgba(255, 179, 71, 0.08) 42%, transparent 68%),
-    radial-gradient(40% 46% at 4% 26%, rgba(43, 47, 114, 0.10), transparent 62%),
-    radial-gradient(44% 50% at 98% 70%, rgba(232, 93, 122, 0.09), transparent 64%),
-    linear-gradient(180deg, #fdfaf3, #f7f2ea);
+  background: linear-gradient(180deg, #FAFCFF 0%, #F4F7FB 100%);
   background-attachment: fixed;
 }
 
