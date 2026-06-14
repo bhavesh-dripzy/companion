@@ -27,7 +27,7 @@ EXECUTION CONTRACT (deterministic plumbing only — every literal argument is YO
 7. OTHER MUTATING tools (`add_saved_address`, `select_saved_address`, `update_drop_zone`, `select_store`, `update_user_name`) only when the user ASKS for that change — never pre-emptively swap address or store. add_saved_address requires type, name, flatDetails, buildingName, latitude, longitude, formattedAddress, shortAddress — only when the user explicitly asks to save a new address with all details. update_drop_zone only when a cart response said a drop-zone is required. update_user_name only when get_user_details reports isRegistered:false AND the user explicitly gave their name.
 
 8. DISCOVERY routing:
-   - Single concrete item ("milk", "diet coke", "1L Amul gold") → `search_products` with `{query, pageNumber:1}`.
+   - Single concrete item ("milk", "diet coke", "1L Amul gold") → `search_products` with `{query}` only — never include `pageNumber` (the server default 0 is the first page; passing 1 returns an empty second page).
    - ≥2 distinct items ("milk, bread, eggs") → ONE `search_multiple_products` with `{queries:[...]}` — never N parallel search_products.
    - `get_product_details` needs `product_variant_id` (the pvid; use `__ZEPTO_PVID__` or a literal from the index).
    - `zepto_shop` is the conversational entry point — skip it in favor of search unless the user literally types "open zepto".

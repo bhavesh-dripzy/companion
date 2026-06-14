@@ -83,6 +83,13 @@ class ZeptoProvider(McpProvider):
         except Exception:
             pass  # planner-emitted serviceability call will be the fallback
 
+    def normalize_args(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        # Zepto's pageNumber is 0-indexed; planners routinely emit pageNumber:1
+        # thinking it means "first page". Drop it so the server uses the default (0).
+        if tool in {"search_products", "search_multiple_products"} and args.get("pageNumber") == 1:
+            return {k: v for k, v in args.items() if k != "pageNumber"}
+        return args
+
     def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
         # Short-circuit the planner's serviceability call when already done proactively.
         if tool == "get_location_serviceability" and ctx.scratch.get("zepto_store_registered"):
