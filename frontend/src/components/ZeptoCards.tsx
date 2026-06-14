@@ -15,7 +15,7 @@
 // District purple in the chat scroll.
 
 import React, { useState } from 'react';
-import { Plus, ShoppingCart, Sparkles, Receipt, Tag } from 'lucide-react';
+import { Plus, Minus, Trash2, ShoppingCart, Sparkles, Receipt, Tag } from 'lucide-react';
 import type {
   Attachment,
   ZeptoCart,
@@ -95,10 +95,11 @@ const ZeptoProductTile: React.FC<{
   return (
     <div
       className={cn(
-        'flex flex-col w-[170px] shrink-0 snap-start bg-white rounded-2xl border border-slate-200/80 overflow-hidden transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
+        'flex flex-col w-[130px] shrink-0 snap-start bg-white rounded-xl border border-slate-200/80 overflow-hidden transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
         outOfStock && 'opacity-60',
       )}
     >
+      {/* Image + ADD button overlay */}
       <div className="relative aspect-square bg-slate-50 overflow-hidden">
         {showImage ? (
           <img
@@ -114,7 +115,7 @@ const ZeptoProductTile: React.FC<{
             className="w-full h-full flex items-center justify-center"
             style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
           >
-            <ShoppingCart size={26} style={{ color: theme.brandHex }} />
+            <ShoppingCart size={22} style={{ color: theme.brandHex }} />
           </div>
         )}
         {item.is_ad && (
@@ -122,16 +123,32 @@ const ZeptoProductTile: React.FC<{
             Ad
           </span>
         )}
+        {/* ADD button — bottom right corner overlapping image */}
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={disabled || !onQuickPrompt || outOfStock}
+          className={cn(
+            'absolute bottom-1.5 right-1.5 w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md transition-all',
+            'hover:brightness-110 active:scale-90',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+          )}
+          style={{ backgroundColor: theme.brandHex }}
+          title={outOfStock ? 'Out of stock' : `Add ${item.name}`}
+        >
+          <Plus size={16} strokeWidth={2.5} />
+        </button>
       </div>
 
-      <div className="flex flex-col flex-1 px-2.5 pt-2 pb-2.5 gap-1">
-        <p className="text-[11.5px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[28px]">
+      {/* Info */}
+      <div className="flex flex-col px-2 pt-1.5 pb-2 gap-1">
+        <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[26px]">
           {item.name}
         </p>
         {item.pack_size && (
-          <p className="text-[10px] text-slate-400 truncate">{item.pack_size}</p>
+          <p className="text-[9.5px] text-slate-400 truncate">{item.pack_size}</p>
         )}
-        <div className="flex items-baseline gap-1.5 mt-auto">
+        <div className="flex items-baseline gap-1.5 mt-0.5">
           {price && (
             <span className="text-[12.5px] font-extrabold text-slate-900">{price}</span>
           )}
@@ -139,33 +156,6 @@ const ZeptoProductTile: React.FC<{
             <span className="text-[10px] text-slate-400 line-through">{mrp}</span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={disabled || !onQuickPrompt || outOfStock}
-          className={cn(
-            'mt-1 inline-flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-all',
-            'hover:brightness-110 active:scale-95',
-            'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100',
-          )}
-          style={{ backgroundColor: theme.brandHex }}
-          title={
-            outOfStock
-              ? 'Out of stock'
-              : disabled
-                ? 'Waiting for current reply'
-                : `Add ${item.name} to your Zepto cart`
-          }
-        >
-          {outOfStock ? (
-            <span>Out of stock</span>
-          ) : (
-            <>
-              <Plus size={11} strokeWidth={3} />
-              <span>Add</span>
-            </>
-          )}
-        </button>
       </div>
     </div>
   );
@@ -242,16 +232,21 @@ const ZeptoCartItemRow: React.FC<{
   const setQty = (newQty: number) => {
     if (!onQuickPrompt || disabled) return;
     const name = item.name || 'this item';
+    const ids =
+      item.product_variant_id && item.store_product_id
+        ? ` [pvid:${item.product_variant_id}, spid:${item.store_product_id}]`
+        : '';
     if (newQty === 0) {
-      onQuickPrompt(`Remove ${name} from my Zepto cart.`);
+      onQuickPrompt(`Remove ${name}${ids} from my Zepto cart.`);
     } else {
-      onQuickPrompt(`Set the quantity of ${name} in my Zepto cart to ${newQty}.`);
+      onQuickPrompt(`Set quantity of ${name}${ids} to ${newQty} in my Zepto cart.`);
     }
   };
 
   return (
-    <div className="flex items-center gap-3 py-2.5 px-4 border-b border-slate-100 last:border-b-0">
-      <div className="w-11 h-11 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200/70">
+    <div className="flex items-start gap-3 py-4 px-4 border-b border-slate-100 last:border-b-0">
+      {/* Image */}
+      <div className="w-[72px] h-[72px] rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
         {showImage ? (
           <img
             src={item.image_url ?? ''}
@@ -266,54 +261,67 @@ const ZeptoCartItemRow: React.FC<{
             className="w-full h-full flex items-center justify-center"
             style={{ background: `linear-gradient(135deg, ${theme.brandHex}14, transparent)` }}
           >
-            <ShoppingCart size={16} style={{ color: theme.brandHex }} />
+            <ShoppingCart size={22} style={{ color: `${theme.brandHex}80` }} />
           </div>
         )}
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[12.5px] font-semibold text-slate-800 leading-tight truncate">
+
+      {/* Name + pack */}
+      <div className="flex-1 min-w-0 pt-0.5">
+        <p className="text-[13.5px] font-bold text-slate-900 leading-snug line-clamp-2">
           {item.name || 'Item'}
         </p>
         {item.pack_size && (
-          <p className="text-[10px] text-slate-400 truncate">{item.pack_size}</p>
-        )}
-        {price && (
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            {price}
-            <span className="text-slate-400"> × {qty}</span>
-            {lineTotalLabel && (
-              <span className="text-slate-800 font-semibold"> = {lineTotalLabel}</span>
-            )}
-          </p>
+          <p className="text-[11.5px] text-slate-400 mt-0.5">{item.pack_size}</p>
         )}
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={() => setQty(qty - 1)}
-          disabled={disabled || !onQuickPrompt}
-          className={cn(
-            'w-7 h-7 rounded-md text-[14px] font-bold flex items-center justify-center text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
-          )}
-          title={qty <= 1 ? `Remove ${item.name}` : `Decrease quantity`}
+
+      {/* Qty pill + price */}
+      <div className="flex flex-col items-end gap-2 shrink-0 pt-0.5">
+        {/* Quantity pill */}
+        <div
+          className="flex items-center rounded-xl border overflow-hidden"
+          style={{ borderColor: `${theme.brandHex}30` }}
         >
-          −
-        </button>
-        <span className="w-7 text-center text-[12px] font-bold text-slate-800">{qty}</span>
-        <button
-          type="button"
-          onClick={() => setQty(qty + 1)}
-          disabled={disabled || !onQuickPrompt}
-          className={cn(
-            'w-7 h-7 rounded-md text-[14px] font-bold flex items-center justify-center text-white transition-colors',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
+          <button
+            type="button"
+            onClick={() => setQty(qty - 1)}
+            disabled={disabled || !onQuickPrompt}
+            className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ color: theme.brandHex }}
+            title={qty <= 1 ? `Remove ${item.name}` : 'Decrease'}
+          >
+            {qty <= 1 ? <Trash2 size={13} /> : <Minus size={13} strokeWidth={2.5} />}
+          </button>
+          <span
+            className="w-7 text-center text-[13px] font-bold"
+            style={{ color: theme.brandHex }}
+          >
+            {qty}
+          </span>
+          <button
+            type="button"
+            onClick={() => setQty(qty + 1)}
+            disabled={disabled || !onQuickPrompt}
+            className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ color: theme.brandHex }}
+            title="Increase"
+          >
+            <Plus size={13} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        {/* Price */}
+        <div className="flex items-baseline gap-1.5">
+          {item.mrp_inr && item.mrp_inr > (item.price_inr ?? 0) && (
+            <span className="text-[12px] text-slate-400 line-through">
+              {formatPriceFromInr(item.mrp_inr)}
+            </span>
           )}
-          style={{ backgroundColor: theme.brandHex }}
-          title={`Increase quantity of ${item.name}`}
-        >
-          +
-        </button>
+          {lineTotalLabel && (
+            <span className="text-[15px] font-bold text-green-700">{lineTotalLabel}</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -336,6 +344,19 @@ export const ZeptoCartCard: React.FC<{
   const handleCheckout = onQuickPrompt && !isEmpty
     ? () => onQuickPrompt(theme.checkoutPrompt)
     : undefined;
+
+  const handleClearCart = () => {
+    if (!onQuickPrompt || isEmpty) return;
+    // Embed every pvid/spid from the cart so the planner can clear even
+    // if the session state is cold (no prior view_cart in context).
+    const itemLines = items
+      .filter((it) => it.product_variant_id && it.store_product_id)
+      .map((it) => `pvid=${it.product_variant_id}, spid=${it.store_product_id} (${it.name || 'item'})`)
+      .join('\n');
+    onQuickPrompt(
+      `Clear my entire Zepto cart. Set ALL of these items to quantity 0:\n${itemLines}`,
+    );
+  };
 
   return (
     <div className="mt-3 w-full max-w-full md:max-w-md animate-fade-in">
@@ -409,6 +430,22 @@ export const ZeptoCartCard: React.FC<{
                 >
                   <Tag size={12} />
                   <span>Place order</span>
+                </button>
+              )}
+              {!isEmpty && onQuickPrompt && (
+                <button
+                  type="button"
+                  onClick={handleClearCart}
+                  disabled={disabled}
+                  className={cn(
+                    'w-full inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-semibold text-slate-500 border border-slate-200 bg-white transition-all',
+                    'hover:bg-red-50 hover:border-red-200 hover:text-red-600',
+                    'disabled:cursor-not-allowed disabled:opacity-50',
+                  )}
+                  title="Remove all items from cart"
+                >
+                  <Trash2 size={12} />
+                  <span>Clear cart</span>
                 </button>
               )}
             </div>

@@ -178,9 +178,8 @@ def build_context(ctx: Any) -> str:
     always present, so the return is non-empty in practice; ``""`` is returned
     only if every block (including date context) renders empty.
     """
-    session = getattr(ctx, "session", None)
-    legacy: dict[str, Any] = getattr(session, "legacy", {}) or {}
-    placeholders: dict[str, Any] = getattr(session, "placeholders", {}) or {}
+    legacy: dict[str, Any] = getattr(ctx, "session", None) or {}
+    placeholders: dict[str, Any] = getattr(ctx, "placeholders", None) or {}
 
     parts: list[str | None] = [
         _date_context(),

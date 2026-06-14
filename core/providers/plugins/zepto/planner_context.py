@@ -122,12 +122,11 @@ def build_context(ctx: Any) -> str:
 
     Returns the present blocks joined by blank lines, or "" when none apply.
     """
-    session = getattr(ctx, "session", None)
-    if session is None:
-        return ""
-    legacy = getattr(session, "legacy", None)
+    # ExecCtx.session is the flat legacy dict already — read it directly.
+    # (The old `session.legacy` path was wrong: getattr on a dict returns None.)
+    legacy = getattr(ctx, "session", None)
     legacy = legacy if isinstance(legacy, dict) else {}
-    placeholders = getattr(session, "placeholders", None)
+    placeholders = getattr(ctx, "placeholders", None)
 
     blocks: list[str | None] = [
         placeholders_block(placeholders, "zepto"),

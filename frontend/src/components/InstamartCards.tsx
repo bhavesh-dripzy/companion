@@ -7,7 +7,7 @@
 // that the planner resolves to the correct spinId via session context.
 
 import React, { useState } from 'react';
-import { Plus, ShoppingCart, X, Receipt, Tag } from 'lucide-react';
+import { Plus, Minus, Trash2, ShoppingCart, X, Receipt, Tag } from 'lucide-react';
 import type {
   Attachment,
   InstamartCart,
@@ -284,15 +284,23 @@ const InstamartProductTile: React.FC<{
               <button
                 type="button"
                 onClick={() => setSheetOpen(true)}
-                className="px-1.5 py-0.5 rounded-md border border-slate-300 text-[9.5px] font-semibold text-slate-500 bg-white leading-none hover:border-slate-400"
+                className="px-1.5 py-0.5 rounded-md text-[9.5px] font-bold leading-none hover:opacity-80"
+                style={{ backgroundColor: `${theme.brandHex}18`, color: theme.brandHex, border: `1px solid ${theme.brandHex}40` }}
               >
-                …
+                +{item.variants.length - 1}
               </button>
             )}
           </div>
           {/* Price */}
           {price && (
-            <p className="text-[12.5px] font-extrabold text-slate-900 mt-0.5">{price}</p>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="text-[12.5px] font-extrabold text-slate-900">{price}</span>
+              {variant?.mrp_inr && variant.mrp_inr > (variant.price_inr ?? 0) && (
+                <span className="text-[10px] text-slate-400 line-through">
+                  {formatPriceFromInr(variant.mrp_inr)}
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -316,9 +324,7 @@ export const InstamartProductCardGrid: React.FC<{
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
 }> = ({ attachment, onQuickPrompt, disabled }) => {
-  const products = Array.isArray(attachment.instamart_products)
-    ? attachment.instamart_products
-    : [];
+  const products = Array.isArray(attachment.products) ? attachment.products : [];
   if (products.length === 0) return null;
 
   const groups = new Map<string, InstamartProductCardEntry[]>();
@@ -377,8 +383,9 @@ const InstamartCartItemRow: React.FC<{
   };
 
   return (
-    <div className="flex items-center gap-3 py-2.5 px-4 border-b border-slate-100 last:border-b-0">
-      <div className="w-11 h-11 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200/70">
+    <div className="flex items-start gap-3 py-4 px-4 border-b border-slate-100 last:border-b-0">
+      {/* Image */}
+      <div className="w-[72px] h-[72px] rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
         {showImage ? (
           <img
             src={item.image_url ?? ''}
@@ -393,52 +400,67 @@ const InstamartCartItemRow: React.FC<{
             className="w-full h-full flex items-center justify-center"
             style={{ background: `linear-gradient(135deg, ${theme.brandHex}14, transparent)` }}
           >
-            <ShoppingCart size={16} style={{ color: theme.brandHex }} />
+            <ShoppingCart size={22} style={{ color: `${theme.brandHex}80` }} />
           </div>
         )}
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[12.5px] font-semibold text-slate-800 leading-tight truncate">
+
+      {/* Name + pack */}
+      <div className="flex-1 min-w-0 pt-0.5">
+        <p className="text-[13.5px] font-bold text-slate-900 leading-snug line-clamp-2">
           {item.name || 'Item'}
         </p>
         {item.quantity_description && (
-          <p className="text-[10px] text-slate-400 truncate">{item.quantity_description}</p>
-        )}
-        {price && (
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            {price}
-            <span className="text-slate-400"> × {qty}</span>
-            {lineTotalLabel && (
-              <span className="text-slate-800 font-semibold"> = {lineTotalLabel}</span>
-            )}
-          </p>
+          <p className="text-[11.5px] text-slate-400 mt-0.5">{item.quantity_description}</p>
         )}
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={() => setQty(qty - 1)}
-          disabled={disabled || !onQuickPrompt}
-          className={cn(
-            'w-7 h-7 rounded-md text-[14px] font-bold flex items-center justify-center text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
-          )}
+
+      {/* Qty pill + price */}
+      <div className="flex flex-col items-end gap-2 shrink-0 pt-0.5">
+        {/* Quantity pill */}
+        <div
+          className="flex items-center rounded-xl border overflow-hidden"
+          style={{ borderColor: `${theme.brandHex}30` }}
         >
-          −
-        </button>
-        <span className="w-7 text-center text-[12px] font-bold text-slate-800">{qty}</span>
-        <button
-          type="button"
-          onClick={() => setQty(qty + 1)}
-          disabled={disabled || !onQuickPrompt}
-          className={cn(
-            'w-7 h-7 rounded-md text-[14px] font-bold flex items-center justify-center text-white transition-colors',
-            'disabled:opacity-40 disabled:cursor-not-allowed',
+          <button
+            type="button"
+            onClick={() => setQty(qty - 1)}
+            disabled={disabled || !onQuickPrompt}
+            className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ color: theme.brandHex }}
+            title={qty <= 1 ? `Remove ${item.name}` : 'Decrease'}
+          >
+            {qty <= 1 ? <Trash2 size={13} /> : <Minus size={13} strokeWidth={2.5} />}
+          </button>
+          <span
+            className="w-7 text-center text-[13px] font-bold"
+            style={{ color: theme.brandHex }}
+          >
+            {qty}
+          </span>
+          <button
+            type="button"
+            onClick={() => setQty(qty + 1)}
+            disabled={disabled || !onQuickPrompt}
+            className="w-8 h-8 flex items-center justify-center transition-colors hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ color: theme.brandHex }}
+            title="Increase"
+          >
+            <Plus size={13} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        {/* Price */}
+        <div className="flex items-baseline gap-1.5">
+          {item.mrp_inr && item.mrp_inr > (item.price_inr ?? 0) && (
+            <span className="text-[12px] text-slate-400 line-through">
+              {formatPriceFromInr(item.mrp_inr)}
+            </span>
           )}
-          style={{ backgroundColor: theme.brandHex }}
-        >
-          +
-        </button>
+          {lineTotalLabel && (
+            <span className="text-[15px] font-bold text-green-700">{lineTotalLabel}</span>
+          )}
+        </div>
       </div>
     </div>
   );

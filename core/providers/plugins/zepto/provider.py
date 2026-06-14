@@ -14,6 +14,7 @@ parity bridge reuses. Cart cards stay on the executor path; bootstrap swap gated
 from __future__ import annotations
 
 import os
+import uuid
 from typing import Any
 
 from core.contracts.attachment import Attachment
@@ -25,6 +26,7 @@ from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec, call_tool
 from core.providers.mcp.info_cards import build_info_cards
 from core.providers.mcp.mcp_base import McpProvider
+from core.providers.mcp.placeholders import DEFAULT_ALIASES, DEFAULT_ISSUERS, PlaceholderResolver
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.mcp.result_cards import build_order_cards
 from core.providers.plugins.zepto.cards import build_product_cards
@@ -33,11 +35,36 @@ from core.providers.plugins.zepto.planner_context import build_context
 from core.providers.plugins.zepto.session import ZeptoSession, merge_products
 
 _CART_TOOLS = {"view_cart", "update_cart"}
+_SEARCH_TOOLS = {"search_products", "search_multiple_products"}
 
 _DEFAULT_URL = "https://mcp.zepto.co.in/mcp"
 
+_ZEPTO_ALIASES = {
+    **DEFAULT_ALIASES,
+    # Learned from search_products / search_multiple_products structured response.
+    # First product in the result list becomes the "active" pvid/spid for in-plan
+    # chaining (e.g. search then immediately update_cart).
+    "__ZEPTO_PVID__": ("productVariantId", "product_variant_id", "variantId"),
+    "__ZEPTO_SPID__": ("storeProductId", "store_product_id"),
+}
+
+_ZEPTO_ISSUERS = {
+    **DEFAULT_ISSUERS,
+    # A new search invalidates any pvid/spid carried from a prior search in this plan.
+    "search_products": ("__ZEPTO_PVID__", "__ZEPTO_SPID__"),
+    "search_multiple_products": ("__ZEPTO_PVID__", "__ZEPTO_SPID__"),
+}
+
+
+class _ZeptoResolver(PlaceholderResolver):
+    # pvid/spid are product-search-scoped — don't persist them across turns.
+    transient: frozenset[str] = frozenset({"__ZEPTO_PVID__", "__ZEPTO_SPID__"})
+
 
 class ZeptoProvider(McpProvider):
+    resolver: PlaceholderResolver = _ZeptoResolver(
+        aliases=_ZEPTO_ALIASES, issuers=_ZEPTO_ISSUERS
+    )
     id = "zepto"
     label = "Zepto MCP"
     auth_mode = AuthMode.OAUTH
@@ -73,6 +100,11 @@ class ZeptoProvider(McpProvider):
         lng = float(geo.get("longitude", geo.get("lng")))
         ctx.placeholders["__USER_LAT__"] = lat
         ctx.placeholders["__USER_LNG__"] = lng
+        # Stable per-user device ID required by update_cart.
+        if "__ZEPTO_DEVICE_ID__" not in ctx.placeholders:
+            ctx.placeholders["__ZEPTO_DEVICE_ID__"] = str(
+                uuid.uuid5(uuid.NAMESPACE_DNS, f"zepto-device-{ctx.user_id}")
+            )
         # Proactively register the store for this MCP session so the planner's
         # get_location_serviceability step is optional (each session is stateless).
         try:
@@ -113,6 +145,7 @@ class ZeptoProvider(McpProvider):
             *build_info_cards(
                 result.results,
                 exclude={
+                    "get_location_serviceability",
                     "search_products",
                     "search_multiple_products",
                     "get_past_order_items",
@@ -136,6 +169,19 @@ class ZeptoProvider(McpProvider):
             if tr.tool in _CART_TOOLS and tr.ok:
                 snap = cart_snapshot(tr.data if isinstance(tr.data, dict) else {})
                 if snap:
+                    # Backfill image URLs from the product LRU — the cart API
+                    # never returns imageUrl, but we may have seen the product
+                    # during this session's search results.
+                    all_products = merged.get("session_zepto_products") or []
+                    img_map = {
+                        p["product_variant_id"]: p.get("image_url")
+                        for p in all_products
+                        if p.get("product_variant_id") and p.get("image_url")
+                    }
+                    if img_map:
+                        for item in snap.get("items") or []:
+                            if not item.get("image_url"):
+                                item["image_url"] = img_map.get(item.get("product_variant_id"))
                     merged["session_zepto_cart"] = snap
         return merged
 

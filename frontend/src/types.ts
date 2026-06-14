@@ -247,6 +247,7 @@ export interface ZeptoCartItem {
   quantity?: number | null;
   name?: string | null;
   price_inr?: number | null;
+  mrp_inr?: number | null;
   price_text?: string | null;
   pack_size?: string | null;
   image_url?: string | null;

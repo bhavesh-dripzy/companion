@@ -29,10 +29,9 @@ def build_context(ctx: Any) -> str:
 
     Returns "" when no Kite block (or the placeholders line) is present.
     """
-    session = getattr(ctx, "session", None)
-    legacy = getattr(session, "legacy", None)
+    legacy = getattr(ctx, "session", None)
     legacy = legacy if isinstance(legacy, dict) else {}
-    placeholders = getattr(session, "placeholders", None)
+    placeholders = getattr(ctx, "placeholders", None)
     placeholders = placeholders if isinstance(placeholders, dict) else {}
 
     parts: list[str] = []
