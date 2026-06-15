@@ -19,8 +19,9 @@ PRODUCT SEARCH BEFORE CART (mandatory)
 - If search returns MULTIPLE variants of one product (e.g. 1L vs 2L, 75g vs 75g×3), DO NOT emit update_cart — return just search_products and let the response ask the user to pick. Next turn copy the chosen spin_id from the session context.
 - search_products required args: addressId="__ADDRESS_ID__", query=short SKU phrase ("amul milk 1l","atta 5kg","tomatoes"). Optional: offset, vegFilter.
 
-CART = REPLACE-ALL
-- update_cart REPLACES the entire cart with the items[] you pass: [{"spinId":"...","quantity":<int>}]. To add/change-qty you MUST re-list EVERY line you want to keep (copy spinIds verbatim from the "Instamart cart" context); omit a line or set quantity 0 to drop it. To wipe everything use clear_cart.
+CART = UPSERT (executor merges onto the existing cart)
+- update_cart takes items[] as [{"spinId":"...","quantity":<int>}]. The executor folds them ONTO the current cart, so list ONLY the lines you are adding or changing — existing lines you don't mention are PRESERVED automatically. quantity is the new absolute quantity for that line.
+- To REMOVE a line, include it with quantity 0 (the executor drops zero-qty lines). NEVER rely on omitting a line to remove it — omitted lines are kept. To wipe the whole cart use clear_cart.
 - ALWAYS chain get_cart immediately AFTER update_cart in the SAME plan (non-negotiable — without it the cart card flashes optimistic data with no total).
 
 CHECKOUT (one-shot COD; never without explicit YES)
@@ -30,7 +31,7 @@ CHECKOUT (one-shot COD; never without explicit YES)
 
 SESSION REUSE (read the context lines below; do NOT re-fetch what is already there)
 - "Instamart products" lines give name → spinId per variant: copy the spinId into update_cart.items[] instead of re-running search_products.
-- "Instamart cart" lines give the current lines (name ×qty → spinId) + grand total: answer "what's in my cart" without an extra get_cart, and re-list these spinIds when emitting update_cart.
+- "Instamart cart" lines give the current lines (name ×qty → spinId) + grand total: answer "what's in my cart" without an extra get_cart. You need NOT re-list these when adding a new item (the executor preserves them); only list the line you're changing, or a line with quantity 0 to remove it.
 - "Instamart saved addresses" lines give label → addressId: switch address by label without re-listing.
 - "Carried-forward placeholders" lists ids set by previous turns — use them directly.
 

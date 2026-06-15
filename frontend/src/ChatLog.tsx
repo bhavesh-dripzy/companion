@@ -78,6 +78,7 @@ import {
   Layers,
   Receipt,
   ChevronRight,
+  ShoppingBasket,
 } from 'lucide-react';
 
 interface ChatLogProps {
@@ -1574,6 +1575,28 @@ export const AttachmentList: React.FC<{
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />
+        );
+      }
+      if (kind === 'grocery_intro') {
+        return (
+          <div key={`grocery-intro-${idx}`} className="mt-1 w-full max-w-full md:max-w-2xl animate-fade-in">
+            <div className="bg-white rounded-[18px] border border-[#e4ede4] shadow-[0_8px_24px_-16px_rgba(26,157,107,0.18)] overflow-hidden">
+              <div className="h-[3px] w-full" style={{ background: 'linear-gradient(90deg, #1a9d6b 0%, #43c59e 50%, #7B2CFA 100%)' }} />
+              <div className="flex items-center gap-3 px-4 py-4">
+                <div className="w-11 h-11 rounded-2xl bg-[#1a9d6b]/10 text-[#1a9d6b] flex items-center justify-center shrink-0">
+                  <ShoppingBasket className="w-5 h-5 stroke-[2]" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-sans text-[15px] font-bold text-[#221b2e] leading-snug">
+                    Let's get your groceries! 🛒
+                  </p>
+                  <p className="text-[12px] text-[#7a7388] font-normal mt-0.5 leading-snug">
+                    I'm searching Instamart & Zepto to get you the best options.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         );
       }
       // Grocery category picker (issue #59) — curated tiles injected when the

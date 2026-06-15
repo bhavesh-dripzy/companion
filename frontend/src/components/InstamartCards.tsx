@@ -6,8 +6,8 @@
 // user picks a pack size; the ADD button fires a natural-language prompt
 // that the planner resolves to the correct spinId via session context.
 
-import React, { useState } from 'react';
-import { Plus, Minus, Trash2, ShoppingCart, X, Receipt, Tag } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Plus, Minus, Trash2, ShoppingCart, X, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
 import type {
   Attachment,
   InstamartCart,
@@ -28,28 +28,6 @@ const formatPriceFromPaise = (paise: number | null | undefined): string | null =
   return formatPriceFromInr(paise / 100);
 };
 
-const InstamartGridHeader: React.FC<{
-  icon: React.ReactNode;
-  title: string;
-  subtitle?: string;
-}> = ({ icon, title, subtitle }) => {
-  const theme = themeFor('instamart');
-  return (
-    <div className="flex items-center gap-2 px-1 mb-2">
-      <div
-        className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-white text-[10px] font-bold tracking-wider uppercase"
-        style={{ backgroundColor: theme.brandHex }}
-      >
-        {icon}
-        <span>{theme.label}</span>
-      </div>
-      <span className="text-xs font-bold uppercase tracking-wider text-slate-500 truncate">{title}</span>
-      {subtitle && (
-        <span className="text-[10px] text-slate-400 ml-1 truncate">{subtitle}</span>
-      )}
-    </div>
-  );
-};
 
 // Bottom sheet for picking a variant (pack size).
 const VariantSelectorSheet: React.FC<{
@@ -319,6 +297,114 @@ const InstamartProductTile: React.FC<{
   );
 };
 
+type DeliveryAddr = { id: string; tag: string; line: string };
+
+// Strip the leading recipient prefix ("Bhavesh: ...") the backend keeps on lines.
+const cleanAddrLine = (s: string) => s.replace(/^[^:]+:\s*/, '').trim();
+
+// Full-width delivery-address bar shown BELOW the product cards, with a Change
+// dropdown listing every saved address. Selecting one re-runs the search against
+// that address (the backend then remembers it for the rest of the session).
+const DeliveryAddressBar: React.FC<{
+  addressId: string | null | undefined;
+  addresses: DeliveryAddr[] | null | undefined;
+  query: string;
+  onQuickPrompt?: (prompt: string) => void;
+  disabled?: boolean;
+}> = ({ addressId, addresses, query, onQuickPrompt, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const theme = themeFor('instamart');
+
+  if (!addressId && !(addresses && addresses.length)) return null;
+
+  const current = addresses?.find(a => a.id === addressId) || addresses?.[0];
+  const displayTag = current?.tag || cleanAddrLine(current?.line || '').split(',')[0] || 'Delivery address';
+  const displayLine = current ? cleanAddrLine(current.line) : '';
+  const canChange = !!addresses && addresses.length > 1 && !!onQuickPrompt && !disabled;
+
+  const handleSelect = (addr: DeliveryAddr) => {
+    setOpen(false);
+    if (!onQuickPrompt || disabled || addr.id === (current?.id ?? addressId)) return;
+    onQuickPrompt(`Search ${query || 'groceries'} on Swiggy Instamart, deliver to ${addr.tag || addr.line.split(',')[0]}`);
+  };
+
+  return (
+    <div className="relative mt-2 px-1" ref={ref}>
+      <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <span
+          className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: `${theme.brandHex}1a` }}
+        >
+          <MapPin size={14} style={{ color: theme.brandHex }} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400 leading-none">
+            Delivering to
+          </p>
+          <p className="text-[12.5px] font-bold text-slate-800 leading-snug truncate mt-0.5">
+            {displayTag}
+            {displayLine && displayLine !== displayTag && (
+              <span className="font-normal text-slate-400"> · {displayLine}</span>
+            )}
+          </p>
+        </div>
+        {canChange && (
+          <button
+            type="button"
+            onClick={() => setOpen(v => !v)}
+            className="shrink-0 flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
+          >
+            Change
+            <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+      </div>
+
+      {open && canChange && (
+        <div
+          className="absolute right-1 bottom-full mb-1 z-30 bg-white rounded-xl border border-slate-200 shadow-lg min-w-[260px] max-w-[340px] overflow-hidden"
+          onMouseLeave={() => setOpen(false)}
+        >
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-3 pt-2.5 pb-1">
+            Deliver to
+          </p>
+          <div className="max-h-[260px] overflow-y-auto">
+            {addresses!.map(addr => {
+              const isSelected = addr.id === (current?.id ?? addressId);
+              return (
+                <button
+                  key={addr.id}
+                  type="button"
+                  onClick={() => handleSelect(addr)}
+                  className={`w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-slate-50 transition-colors ${isSelected ? 'bg-green-50' : ''}`}
+                >
+                  <MapPin size={12} className="shrink-0 mt-0.5" style={{ color: isSelected ? theme.brandHex : '#94a3b8' }} />
+                  <div className="min-w-0">
+                    <p className={`text-[12px] font-semibold leading-snug truncate ${isSelected ? 'text-[#1a9d6b]' : 'text-slate-800'}`}>
+                      {addr.tag || cleanAddrLine(addr.line).split(',')[0]}
+                    </p>
+                    {addr.line && (
+                      <p className="text-[10px] text-slate-400 leading-snug truncate mt-px">
+                        {cleanAddrLine(addr.line)}
+                      </p>
+                    )}
+                  </div>
+                  {isSelected && (
+                    <span className="ml-auto shrink-0 w-3.5 h-3.5 rounded-full flex items-center justify-center mt-0.5" style={{ backgroundColor: theme.brandHex }}>
+                      <svg width="7" height="5" viewBox="0 0 7 5" fill="none"><path d="M1 2.5L2.8 4L6 1" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const InstamartProductCardGrid: React.FC<{
   attachment: Attachment;
   onQuickPrompt?: (prompt: string) => void;
@@ -335,15 +421,31 @@ export const InstamartProductCardGrid: React.FC<{
     groups.get(key)!.push(entry);
   }
 
+  const deliveryAddressId = attachment.delivery_address_id;
+  const deliveryAddresses = attachment.delivery_addresses as DeliveryAddr[] | null | undefined;
+  // The address is the same for every group in this attachment; use the first
+  // group's query for the change-address re-search prompt.
+  const primaryQuery = Array.from(groups.keys())[0] || '';
+
   return (
     <div className="mt-2 w-full max-w-full space-y-3">
       {Array.from(groups.entries()).map(([query, items], gIdx) => (
         <div key={query || `group-${gIdx}`} className="w-full">
-          <InstamartGridHeader
-            icon={<ShoppingCart size={11} />}
-            title={query ? `"${query}"` : 'Grocery picks'}
-            subtitle={`${items.length} product${items.length === 1 ? '' : 's'}`}
-          />
+          <div className="flex items-center gap-2 px-1 mb-2 min-w-0">
+            <div
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-white text-[10px] font-bold tracking-wider uppercase shrink-0"
+              style={{ backgroundColor: themeFor('instamart').brandHex }}
+            >
+              <ShoppingCart size={11} />
+              <span>{themeFor('instamart').label}</span>
+            </div>
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 truncate">
+              {query ? `"${query}"` : 'Grocery picks'}
+            </span>
+            <span className="text-[10px] text-slate-400 shrink-0">
+              {items.length} product{items.length === 1 ? '' : 's'}
+            </span>
+          </div>
           <div className="flex flex-row gap-2 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
             {items.map((p, idx) => (
               <InstamartProductTile
@@ -356,6 +458,13 @@ export const InstamartProductCardGrid: React.FC<{
           </div>
         </div>
       ))}
+      <DeliveryAddressBar
+        addressId={deliveryAddressId}
+        addresses={deliveryAddresses}
+        query={primaryQuery}
+        onQuickPrompt={onQuickPrompt}
+        disabled={disabled}
+      />
     </div>
   );
 };
@@ -529,10 +638,30 @@ export const InstamartCartCard: React.FC<{
               ))}
             </div>
             <div className="px-4 py-3 bg-slate-50/60 border-t border-slate-100 space-y-2">
+              {Array.isArray(cart.bill_breakdown) && cart.bill_breakdown.length > 0 && (
+                <div className="space-y-1 pb-1.5 border-b border-slate-200/70">
+                  {cart.bill_breakdown.map((line, i) => (
+                    <div
+                      key={`${line.label}-${i}`}
+                      className="flex items-center justify-between text-[11.5px] text-slate-500"
+                    >
+                      <span>{line.label}</span>
+                      <span
+                        className={cn(
+                          'font-medium',
+                          line.is_free ? 'text-green-600 font-semibold' : 'text-slate-600',
+                        )}
+                      >
+                        {line.is_free ? 'FREE' : line.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex items-center justify-between text-[12px] font-semibold text-slate-700">
                 <span className="inline-flex items-center gap-1.5">
                   <Receipt size={12} style={{ color: theme.brandHex }} />
-                  Total
+                  To pay
                 </span>
                 <span className="text-[13.5px] font-extrabold text-slate-900">
                   {totalLabel || 'calculated at checkout'}

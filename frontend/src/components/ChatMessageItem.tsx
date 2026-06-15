@@ -62,6 +62,12 @@ export function ChatMessageItem({
   const isUser = msg.role === 'user';
   const [liked, setLiked] = React.useState<'up' | 'down' | null>(null);
 
+  // Hide avatar + indent only for the grocery category grid, not the intro card.
+  const isCardsOnly =
+    !isUser
+    && !(msg.content || '').trim()
+    && msg.attachments?.some((a) => a.kind === 'grocery_categories');
+
   const showAddressPicker =
     !isUser
     && isLatestAssistant
@@ -74,10 +80,10 @@ export function ChatMessageItem({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: 'easeOut' }}
-      className={`flex ${isUser ? 'justify-end' : 'justify-start gap-3.5'} items-start w-full group`}
+      className={`flex ${isUser ? 'justify-end' : isCardsOnly ? 'justify-start -mt-1.5' : 'justify-start gap-3.5'} items-start w-full group`}
     >
-      {/* Assistant avatar — conic mandala brand orb matching the mockup */}
-      {!isUser && (
+      {/* Assistant avatar — hidden for cards-only turns like grocery picker */}
+      {!isUser && !isCardsOnly && (
         <div className="brand-orb w-9 h-9 shrink-0 select-none transform hover:scale-105 transition-all relative">
           <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#1a9d6b] border-2 border-white z-10" />
         </div>
@@ -85,7 +91,7 @@ export function ChatMessageItem({
 
       {/* Bubble body + cards + chips. Cards-only turns (voice tool results
           flushed without narration) skip the empty bubble shell. */}
-      <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : 'max-w-[88%] flex-1'}`}>
+      <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : isCardsOnly ? 'w-full flex-1' : 'max-w-[88%] flex-1'}`}>
         {(msg.content || '').trim() && (
         <div
           className={`animate-fade-in px-5 py-3 rounded-[20px] text-[14.5px] leading-relaxed transition-all duration-200 max-w-full ${

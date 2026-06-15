@@ -103,7 +103,44 @@ def _product_card(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def build_product_cards(results: list[ToolResult]) -> list[Attachment]:
+def normalize_address_rows(rows: list[dict]) -> list[dict]:
+    """Project saved-address rows to the UI shape: {id, tag, line}.
+
+    The ``addressLine`` carries a leading recipient prefix (e.g. "Bhavesh: ...")
+    which the UI strips for display; we keep the raw line and let the UI clean it.
+    """
+    out: list[dict] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        rid = str(r.get("address_id") or r.get("id") or "").strip()
+        if not rid:
+            continue
+        out.append(
+            {
+                "id": rid,
+                "tag": str(r.get("addressTag") or r.get("address_tag") or "").strip(),
+                "line": str(
+                    r.get("addressLine") or r.get("address_line") or r.get("label") or ""
+                ).strip(),
+            }
+        )
+    return out
+
+
+def build_product_cards(
+    results: list[ToolResult],
+    *,
+    address_id: str | None = None,
+    addresses: list[dict] | None = None,
+) -> list[Attachment]:
+    """Build one product-cards attachment per successful search.
+
+    ``address_id`` / ``addresses`` describe the delivery address the search ran
+    against (resolved by the provider's before_run); they are attached to every
+    card group so the UI can show + change the address.
+    """
+    addresses = addresses or []
     out: list[Attachment] = []
     for tr in results:
         if tr.tool not in _PRODUCT_TOOLS or not tr.ok:
@@ -122,6 +159,8 @@ def build_product_cards(results: list[ToolResult]) -> list[Attachment]:
                     provider="swiggy_instamart",
                     source=f"swiggy_instamart.{tr.tool}",
                     products=cards,
+                    delivery_address_id=address_id,
+                    delivery_addresses=addresses or None,
                 )
             )
     return out

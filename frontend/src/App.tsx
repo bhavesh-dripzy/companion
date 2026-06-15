@@ -92,6 +92,9 @@ interface PersistedChatSession {
   session_instamart_products: SessionInstamartProduct[];
   session_instamart_addresses: SessionInstamartAddress[];
   session_instamart_cart: SessionInstamartCart | null;
+  // The Instamart delivery address the user picked this session. Must round-trip
+  // so cart/checkout reuse it instead of re-resolving the nearest each turn.
+  selected_instamart_address_id: string | null;
   // Kite (Zerodha trading) session memory — instrument LRU, the latest
   // holdings / positions snapshots, the open-orders list, and the pending
   // unconfirmed order ticket. Same persistence contract as the other
@@ -175,6 +178,10 @@ const loadChatSession = (chatId: string): PersistedChatSession | null => {
       session_instamart_cart:
         parsed.session_instamart_cart && typeof parsed.session_instamart_cart === 'object'
           ? (parsed.session_instamart_cart as SessionInstamartCart)
+          : null,
+      selected_instamart_address_id:
+        typeof parsed.selected_instamart_address_id === 'string'
+          ? parsed.selected_instamart_address_id
           : null,
       session_kite_instruments: Array.isArray(parsed.session_kite_instruments)
         ? (parsed.session_kite_instruments as SessionKiteInstrument[])
@@ -389,6 +396,7 @@ function App() {
   const [sessionInstamartProducts, setSessionInstamartProducts] = useState<SessionInstamartProduct[]>([]);
   const [sessionInstamartAddresses, setSessionInstamartAddresses] = useState<SessionInstamartAddress[]>([]);
   const [sessionInstamartCart, setSessionInstamartCart] = useState<SessionInstamartCart | null>(null);
+  const [selectedInstamartAddressId, setSelectedInstamartAddressId] = useState<string | null>(null);
   // Kite (Zerodha trading) session memory. Same echo contract as the other
   // indexes — round-trip on every /api/agent/query/ so the planner can
   // re-use literal instrument triples, read the latest portfolio snapshots,
@@ -477,6 +485,7 @@ function App() {
       session_instamart_products: sessionInstamartProducts,
       session_instamart_addresses: sessionInstamartAddresses,
       session_instamart_cart: sessionInstamartCart,
+      selected_instamart_address_id: selectedInstamartAddressId,
       session_kite_instruments: sessionKiteInstruments,
       session_serp_flights: sessionSerpFlights,
       session_serp_products: sessionSerpProducts,
@@ -506,6 +515,7 @@ function App() {
     sessionInstamartProducts,
     sessionInstamartAddresses,
     sessionInstamartCart,
+    selectedInstamartAddressId,
     sessionKiteInstruments,
     sessionSerpFlights,
     sessionSerpProducts,
@@ -539,6 +549,7 @@ function App() {
         setSessionInstamartProducts(snap.session_instamart_products);
         setSessionInstamartAddresses(snap.session_instamart_addresses);
         setSessionInstamartCart(snap.session_instamart_cart);
+        setSelectedInstamartAddressId(snap.selected_instamart_address_id ?? null);
         setSessionKiteInstruments(snap.session_kite_instruments);
         setSessionSerpFlights(snap.session_serp_flights ?? []);
         setSessionSerpProducts(snap.session_serp_products ?? []);
@@ -633,6 +644,7 @@ function App() {
     setSessionInstamartProducts(snap?.session_instamart_products ?? []);
     setSessionInstamartAddresses(snap?.session_instamart_addresses ?? []);
     setSessionInstamartCart(snap?.session_instamart_cart ?? null);
+    setSelectedInstamartAddressId(snap?.selected_instamart_address_id ?? null);
     setSessionKiteInstruments(snap?.session_kite_instruments ?? []);
     setSessionSerpFlights(snap?.session_serp_flights ?? []);
     setSessionSerpProducts(snap?.session_serp_products ?? []);
@@ -676,6 +688,7 @@ function App() {
       setSessionInstamartProducts([]);
       setSessionInstamartAddresses([]);
       setSessionInstamartCart(null);
+      setSelectedInstamartAddressId(null);
       setSessionKiteInstruments([]);
       setSessionSerpFlights([]);
       setSessionSerpProducts([]);
@@ -753,6 +766,7 @@ function App() {
     setSessionInstamartProducts([]);
     setSessionInstamartAddresses([]);
     setSessionInstamartCart(null);
+    setSelectedInstamartAddressId(null);
     setSessionKiteInstruments([]);
     setSessionSerpFlights([]);
     setSessionSerpProducts([]);
@@ -788,6 +802,7 @@ function App() {
     setSessionInstamartProducts([]);
     setSessionInstamartAddresses([]);
     setSessionInstamartCart(null);
+    setSelectedInstamartAddressId(null);
     setSessionKiteInstruments([]);
     setSessionSerpFlights([]);
     setSessionSerpProducts([]);
@@ -839,6 +854,7 @@ function App() {
     if (sessionInstamartProducts.length > 0) body.session_instamart_products = sessionInstamartProducts;
     if (sessionInstamartAddresses.length > 0) body.session_instamart_addresses = sessionInstamartAddresses;
     if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
+    if (selectedInstamartAddressId) body.selected_instamart_address_id = selectedInstamartAddressId;
     if (sessionKiteInstruments.length > 0) body.session_kite_instruments = sessionKiteInstruments;
     if (sessionSerpFlights.length > 0) body.session_serp_flights = sessionSerpFlights;
     if (sessionSerpProducts.length > 0) body.session_serp_products = sessionSerpProducts;
@@ -998,6 +1014,10 @@ const assistantMsg: Message = {
         const ic = (data as any).session_instamart_cart;
         setSessionInstamartCart(ic && typeof ic === 'object' ? ic : null);
       }
+      if ('selected_instamart_address_id' in data) {
+        const sid = (data as any).selected_instamart_address_id;
+        setSelectedInstamartAddressId(typeof sid === 'string' && sid ? sid : null);
+      }
       if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
       if (Array.isArray(data.session_serp_flights)) setSessionSerpFlights(data.session_serp_flights);
       if (Array.isArray(data.session_serp_products)) setSessionSerpProducts(data.session_serp_products);
@@ -1049,6 +1069,7 @@ const assistantMsg: Message = {
     setMessages((prev) => [
       ...prev,
       { role: 'user', content: 'Order groceries' },
+      { role: 'assistant', content: '', attachments: [{ kind: 'grocery_intro' }] },
       { role: 'assistant', content: '', attachments: [{ kind: 'grocery_categories' }] },
     ]);
   };

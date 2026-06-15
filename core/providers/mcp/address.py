@@ -12,7 +12,16 @@ from typing import Any
 
 
 def _addresses_list(payload: dict[str, Any]) -> list[Any]:
-    blob = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return []
+    # Prefer the structured field (Swiggy Instamart returns text in "data" but
+    # parsed rows under "structured").
+    structured = payload.get("structured")
+    if isinstance(structured, dict):
+        raw = structured.get("addresses")
+        if isinstance(raw, list) and raw:
+            return raw
+    blob = payload.get("data")
     if blob is None:
         return []
     data_dict = (

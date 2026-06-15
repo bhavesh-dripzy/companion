@@ -11,6 +11,30 @@ from core.llm.config import ResolvedLlm
 pytestmark = pytest.mark.unit
 
 
+def test_selected_instamart_address_round_trips():
+    """Regression: the user's chosen Instamart address must survive the session
+    round-trip (inbound whitelist + outbound spread), else cart/checkout re-pick
+    the nearest (possibly non-serviceable) address every turn."""
+    assert "selected_instamart_address_id" in cs._SESSION_KEYS
+    # Inbound: request -> TurnRequest.session.legacy keeps the key.
+    req = cs._to_request(
+        {"message": "add milk", "selected_instamart_address_id": "STARRRS"},
+        "u1",
+        None,
+    )
+    assert req.session.legacy["selected_instamart_address_id"] == "STARRRS"
+    # Outbound: legacy is spread back into the envelope.
+    from core.contracts.session import SessionState
+    from core.contracts.turn import TurnResponse
+
+    resp = TurnResponse(
+        assistant_message="ok",
+        session=SessionState(legacy={"selected_instamart_address_id": "STARRRS"}),
+    )
+    env = cs._to_envelope(resp, "c1")
+    assert env["selected_instamart_address_id"] == "STARRRS"
+
+
 def test_shadow_adapts_request_and_envelope(monkeypatch):
     monkeypatch.setattr(
         cs, "resolve_llm_from_env", lambda *_a: (ResolvedLlm("sarvam", "k", "m"), None)

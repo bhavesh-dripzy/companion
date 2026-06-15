@@ -104,25 +104,39 @@ class McpProvider(ABC):
         Order: request address_id, then carried session addresses, then a
         one-shot fetch via ``saved_addresses_tool``. Both lookups pick the
         saved address nearest ``ctx.user_geo`` (#18), falling back to the
-        first row when no geo/coords exist. No-op when the attr is None."""
+        first row when no geo/coords exist. No-op when the attr is None.
+
+        Whatever it resolves is recorded in ``ctx.scratch`` so the provider can
+        surface the live delivery address to the UI without re-deriving it:
+          * ``resolved_address_id`` — the id __ADDRESS_ID__ resolved to
+          * ``saved_address_rows``  — the full saved-address list (id + label)
+        """
         if ctx.address_id and "__ADDRESS_ID__" not in ctx.placeholders:
             ctx.placeholders["__ADDRESS_ID__"] = ctx.address_id
-        if not self.saved_addresses_tool or "__ADDRESS_ID__" in ctx.placeholders:
+            ctx.scratch.setdefault("resolved_address_id", ctx.address_id)
+        if not self.saved_addresses_tool:
             return
+
         key = self.saved_addresses_session_key
         carried = ctx.session.get(key) if isinstance(ctx.session, dict) else None
-        aid = pick_address_id(rows_for_provider(carried, self.id), ctx.user_geo)
-        if aid:
-            ctx.placeholders["__ADDRESS_ID__"] = aid
-            return
-        try:
-            raw = await call_tool(session, self.saved_addresses_tool, {})
-            rows = extract_address_rows(tool_result_payload(raw))
-        except Exception:
-            return
-        aid = pick_address_id(rows, ctx.user_geo)
-        if aid:
-            ctx.placeholders["__ADDRESS_ID__"] = aid
+        rows = rows_for_provider(carried, self.id)
+        if not rows and "__ADDRESS_ID__" not in ctx.placeholders:
+            # No carried list and still need to resolve — fetch once. Subsequent
+            # turns reuse the carried rows (the provider persists them in merge),
+            # so this costs at most one round-trip per session.
+            try:
+                raw = await call_tool(session, self.saved_addresses_tool, {})
+                rows = extract_address_rows(tool_result_payload(raw))
+            except Exception:
+                rows = []
+        if rows:
+            ctx.scratch["saved_address_rows"] = rows
+
+        if "__ADDRESS_ID__" not in ctx.placeholders:
+            aid = pick_address_id(rows, ctx.user_geo)
+            if aid:
+                ctx.placeholders["__ADDRESS_ID__"] = aid
+                ctx.scratch["resolved_address_id"] = aid
 
     async def discover_tools(self) -> list[Tool]:
         async with self.open_session(ExecCtx()) as session:

@@ -27,14 +27,30 @@ from core.providers.mcp.info_cards import build_info_cards
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.mcp.result_cards import build_order_cards, build_tracking_card
-from core.providers.plugins.swiggy_instamart.cards import build_product_cards
-from core.providers.plugins.swiggy_instamart.cart_cards import build_cart_cards, cart_snapshot
+from core.providers.plugins.swiggy_instamart.cards import build_product_cards, normalize_address_rows
+from core.providers.plugins.swiggy_instamart.cart_cards import (
+    build_cart_cards,
+    build_spin_index,
+    cart_snapshot,
+)
 from core.providers.plugins.swiggy_instamart.planner_context import build_context
 from core.providers.plugins.swiggy_instamart.session import SwiggyInstamartSession, merge_products
 
 _CART_TOOLS = {"get_cart", "update_cart", "clear_cart"}
+_SEARCH_TOOLS = {"search_products", "your_go_to_items"}
+
+# Tools that REQUIRE a delivery-address arg, and the (provider-specific) key each
+# uses. The executor guarantees the resolved address is present on these so the
+# planner can never break the call by omitting a required id.
+_ADDRESS_ARG = {
+    "search_products": "addressId",
+    "your_go_to_items": "addressId",
+    "update_cart": "selectedAddressId",
+    "checkout": "addressId",
+}
 
 _DEFAULT_URL = "https://mcp.swiggy.com/im"
+_SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
 
 
 class SwiggyInstamartProvider(McpProvider):
@@ -49,10 +65,50 @@ class SwiggyInstamartProvider(McpProvider):
         url = os.getenv("SWIGGY_INSTAMART_MCP_URL", _DEFAULT_URL)
         return remote_stdio_spec(url, user_id=ctx.user_id)
 
+    async def run(self, calls: list, ctx: ExecCtx) -> ProviderResult:
+        result = await super().run(calls, ctx)
+        # Surface the full saved-address list (from before_run) for the UI picker.
+        rows = ctx.scratch.get("saved_address_rows")
+        if isinstance(rows, list) and rows:
+            result.diagnostics["saved_address_rows"] = rows
+        # The address the search ACTUALLY ran against is authoritative for display:
+        # post-substitution search args carry the concrete addressId (whether the
+        # user switched via the picker or before_run resolved __ADDRESS_ID__).
+        # Fall back to before_run's resolved id only when args omit it entirely.
+        used = self._used_address_id(result.results)
+        resolved = used or ctx.scratch.get("resolved_address_id")
+        if resolved:
+            result.diagnostics["resolved_address_id"] = resolved
+        # Carry the products LRU so cart cards can enrich items (the cart payload
+        # has no images / pack sizes — only spinId + name + price).
+        session = ctx.session if isinstance(ctx.session, dict) else {}
+        lru = session.get("session_instamart_products")
+        if isinstance(lru, list) and lru:
+            result.diagnostics["session_instamart_products"] = lru
+        return result
+
+    @staticmethod
+    def _used_address_id(results: list) -> str | None:
+        """The concrete addressId a search ran against this turn, if any."""
+        for tr in results:
+            if tr.tool in _SEARCH_TOOLS and tr.ok:
+                aid = str((tr.arguments or {}).get("addressId") or "").strip()
+                if aid and not aid.startswith("__"):
+                    return aid
+        return None
+
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
+        rows = result.diagnostics.get("saved_address_rows")
+        addresses = normalize_address_rows(rows) if isinstance(rows, list) else []
+        address_id = result.diagnostics.get("resolved_address_id") or (
+            addresses[0]["id"] if addresses else None
+        )
+        session_products = result.diagnostics.get("session_instamart_products")
         return [
-            *build_product_cards(result.results),
-            *build_cart_cards(result.results),
+            *build_product_cards(
+                result.results, address_id=address_id, addresses=addresses
+            ),
+            *build_cart_cards(result.results, session_products=session_products),
             *build_order_cards(
                 result.results, tools={"get_orders"}, provider_id=self.id, brand="instamart"
             ),
@@ -79,18 +135,161 @@ class SwiggyInstamartProvider(McpProvider):
 
     def merge(self, slice_: dict[str, Any], result: ProviderResult) -> dict[str, Any]:
         merged = dict(slice_)
+        # Persist the saved-address list resolved this turn (from before_run's
+        # scratch, surfaced via diagnostics) so the next turn carries it without
+        # another get_addresses round-trip.
+        rows = result.diagnostics.get("saved_address_rows")
+        if isinstance(rows, list) and rows:
+            merged[self.saved_addresses_session_key] = [
+                {**r, "provider": self.id} for r in rows if isinstance(r, dict)
+            ]
         merge_saved_addresses(
             merged, result.results, provider=self.id, key=self.saved_addresses_session_key
         )
         products = merge_products(slice_.get("session_instamart_products"), result.results)
         if products:
             merged["session_instamart_products"] = products
+        spin_index = build_spin_index(products, result.results)
         for tr in result.results:
             if tr.tool in _CART_TOOLS and tr.ok:
-                snap = cart_snapshot(tr.data if isinstance(tr.data, dict) else {})
+                snap = cart_snapshot(
+                    tr.data if isinstance(tr.data, dict) else {}, spin_index=spin_index
+                )
                 if snap:
                     merged["session_instamart_cart"] = snap
+        # Sync the committed delivery address to the CART's actual address. The
+        # cart is ground truth (Swiggy holds it at exactly one address), so this
+        # both seeds `selected` on the first add AND repairs a stale value that
+        # drifted (e.g. a search the planner mis-addressed). We never set it from
+        # a search's address — that was the drift source.
+        cart = merged.get("session_instamart_cart")
+        cart_addr = (
+            str(cart.get("selected_address_id") or "").strip()
+            if isinstance(cart, dict) and cart.get("items")
+            else ""
+        )
+        if cart_addr:
+            merged[_SESSION_SELECTED_ADDRESS] = cart_addr
         return merged
+
+    async def before_run(self, session: Any, ctx: ExecCtx) -> None:
+        # Pin the session's committed delivery address (cart address / explicit
+        # selection) before the base resolves __ADDRESS_ID__ — otherwise the base
+        # picks the nearest saved address each turn, which may not be serviceable.
+        anchor = self._anchor_address(ctx)
+        if anchor and "__ADDRESS_ID__" not in ctx.placeholders:
+            ctx.placeholders["__ADDRESS_ID__"] = anchor
+            ctx.scratch["resolved_address_id"] = anchor
+        await super().before_run(session, ctx)
+
+    @staticmethod
+    def _anchor_address(ctx: ExecCtx) -> str | None:
+        """The session's committed delivery address, authoritative for every
+        Instamart call (the planner's per-call addressId guess is not trusted —
+        it drifts to the first saved address).
+
+        The LIVE CART's address wins: you can't add to / manage a cart that is
+        bound to a different address, so it's ground truth even if a stale
+        `selected_instamart_address_id` disagrees. Falls back to the user's
+        explicit selection when the cart is empty."""
+        session = ctx.session if isinstance(ctx.session, dict) else {}
+        cart = session.get("session_instamart_cart")
+        if isinstance(cart, dict) and cart.get("items"):
+            cart_addr = str(cart.get("selected_address_id") or "").strip()
+            if cart_addr:
+                return cart_addr
+        return str(session.get(_SESSION_SELECTED_ADDRESS) or "").strip() or None
+
+    def before_call(
+        self, tool: str, args: dict[str, Any], ctx: ExecCtx
+    ) -> dict[str, Any] | None:
+        # Guarantee the resolved delivery address on every tool that requires it —
+        # the planner sometimes omits the (required) addressId/selectedAddressId,
+        # which Swiggy rejects with "delivery address is missing".
+        addr_key = _ADDRESS_ARG.get(tool)
+        if addr_key:
+            self._ensure_address(args, addr_key, ctx)
+        # update_cart is REPLACE-ALL on Swiggy's side, so a planner that lists
+        # only the changed item would silently wipe the rest of the cart. Make it
+        # an UPSERT in code: fold the planner's items onto the existing cart
+        # (qty<=0 drops a line) so add / change-qty / remove all behave correctly
+        # regardless of whether the planner re-listed every line.
+        if tool == "update_cart":
+            self._reconcile_cart_items(args, ctx)
+        return None
+
+    def _ensure_address(self, args: dict[str, Any], key: str, ctx: ExecCtx) -> None:
+        """Set the address arg to the session's committed address.
+
+        When an anchor (explicit selection / live cart address) exists it OVERRIDES
+        whatever the planner put there — the planner's per-call addressId drifts to
+        the first saved address, sending searches + cart calls to the wrong (often
+        non-serviceable) store. With no anchor yet (first turn, no cart), fall back
+        to filling only when the planner left it missing/blank."""
+        anchor = self._anchor_address(ctx)
+        if anchor:
+            args[key] = anchor
+            return
+        val = str(args.get(key) or "").strip()
+        if val and not val.startswith("__"):
+            return
+        resolved = self._resolved_address(ctx)
+        if resolved:
+            args[key] = resolved
+
+    @staticmethod
+    def _resolved_address(ctx: ExecCtx) -> str | None:
+        placeholders = ctx.placeholders if isinstance(ctx.placeholders, dict) else {}
+        for key in ("__ADDRESS_ID__", "swiggy_instamart:__ADDRESS_ID__"):
+            val = str(placeholders.get(key) or "").strip()
+            if val and not val.startswith("__"):
+                return val
+        scratch = ctx.scratch if isinstance(ctx.scratch, dict) else {}
+        val = str(scratch.get("resolved_address_id") or "").strip()
+        if val:
+            return val
+        session = ctx.session if isinstance(ctx.session, dict) else {}
+        return str(session.get(_SESSION_SELECTED_ADDRESS) or "").strip() or None
+
+    def harvest(self, tool: str, envelope: dict[str, Any], ctx: ExecCtx) -> None:
+        # A successful clear_cart earlier in THIS plan means the existing cart is
+        # gone — a later update_cart must rebuild from scratch, not merge onto it.
+        if tool == "clear_cart" and not envelope.get("is_error"):
+            ctx.scratch["_instamart_cart_cleared"] = True
+
+    def _reconcile_cart_items(self, args: dict[str, Any], ctx: ExecCtx) -> None:
+        merged: dict[str, int] = {}
+        if not ctx.scratch.get("_instamart_cart_cleared"):
+            session = ctx.session if isinstance(ctx.session, dict) else {}
+            cart = session.get("session_instamart_cart")
+            existing = cart.get("items") if isinstance(cart, dict) else None
+            for it in existing or []:
+                if not isinstance(it, dict):
+                    continue
+                sid = str(it.get("spin_id") or it.get("spinId") or "").strip()
+                if not sid:
+                    continue
+                try:
+                    qty = int(it.get("quantity") or 1)
+                except (TypeError, ValueError):
+                    qty = 1
+                if qty > 0:
+                    merged[sid] = qty
+        for it in args.get("items") or []:
+            if not isinstance(it, dict):
+                continue
+            sid = str(it.get("spinId") or it.get("spin_id") or "").strip()
+            if not sid:
+                continue
+            try:
+                qty = int(it.get("quantity"))
+            except (TypeError, ValueError):
+                qty = 1
+            if qty <= 0:
+                merged.pop(sid, None)
+            else:
+                merged[sid] = qty
+        args["items"] = [{"spinId": sid, "quantity": qty} for sid, qty in merged.items()]
 
     def planner_context(self, ctx: Any) -> str:
         return build_context(ctx)

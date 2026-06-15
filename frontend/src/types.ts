@@ -295,11 +295,20 @@ export interface InstamartCartItem {
   quantity_description?: string | null;
 }
 
+export interface InstamartBillLine {
+  label: string;
+  value: string;            // display string, e.g. "₹8.00" or "FREE"
+  amount_paise?: number | null;  // null for FREE / unparseable
+  is_free?: boolean;
+}
+
 export interface InstamartCart {
   is_empty?: boolean;
   items: InstamartCartItem[];
   // INR × 100. Synthesized executor-side when the server omits a total.
   grand_total_paise?: number | null;
+  // Itemized bill (Item Total, Handling Fee, …) in the order Swiggy returns it.
+  bill_breakdown?: InstamartBillLine[] | null;
   summary_text?: string | null;
   selected_address_id?: string | null;
 }
@@ -501,6 +510,9 @@ export interface Attachment {
   //   kind === "instamart_cart_card"     → instamart_cart
   instamart_products?: InstamartProductCardEntry[];
   instamart_cart?: InstamartCart;
+  // Delivery address info bundled with instamart_product_cards
+  delivery_address_id?: string | null;
+  delivery_addresses?: Array<{ id: string; tag: string; line: string }> | null;
   // Kite attachments — each kind carries exactly one of these typed
   // fields (the backend's ``_collect_kite_attachments`` discriminates on
   // ``kind``):

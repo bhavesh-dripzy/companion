@@ -82,6 +82,21 @@ function greetingWithAccent(text: string, username?: string): React.ReactNode {
   return text;
 }
 
+const GROCERY_QUICK_ITEMS = [
+  { label: 'Milk',         term: 'milk 1l',             img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/87.png' },
+  { label: 'Bread',        term: 'bread',               img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/85.png' },
+  { label: 'Chicken',      term: 'chicken',             img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/118.png' },
+  { label: 'Fish',         term: 'fish seafood',        img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/119.png' },
+  { label: 'Cooking Oil',  term: 'cooking oil ghee',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/19.png' },
+  { label: 'Soft Drinks',  term: 'soft drinks soda',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/f9127a14-d833-4898-9af5-0504b1118273.png' },
+  { label: 'Tea',          term: 'tea',                 img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/9ebc0e20-2f4a-4703-ac92-8912059869bd.png' },
+  { label: 'Chips',        term: 'chips crisps',        img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/106.png' },
+  { label: 'Chocolates',   term: 'chocolates',          img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/280c6a4a-3b1d-40e1-bf16-f3809b19a379.png' },
+  { label: 'Ice Cream',    term: 'ice cream',           img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/10ecdb73-588b-439a-b371-ed74be943608.png' },
+  { label: 'Biscuits',     term: 'biscuits cookies',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/181.png' },
+  { label: 'Masala',       term: 'masala spices',       img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/45.png' },
+];
+
 // Prompt ribbon — same wording as the new UI; clicking a chip fires a
 // real `/api/agent/query/` turn through the parent's onSuggestionClick.
 const PROMPT_OPTIONS = [
@@ -167,11 +182,27 @@ export function ChatArea({
   };
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastMessageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    requestAnimationFrame(() => {
+      const container = scrollRef.current;
+      if (!container) return;
+      if (isThinking) {
+        // Show the thinking indicator at the bottom
+        container.scrollTop = container.scrollHeight;
+        return;
+      }
+      // Scroll so the top of the latest message is visible near the top
+      const lastMsg = lastMessageRef.current;
+      if (lastMsg) {
+        const containerTop = container.getBoundingClientRect().top;
+        const msgTop = lastMsg.getBoundingClientRect().top;
+        container.scrollTop += msgTop - containerTop - 16;
+      } else {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
   }, [messages, isThinking]);
 
   // Auto-grow the textarea up to ~6 lines so multi-line input feels as
@@ -371,28 +402,37 @@ export function ChatArea({
                 </motion.div>
               </div>
             ) : (
-              <div className="w-full space-y-6 pb-6">
+              <div className="w-full space-y-3 pb-6">
                 {searchQuery.trim() && visibleMessages.length === 0 && (
                   <div className="text-center text-xs text-slate-500 italic">
                     No messages match “{searchQuery}”.
                   </div>
                 )}
-                {visibleMessages.map((msg) => {
+                {(() => {
+                  // Always scroll to the last user message so the question sits at
+                  // the top and the answer scrolls into view naturally below it.
+                  const lastUserIdx = visibleMessages.reduce(
+                    (found, m, i) => (m.role === 'user' ? i : found),
+                    visibleMessages.length - 1,
+                  );
+                  return visibleMessages.map((msg, i) => {
                   const index = messages.indexOf(msg);
                   return (
-                    <ChatMessageItem
-                      key={msg.message_id || `${msg.role}-${index}-${msg.content.slice(0, 20)}`}
-                      msg={msg}
-                      isLatestAssistant={index === lastAssistantIdx}
-                      isThinking={isThinking}
-                      sessionAddresses={sessionAddresses}
-                      onSelectAddress={onSelectAddress}
-                      onQuickPrompt={onQuickPrompt}
-                      quickPromptDisabled={quickPromptDisabled}
-                      onGrantLocation={onGrantLocation}
-                    />
+                    <div key={msg.message_id || `${msg.role}-${index}-${msg.content.slice(0, 20)}`} ref={i === lastUserIdx ? lastMessageRef : undefined}>
+                      <ChatMessageItem
+                        msg={msg}
+                        isLatestAssistant={index === lastAssistantIdx}
+                        isThinking={isThinking}
+                        sessionAddresses={sessionAddresses}
+                        onSelectAddress={onSelectAddress}
+                        onQuickPrompt={onQuickPrompt}
+                        quickPromptDisabled={quickPromptDisabled}
+                        onGrantLocation={onGrantLocation}
+                      />
+                    </div>
                   );
-                })}
+                  });
+                })()}
 
                 {isThinking && (
                   <motion.div
@@ -426,26 +466,59 @@ export function ChatArea({
                 />
               </div>
             )}
-            {/* Prompt ribbon */}
-            <div className="w-full flex items-center gap-2 overflow-x-auto pb-3 mb-1.5 no-scrollbar scroll-smooth">
-              {PROMPT_OPTIONS.map((option) => {
-                const IconComponent = option.icon;
+            {/* Prompt ribbon — switches to grocery quick items when grocery flow is active */}
+            {(() => {
+              const isGroceryMode = messages.some(
+                (m) => m.attachments?.some((a) => a.kind === 'grocery_categories'),
+              );
+              if (isGroceryMode) {
                 return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => handleQuickAction(option)}
-                    disabled={isThinking}
-                    className={`shrink-0 flex items-center gap-2 border px-3.5 py-1.5 rounded-[13px] text-xs font-semibold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] hover:shadow-sm ${option.color}`}
-                  >
-                    <div className="p-0.5 rounded-md shrink-0">
-                      <IconComponent className="w-3.5 h-3.5" />
-                    </div>
-                    <span>{option.label}</span>
-                  </button>
+                  <div className="w-full mb-1">
+                  <p className="text-[10px] font-medium text-slate-400 mb-1.5 px-0.5">Quick select</p>
+                  <div className="w-full flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar scroll-smooth">
+                    {GROCERY_QUICK_ITEMS.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        disabled={isThinking}
+                        onClick={() => onQuickPrompt?.(`Search ${item.term} on Swiggy Instamart and Zepto`)}
+                        className="shrink-0 flex items-center gap-2 bg-white border border-slate-200 hover:border-[#1a9d6b]/40 hover:bg-[#f0faf6] px-2.5 py-1.5 rounded-full text-[12px] font-semibold text-[#221b2e] transition-all duration-150 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-sm"
+                      >
+                        <img
+                          src={item.img}
+                          alt={item.label}
+                          className="w-5 h-5 rounded-full object-contain bg-slate-50"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                  </div>
                 );
-              })}
-            </div>
+              }
+              return (
+                <div className="w-full flex items-center gap-2 overflow-x-auto pb-1.5 mb-1 no-scrollbar scroll-smooth">
+                  {PROMPT_OPTIONS.map((option) => {
+                    const IconComponent = option.icon;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => handleQuickAction(option)}
+                        disabled={isThinking}
+                        className={`shrink-0 flex items-center gap-2 border px-3.5 py-1.5 rounded-[13px] text-xs font-semibold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] hover:shadow-sm ${option.color}`}
+                      >
+                        <div className="p-0.5 rounded-md shrink-0">
+                          <IconComponent className="w-3.5 h-3.5" />
+                        </div>
+                        <span>{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             <form
               onSubmit={handleSubmit}

@@ -221,7 +221,7 @@ def _results_summary(ctx: PipelineContext) -> str:
 def _fallback_message(ctx: PipelineContext) -> str:
     if ctx.blocked:
         return "Please confirm and I'll go ahead."
-    if any(r.failed for r in ctx.provider_results):
+    if any(not r.ok for r in ctx.provider_results):
         return "Sorry, I hit an error reaching that service. Want to try again?"
     return "Done."
 

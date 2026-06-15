@@ -121,10 +121,10 @@ def _cart_block(session_instamart_cart: Any) -> str | None:
             return (
                 "Current Instamart cart (last `get_cart` snapshot)"
                 + total_line
-                + " — Instamart `update_cart` is REPLACE-ALL, so to add a "
-                "new item or change qty you must re-list every spinId "
-                "below with the desired quantity (omit a line, or use "
-                "`clear_cart`, to remove):\n" + "\n".join(cart_lines)
+                + " — `update_cart` UPSERTS: the executor preserves these lines, "
+                "so list only the spinId you're adding or changing (quantity = new "
+                "absolute qty); include a line with quantity 0 to remove it, or use "
+                "`clear_cart` to wipe everything:\n" + "\n".join(cart_lines)
             )
     if session_instamart_cart.get("is_empty"):
         return "Current Instamart cart: empty."

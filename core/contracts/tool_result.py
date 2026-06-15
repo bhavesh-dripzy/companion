@@ -57,5 +57,9 @@ class ProviderResult(BaseModel):
     error_detail: str | None = None
 
     @property
+    def failed(self) -> bool:
+        return not self.ok
+
+    @property
     def ran_any(self) -> bool:
         return bool(self.results)

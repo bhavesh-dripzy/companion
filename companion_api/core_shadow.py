@@ -47,6 +47,10 @@ _SESSION_KEYS = (
     "session_instamart_products",
     "session_instamart_addresses",
     "session_instamart_cart",
+    # The address the user picked for Instamart this session — must survive the
+    # round-trip so cart/checkout reuse it instead of re-picking the nearest
+    # (which may be a non-serviceable address) every turn.
+    "selected_instamart_address_id",
     "session_kite_instruments",
     "session_kite_holdings",
     "session_kite_positions",

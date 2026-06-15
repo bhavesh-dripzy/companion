@@ -34,7 +34,7 @@ export const GROCERY_CATEGORY_GROUPS: GroceryCategoryGroup[] = [
       {
         id: 'milk',
         label: 'Milk',
-        term: 'milk dairy',
+        term: 'milk 1l',
         image_url: 'https://cdn.zeptonow.com/production/tr:w-400,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/87.png',
         image_name: 'Milk',
       },
@@ -105,7 +105,7 @@ export const GROCERY_CATEGORY_GROUPS: GroceryCategoryGroup[] = [
         id: 'tea',
         label: 'Tea',
         term: 'tea',
-        image_url: 'https://cdn.zeptonow.com/production/ik-seo/tr:w-400,ar-1200-1200,pr-true,f-auto,q-auto/cms/product_variant/f9525a33-4034-45b8-b4a1-0935c262e47c/Brooke-Bond-Red-Label-Tea.jpg',
+        image_url: 'https://cdn.zeptonow.com/production/tr:w-400,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/9ebc0e20-2f4a-4703-ac92-8912059869bd.png',
         image_name: 'Tea',
       },
       {
@@ -133,14 +133,14 @@ export const GROCERY_CATEGORY_GROUPS: GroceryCategoryGroup[] = [
         id: 'ice-cream',
         label: 'Ice Creams',
         term: 'ice cream',
-        image_url: 'https://cdn.zeptonow.com/production/ik-seo/tr:w-400,ar-1200-1200,pr-true,f-auto,q-auto/cms/product_variant/196b3f80-59f0-461d-ad77-6046f21fc355/Amul-Fruit-N-Nut-Fantasy-Ice-Cream-Tub-Creamy-Indulgent.jpeg',
+        image_url: 'https://cdn.zeptonow.com/production/tr:w-400,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/10ecdb73-588b-439a-b371-ed74be943608.png',
         image_name: 'Ice Creams',
       },
       {
         id: 'chocolates',
         label: 'Chocolates',
         term: 'chocolates',
-        image_url: 'https://cdn.zeptonow.com/production/tr:w-400,ar-272-322,pr-true,f-auto,q-auto/cms/sub_category/524656d4-66be-45ab-8328-647e21033697.jpeg',
+        image_url: 'https://cdn.zeptonow.com/production/tr:w-400,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/280c6a4a-3b1d-40e1-bf16-f3809b19a379.png',
         image_name: 'Chocolates',
       },
       {
