@@ -6,6 +6,9 @@ name: Deploy (staging)
 on:
   push:
     branches: [staging]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
