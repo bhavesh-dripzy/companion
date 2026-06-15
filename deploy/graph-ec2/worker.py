@@ -14,6 +14,7 @@ from companion_api.dynamodb import utc_now_iso
 from companion_api.messages_repo import MessageRepository
 from companion_api.profile_cache import ProfileCacheRepository
 from companion_api.lead_cache_repo import LeadCacheRepository
+from companion_api.leadgen_queue import send_lead_promotion
 from leadgen.graph_client import GraphClient
 from leadgen.extractor import extract_from_conversation
 
@@ -165,11 +166,51 @@ def process_event(graph_client: GraphClient, event: dict):
         except Exception as e:
             logger.error(f"Error writing lead {lead}: {e}")
 
-    # Write projection back to DynamoDB Profile Cache
+    # D. Lead matching (Tier-2): connect this user's open leads to an eligible
+    # vendor. Each newly matched lead flips to 'matched' in the graph and emits a
+    # promotion event so the cache + vendor get notified out of band.
+    try:
+        matches = graph_client.match_leads(user_id=user_id)
+        for m in matches:
+            try:
+                lead_cache.put({
+                    "lead_id": m.get("lead_id"),
+                    "category": m.get("category"),
+                    "status": "matched",
+                    "product": m.get("product"),
+                    "attrs": m.get("attrs") or {},
+                    "budget_signal": m.get("budget_signal"),
+                    "intent_score": m.get("intent_score"),
+                    "vendor_id": m.get("vendor_id"),
+                    "vendor_name": m.get("vendor_name"),
+                    "user_id": m.get("user_id"),
+                    "last_seen_at": utc_now_iso(),
+                })
+            except Exception as e:
+                logger.error(f"Error updating lead cache for matched lead {m.get('lead_id')}: {e}")
+            send_lead_promotion({
+                "event_type": "lead_matched",
+                "lead_id": m.get("lead_id"),
+                "user_id": m.get("user_id"),
+                "vendor_id": m.get("vendor_id"),
+                "vendor_name": m.get("vendor_name"),
+                "vendor_phone": m.get("vendor_phone"),
+                "vendor_email": m.get("vendor_email"),
+                "category": m.get("category"),
+                "product": m.get("product"),
+                "matched_at": utc_now_iso(),
+            })
+        if matches:
+            logger.info(f"Matched {len(matches)} lead(s) to vendors for user={user_id}")
+    except Exception as e:
+        logger.error(f"Error during lead matching for user={user_id}: {e}")
+
+    # Write projection back to DynamoDB Profile Cache (merge, not replace — see
+    # ProfileCacheRepository.update_fields: never clobbers Tier-1 personal cols).
     try:
         profile_view = graph_client.get_user_profile_projection(user_id)
         cache_repo = ProfileCacheRepository()
-        cache_repo.put(user_id, profile_view)
+        cache_repo.merge_projection(user_id, profile_view)
         logger.info(f"Updated DynamoDB profile cache projection for user={user_id}")
     except Exception as e:
         logger.error(f"Error writing profile cache projection to DynamoDB: {e}")

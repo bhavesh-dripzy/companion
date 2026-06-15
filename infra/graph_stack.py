@@ -51,6 +51,27 @@ class GraphStack(Stack):
             ),
         )
 
+        # 1b. SQS Queue for KG-to-cache lead promotion (Tier-2). The leadgen
+        # worker emits a `lead_matched` event here when an open lead is matched
+        # to a vendor; the promotion worker reflects it in the cache + notifies
+        # the vendor, decoupled from the matching cycle.
+        promotion_dlq = sqs.Queue(
+            self,
+            "LeadPromotionDlq",
+            queue_name=f"{project_name}-lead-promotion-dlq",
+            retention_period=Duration.days(14),
+        )
+        self.promotion_queue = sqs.Queue(
+            self,
+            "LeadPromotionQueue",
+            queue_name=f"{project_name}-lead-promotion",
+            visibility_timeout=Duration.seconds(120),
+            dead_letter_queue=sqs.DeadLetterQueue(
+                max_receive_count=5,
+                queue=promotion_dlq,
+            ),
+        )
+
         # 2. DynamoDB Profile Cache Table
         self.profile_cache = dynamodb.Table(
             self,
@@ -182,6 +203,10 @@ class GraphStack(Stack):
 
         # Grant access to SQS, S3 Asset, DynamoDB Cache, and Lead Cache
         self.turns_queue.grant_consume_messages(role)
+        # The leadgen worker SENDS promotion events; the promotion worker
+        # CONSUMES them. Both run under this single EC2 role.
+        self.promotion_queue.grant_send_messages(role)
+        self.promotion_queue.grant_consume_messages(role)
         self.profile_cache.grant_read_write_data(role)
         self.lead_cache.grant_read_write_data(role)
         asset.grant_read(role)
@@ -267,6 +292,7 @@ class GraphStack(Stack):
             f"LEAD_CACHE_TABLE={self.lead_cache.table_name}\n"
             f"MESSAGES_TABLE={project_name}-messages\n"
             f"LEADGEN_QUEUE_URL={self.turns_queue.queue_url}\n"
+            f"LEAD_PROMOTION_QUEUE_URL={self.promotion_queue.queue_url}\n"
             f"PROJECT_NAME={project_name}\n"
             f"GRAPH_DATA_VOLUME_ID={data_volume.volume_id}\n"
             f"EOF",
@@ -401,7 +427,25 @@ class GraphStack(Stack):
             "[Install]\n"
             "WantedBy=multi-user.target\n"
             "EOF",
-            
+
+            # Systemd Service for lead-promotion worker (KG-to-cache promotion)
+            "cat <<EOF > /etc/systemd/system/promotion-worker.service\n"
+            "[Unit]\n"
+            "Description=Lead Promotion SQS Worker\n"
+            "After=network.target\n"
+            "\n"
+            "[Service]\n"
+            "Type=simple\n"
+            "User=root\n"
+            "WorkingDirectory=/var/www/companion\n"
+            "EnvironmentFile=/etc/companion/env\n"
+            "ExecStart=/var/www/companion/venv/bin/python3 deploy/graph-ec2/promotion_worker.py\n"
+            "Restart=always\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
+            "EOF",
+
             # Caddyfile setup
             "cat <<EOF > /etc/caddy/Caddyfile\n"
             f"graph.{domain_name} {{\n"
@@ -419,6 +463,7 @@ class GraphStack(Stack):
             "systemctl daemon-reload",
             "systemctl enable --now graph-service",
             "systemctl enable --now leadgen-worker",
+            "systemctl enable --now promotion-worker",
             "systemctl enable --now twilio-voice",
             "systemctl enable --now caddy",
             "echo '--- Bootstrap Completed ---'",

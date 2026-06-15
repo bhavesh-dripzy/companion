@@ -22,7 +22,10 @@ User
 
 Extract:
 1. Durable profile facts:
-   - Name, age, city, language preferences, email, phone, etc.
+   - Name, age, city, language preferences, email, phone, occupation, family_size, family_composition, etc.
+   - occupation: the user's job/profession (e.g. "doctor", "software engineer").
+   - family_size: number of family members as a string (e.g. "4").
+   - family_composition: comma-separated roles (e.g. "spouse, child, parent").
    - Do NOT extract home/work/delivery addresses or locations. Delivery
      addresses come ONLY from the user's saved addresses on the provider,
      never from conversation. Ignore any street/area/address the user mentions.

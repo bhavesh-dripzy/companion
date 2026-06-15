@@ -14,6 +14,7 @@ from pydantic import BaseModel
 sys.path.append("/var/www/companion")
 
 from leadgen.graph_client import GraphClient
+from leadgen.schema import Vendor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("graph_service")
@@ -157,6 +158,73 @@ def get_leads(
         return leads
     except Exception as e:
         logger.exception(f"Error querying leads: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/vendors")
+def upsert_vendor(vendor: Vendor, token: str = Depends(get_bearer_token)):
+    """Registers or updates a vendor node used for lead matching (admin/seed)."""
+    client = GraphClient()
+    try:
+        result = client.upsert_vendor(vendor)
+        return {"status": "success", "vendor": result}
+    except Exception as e:
+        logger.exception(f"Error upserting vendor {vendor.id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/vendors")
+def list_vendors(
+    category: str | None = None,
+    status: str | None = None,
+    token: str = Depends(get_bearer_token),
+):
+    """Lists vendor nodes, optionally filtered by category and/or status."""
+    clauses = []
+    params: dict[str, Any] = {}
+    if category:
+        clauses.append("v.category = $category")
+        params["category"] = category.strip().lower()
+    if status:
+        clauses.append("v.status = $status")
+        params["status"] = status
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+
+    client = GraphClient()
+    try:
+        records = client.execute_query(
+            f"MATCH (v:Vendor){where} RETURN v ORDER BY coalesce(v.rating, 0) DESC LIMIT 200",
+            params,
+        )
+        vendors = []
+        for r in records:
+            v = r.get("v", {})
+            metadata = {}
+            if v.get("metadata"):
+                try:
+                    metadata = json.loads(v.get("metadata"))
+                except Exception:
+                    pass
+            vendors.append({**v, "metadata": metadata})
+        return vendors
+    except Exception as e:
+        logger.exception(f"Error listing vendors: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/match")
+def run_match(
+    category: str | None = None,
+    user_id: str | None = None,
+    token: str = Depends(get_bearer_token),
+):
+    """Runs the lead-matching engine on demand (admin/backfill)."""
+    client = GraphClient()
+    try:
+        matches = client.match_leads(category=category, user_id=user_id)
+        return {"status": "success", "matched": len(matches), "matches": matches}
+    except Exception as e:
+        logger.exception(f"Error running lead matching: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

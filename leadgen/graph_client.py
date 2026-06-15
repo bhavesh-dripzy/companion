@@ -7,7 +7,7 @@ from typing import Any
 
 from neo4j import GraphDatabase
 
-from leadgen.schema import Interest, Lead, ProfileFact
+from leadgen.schema import Interest, Lead, ProfileFact, Vendor
 
 
 class GraphClient:
@@ -46,8 +46,10 @@ class GraphClient:
             "CREATE CONSTRAINT category_nm IF NOT EXISTS FOR (c:Category) REQUIRE c.name IS UNIQUE",
             "CREATE CONSTRAINT interest_id IF NOT EXISTS FOR (i:Interest) REQUIRE i.id IS UNIQUE",
             "CREATE CONSTRAINT lead_id     IF NOT EXISTS FOR (l:Lead)     REQUIRE l.id IS UNIQUE",
+            "CREATE CONSTRAINT vendor_id   IF NOT EXISTS FOR (v:Vendor)  REQUIRE v.id IS UNIQUE",
             "CREATE INDEX place_norm       IF NOT EXISTS FOR (p:Place)    ON (p.normalized_key)",
             "CREATE INDEX lead_cat_status  IF NOT EXISTS FOR (l:Lead)     ON (l.category, l.status)",
+            "CREATE INDEX vendor_cat_status IF NOT EXISTS FOR (v:Vendor)  ON (v.category, v.status)",
         ]
         for q in queries:
             try:
@@ -129,6 +131,9 @@ class GraphClient:
                 "language": "language",
                 "email": "email",
                 "phone": "phone",
+                "occupation": "occupation",
+                "family_size": "family_size",
+                "family_composition": "family_composition",
             }
             prop_name = prop_map.get(fact_type)
             if prop_name:
@@ -261,6 +266,128 @@ class GraphClient:
             return res
         return None
 
+    def upsert_vendor(self, vendor: Vendor) -> dict[str, Any] | None:
+        """Creates or updates a Vendor node and links it to the category it serves."""
+        cat_name = vendor.category.strip().lower()
+        if not vendor.id or not cat_name:
+            return None
+        service_area = [s.strip().lower() for s in vendor.service_area if s and s.strip()]
+        metadata_json = json.dumps(vendor.metadata)
+
+        cypher = """
+        MERGE (c:Category {name: $category_key})
+        MERGE (v:Vendor {id: $vendor_id})
+        ON CREATE SET v.created_at = timestamp()
+        SET v.name = $name,
+            v.category = $category_key,
+            v.location = $location,
+            v.service_area = $service_area,
+            v.budget_range = $budget_range,
+            v.contact_phone = $contact_phone,
+            v.contact_email = $contact_email,
+            v.rating = $rating,
+            v.commission_rate = $commission_rate,
+            v.status = $status,
+            v.joined_at = $joined_at,
+            v.metadata = $metadata,
+            v.updated_at = timestamp()
+        WITH v
+        MATCH (c:Category {name: $category_key})
+        MERGE (v)-[r:SERVES]->(c)
+        SET r.updated_at = timestamp()
+        RETURN v.id AS vendor_id, v.name AS vendor_name, v.category AS category, v.status AS status
+        """
+        results = self.execute_query(cypher, {
+            "vendor_id": vendor.id,
+            "category_key": cat_name,
+            "name": vendor.name,
+            "location": vendor.location,
+            "service_area": service_area,
+            "budget_range": vendor.budget_range,
+            "contact_phone": vendor.contact_phone,
+            "contact_email": vendor.contact_email,
+            "rating": vendor.rating,
+            "commission_rate": vendor.commission_rate,
+            "status": vendor.status,
+            "joined_at": vendor.joined_at,
+            "metadata": metadata_json,
+        })
+        return results[0] if results else None
+
+    def match_leads(
+        self,
+        *,
+        category: str | None = None,
+        user_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Match open, un-vendored leads to an eligible active vendor.
+
+        Eligibility: same category, vendor active, the lead owner's city is in the
+        vendor's service_area (or the vendor serves anywhere), and the vendor's
+        budget_range matches the lead's budget_signal (or either is unset). The
+        single best vendor (highest rating) wins. On a match the Lead flips to
+        'matched', records the vendor, and gains a (:Lead)-[:MATCHED_TO]->(:Vendor)
+        edge. Returns one promotion-ready row per newly matched lead.
+        """
+        clauses = ["l.status = 'open'", "l.vendor_id IS NULL"]
+        params: dict[str, Any] = {"limit": limit}
+        if category:
+            # Vendor categories are stored lowercased; lead categories keep their
+            # original case, so always compare on a normalized basis.
+            clauses.append("toLower(l.category) = $category")
+            params["category"] = category.strip().lower()
+        if user_id:
+            clauses.append("u.id = $user_id")
+            params["user_id"] = user_id
+        where = " AND ".join(clauses)
+
+        cypher = f"""
+        MATCH (u:User)-[:GENERATED]->(l:Lead)
+        WHERE {where}
+        CALL {{
+            WITH l, u
+            MATCH (v:Vendor {{status: 'active'}})
+            WHERE v.category = toLower(l.category)
+              AND (size(v.service_area) = 0
+                   OR u.city IS NULL
+                   OR toLower(u.city) IN v.service_area)
+              AND (v.budget_range IS NULL
+                   OR l.budget_signal IS NULL
+                   OR v.budget_range = l.budget_signal)
+            RETURN v
+            ORDER BY coalesce(v.rating, 0) DESC
+            LIMIT 1
+        }}
+        SET l.status = 'matched',
+            l.vendor_id = v.id,
+            l.vendor_name = v.name,
+            l.matched_at = timestamp()
+        MERGE (l)-[m:MATCHED_TO]->(v)
+        SET m.matched_at = l.matched_at
+        RETURN u.id AS user_id,
+               l.id AS lead_id,
+               l.category AS category,
+               l.product AS product,
+               l.budget_signal AS budget_signal,
+               l.intent_score AS intent_score,
+               l.attrs AS attrs,
+               l.matched_at AS matched_at,
+               v.id AS vendor_id,
+               v.name AS vendor_name,
+               v.contact_phone AS vendor_phone,
+               v.contact_email AS vendor_email
+        LIMIT $limit
+        """
+        results = self.execute_query(cypher, params)
+        for res in results:
+            if isinstance(res.get("attrs"), str):
+                try:
+                    res["attrs"] = json.loads(res["attrs"])
+                except Exception:
+                    pass
+        return results
+
     def get_user_profile_projection(self, user_id: str) -> dict[str, Any]:
         """Returns the denormalized profile view for the DynamoDB cache."""
         profile: dict[str, Any] = {
@@ -269,9 +396,16 @@ class GraphClient:
             "age": None,
             "city": None,
             "language": None,
+            "phone": None,
+            "email": None,
+            "occupation": None,
+            "family_size": None,
+            "family_composition": None,
             "addresses": {},
             "interests": [],
             "open_leads": [],
+            "matched_leads": [],
+            "leads_by_category": {},
             "consent_status": "implicit",
         }
 
@@ -281,10 +415,9 @@ class GraphClient:
             return profile
 
         u_node = u_records[0].get("u", {})
-        profile["name"] = u_node.get("name")
-        profile["age"] = u_node.get("age")
-        profile["city"] = u_node.get("city")
-        profile["language"] = u_node.get("language")
+        for col in ("name", "age", "city", "language", "phone", "email",
+                    "occupation", "family_size", "family_composition"):
+            profile[col] = u_node.get(col)
 
         # B. Query active addresses
         addr_cypher = """
@@ -324,12 +457,14 @@ class GraphClient:
                 "details": [d for d in record.get("details", []) if d]
             })
 
-        # D. Query open leads
+        # D. Query active leads (open + matched). Matched leads carry the vendor
+        # so the agent can acknowledge a connection instead of re-pitching.
         leads_cypher = """
-        MATCH (u:User {id: $user_id})-[:GENERATED]->(l:Lead {status: 'open'})
+        MATCH (u:User {id: $user_id})-[:GENERATED]->(l:Lead)
+        WHERE l.status IN ['open', 'matched']
         RETURN l
         ORDER BY l.last_seen_at DESC
-        LIMIT 10
+        LIMIT 25
         """
         leads_records = self.execute_query(leads_cypher, {"user_id": user_id})
         for record in leads_records:
@@ -343,7 +478,7 @@ class GraphClient:
                 except Exception:
                     pass
 
-            profile["open_leads"].append({
+            lead_view = {
                 "lead_id": l_node.get("id"),
                 "category": l_node.get("category"),
                 "product": l_node.get("product"),
@@ -351,8 +486,20 @@ class GraphClient:
                 "last_seen_at": l_node.get("last_seen_at"),
                 "budget_signal": l_node.get("budget_signal"),
                 "intent_score": l_node.get("intent_score"),
-                "attrs": attrs
-            })
+                "vendor_id": l_node.get("vendor_id"),
+                "vendor_name": l_node.get("vendor_name"),
+                "matched_at": l_node.get("matched_at"),
+                "attrs": attrs,
+            }
+
+            if lead_view["status"] == "matched":
+                profile["matched_leads"].append(lead_view)
+            else:
+                profile["open_leads"].append(lead_view)
+
+            # Per-category bucket for O(1) "does this user have a <category> lead?"
+            cat = lead_view["category"] or "other"
+            profile["leads_by_category"].setdefault(cat, []).append(lead_view)
 
             # Use most recent lead consent status or fallback
             if l_node.get("consent_status"):

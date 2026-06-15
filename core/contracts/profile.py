@@ -31,7 +31,14 @@ class Profile(BaseModel):
     age: Any = None
     city: str | None = None
     language: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    occupation: str | None = None
+    family_size: Any = None
+    family_composition: Any = None
     addresses: dict[str, SavedAddress] = Field(default_factory=dict)
     interests: list[dict[str, Any]] = Field(default_factory=list)
     open_leads: list[dict[str, Any]] = Field(default_factory=list)
+    matched_leads: list[dict[str, Any]] = Field(default_factory=list)
+    leads_by_category: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     consent_status: str | None = None
