@@ -252,12 +252,35 @@ class GraphStack(Stack):
             )
         )
 
+        # Allow the instance to attach its persistent Neo4j data volume on boot.
+        # Without ec2:AttachVolume the user-data attach fails UnauthorizedOperation
+        # (swallowed by "|| continuing"), so Neo4j silently runs on the ephemeral
+        # root disk and the graph is lost on instance replacement.
+        role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ec2:AttachVolume"],
+                resources=[
+                    f"arn:aws:ec2:{self.region}:{self.account}:volume/*",
+                    f"arn:aws:ec2:{self.region}:{self.account}:instance/*",
+                ],
+            )
+        )
+        role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ec2:DescribeVolumes"],
+                resources=["*"],
+            )
+        )
+
         # 8a. Persistent Neo4j data volume — created here so its volume_id
-        # can be interpolated into the user-data env file below. The volume's
-        # AZ is pinned to the first AZ of the region; the instance lands in a
-        # public subnet of the default VPC (same AZ by default). On instance
-        # replacement the old volume is RETAIN'd and user-data re-attaches it
-        # so graph data survives AMI bumps.
+        # can be interpolated into the user-data env file below. The volume is
+        # RETAIN'd and re-attached + mounted at /var/lib/neo4j by user-data on
+        # boot (with ec2:AttachVolume + a retry loop), so the graph survives
+        # instance replacement / AMI bumps.
+        # CAVEAT: EBS attach requires same-AZ. The volume is pinned to AZ-0 and
+        # the instance must land in AZ-0's public subnet — true today, but the
+        # instance subnet isn't AZ-pinned, so a future replacement into another
+        # AZ would fail the attach. Pin the subnet's AZ if that ever changes.
         data_volume = ec2.Volume(
             self,
             "GraphDataVolumeV2",
@@ -297,33 +320,36 @@ class GraphStack(Stack):
             f"GRAPH_DATA_VOLUME_ID={data_volume.volume_id}\n"
             f"EOF",
 
-            # Attach the persistent data volume at /dev/sdf via the EC2 API.
-            # We can't use a CfnVolumeAttachment here: on instance replacement
-            # it races with the old attachment and fails with "vol-X is
-            # already attached". Doing it in user-data after the instance
-            # is up means the old instance is fully gone, and the attach
-            # can be retried.
+            # Attach the persistent data volume at /dev/sdf via the EC2 API
+            # (needs ec2:AttachVolume on the role — granted above). A
+            # CfnVolumeAttachment can't be used: on instance replacement it
+            # races the old attachment ("vol-X is already attached"). Retry so
+            # the attach lands once the old instance has released the volume.
+            "REGION=$(grep '^AWS_REGION=' /etc/companion/env | cut -d= -f2-)",
             "DATA_VOL_ID=$(grep '^GRAPH_DATA_VOLUME_ID=' /etc/companion/env | cut -d= -f2-)",
-            "INSTANCE_ID=$(curl -s -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "
-            "  -H 'X-aws-ec2-metadata-token: $(curl -s -X PUT "
-            "    'http://169.254.169.254/latest/api/token' "
-            "    -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')' "
-            "  http://169.254.169.254/latest/meta-data/instance-id)",
+            "IMDS_TOKEN=$(curl -s -X PUT 'http://169.254.169.254/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')",
+            "INSTANCE_ID=$(curl -s -H \"X-aws-ec2-metadata-token: $IMDS_TOKEN\" http://169.254.169.254/latest/meta-data/instance-id)",
             "if [ -n \"$DATA_VOL_ID\" ] && [ -n \"$INSTANCE_ID\" ]; then "
-            "  aws ec2 attach-volume --volume-id \"$DATA_VOL_ID\" --instance-id \"$INSTANCE_ID\" "
-            "    --device /dev/sdf --region $(grep '^AWS_REGION=' /etc/companion/env | cut -d= -f2-) "
-            "    || echo 'attach-volume failed (volume may already be attached); continuing'; "
+            "for n in $(seq 1 30); do "
+            "owner=$(aws ec2 describe-volumes --volume-ids \"$DATA_VOL_ID\" --region \"$REGION\" --query 'Volumes[0].Attachments[0].InstanceId' --output text 2>/dev/null); "
+            "if [ \"$owner\" = \"$INSTANCE_ID\" ]; then echo 'data volume attached'; break; fi; "
+            "if aws ec2 attach-volume --volume-id \"$DATA_VOL_ID\" --instance-id \"$INSTANCE_ID\" --device /dev/sdf --region \"$REGION\"; then echo 'attach issued'; sleep 5; break; fi; "
+            "echo \"attach retry $n (volume may still be on the old instance)\"; sleep 10; "
+            "done; "
             "fi",
 
             # Mount the persistent data volume at /var/lib/neo4j so graph data
-            # survives instance replacement (AMI updates). The attachment lands
-            # after boot, so wait for the device; format only if blank.
-            "for i in $(seq 1 60); do { [ -e /dev/sdf ] || [ -e /dev/nvme1n1 ]; } && break; sleep 5; done",
-            "DATA_DEV=$([ -e /dev/sdf ] && echo /dev/sdf || echo /dev/nvme1n1)",
-            "blkid $DATA_DEV || mkfs -t xfs $DATA_DEV",
-            "mkdir -p /var/lib/neo4j",
-            'echo "UUID=$(blkid -s UUID -o value $DATA_DEV) /var/lib/neo4j xfs defaults,nofail 0 2" >> /etc/fstab',
-            "mount -a",
+            # survives instance replacement. Detect the non-root disk (on Nitro
+            # /dev/sdf appears under an nvme name); format ONLY if blank so an
+            # existing graph is preserved; never write an empty fstab UUID (the
+            # old code did, leaving the mount silently broken on nofail).
+            "for i in $(seq 1 60); do DATA_DEV=$(lsblk -dnro NAME,TYPE | awk '$2==\"disk\" && $1!=\"nvme0n1\"{print \"/dev/\"$1}' | head -1); [ -n \"$DATA_DEV\" ] && break; sleep 5; done",
+            "if [ -n \"$DATA_DEV\" ]; then "
+            "blkid \"$DATA_DEV\" >/dev/null 2>&1 || mkfs -t xfs \"$DATA_DEV\"; "
+            "mkdir -p /var/lib/neo4j; "
+            "DATA_UUID=$(blkid -s UUID -o value \"$DATA_DEV\"); "
+            "if [ -n \"$DATA_UUID\" ]; then sed -i '\\#/var/lib/neo4j#d' /etc/fstab; echo \"UUID=$DATA_UUID /var/lib/neo4j xfs defaults,nofail 0 2\" >> /etc/fstab; mount -a; fi; "
+            "else echo 'ERROR: data volume device not found — Neo4j would fall back to the root disk'; fi",
 
             # Run Neo4j Docker container on localhost (Bolt 7687, Browser 7474).
             # NOTE: must stay a single line — adjacent-string continuations here
