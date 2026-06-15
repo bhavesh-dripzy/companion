@@ -11,10 +11,12 @@
 #   ./scripts/manual-deploy.sh --staging    # deploys to staging
 #   ./scripts/manual-deploy.sh --env prod   # explicit prod
 #   ./scripts/manual-deploy.sh --skip-apk   # skip the APK build note
+#   SKIP_ASSUME_ROLE=1 ./scripts/manual-deploy.sh   # use ambient admin creds (skip sts assume-role)
 #
 # Required env vars (set in shell or a .env file in the repo root):
 #   AWS_ROLE_ARN          ARN of the deploy role (default: arn:aws:iam::616551057455:role/GitHubActionsDeployRole)
 #   AWS_REGION            AWS region (default: ap-south-1)
+#   SKIP_ASSUME_ROLE      "1" to skip sts assume-role and use the current creds (need admin in the account)
 #
 # App secret env vars (all optional — APP_SECRETS_JSON takes precedence; any set
 # value is MERGED into the existing {project}/app secret, never clobbering it):
@@ -52,11 +54,13 @@ check_command() {
 
 ENV_NAME="prod"
 SKIP_APK="${SKIP_APK:-0}"
+SKIP_ASSUME_ROLE="${SKIP_ASSUME_ROLE:-0}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --staging) ENV_NAME="staging"; shift ;;
     --env)     ENV_NAME="$2"; shift 2 ;;
     --skip-apk) SKIP_APK=1; shift ;;
+    --skip-assume-role) SKIP_ASSUME_ROLE=1; shift ;;
     *)         die "Unknown argument: $1" ;;
   esac
 done
@@ -106,22 +110,31 @@ log "Current AWS identity: $AWS_IDENTITY"
 
 # ── AWS role assumption ──────────────────────────────────────────────────────
 
-log "Assuming deploy role: $AWS_ROLE_ARN"
-ASSUME_OUTPUT=$(aws sts assume-role \
-  --role-arn "$AWS_ROLE_ARN" \
-  --role-session-name "companion-manual-deploy-$(date +%s)" \
-  --duration-seconds 3600 \
-  --output json)
+# SKIP_ASSUME_ROLE=1 uses the ambient credentials directly — for when you already
+# hold admin in the target account (e.g. an OrganizationAccountAccessRole profile)
+# and the GitHubActionsDeployRole trust policy (OIDC-only) won't let you assume it.
+if [[ "$SKIP_ASSUME_ROLE" == "1" ]]; then
+  log "SKIP_ASSUME_ROLE=1 — using ambient credentials (must already have admin in $AWS_ACCOUNT_ID)."
+else
+  log "Assuming deploy role: $AWS_ROLE_ARN"
+  ASSUME_OUTPUT=$(aws sts assume-role \
+    --role-arn "$AWS_ROLE_ARN" \
+    --role-session-name "companion-manual-deploy-$(date +%s)" \
+    --duration-seconds 3600 \
+    --output json)
 
-AWS_ACCESS_KEY_ID=$(echo "$ASSUME_OUTPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)['Credentials']['AccessKeyId'])")
-AWS_SECRET_ACCESS_KEY=$(echo "$ASSUME_OUTPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)['Credentials']['SecretAccessKey'])")
-AWS_SESSION_TOKEN=$(echo "$ASSUME_OUTPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)['Credentials']['SessionToken'])")
+  AWS_ACCESS_KEY_ID=$(echo "$ASSUME_OUTPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)['Credentials']['AccessKeyId'])")
+  AWS_SECRET_ACCESS_KEY=$(echo "$ASSUME_OUTPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)['Credentials']['SecretAccessKey'])")
+  AWS_SESSION_TOKEN=$(echo "$ASSUME_OUTPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)['Credentials']['SessionToken'])")
 
-export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION
+  export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+fi
+export AWS_REGION
 
+# Verify the target account (works for both ambient and assumed credentials).
 VERIFIED_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 if [[ "$VERIFIED_ACCOUNT" != "$AWS_ACCOUNT_ID" ]]; then
-  die "Role assumption returned account $VERIFIED_ACCOUNT, expected $AWS_ACCOUNT_ID. Aborting."
+  die "Current credentials are in account $VERIFIED_ACCOUNT, expected $AWS_ACCOUNT_ID. Aborting."
 fi
 log "AWS identity confirmed — account: $VERIFIED_ACCOUNT"
 
