@@ -1,0 +1,44 @@
+[
+  {
+    "id": "vendor-cool-air-ggn",
+    "name": "Cool Air Servicers",
+    "category": "electronics",
+    "location": "Gurugram",
+    "service_area": ["gurugram", "delhi", "noida"],
+    "budget_range": "mid",
+    "contact_phone": "+919800000001",
+    "contact_email": "leads@coolair.example",
+    "rating": 4.6,
+    "commission_rate": 0.08,
+    "status": "active",
+    "metadata": {"specialties": ["split AC", "window AC", "AC servicing"]}
+  },
+  {
+    "id": "vendor-woodcraft-furniture",
+    "name": "Woodcraft Furniture",
+    "category": "furniture",
+    "location": "Delhi",
+    "service_area": ["delhi", "gurugram", "noida", "faridabad"],
+    "budget_range": "high",
+    "contact_phone": "+919800000002",
+    "contact_email": "sales@woodcraft.example",
+    "rating": 4.4,
+    "commission_rate": 0.1,
+    "status": "active",
+    "metadata": {"specialties": ["sofa", "bed", "dining table"]}
+  },
+  {
+    "id": "vendor-glow-salon",
+    "name": "Glow Salon & Spa",
+    "category": "salon_services",
+    "location": "Gurugram",
+    "service_area": ["gurugram"],
+    "budget_range": "mid",
+    "contact_phone": "+919800000003",
+    "contact_email": "book@glowsalon.example",
+    "rating": 4.7,
+    "commission_rate": 0.12,
+    "status": "active",
+    "metadata": {"specialties": ["haircut", "spa", "massage"]}
+  }
+]

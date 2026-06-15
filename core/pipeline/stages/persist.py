@@ -7,6 +7,7 @@ publisher fire-and-forget — it must never block or fail the reply (ADR-0004).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from core.contracts.turn_event import TurnEvent
@@ -45,5 +46,23 @@ class Persist:
                 routed_provider=_routed_provider(ctx),
                 geo=ctx.request.user_geo,
             )
-            await ctx.deps.publisher.publish(event)
+            # Async KG propagation (off-path) and the Tier-1 immediate personal-fact
+            # write run concurrently; both are fail-open and must not block the reply.
+            await asyncio.gather(
+                ctx.deps.publisher.publish(event),
+                self._capture_personal_facts(ctx),
+            )
         ctx.tracer.event("persist", providers=len(ctx.provider_results))
+
+    @staticmethod
+    async def _capture_personal_facts(ctx: PipelineContext) -> None:
+        writer = ctx.deps.personal_fact_writer
+        if writer is None:
+            return
+        await writer.capture(
+            user_id=ctx.request.user_id,
+            user_message=ctx.request.message,
+            assistant_message=ctx.assistant_message,
+            complete_json=ctx.deps.complete_json,
+            llm=ctx.llm,
+        )

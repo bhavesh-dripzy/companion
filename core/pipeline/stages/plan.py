@@ -25,10 +25,57 @@ _GENERIC_PREAMBLE = (
 )
 
 
+def _user_context(ctx: PipelineContext) -> str:
+    """Compact personal + lead context so the planner personalizes and never
+    re-pitches an existing lead (issue #64, Phase 5). Empty when nothing is known."""
+    profile = getattr(ctx, "profile", None)
+    if profile is None:
+        return ""
+    lines: list[str] = []
+
+    identity = [
+        f"Name: {profile.name}" if profile.name else "",
+        f"Occupation: {profile.occupation}" if profile.occupation else "",
+        f"Family: {profile.family_composition}" if profile.family_composition else "",
+        f"City: {profile.city}" if profile.city else "",
+        f"Language: {profile.language}" if profile.language else "",
+    ]
+    identity = [part for part in identity if part]
+    if identity:
+        lines.append("- " + "; ".join(identity))
+
+    open_leads = profile.open_leads or []
+    if open_leads:
+        rendered = ", ".join(
+            f'{l.get("category")}: "{l.get("product")}"' for l in open_leads[:5] if l.get("product")
+        )
+        if rendered:
+            lines.append(f"- Open leads (already known — update, don't re-pitch): {rendered}")
+
+    matched = profile.matched_leads or []
+    if matched:
+        rendered = ", ".join(
+            f'{l.get("category")}: "{l.get("product")}" → {l.get("vendor_name")}'
+            for l in matched[:5] if l.get("product")
+        )
+        if rendered:
+            lines.append(
+                f"- Matched leads (you may offer to connect the user to the vendor): {rendered}"
+            )
+
+    if not lines:
+        return ""
+    return "USER CONTEXT:\n" + "\n".join(lines)
+
+
 def _format_input(ctx: PipelineContext) -> str:
     # Every planner gets the clock — LLMs otherwise fill date arguments from
     # their training-era prior and date-validated upstreams reject the call.
-    lines: list[str] = [clock_line()]
+    lines: list[str] = []
+    context_block = _user_context(ctx)
+    if context_block:
+        lines.append(context_block)
+    lines.append(clock_line())
     for turn in ctx.request.history[-8:]:
         role = str(turn.get("role") or "user")
         content = str(turn.get("content") or "").strip()

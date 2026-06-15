@@ -7,8 +7,14 @@ dependency (no AWS, no LLM). Defaults are the real adapters.
 from __future__ import annotations
 
 from core.boundaries.geocode import GoogleGeocodeService
+from core.boundaries.personal_facts import LlmPersonalFactWriter
 from core.boundaries.profile import CachedProfileService
-from core.boundaries.protocols import GeocodeService, ProfileReadService, TurnEventPublisher
+from core.boundaries.protocols import (
+    GeocodeService,
+    PersonalFactWriter,
+    ProfileReadService,
+    TurnEventPublisher,
+)
 from core.boundaries.publisher import SqsTurnEventPublisher
 from core.llm.client import complete_json_object
 from core.pipeline.context import CompleteJson, PipelineDeps
@@ -24,6 +30,7 @@ def build_runner(
     publisher: TurnEventPublisher | None = None,
     complete_json: CompleteJson | None = None,
     geocode: GeocodeService | None = None,
+    personal_fact_writer: PersonalFactWriter | None = None,
 ) -> PipelineRunner:
     deps = PipelineDeps(
         registry=registry or default_registry(),
@@ -31,5 +38,6 @@ def build_runner(
         publisher=publisher or SqsTurnEventPublisher(),
         complete_json=complete_json or complete_json_object,
         geocode=geocode or GoogleGeocodeService(),
+        personal_fact_writer=personal_fact_writer or LlmPersonalFactWriter(),
     )
     return PipelineRunner(deps)

@@ -25,6 +25,7 @@ REMINDERS_TABLE = os.getenv("REMINDERS_TABLE", "companion-reminders")
 PROFILE_CACHE_TABLE = os.getenv("PROFILE_CACHE_TABLE", "companion-profile-cache")
 LEAD_CACHE_TABLE = os.getenv("LEAD_CACHE_TABLE", "companion-lead-cache")
 LEADGEN_QUEUE_URL = os.getenv("LEADGEN_QUEUE_URL", "")
+LEAD_PROMOTION_QUEUE_URL = os.getenv("LEAD_PROMOTION_QUEUE_URL", "")
 GRAPH_SERVICE_URL = os.getenv("GRAPH_SERVICE_URL", "https://graph.jatayulabs.com")
 GRAPH_SERVICE_TOKEN_SECRET = os.getenv("GRAPH_SERVICE_TOKEN_SECRET", "companion/graph-service-token")
 

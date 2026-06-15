@@ -54,3 +54,20 @@ def send_turn_event(
     except Exception as e:
         logger.exception(f"Failed to send leadgen turn event to SQS: {e}")
         return None
+
+
+def send_lead_promotion(event: dict) -> str | None:
+    """Enqueues a KG-to-cache promotion event (a matched lead) for the promotion worker."""
+    if not settings.LEAD_PROMOTION_QUEUE_URL:
+        logger.warning("LEAD_PROMOTION_QUEUE_URL is not set. Skipping promotion event enqueue.")
+        return None
+    try:
+        sqs = get_sqs_client()
+        response = sqs.send_message(
+            QueueUrl=settings.LEAD_PROMOTION_QUEUE_URL,
+            MessageBody=json.dumps(event),
+        )
+        return response.get("MessageId")
+    except Exception as e:
+        logger.exception(f"Failed to send lead promotion event to SQS: {e}")
+        return None

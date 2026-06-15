@@ -38,6 +38,29 @@ class Lead(BaseModel):
     budget_signal: str | None = Field(default=None, description="Signal about budget: low, mid, high")
     intent_score: float | None = Field(default=None, ge=0.0, le=1.0)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    # Lifecycle (set by the graph, not the extractor): open -> matched -> qualified/won/lost/expired.
+    status: str | None = Field(default=None, description="open, matched, qualified, won, lost, expired")
+    vendor_id: str | None = Field(default=None, description="Matched vendor id, set on match")
+    vendor_name: str | None = Field(default=None, description="Matched vendor business name")
+    matched_at: int | None = Field(default=None, description="Neo4j epoch-ms timestamp of the match")
+
+
+class Vendor(BaseModel):
+    id: str = Field(..., description="Stable unique vendor id")
+    name: str = Field(..., description="Business name")
+    category: str = Field(..., description="Lead category served, e.g. electronics, furniture")
+    location: str | None = Field(default=None, description="Primary city/area")
+    service_area: list[str] = Field(
+        default_factory=list, description="Cities or zones served (lowercased on upsert)"
+    )
+    budget_range: str | None = Field(default=None, description="Price tier catered to: low, mid, high")
+    contact_phone: str | None = None
+    contact_email: str | None = None
+    rating: float | None = Field(default=None, ge=0.0, le=5.0)
+    commission_rate: float | None = Field(default=None, description="Commission as a fraction or fixed amount")
+    status: str = Field(default="active", description="active or inactive")
+    joined_at: str | None = Field(default=None, description="ISO timestamp the vendor joined")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Category-specific attrs")
 
 
 class ExtractionResult(BaseModel):

@@ -17,3 +17,11 @@ class NoopPublisher:
 
     async def publish(self, event: TurnEvent) -> None:
         self.published.append(event)
+
+
+class NoopPersonalFactWriter:
+    def __init__(self) -> None:
+        self.captured: list[dict] = []
+
+    async def capture(self, *, user_id, user_message, assistant_message, complete_json, llm) -> None:
+        self.captured.append({"user_id": user_id, "user_message": user_message})
