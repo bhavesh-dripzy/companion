@@ -495,19 +495,22 @@ class GraphStack(Stack):
             "echo '--- Bootstrap Completed ---'",
         )
 
-        # 9. EC2 Instance. Construct id bumped to V2 to force a one-time
-        # replacement: the original instance was bootstrapped by the broken
-        # user-data (no Neo4j, no Caddy) and user-data only runs on first boot.
+        # 9. EC2 Instance. Construct id bumped to V3 to force a one-time
+        # replacement onto the fixed bootstrap (ec2:AttachVolume + retry + real
+        # fstab UUID), so the persistent Neo4j volume actually re-attaches.
+        # The subnet is pinned to the volume's AZ (ap-south-1a) — EBS attach is
+        # same-AZ only, and the volume is created in get_azs[0] = ap-south-1a.
         instance = ec2.Instance(
             self,
-            "GraphInstanceV2",
+            "GraphInstanceV3",
             instance_type=ec2.InstanceType("t4g.small"),
             machine_image=ec2.MachineImage.latest_amazon_linux2023(
                 cpu_type=ec2.AmazonLinuxCpuType.ARM_64
             ),
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PUBLIC
+                subnet_type=ec2.SubnetType.PUBLIC,
+                availability_zones=["ap-south-1a"],
             ),
             security_group=sg,
             role=role,
