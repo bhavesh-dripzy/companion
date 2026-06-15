@@ -149,10 +149,10 @@ pip install --upgrade pip
 pip install -r "$REPO_ROOT/requirements.txt"
 pip install -r "$INFRA_DIR/requirements.txt"
 
-if ! command -v cdk &>/dev/null; then
-  log "Installing aws-cdk…"
-  npm install -g aws-cdk
-fi
+# Always upgrade the CDK CLI: a stale global cdk fails `cdk synth` with a cloud-
+# assembly schema mismatch against the aws-cdk-lib pinned in infra/requirements.
+log "Ensuring latest aws-cdk CLI…"
+npm install -g aws-cdk@latest
 
 log "Installing Node dependencies…"
 cd "$REPO_ROOT" && npm ci
