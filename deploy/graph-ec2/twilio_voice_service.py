@@ -120,7 +120,7 @@ async def outbound_call(
     The ``message`` and ``system_prompt`` query params customize Gemini's
     behavior for this specific call.
     """
-    host = request.headers.get("host", "voice.houzzat.in")
+    host = request.headers.get("host", "voice.jatayulabs.com")
     params = []
     if message:
         params.append(f"message={_url_quote(message)}")

@@ -3,6 +3,11 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # Docs-only commits never need a cdk deploy — skip them (workflow_dispatch
+    # stays available for a manual deploy regardless).
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
@@ -97,6 +102,9 @@ jobs:
                   "ADMIN_PASSWORD",
                   "GOOGLE_CALENDAR_CLIENT_ID",
                   "GOOGLE_CALENDAR_CLIENT_SECRET",
+                  "TWILIO_ACCOUNT_SID",
+                  "TWILIO_AUTH_TOKEN",
+                  "TWILIO_FROM_NUMBER",
                   "PUBLIC_BASE_URL",
               ):
                   val = os.getenv(key, "").strip()
@@ -145,6 +153,9 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           GOOGLE_CALENDAR_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_CLIENT_ID }}
           GOOGLE_CALENDAR_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_CLIENT_SECRET }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
 
       - name: Ensure Cognito admin user
         run: |
