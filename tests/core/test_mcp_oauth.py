@@ -12,6 +12,7 @@ pytestmark = pytest.mark.unit
 
 CALLBACK = "https://app.jatayulabs.com/api/mcp/oauth/callback"
 MCP_URL = "https://mcp.example.com/mcp"
+PASTE = oauth.paste_redirect_uri(MCP_URL)  # mcp-remote's hash-derived loopback for this URL
 METADATA = {
     "authorization_server_url": "https://auth.example",
     "protected_resource": {},
@@ -89,14 +90,14 @@ def test_hosted_callback_accepted_uses_redirect_completion(monkeypatch, vault):
 def test_allowlist_rejection_falls_back_to_paste(monkeypatch, vault):
     calls = _post_script(
         monkeypatch,
-        [FakeResponse(403, {"error": "Invalid redirect_uris"}), _echo_client(oauth.PASTE_REDIRECT_URI)],
+        [FakeResponse(403, {"error": "Invalid redirect_uris"}), _echo_client(PASTE)],
     )
     result = oauth.start_web_oauth(mcp_url=MCP_URL, callback_url=CALLBACK, user_id="alice")
     assert result["completion"] == "paste"
-    assert quote(oauth.PASTE_REDIRECT_URI, safe="") in result["authorization_url"]
+    assert quote(PASTE, safe="") in result["authorization_url"]
     assert len(calls) == 2
     pending = next(iter(vault["alice"]["oauth_pending"].values()))
-    assert pending["callback_url"] == oauth.PASTE_REDIRECT_URI
+    assert pending["callback_url"] == PASTE
 
 
 def test_fixed_client_pivots_to_its_own_localhost_uri(monkeypatch, vault):
@@ -118,13 +119,26 @@ def test_fixed_client_pivots_to_its_own_localhost_uri(monkeypatch, vault):
 
 
 def test_force_paste_skips_hosted_registration(monkeypatch, vault):
-    calls = _post_script(monkeypatch, [_echo_client(oauth.PASTE_REDIRECT_URI)])
+    calls = _post_script(monkeypatch, [_echo_client(PASTE)])
     result = oauth.start_web_oauth(
         mcp_url=MCP_URL, callback_url=CALLBACK, user_id="alice", force_paste=True
     )
     assert result["completion"] == "paste"
     assert len(calls) == 1
-    assert calls[0]["json"]["redirect_uris"] == [oauth.PASTE_REDIRECT_URI]
+    assert calls[0]["json"]["redirect_uris"] == [PASTE]
+
+
+def test_paste_redirect_matches_mcp_remote_port():
+    # Must equal mcp-remote's calculateDefaultPort(md5(url)) so strict servers
+    # (Swiggy) that whitelist exactly that loopback port accept the redirect.
+    assert oauth._mcp_remote_default_port("https://mcp.swiggy.com/im") == 16148
+    assert oauth.paste_redirect_uri("https://mcp.swiggy.com/im") == (
+        "http://localhost:16148/oauth/callback"
+    )
+    # Deterministic + within mcp-remote's range for arbitrary URLs.
+    port = oauth._mcp_remote_default_port("https://mcp.swiggy.com/food")
+    assert 3335 <= port < 3335 + 45816
+    assert oauth._mcp_remote_default_port(MCP_URL) == oauth._mcp_remote_default_port(MCP_URL)
 
 
 def test_extract_state_and_code_variants():
@@ -143,7 +157,7 @@ def _seed_pending(vault, monkeypatch, user_id="alice", state="st-1"):
         "state": state,
         "created_at": 2**33,
         "mcp_url": MCP_URL,
-        "callback_url": oauth.PASTE_REDIRECT_URI,
+        "callback_url": PASTE,
         "code_verifier": "verif",
         "client_info": {"client_id": "cid-1"},
         "metadata": METADATA,
@@ -182,7 +196,7 @@ def test_paste_completion_exchanges_with_registered_redirect(monkeypatch, vault,
     assert result["status"] == "connected_pending_test"
     assert result["provider_id"] == "zepto"
     assert exchanges[0]["url"] == "https://auth.example/token"
-    assert exchanges[0]["data"]["redirect_uri"] == oauth.PASTE_REDIRECT_URI
+    assert exchanges[0]["data"]["redirect_uri"] == PASTE
     assert exchanges[0]["data"]["code"] == "c0de"
     files = vault["alice"]["files"]
     assert any(key.endswith("_tokens.json") for key in files)

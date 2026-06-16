@@ -25,8 +25,27 @@ from core.providers.mcp.token_store import mcp_token_secret, merge_mcp_token_sec
 from core.providers.mcp.token_vault import _discover_oauth_metadata
 
 OAUTH_PENDING_TTL_SECONDS = 15 * 60
-PASTE_REDIRECT_URI = "http://localhost:3334/oauth/callback"
 _DEFAULT_MCP_REMOTE_VERSION = "0.1.38"
+_PASTE_PORT_BASE = 3335
+_PASTE_PORT_RANGE = 45816
+
+
+def _mcp_remote_default_port(mcp_url: str) -> int:
+    """The localhost callback port mcp-remote derives for this server URL.
+
+    Mirrors mcp-remote's ``calculateDefaultPort(md5(serverUrl))`` exactly
+    (``3335 + int(hash[:4],16) % 45816``). Strict OAuth servers (Swiggy)
+    whitelist ONLY this hash-derived port — they built it for mcp-remote — and
+    reject an arbitrary one at the post-login redirect. Matching it is what lets
+    the paste-back flow complete for them; permissive servers accept it too."""
+    digest = hashlib.md5(mcp_url.encode("utf-8")).hexdigest()
+    return _PASTE_PORT_BASE + int(digest[:4], 16) % _PASTE_PORT_RANGE
+
+
+def paste_redirect_uri(mcp_url: str) -> str:
+    """The loopback redirect for paste-back completion — mcp-remote's port for
+    this server, so it matches the server's whitelist."""
+    return f"http://localhost:{_mcp_remote_default_port(mcp_url)}/oauth/callback"
 
 
 def _pkce_challenge(verifier: str) -> str:
@@ -90,10 +109,16 @@ def _granted_redirect_uri(client_info: dict[str, Any], requested: str) -> str | 
 
 
 def _negotiate_client(
-    registration_endpoint: str, callback_url: str, scope: str, version: str, force_paste: bool
+    registration_endpoint: str,
+    callback_url: str,
+    scope: str,
+    version: str,
+    force_paste: bool,
+    paste_redirect: str,
 ) -> tuple[str, str, dict[str, Any]]:
     """Pick completion mode + redirect URI: hosted callback if the server takes
-    it, else a localhost URI completed by paste-back."""
+    it, else mcp-remote's loopback URI completed by paste-back (intercepted in
+    the native WebView)."""
     if not force_paste:
         try:
             client_info = _register_client(registration_endpoint, callback_url, scope, version)
@@ -105,8 +130,8 @@ def _negotiate_client(
                 return "redirect", callback_url, client_info
             if granted:
                 return "paste", granted, client_info
-    client_info = _register_client(registration_endpoint, PASTE_REDIRECT_URI, scope, version)
-    granted = _granted_redirect_uri(client_info, PASTE_REDIRECT_URI)
+    client_info = _register_client(registration_endpoint, paste_redirect, scope, version)
+    granted = _granted_redirect_uri(client_info, paste_redirect)
     if not granted:
         raise RuntimeError(
             "The MCP OAuth server rejected both the hosted callback and a localhost redirect."
@@ -157,7 +182,7 @@ def start_web_oauth(
     scope = _oauth_scope(metadata)
     version = remote_version(root) or _DEFAULT_MCP_REMOTE_VERSION
     completion, redirect_uri, client_info = _negotiate_client(
-        registration_endpoint, callback_url, scope, version, force_paste
+        registration_endpoint, callback_url, scope, version, force_paste, paste_redirect_uri(url)
     )
 
     verifier = secrets.token_urlsafe(64)
