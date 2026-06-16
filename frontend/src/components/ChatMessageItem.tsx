@@ -14,7 +14,6 @@ import remarkBreaks from 'remark-breaks';
 import { motion } from 'motion/react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { AddressChoices, AttachmentList, looksLikeAddressPrompt } from '../ChatLog';
-import { ActivityTrail } from './ActivityTrail';
 import { LocationPicker } from './LocationPicker';
 import type { GeoCoordinate, Message, SessionAddress } from '../types';
 
@@ -135,17 +134,6 @@ export function ChatMessageItem({
         {/* Inline location picker — shown when Zepto needed GPS but it was unavailable */}
         {!isUser && msg.askLocation && isLatestAssistant && !isThinking && onGrantLocation && (
           <LocationPicker onConfirm={onGrantLocation} />
-        )}
-
-        {/* Human activity trail — replaces the raw meta chips + "View trace
-            details" block with a warm status pill and friendly step rail. */}
-        {!isUser && ((msg.meta && msg.meta.length > 0) || (msg.trace && msg.trace.length > 0)) && (
-          <ActivityTrail
-            meta={msg.meta}
-            trace={msg.trace}
-            toolsOk={msg.toolsOk}
-            toolsError={msg.toolsError}
-          />
         )}
 
         {/* Timestamp + like buttons (assistant only) */}
