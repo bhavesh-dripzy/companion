@@ -68,3 +68,12 @@ db.sqlite3
 
 # Local IDE / assistant scratch dirs
 .antigravitycli/
+
+# Legacy pre-teardown pipeline — deleted in 3e598ee; core/ is the only pipeline.
+# Stale local copies still sit in the working tree; keep them out of git.
+app/
+
+# One-off local probe/e2e scripts (not part of the shipped toolset)
+scripts/e2e_instamart_cart_flow.py
+scripts/fetch_instamart_category_images.py
+scripts/probe_instamart_cart.py

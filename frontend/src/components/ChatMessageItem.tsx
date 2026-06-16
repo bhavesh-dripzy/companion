@@ -94,17 +94,21 @@ export function ChatMessageItem({
       <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : isCardsOnly ? 'w-full flex-1' : 'max-w-[88%] flex-1'}`}>
         {(msg.content || '').trim() && (
         <div
-          className={`animate-fade-in px-5 py-3 rounded-[20px] text-[14.5px] leading-relaxed transition-all duration-200 max-w-full ${
+          className={`animate-fade-in px-3.5 rounded-[16px] text-[13px] leading-snug transition-all duration-200 max-w-full ${
             isUser
-              ? 'bg-gradient-to-br from-[#2b2f72]/10 via-[#e85d7a]/8 to-[#ff8a1e]/10 border border-[#2b2f72]/15 text-[#221b2e] shadow-sm font-medium rounded-tr-md'
-              : 'bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs font-normal rounded-tl-md select-text'
+              // User bubble: tight pill — small vertical padding so a short
+              // message ("hi" / "Order groceries") isn't a tall box.
+              ? 'py-1.5 bg-gradient-to-br from-[#2b2f72]/10 via-[#e85d7a]/8 to-[#ff8a1e]/10 border border-[#2b2f72]/15 text-[#221b2e] shadow-sm font-medium rounded-tr-md'
+              : 'py-2 bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs font-normal rounded-tl-md select-text'
           }`}
         >
           <div
-            className={`prose max-w-none prose-p:leading-relaxed prose-p:my-1.5 ${
+            className={`prose prose-sm max-w-none prose-p:leading-snug ${
               isUser
-                ? 'prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f]'
-                : 'prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
+                // [&_p]:my-0 removes the paragraph margin that was inflating the
+                // bubble height vertically.
+                ? '[&_p]:my-0 prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f]'
+                : 'prose-p:my-1 prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
             }`}
           >
             <ReactMarkdown remarkPlugins={[remarkBreaks]}>{msg.content}</ReactMarkdown>

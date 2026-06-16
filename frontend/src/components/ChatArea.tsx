@@ -29,6 +29,7 @@ interface ChatAreaProps {
   /** Drops the in-chat grocery category picker card into the conversation
    *  (issue #59) — fired by the Groceries chip + the grocery hero nudge. */
   onOpenGroceries?: () => void;
+  onOpenFood?: () => void;
   onToggleLeft?: () => void;
   connectedCount?: number;
   isSidebarCollapsed?: boolean;
@@ -141,6 +142,7 @@ export function ChatArea({
   thinkingStatus,
   onSuggestionClick,
   onOpenGroceries,
+  onOpenFood,
   onToggleLeft,
   connectedCount: _connectedCount = 0,
   isSidebarCollapsed = false,
@@ -176,6 +178,10 @@ export function ChatArea({
     if (isThinking) return;
     if (option.id === 'groceries' && onOpenGroceries) {
       onOpenGroceries();
+      return;
+    }
+    if (option.id === 'food' && onOpenFood) {
+      onOpenFood();
       return;
     }
     onSuggestionClick(option.prompt);
@@ -402,7 +408,7 @@ export function ChatArea({
                 </motion.div>
               </div>
             ) : (
-              <div className="w-full space-y-3 pb-6">
+              <div className="w-full space-y-2 pb-6">
                 {searchQuery.trim() && visibleMessages.length === 0 && (
                   <div className="text-center text-xs text-slate-500 italic">
                     No messages match “{searchQuery}”.
