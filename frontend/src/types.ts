@@ -575,6 +575,12 @@ export interface Attachment {
   // Optional header override for any card tray (e.g. "Price comparison" on
   // shop_product_cards when results span many stores, not just Amazon).
   card_title?: string;
+  //   kind === "blablacar_card" → a single carpool-search deep link.
+  url?: string;
+  origin?: string;
+  destination?: string;
+  date?: string;
+  seats?: number | string;
 }
 
 export interface FlightLeg {
