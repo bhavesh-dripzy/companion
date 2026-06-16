@@ -1582,15 +1582,15 @@ export const AttachmentList: React.FC<{
           <div key={`grocery-intro-${idx}`} className="mt-1 w-full max-w-full md:max-w-2xl animate-fade-in">
             <div className="bg-white rounded-[18px] border border-[#e4ede4] shadow-[0_8px_24px_-16px_rgba(26,157,107,0.18)] overflow-hidden">
               <div className="h-[3px] w-full" style={{ background: 'linear-gradient(90deg, #1a9d6b 0%, #43c59e 50%, #7B2CFA 100%)' }} />
-              <div className="flex items-center gap-3 px-4 py-4">
-                <div className="w-11 h-11 rounded-2xl bg-[#1a9d6b]/10 text-[#1a9d6b] flex items-center justify-center shrink-0">
-                  <ShoppingBasket className="w-5 h-5 stroke-[2]" />
+              <div className="flex items-center gap-2.5 sm:gap-3 px-3 py-3 sm:px-4 sm:py-4">
+                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-[#1a9d6b]/10 text-[#1a9d6b] flex items-center justify-center shrink-0">
+                  <ShoppingBasket className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2]" />
                 </div>
                 <div className="min-w-0">
-                  <p className="font-sans text-[15px] font-bold text-[#221b2e] leading-snug">
+                  <p className="font-sans text-[13px] sm:text-[15px] font-bold text-[#221b2e] leading-snug">
                     Let's get your groceries! 🛒
                   </p>
-                  <p className="text-[12px] text-[#7a7388] font-normal mt-0.5 leading-snug">
+                  <p className="text-[11px] sm:text-[12px] text-[#7a7388] font-normal mt-0.5 leading-snug">
                     I'm searching Instamart & Zepto to get you the best options.
                   </p>
                 </div>
@@ -1898,7 +1898,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-3 md:px-6 py-5 md:py-6 space-y-6 md:space-y-7 scroll-smooth pb-36 md:pb-40">
+    <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 sm:py-5 md:py-6 space-y-4 sm:space-y-6 md:space-y-7 scroll-smooth pb-32 sm:pb-36 md:pb-40">
       {q && visibleMessages.length === 0 && (
         <div className="text-center text-xs text-slate-500 italic">
           No messages match “{searchQuery}”.
@@ -1929,7 +1929,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
               <div className="flex flex-col gap-1 min-w-0">
                 <div
                   className={cn(
-                    'py-3 px-5 rounded-3xl text-sm leading-relaxed shadow-sm max-w-full',
+                    'py-2 px-3.5 sm:py-3 sm:px-5 rounded-2xl sm:rounded-3xl leading-relaxed shadow-sm max-w-full',
                     isUser
                       ? 'bg-slate-950 text-white rounded-tr-none font-medium'
                       : 'bg-white/90 text-slate-900 border border-slate-200/70 rounded-tl-none font-normal backdrop-blur-sm',
@@ -1937,7 +1937,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
                 >
                   <div
                     className={cn(
-                      'prose max-w-none prose-p:leading-relaxed prose-p:my-1.5',
+                      'prose prose-sm sm:prose-base max-w-none prose-p:leading-relaxed prose-p:my-1.5',
                       isUser
                         ? 'prose-invert prose-strong:text-white prose-a:text-amber-300 prose-code:text-amber-200'
                         : 'prose-slate prose-strong:text-slate-900 prose-a:text-blue-600 prose-code:text-rose-600 prose-pre:bg-slate-900 prose-pre:text-slate-100',

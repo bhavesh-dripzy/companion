@@ -42,7 +42,7 @@ const ProviderChip: React.FC<{
   <button
     type="button"
     onClick={onToggle}
-    className={`flex items-center gap-1 px-2.5 py-[5px] rounded-full text-[11px] font-semibold border transition-all duration-150 ${
+    className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-[5px] rounded-full text-[10px] sm:text-[11px] font-semibold border transition-all duration-150 shrink-0 ${
       selected
         ? 'bg-[#eaf6f1] border-[#1a9d6b] text-[#1a9d6b]'
         : 'bg-white border-slate-200 text-slate-400'
@@ -84,7 +84,7 @@ const CategoryTile: React.FC<{
           <span className="text-3xl select-none" aria-hidden>🛒</span>
         )}
       </div>
-      <span className="text-[11px] font-semibold text-[#221b2e] text-center leading-[1.3] whitespace-pre-line w-full">
+      <span className="text-[10px] sm:text-[11px] font-semibold text-[#221b2e] text-center leading-[1.3] whitespace-pre-line w-full">
         {category.label}
       </span>
     </button>
@@ -124,11 +124,11 @@ export const GroceryCategoryCard: React.FC<GroceryCategoryCardProps> = ({
 
   return (
     <div className="w-full max-w-full md:max-w-2xl animate-fade-in">
-      <div className="bg-white rounded-[18px] border border-[#ece3d6] shadow-[0_14px_36px_-24px_rgba(60,40,30,0.45)] overflow-hidden px-4 pt-4 pb-5">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[13px] font-semibold text-[#221b2e]">Popular Categories</p>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-400 font-medium">Search in</span>
+      <div className="bg-white rounded-[18px] border border-[#ece3d6] shadow-[0_14px_36px_-24px_rgba(60,40,30,0.45)] overflow-hidden px-3 pt-3 pb-4 sm:px-4 sm:pt-4 sm:pb-5">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 mb-3">
+          <p className="text-[12px] sm:text-[13px] font-semibold text-[#221b2e] shrink-0">Popular Categories</p>
+          <div className="flex items-center gap-1 sm:gap-1.5 ml-auto">
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium shrink-0">Search in</span>
             <ProviderChip label="Instamart" selected={instamart} onToggle={toggleInstamart} />
             <ProviderChip label="Zepto" selected={zepto} onToggle={toggleZepto} />
           </div>
@@ -148,7 +148,7 @@ export const GroceryCategoryCard: React.FC<GroceryCategoryCardProps> = ({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-[#f3eeff] text-[#7B2CFA] text-[13px] font-semibold hover:bg-[#ebe5ff] transition-colors duration-150"
+          className="mt-3 sm:mt-4 w-full flex items-center justify-center gap-2 py-2 sm:py-2.5 rounded-2xl bg-[#f3eeff] text-[#7B2CFA] text-[12px] sm:text-[13px] font-semibold hover:bg-[#ebe5ff] transition-colors duration-150"
         >
           {expanded ? 'Show less' : 'Explore all categories'}
           <span className="text-base leading-none">{expanded ? '↑' : '→'}</span>
