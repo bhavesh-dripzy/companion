@@ -1898,7 +1898,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 sm:py-5 md:py-6 space-y-4 sm:space-y-6 md:space-y-7 scroll-smooth pb-32 sm:pb-36 md:pb-40">
+    <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 sm:py-5 md:py-6 space-y-2.5 sm:space-y-6 md:space-y-7 scroll-smooth pb-32 sm:pb-36 md:pb-40">
       {q && visibleMessages.length === 0 && (
         <div className="text-center text-xs text-slate-500 italic">
           No messages match “{searchQuery}”.
@@ -1913,7 +1913,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
         return (
           <div
             key={i}
-            className={cn('flex flex-col space-y-1.5', isUser ? 'items-end' : 'items-start')}
+            className={cn('flex flex-col space-y-1 sm:space-y-1.5', isUser ? 'items-end' : 'items-start')}
           >
             <div className={cn('flex gap-2.5 md:gap-3 max-w-[92%] md:max-w-[85%]', isUser ? 'flex-row-reverse' : 'flex-row')}>
               {!isUser && (
@@ -1929,7 +1929,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
               <div className="flex flex-col gap-1 min-w-0">
                 <div
                   className={cn(
-                    'py-2 px-3.5 sm:py-3 sm:px-5 rounded-2xl sm:rounded-3xl leading-relaxed shadow-sm max-w-full',
+                    'py-1.5 px-3 sm:py-3 sm:px-5 rounded-2xl sm:rounded-3xl leading-snug sm:leading-relaxed shadow-sm max-w-full',
                     isUser
                       ? 'bg-slate-950 text-white rounded-tr-none font-medium'
                       : 'bg-white/90 text-slate-900 border border-slate-200/70 rounded-tl-none font-normal backdrop-blur-sm',
@@ -1937,7 +1937,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
                 >
                   <div
                     className={cn(
-                      'prose prose-sm sm:prose-base max-w-none prose-p:leading-relaxed prose-p:my-1.5',
+                      'prose prose-sm sm:prose-base max-w-none prose-p:text-[13px] sm:prose-p:text-base prose-p:leading-snug sm:prose-p:leading-relaxed prose-p:my-1 sm:prose-p:my-1.5',
                       isUser
                         ? 'prose-invert prose-strong:text-white prose-a:text-amber-300 prose-code:text-amber-200'
                         : 'prose-slate prose-strong:text-slate-900 prose-a:text-blue-600 prose-code:text-rose-600 prose-pre:bg-slate-900 prose-pre:text-slate-100',
