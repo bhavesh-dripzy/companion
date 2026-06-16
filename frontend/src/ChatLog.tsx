@@ -1730,6 +1730,34 @@ export const AttachmentList: React.FC<{
       if (kind === 'info_card' && att.info) {
         return <InfoCardView key={`info-${idx}`} info={att.info} provider={att.provider} />;
       }
+      if (kind === 'blablacar_card' && att.url) {
+        const seats = Number(att.seats) || 0;
+        return (
+          <a
+            key={`blablacar-${idx}`}
+            href={String(att.url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-start gap-2 p-3 bg-white/90 border border-slate-200/80 rounded-2xl max-w-[300px] shadow-sm no-underline"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base font-extrabold text-[#00aff5]">BlaBlaCar</span>
+              <span className="text-[11px] uppercase tracking-wide text-slate-400">Carpool</span>
+            </div>
+            <div className="text-sm font-bold text-slate-900 leading-snug">
+              {String(att.origin || '')} → {String(att.destination || '')}
+            </div>
+            <div className="text-xs text-slate-500">
+              {String(att.date || '')}
+              {seats ? ` · ${seats} seat${seats > 1 ? 's' : ''}` : ''}
+            </div>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#00aff5] hover:bg-[#0095d6] text-white text-xs font-bold transition-colors shadow-sm">
+              <ExternalLink size={12} />
+              Search on BlaBlaCar
+            </span>
+          </a>
+        );
+      }
       // Serp data tiles: flights / hotels / places / Amazon / YouTube.
       if (kind === 'flight_cards' && att.flight_options?.length) {
         return (

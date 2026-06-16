@@ -32,6 +32,7 @@ def build_registry() -> ProviderRegistry:
     tools.register_all(builtin_tools())
     registry = ProviderRegistry(tools=tools)
 
+    from core.providers.plugins.blablacar import BlaBlaCarProvider
     from core.providers.plugins.calendar import CalendarProvider
     from core.providers.plugins.maps import MapsProvider
     from core.providers.plugins.serp import SerpProvider
@@ -44,6 +45,7 @@ def build_registry() -> ProviderRegistry:
         CalendarProvider(),
         WhatsAppProvider(),
         SerpProvider(),
+        BlaBlaCarProvider(),
     ):
         _register(registry, plugin)
 

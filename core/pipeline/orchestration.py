@@ -26,6 +26,7 @@ _SOLE_PROVIDER = {
     "reminder_calendar": "calendar",
     "whatsapp_message": "whatsapp",
     "data_lookup": "serp",
+    "carpool": "blablacar",
 }
 
 

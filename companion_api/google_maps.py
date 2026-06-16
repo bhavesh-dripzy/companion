@@ -431,3 +431,63 @@ def geocode_address(
 
     _geocode_cache_put(cache_key, point)
     return point
+
+
+_place_id_cache: dict[str, str | None] = {}
+
+
+def geocode_place_id(
+    text: str,
+    *,
+    region: str | None = None,
+    language: str | None = None,
+) -> str | None:
+    """Resolve a free-text place to its Google Place ID (``results[0].place_id``).
+
+    Used to anchor a provider search to a specific Google place — e.g. BlaBlaCar's
+    ``from_place_id``/``to_place_id``. Same Geocoding API, key handling, and
+    failure modes as :func:`geocode_address`; returns ``None`` when unconfigured
+    or unresolved. Cached in-process so repeated routes don't re-query."""
+    needle = (text or "").strip()
+    if not needle:
+        return None
+    cache_key = _normalise_geocode_key(needle, region)
+    if cache_key in _place_id_cache:
+        return _place_id_cache[cache_key]
+    try:
+        api_key = _api_key()
+    except GoogleMapsError as exc:
+        if exc.code == "not_configured":
+            return None
+        raise
+    params: dict[str, Any] = {
+        "address": needle,
+        "key": api_key,
+        "language": language or settings.GOOGLE_MAPS_DEFAULT_LANGUAGE,
+        "region": (region or settings.GOOGLE_MAPS_DEFAULT_REGION or "").lower() or None,
+    }
+    params = {k: v for k, v in params.items() if v is not None}
+    try:
+        response = requests.get(
+            settings.GOOGLE_MAPS_GEOCODE_URL,
+            params=params,
+            timeout=settings.GOOGLE_MAPS_REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        logger.warning("geocode_place_id network error for %r", needle, exc_info=True)
+        return None
+    if not response.ok:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or payload.get("status") != "OK":
+        _place_id_cache[cache_key] = None
+        return None
+    results = payload.get("results")
+    first = results[0] if isinstance(results, list) and results and isinstance(results[0], dict) else {}
+    place_id = first.get("place_id")
+    place_id = place_id if isinstance(place_id, str) and place_id else None
+    _place_id_cache[cache_key] = place_id
+    return place_id
