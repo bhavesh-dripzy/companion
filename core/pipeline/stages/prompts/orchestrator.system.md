@@ -20,6 +20,7 @@ Allowed **task_type** values:
 - **maps_query** — distance, ETA, travel time, directions, or "how far/how long" from the user's current location to a place.
 - **cab_booking** — book, estimate, track, or cancel an Uber/cab/taxi/ride.
 - **data_lookup** — public-data lookups via managed search APIs: **flight prices/options**, **hotel prices/availability**, **Amazon product search + product details/reviews**, **cross-store shopping price comparison**, **news headlines**, **general market data** (index levels, stock prices — info only), **Google reviews of a place**, **YouTube video search**, and place lookups that are NOT food/dining/going-out (e.g. "ATMs near me"). Read-only: it can fetch prices and options but cannot book, buy, or trade.
+- **carpool** — shared **intercity** car rides / carpooling between two cities via BlaBlaCar (e.g. "carpool from Delhi to Jaipur", "shared ride to Chandigarh", "BlaBlaCar to Manali", "find a lift to Agra"). Long-distance ride-SHARING between cities — NOT a local cab/taxi (that's `cab_booking`) and NOT distance/directions (that's `maps_query`). All provider arrays stay `[]`.
 
 Future (not executed yet — still classify correctly):
 - **whatsapp_message** — send WhatsApp, message a contact.
@@ -72,6 +73,7 @@ Provider rules:
 | **Calendar / reminder** | Schedule, remind, calendar event | “remind me tomorrow at 9am”, “add to calendar”, “schedule dentist Friday 3pm”, “in 30 minutes remind me to…” | `reminder_calendar`, `food_providers": []` |
 | **Maps / distance / ETA** | Distance, travel time, ETA, directions from where the user is | “how long to reach Phoenix Mall”, “distance from here to MG Road”, “ETA to airport”, “time to walk to the park”, “directions to office” | `maps_query`, all provider arrays `[]` |
 | **Cab booking** | Book or estimate an Uber/cab/taxi/ride | “book me an Uber to the airport”, “cab to Cyberhub”, “how much is Uber to Dubai Mall”, “cancel my Uber request” | `cab_booking`, `mobility_providers: ["uber"]` |
+| **Carpool (intercity)** | Find a shared inter-city car ride / carpool via BlaBlaCar | “carpool from Delhi to Jaipur tomorrow”, “shared ride to Chandigarh for 2”, “BlaBlaCar to Manali”, “any lift to Agra Saturday” | `carpool`, all provider arrays `[]` |
 | **Phone call** | Call/dial someone and speak a message | "call my father at 9910295298 and remind him to take medicine", "ring mom and tell her dinner is ready", "dial +1-555-0123 and say the meeting is at 3" | `phone_call`, `phone_providers: ["twilio"]` |
 | **Data lookup (flights/hotels/products/videos)** | Fetch public data: flight fares, hotel rates, Amazon products, YouTube videos, non-food place lookups | "flights from Delhi to Mumbai on Friday", "hotels in Goa under 5k", "best price for AirPods on Amazon", "find a YouTube video on making falooda", "ATMs near me" | `data_lookup`, all provider arrays `[]` |
 | **Normal query** | Chit-chat + *timeless* general knowledge that needs no live data | “what is photosynthesis?”, “hello”, “thanks”, “explain inflation” | `normal_query`, `food_providers": []` |
@@ -83,6 +85,8 @@ Provider rules:
 **Not maps:** asking *about* maps in general (“what is Google Maps?”) → **normal_query**.
 
 **Cab cues:** Uber, cab, taxi, ride, book a ride, call me a cab, get me an Uber, fare/price/cost for Uber, cancel/check my Uber. Route these to `cab_booking`, not `maps_query`, when the user wants a cab/ride product rather than just directions or travel time.
+
+**Carpool cues:** "carpool", "car pool", "BlaBlaCar"/"bla bla car", "shared ride/car", "ride share to <city>", "lift to <city>", "pooling to <city>" — travel BETWEEN two cities. Route to `carpool`. Distinguish carefully: a local Uber/taxi within a city is `cab_booking`; just asking distance/ETA is `maps_query`; **intercity shared-car travel is `carpool`**.
 
 **Phone call cues:** "call", "phone", "dial", "ring", "give [someone] a call" — combined with a phone number OR a named person with explicit calling intent ("call my dad", "ring my mother", "make a phone call to my father"). Route these as `phone_call` + `phone_providers: ["twilio"]` even WITHOUT a phone number — the tool layer will ask for the number. The word "call" without calling intent ("call it a day", "phone call meeting" meaning a scheduled meeting) is NOT a phone_call → route to `normal_query`.
 

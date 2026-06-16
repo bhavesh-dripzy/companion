@@ -24,6 +24,7 @@ class TaskType(str, Enum):
     CAB_BOOKING = "cab_booking"
     PHONE_CALL = "phone_call"
     DATA_LOOKUP = "data_lookup"
+    CARPOOL = "carpool"
 
 
 class RoutingDecision(BaseModel):
