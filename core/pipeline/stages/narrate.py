@@ -219,7 +219,9 @@ def _results_summary(ctx: PipelineContext) -> str:
             # Failed tools rarely carry data; surface the actionable reason
             # (e.g. "reconnect Swiggy Food") so the narrator can tell the user.
             if not tool_result.ok and tool_result.error_detail:
-                blob = tool_result.error_detail if not blob else f"{tool_result.error_detail} — {blob}"
+                blob = (
+                    tool_result.error_detail if not blob else f"{tool_result.error_detail} — {blob}"
+                )
             parts.append(f"[{result.provider}.{tool_result.tool} {status}] {blob}")
     if ctx.blocked:
         parts.append("Blocked pending confirmation: " + ", ".join(c.tool for c in ctx.blocked))

@@ -47,7 +47,9 @@ def _user_context(ctx: PipelineContext) -> str:
     open_leads = profile.open_leads or []
     if open_leads:
         rendered = ", ".join(
-            f'{l.get("category")}: "{l.get("product")}"' for l in open_leads[:5] if l.get("product")
+            f'{lead.get("category")}: "{lead.get("product")}"'
+            for lead in open_leads[:5]
+            if lead.get("product")
         )
         if rendered:
             lines.append(f"- Open leads (already known — update, don't re-pitch): {rendered}")
@@ -55,8 +57,9 @@ def _user_context(ctx: PipelineContext) -> str:
     matched = profile.matched_leads or []
     if matched:
         rendered = ", ".join(
-            f'{l.get("category")}: "{l.get("product")}" → {l.get("vendor_name")}'
-            for l in matched[:5] if l.get("product")
+            f'{lead.get("category")}: "{lead.get("product")}" → {lead.get("vendor_name")}'
+            for lead in matched[:5]
+            if lead.get("product")
         )
         if rendered:
             lines.append(
