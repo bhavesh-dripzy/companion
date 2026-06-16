@@ -37,6 +37,11 @@ _RESPONSE_PROMPT = (
     "their address, then suggest trying the other grocery platform by name — e.g. "
     "if Instamart is not serviceable suggest Zepto, and vice versa. Keep it brief "
     "and actionable: one sentence on why it failed, one sentence suggesting the alternative.\n"
+    "When a tool result is tagged AUTH_REQUIRED, that platform's saved login "
+    "expired or was never connected. Still present everything the other platforms "
+    "returned, THEN tell the user to reconnect THAT platform by name (e.g. "
+    "'reconnect Swiggy Food to search it') — one short line. Never give a blanket "
+    "apology or hide the results that did come back.\n"
     "You DO have live web access through tools: news/headlines on any topic, "
     "video search, flights, hotels, product prices, maps, stock quotes, AND "
     "outbound phone calls (via make_phone_call — speaks a message to any number). "
@@ -205,9 +210,16 @@ def _results_summary(ctx: PipelineContext) -> str:
                 status = "ok"
             else:
                 status = f"error:{tool_result.error}"
-                if tool_result.error and tool_result.error.value == "not_serviceable":
+                code = tool_result.error.value if tool_result.error else ""
+                if code == "not_serviceable":
                     status = "NOT_SERVICEABLE"
+                elif code == "auth_required":
+                    status = "AUTH_REQUIRED"
             blob = _result_blob(ctx, result.provider, tool_result)
+            # Failed tools rarely carry data; surface the actionable reason
+            # (e.g. "reconnect Swiggy Food") so the narrator can tell the user.
+            if not tool_result.ok and tool_result.error_detail:
+                blob = tool_result.error_detail if not blob else f"{tool_result.error_detail} — {blob}"
             parts.append(f"[{result.provider}.{tool_result.tool} {status}] {blob}")
     if ctx.blocked:
         parts.append("Blocked pending confirmation: " + ", ".join(c.tool for c in ctx.blocked))

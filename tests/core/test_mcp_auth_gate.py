@@ -168,3 +168,80 @@ def test_gate_skipped_for_non_oauth(monkeypatch):
     result = asyncio.run(_NoneAuth().run([ToolCall(tool="t", arguments={})], ExecCtx()))
     assert result.ok
     assert len(opened) == 1
+
+
+# ── partial success: a valid provider still works when another needs re-auth ──
+
+
+def test_dispatcher_serves_valid_provider_when_another_needs_reauth():
+    from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
+    from core.middleware.dispatcher import Dispatcher
+    from core.registry.provider_registry import ProviderRegistry
+
+    class _Healthy:
+        id = "zomato"
+        label = "Zomato"
+        auth_mode = AuthMode.OAUTH
+        session_cls = None
+
+        async def run(self, calls, ctx):
+            return ProviderResult(
+                provider=self.id,
+                results=[
+                    ToolResult(tool=c.tool, provider=self.id, ok=True, data={"ok": True})
+                    for c in calls
+                ],
+                ok=True,
+            )
+
+    class _Expired:
+        id = "swiggy_food"
+        label = "Swiggy Food MCP"
+        auth_mode = AuthMode.OAUTH
+        session_cls = None
+
+        async def run(self, calls, ctx):
+            raise AuthRequiredError(detail="Swiggy Food isn't connected — reconnect it to continue.")
+
+    reg = ProviderRegistry()
+    reg.register(_Healthy())
+    reg.register(_Expired())
+    calls = [
+        ToolCall(tool="search_restaurants", arguments={}, provider="zomato"),
+        ToolCall(tool="search_restaurants", arguments={}, provider="swiggy_food"),
+    ]
+    results = asyncio.run(Dispatcher(reg).dispatch(calls, lambda pid: ExecCtx()))
+    by = {r.provider: r for r in results}
+    assert by["zomato"].ok and by["zomato"].results[0].ok  # valid provider still served
+    assert not by["swiggy_food"].ok
+    assert by["swiggy_food"].results[0].error is ErrorCode.AUTH_REQUIRED
+    assert "reconnect" in (by["swiggy_food"].results[0].error_detail or "").lower()
+
+
+def test_tool_execution_flags_reauth_provider_on_partial_success():
+    from companion_api.core_shadow import _tool_execution
+    from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
+
+    healthy = ProviderResult(
+        provider="zomato",
+        results=[ToolResult(tool="search_restaurants", provider="zomato", ok=True, data={"ok": True})],
+        ok=True,
+    )
+    expired = ProviderResult(
+        provider="swiggy_food",
+        results=[
+            ToolResult(
+                tool="search_restaurants",
+                provider="swiggy_food",
+                ok=False,
+                error=ErrorCode.AUTH_REQUIRED,
+                error_detail="reconnect Swiggy Food",
+            )
+        ],
+        ok=False,
+        error=ErrorCode.AUTH_REQUIRED,
+        error_detail="reconnect Swiggy Food",
+    )
+    out = _tool_execution([healthy, expired])
+    assert out["reauth_needed_by"] == ["swiggy_food"]
+    assert out["error_code"] == "auth_required"
