@@ -71,7 +71,7 @@ class ReminderRepository:
         pending = [
             i
             for i in items
-            if i.get("status") == "active" and bool(i.get("is_triggered")) is True
+            if i.get("status") == "active" and not i.get("is_triggered")
         ]
         return sorted(pending, key=lambda i: str(i.get("next_trigger", "")))
 
