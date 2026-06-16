@@ -3,9 +3,10 @@ import { api } from './api';
 
 export const isNative = Capacitor.isNativePlatform();
 
-// The localhost redirect the paste-mode providers (Zepto/District/Groww) emit,
-// and the bounce our hosted callback uses for redirect-mode providers.
-const CALLBACK_PREFIX = 'http://localhost:3334/oauth/callback';
+// The loopback redirect paste-mode providers emit. The port is mcp-remote's
+// per-server hash port (e.g. Swiggy = 16148/21621), not a fixed one, so match
+// any localhost port — the backend picks the port the server whitelists.
+const CALLBACK_RE = /^https?:\/\/localhost:\d+\/oauth\/callback/;
 const REDIRECT_SUCCESS = 'mcp_oauth=success';
 
 interface IabRef {
@@ -54,7 +55,7 @@ function interceptOAuth(authorizationUrl: string): Promise<{ kind: 'paste' | 're
 
     const onNavigate = (e: { url?: string }) => {
       const url = e?.url || '';
-      if (url.startsWith(CALLBACK_PREFIX)) {
+      if (CALLBACK_RE.test(url)) {
         if (url.includes('error=')) {
           finish(() => reject(new Error('The provider denied authorization.')));
         } else {

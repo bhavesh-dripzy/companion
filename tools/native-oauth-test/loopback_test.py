@@ -2,9 +2,10 @@
 """Laptop loopback test for the native-shell onboarding flow — no phone, no Expo.
 
 Runs the exact OAuth + completion chain the native app will: start a paste-mode
-flow (localhost:3334 redirect), open the provider login in your normal browser,
-catch the localhost redirect with a tiny local server, complete the token
-exchange, vault the tokens, and verify them with a live tools/list.
+flow (loopback redirect on mcp-remote's per-server port — e.g. Swiggy = 16148),
+open the provider login in your normal browser, catch the localhost redirect
+with a tiny local server bound to that same port, complete the token exchange,
+vault the tokens, and verify them with a live tools/list.
 
 The ONLY thing this swaps vs. the real phone app is the *carrier* of the auth
 code: here a real localhost server catches the redirect (works on a laptop); in
@@ -28,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlsplit
 
 from companion_api import mcp_probe
-from core.providers.mcp.oauth import PASTE_REDIRECT_URI, start_web_oauth
+from core.providers.mcp.oauth import paste_redirect_uri, start_web_oauth
 from core.providers.mcp.oauth_complete import complete_web_oauth_from_text
 
 PROVIDERS = {
@@ -39,7 +40,7 @@ PROVIDERS = {
     "swiggy_food": ("Swiggy Food MCP", "https://mcp.swiggy.com/food"),
 }
 
-_HOST, _PORT, _PATH = "127.0.0.1", 3334, "/oauth/callback"
+_HOST, _PATH = "127.0.0.1", "/oauth/callback"
 
 
 def _page(ok: bool, headline: str, detail: str) -> bytes:
@@ -78,14 +79,15 @@ def main() -> int:
         )
         return 1
 
-    redirect_host = urlsplit(PASTE_REDIRECT_URI).netloc
+    port = urlsplit(paste_redirect_uri(mcp_url)).port or 3334
+    redirect_host = f"{_HOST}:{port}"
     auth_url = started["authorization_url"]
     print(f"\n  Provider : {label}  (completion=paste, redirect→{redirect_host})")
     print(f"  User     : {args.user}")
     print(f"\n  Authorize URL:\n  {auth_url}\n")
 
-    httpd = HTTPServer((_HOST, _PORT), _make_handler(args.user, label))
-    print(f"  Listening for the redirect on http://{_HOST}:{_PORT}{_PATH}")
+    httpd = HTTPServer((_HOST, port), _make_handler(args.user, label, port))
+    print(f"  Listening for the redirect on http://{_HOST}:{port}{_PATH}")
     if args.dry:
         httpd.server_close()
         print("  --dry: server bound OK, exiting before login.\n")
@@ -119,20 +121,20 @@ def main() -> int:
     return 1
 
 
-def _make_handler(user_id: str, label: str):
+def _make_handler(user_id: str, label: str, port: int):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if not self.path.startswith(_PATH):
                 self.send_response(404)
                 self.end_headers()
                 return
-            full_url = f"http://{_HOST}:{_PORT}{self.path}"
+            full_url = f"http://{_HOST}:{port}{self.path}"
             print(f"  ← caught redirect: {full_url}")
             try:
                 result = complete_web_oauth_from_text(text=full_url, user_id=user_id)
                 body = _page(True, f"{label} connected", "Tokens saved and being verified.")
                 self.server._result = (True, result)  # type: ignore[attr-defined]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 body = _page(False, "Could not finish", f"{type(e).__name__}: {e}")
                 self.server._result = (False, f"{type(e).__name__}: {e}")  # type: ignore[attr-defined]
             self.send_response(200)
