@@ -296,7 +296,7 @@ export function ChatArea({
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden relative font-sans select-none">
       {/* Header */}
-      <header className="shrink-0 bg-white/46 border-b border-[#ece3d6]/60 px-5 py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-30 select-none">
+      <header className="shrink-0 bg-white/46 border-b border-[#ece3d6]/60 px-3 sm:px-5 py-2.5 sm:py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-30 select-none">
         <div className="flex items-center gap-3">
           {isSidebarCollapsed && (
             <button
@@ -454,7 +454,7 @@ export function ChatArea({
           </div>
 
           {/* Bottom composer */}
-          <div className="px-4 pt-4 pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#F3F7FD]/98 via-[#F3F7FD]/50 to-transparent sticky bottom-0 left-0 right-0 z-20">
+          <div className="px-3 sm:px-4 pt-2.5 sm:pt-4 pb-[calc(0.75rem+var(--safe-bottom))] sm:pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#F3F7FD]/98 via-[#F3F7FD]/50 to-transparent sticky bottom-0 left-0 right-0 z-20">
             {/* Delivery address chip — visible + switchable BEFORE any
                 food/grocery search runs (no more wrong-house surprises). */}
             {sessionAddresses.length > 0 && onPickAddress && (
@@ -474,20 +474,20 @@ export function ChatArea({
               if (isGroceryMode) {
                 return (
                   <div className="w-full mb-1">
-                  <p className="text-[10px] font-medium text-slate-400 mb-1.5 px-0.5">Quick select</p>
-                  <div className="w-full flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar scroll-smooth">
+                  <p className="text-[9px] sm:text-[10px] font-medium text-slate-400/90 mb-1 px-0.5 uppercase tracking-wide">Quick select</p>
+                  <div className="w-full flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar scroll-smooth">
                     {GROCERY_QUICK_ITEMS.map((item) => (
                       <button
                         key={item.label}
                         type="button"
                         disabled={isThinking}
                         onClick={() => onQuickPrompt?.(`Search ${item.term} on Swiggy Instamart and Zepto`)}
-                        className="shrink-0 flex items-center gap-2 bg-white border border-slate-200 hover:border-[#1a9d6b]/40 hover:bg-[#f0faf6] px-2.5 py-1.5 rounded-full text-[12px] font-semibold text-[#221b2e] transition-all duration-150 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-sm"
+                        className="shrink-0 flex items-center gap-1.5 bg-white/70 border border-slate-200/70 hover:border-[#1a9d6b]/40 hover:bg-[#f0faf6] px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-full text-[11px] sm:text-[12px] font-semibold text-[#221b2e] transition-all duration-150 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <img
                           src={item.img}
                           alt={item.label}
-                          className="w-5 h-5 rounded-full object-contain bg-slate-50"
+                          className="w-4 h-4 sm:w-5 sm:h-5 rounded-full object-contain bg-slate-50"
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                         />
                         {item.label}
@@ -498,7 +498,7 @@ export function ChatArea({
                 );
               }
               return (
-                <div className="w-full flex items-center gap-2 overflow-x-auto pb-1.5 mb-1 no-scrollbar scroll-smooth">
+                <div className="w-full flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 mb-1 no-scrollbar scroll-smooth">
                   {PROMPT_OPTIONS.map((option) => {
                     const IconComponent = option.icon;
                     return (
@@ -507,10 +507,10 @@ export function ChatArea({
                         type="button"
                         onClick={() => handleQuickAction(option)}
                         disabled={isThinking}
-                        className={`shrink-0 flex items-center gap-2 border px-3.5 py-1.5 rounded-[13px] text-xs font-semibold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] hover:shadow-sm ${option.color}`}
+                        className={`shrink-0 flex items-center gap-1.5 sm:gap-2 border px-2.5 py-1 sm:px-3.5 sm:py-1.5 rounded-[11px] sm:rounded-[13px] text-[11px] sm:text-xs font-semibold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] hover:shadow-sm ${option.color}`}
                       >
                         <div className="p-0.5 rounded-md shrink-0">
-                          <IconComponent className="w-3.5 h-3.5" />
+                          <IconComponent className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                         </div>
                         <span>{option.label}</span>
                       </button>
