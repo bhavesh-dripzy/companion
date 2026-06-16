@@ -1074,6 +1074,20 @@ const assistantMsg: Message = {
     ]);
   };
 
+  // Order Food quick-action: same client-side pattern as groceries — drop an
+  // in-chat cuisine picker (a "user" bubble + a cards-only assistant turn with
+  // the `food_categories` attachment). Tapping a tile fires a real Zomato /
+  // Swiggy Food search through handleSendMessage.
+  const handleOpenFood = () => {
+    if (isThinking) return;
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: 'Order food' },
+      { role: 'assistant', content: '', attachments: [{ kind: 'food_intro' }] },
+      { role: 'assistant', content: '', attachments: [{ kind: 'food_categories' }] },
+    ]);
+  };
+
   // Cards (menu/restaurant/cart) returned by the most recent voice tool call,
   // held until that turn completes so we can attach them to the rendered
   // assistant message in the chat log.
@@ -1412,6 +1426,7 @@ const assistantMsg: Message = {
               if (!isThinking) handleSendMessage(prompt);
             }}
             onOpenGroceries={handleOpenGroceries}
+            onOpenFood={handleOpenFood}
             onToggleLeft={() => setIsSidebarCollapsed((v) => !v)}
             isSidebarCollapsed={isSidebarCollapsed}
             connectedCount={
