@@ -96,8 +96,8 @@ export function ChatMessageItem({
         <div
           className={`animate-fade-in px-4 rounded-[16px] leading-snug transition-all duration-200 max-w-full ${
             isUser
-              ? 'text-[16px] py-4 bg-gradient-to-br from-[#2b2f72]/10 via-[#e85d7a]/8 to-[#ff8a1e]/10 border border-[#2b2f72]/15 text-[#221b2e] shadow-sm font-medium rounded-tr-md'
-              : 'text-[16px] py-4 bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs font-normal rounded-tl-md select-text'
+              ? 'text-[14.5px] py-3 bg-gradient-to-br from-[#2b2f72]/10 via-[#e85d7a]/8 to-[#ff8a1e]/10 border border-[#2b2f72]/15 text-[#221b2e] shadow-sm font-medium rounded-tr-md'
+              : 'text-[14.5px] py-3 bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs font-normal rounded-tl-md select-text'
           }`}
         >
           <div
@@ -105,8 +105,8 @@ export function ChatMessageItem({
               isUser
                 // [&_p]:my-0 removes the paragraph margin that was inflating the
                 // bubble height vertically.
-                ? '[&_p]:my-0 prose-p:text-[16px] prose-li:text-[16px] prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f]'
-                : 'prose-p:my-1 prose-p:text-[16px] prose-li:text-[16px] prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
+                ? '[&_p]:my-0 prose-p:text-[14.5px] prose-li:text-[14.5px] prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f]'
+                : 'prose-p:my-1 prose-p:text-[14.5px] prose-li:text-[14.5px] prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
             }`}
           >
             <ReactMarkdown remarkPlugins={[remarkBreaks]}>{msg.content}</ReactMarkdown>
