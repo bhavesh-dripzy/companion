@@ -70,9 +70,11 @@ class ZeptoProvider(McpProvider):
     auth_mode = AuthMode.OAUTH
     session_cls = ZeptoSession
 
+    def mcp_url(self, ctx: ExecCtx) -> str | None:
+        return os.getenv("ZEPTO_MCP_URL", _DEFAULT_URL)
+
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
-        url = os.getenv("ZEPTO_MCP_URL", _DEFAULT_URL)
-        return remote_stdio_spec(url, user_id=ctx.user_id)
+        return remote_stdio_spec(self.mcp_url(ctx), user_id=ctx.user_id)
 
     async def run(self, calls: list[ToolCall], ctx: ExecCtx) -> ProviderResult:
         """Guard: return needs_location immediately if no GPS — avoids opening MCP session."""

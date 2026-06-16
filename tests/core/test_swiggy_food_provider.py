@@ -219,6 +219,12 @@ def test_run_chains_search_to_menu_in_one_plan(monkeypatch):
 
     monkeypatch.setattr(mcp_base, "mcp_session", fake_session)
     monkeypatch.setattr(mcp_base, "call_tool", fake_call_tool)
+    # Post-auth chaining test: stub the OAuth pre-flight gate (no vaulted tokens here).
+    import core.providers.mcp.token_store as _ts
+    import core.providers.mcp.token_vault as _tv
+
+    monkeypatch.setattr(_ts, "has_usable_tokens", lambda *a, **k: True)
+    monkeypatch.setattr(_tv, "ensure_mcp_tokens_on_disk", lambda *a, **k: {})
 
     result = asyncio.run(
         SwiggyFoodProvider().run(

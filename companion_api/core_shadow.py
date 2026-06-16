@@ -101,7 +101,9 @@ def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
 
     error_code prefers a provider's granular code (e.g. ``needs_location``) and
     falls back to the coarse ErrorCode enum. location_needed_by names the provider
-    that failed with needs_location so the frontend can retry only that one."""
+    that failed with needs_location, and reauth_needed_by lists providers whose
+    OAuth login expired — so the frontend can retry / prompt reconnect for just
+    those, while still showing the results other providers returned this turn."""
     from core.contracts.tool_result import ErrorCode
 
     failed = [r for r in results if not r.ok]
@@ -111,9 +113,15 @@ def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
     error_code: str | None = None
     error_msg = first.error_detail
     location_needed_by: str | None = None
+    reauth_needed_by: list[str] = []
     for r in results:
         if r.error == ErrorCode.NEEDS_LOCATION and location_needed_by is None:
             location_needed_by = r.provider
+        needs_reauth = r.error == ErrorCode.AUTH_REQUIRED or any(
+            tr.error == ErrorCode.AUTH_REQUIRED for tr in r.results
+        )
+        if needs_reauth and r.provider not in reauth_needed_by:
+            reauth_needed_by.append(r.provider)
     for tr in first.results:
         if tr.ok:
             continue
@@ -126,6 +134,8 @@ def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
     out: dict[str, Any] = {"ok": False, "error": error_msg or "Tool execution failed.", "error_code": error_code}
     if location_needed_by:
         out["location_needed_by"] = location_needed_by
+    if reauth_needed_by:
+        out["reauth_needed_by"] = reauth_needed_by
     return out
 
 

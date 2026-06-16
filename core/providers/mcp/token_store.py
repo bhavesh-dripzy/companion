@@ -10,10 +10,12 @@ normalized to the current version on every restore/persist.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -245,3 +247,66 @@ def get_mcp_token_status(
         "expected_files": expected,
         "expected_tokens_present": Path(expected["tokens"]).is_file(),
     }
+
+
+_EXPIRY_SKEW_SECONDS = 120
+
+
+def _jwt_exp(token: str) -> int | None:
+    """The `exp` claim of a JWT access token, or None if it isn't a readable JWT."""
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    segment = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(segment))
+    except (ValueError, TypeError):
+        return None
+    exp = claims.get("exp") if isinstance(claims, dict) else None
+    return int(exp) if isinstance(exp, int | float) else None
+
+
+def _access_token_expired(tokens: dict[str, Any], mtime: float | None) -> bool | None:
+    """True/False when expiry is determinable, else None (unknown — treat as usable).
+
+    Reads a JWT `exp` first, then falls back to `expires_in` measured from the
+    token file's mtime (opaque tokens). A small skew avoids racing the boundary."""
+    access = tokens.get("access_token")
+    if not isinstance(access, str) or not access:
+        return True
+    deadline = time.time() + _EXPIRY_SKEW_SECONDS
+    exp = _jwt_exp(access)
+    if exp is not None:
+        return exp <= deadline
+    expires_in = tokens.get("expires_in")
+    if isinstance(expires_in, int | float) and mtime is not None:
+        return (mtime + float(expires_in)) <= deadline
+    return None
+
+
+def has_usable_tokens(root: Path | None = None, *, mcp_url: str, user_id: str | None = None) -> bool:
+    """Whether an on-disk token can authenticate now or be refreshed.
+
+    Returns False only when re-auth is CERTAIN: no token file, an unreadable one,
+    or an expired access token with no refresh_token. Unknown expiry (opaque token
+    with no `expires_in`) counts as usable so a working provider is never gated.
+    Call after `ensure_mcp_tokens_on_disk` so a refreshable login is already
+    restored/refreshed before the check."""
+    root = root or repo_root()
+    cfg = effective_config_dir(user_id=user_id, root=root)
+    tokens_path = cfg / f"{server_url_hash(mcp_url)}_tokens.json"
+    if not tokens_path.is_file():
+        return False
+    try:
+        tokens = json.loads(tokens_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(tokens, dict):
+        return False
+    if tokens.get("refresh_token"):
+        return True
+    try:
+        mtime = tokens_path.stat().st_mtime
+    except OSError:
+        mtime = None
+    return _access_token_expired(tokens, mtime) is not True

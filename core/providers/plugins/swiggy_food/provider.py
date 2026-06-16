@@ -65,9 +65,11 @@ class SwiggyFoodProvider(McpProvider):
     saved_addresses_tool = "get_addresses"
     resolver = SwiggyFoodResolver()
 
+    def mcp_url(self, ctx: ExecCtx) -> str | None:
+        return os.getenv("SWIGGY_FOOD_MCP_URL", _DEFAULT_URL)
+
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
-        url = os.getenv("SWIGGY_FOOD_MCP_URL", _DEFAULT_URL)
-        return remote_stdio_spec(url, user_id=ctx.user_id)
+        return remote_stdio_spec(self.mcp_url(ctx), user_id=ctx.user_id)
 
     def normalize_args(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         """Coerce cart payloads to Swiggy's strict request shape — the planner
