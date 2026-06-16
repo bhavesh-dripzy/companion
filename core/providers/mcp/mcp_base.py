@@ -21,7 +21,11 @@ from core.contracts.session import ProviderSessionState
 from core.contracts.tool import AuthMode, Tool
 from core.contracts.tool_call import ToolCall
 from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
-from core.middleware.errors import ToolTimeoutError, UnresolvedPlaceholderError
+from core.middleware.errors import (
+    AuthRequiredError,
+    ToolTimeoutError,
+    UnresolvedPlaceholderError,
+)
 from core.middleware.repair import (
     backoff_delay,
     classify_envelope,
@@ -82,6 +86,44 @@ class McpProvider(ABC):
         Default: spawn mcp-remote over stdio. Providers with a custom transport
         (e.g. Kite re-attaching a vaulted authed session) override this."""
         return mcp_session(self.stdio_spec(ctx))
+
+    def mcp_url(self, ctx: ExecCtx) -> str | None:
+        """The hosted MCP URL for this turn — OAuth plugins override.
+
+        Drives the pre-flight auth gate (`_require_auth`). Returning None disables
+        the gate: non-OAuth providers and custom transports (Kite) manage their
+        own auth and must not be gated on vaulted OAuth tokens."""
+        return None
+
+    def _require_auth(self, ctx: ExecCtx) -> None:
+        """Fail fast when an OAuth provider has no usable token for this account.
+
+        Without this, mcp-remote spawns and falls into an interactive browser
+        OAuth handshake that cannot complete on Lambda: it hangs to the init
+        timeout (~20s/attempt) and concurrent providers collide on its fixed
+        callback port. Restoring/refreshing first lets a refreshable login pass;
+        only a missing or dead-and-unrefreshable token raises AuthRequiredError,
+        which the dispatcher turns into a clean AUTH_REQUIRED result asking the
+        user to reconnect — instead of a confusing timeout."""
+        if self.auth_mode is not AuthMode.OAUTH:
+            return
+        url = self.mcp_url(ctx)
+        if not url:
+            return
+        import contextlib
+
+        from core.providers.mcp.remote import repo_root
+        from core.providers.mcp.token_store import has_usable_tokens
+        from core.providers.mcp.token_vault import ensure_mcp_tokens_on_disk
+
+        root = repo_root()
+        with contextlib.suppress(Exception):  # restore/refresh is best-effort; the check decides
+            ensure_mcp_tokens_on_disk(root, mcp_url=url, user_id=ctx.user_id)
+        if not has_usable_tokens(root, mcp_url=url, user_id=ctx.user_id):
+            name = self.label.removesuffix(" MCP").strip() or self.label
+            raise AuthRequiredError(
+                detail=f"{name} isn't connected for this account — reconnect it to continue."
+            )
 
     def normalize_args(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         """Hook: repair provider-specific argument shapes the planner gets wrong
@@ -181,6 +223,7 @@ class McpProvider(ABC):
         return new_args, tool_result_payload(raw)
 
     async def run(self, calls: list[ToolCall], ctx: ExecCtx) -> ProviderResult:
+        self._require_auth(ctx)
         async with self.open_session(ctx) as session:
             await self.before_run(session, ctx)
 

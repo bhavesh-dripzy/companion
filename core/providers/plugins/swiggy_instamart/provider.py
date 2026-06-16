@@ -45,9 +45,11 @@ class SwiggyInstamartProvider(McpProvider):
     saved_addresses_tool = "get_addresses"
     saved_addresses_session_key = "session_instamart_addresses"
 
+    def mcp_url(self, ctx: ExecCtx) -> str | None:
+        return os.getenv("SWIGGY_INSTAMART_MCP_URL", _DEFAULT_URL)
+
     def stdio_spec(self, ctx: ExecCtx) -> StdioSpec:
-        url = os.getenv("SWIGGY_INSTAMART_MCP_URL", _DEFAULT_URL)
-        return remote_stdio_spec(url, user_id=ctx.user_id)
+        return remote_stdio_spec(self.mcp_url(ctx), user_id=ctx.user_id)
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         return [
