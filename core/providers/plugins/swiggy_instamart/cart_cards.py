@@ -87,7 +87,9 @@ def build_spin_index(
     return index
 
 
-def _cart_item(it: Any, spin_index: dict[str, dict[str, Any]]) -> tuple[dict[str, Any], float | None, int] | None:
+def _cart_item(
+    it: Any, spin_index: dict[str, dict[str, Any]]
+) -> tuple[dict[str, Any], float | None, int] | None:
     if not isinstance(it, dict):
         return None
     spin = str(it.get("spinId") or it.get("spin_id") or it.get("variantId") or "").strip() or None

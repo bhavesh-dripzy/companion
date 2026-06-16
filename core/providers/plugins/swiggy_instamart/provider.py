@@ -27,7 +27,10 @@ from core.providers.mcp.info_cards import build_info_cards
 from core.providers.mcp.mcp_base import McpProvider
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.mcp.result_cards import build_order_cards, build_tracking_card
-from core.providers.plugins.swiggy_instamart.cards import build_product_cards, normalize_address_rows
+from core.providers.plugins.swiggy_instamart.cards import (
+    build_product_cards,
+    normalize_address_rows,
+)
 from core.providers.plugins.swiggy_instamart.cart_cards import (
     build_cart_cards,
     build_spin_index,
@@ -107,9 +110,7 @@ class SwiggyInstamartProvider(McpProvider):
         )
         session_products = result.diagnostics.get("session_instamart_products")
         return [
-            *build_product_cards(
-                result.results, address_id=address_id, addresses=addresses
-            ),
+            *build_product_cards(result.results, address_id=address_id, addresses=addresses),
             *build_cart_cards(result.results, session_products=session_products),
             *build_order_cards(
                 result.results, tools={"get_orders"}, provider_id=self.id, brand="instamart"
@@ -202,9 +203,7 @@ class SwiggyInstamartProvider(McpProvider):
                 return cart_addr
         return str(session.get(_SESSION_SELECTED_ADDRESS) or "").strip() or None
 
-    def before_call(
-        self, tool: str, args: dict[str, Any], ctx: ExecCtx
-    ) -> dict[str, Any] | None:
+    def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
         # Guarantee the resolved delivery address on every tool that requires it —
         # the planner sometimes omits the (required) addressId/selectedAddressId,
         # which Swiggy rejects with "delivery address is missing".

@@ -62,9 +62,7 @@ class _ZeptoResolver(PlaceholderResolver):
 
 
 class ZeptoProvider(McpProvider):
-    resolver: PlaceholderResolver = _ZeptoResolver(
-        aliases=_ZEPTO_ALIASES, issuers=_ZEPTO_ISSUERS
-    )
+    resolver: PlaceholderResolver = _ZeptoResolver(aliases=_ZEPTO_ALIASES, issuers=_ZEPTO_ISSUERS)
     id = "zepto"
     label = "Zepto MCP"
     auth_mode = AuthMode.OAUTH

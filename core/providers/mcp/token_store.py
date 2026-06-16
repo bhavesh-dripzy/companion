@@ -284,7 +284,9 @@ def _access_token_expired(tokens: dict[str, Any], mtime: float | None) -> bool |
     return None
 
 
-def has_usable_tokens(root: Path | None = None, *, mcp_url: str, user_id: str | None = None) -> bool:
+def has_usable_tokens(
+    root: Path | None = None, *, mcp_url: str, user_id: str | None = None
+) -> bool:
     """Whether an on-disk token can authenticate now or be refreshed.
 
     Returns False only when re-auth is CERTAIN: no token file, an unreadable one,
