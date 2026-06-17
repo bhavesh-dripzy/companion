@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { Login } from './Login';
 import { SettingsModal } from './SettingsModal';
+import { AppsModal } from './components/AppsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { LeftSidebar } from './components/LeftSidebar';
 import { ChatArea } from './components/ChatArea';
@@ -347,6 +348,7 @@ function App() {
   // up-front. Users can toggle items / add / delete entries and the
   // state lives for the session.
   const [showRemindersPopup, setShowRemindersPopup] = useState(false);
+  const [showApps, setShowApps] = useState(false);
   const [showOrdersPopup, setShowOrdersPopup] = useState(false);
   const [reminders, setReminders] = useState(INITIAL_REMINDERS);
   const [orders, setOrders] = useState(INITIAL_ORDERS);
@@ -923,7 +925,10 @@ const assistantMsg: Message = {
     }
   };
 
-  const handleSendMessage = async (content: string, geoOverride?: import('./types').GeoCoordinate | null) => {
+  const handleSendMessage = async (
+    content: string,
+    geoOverride?: import('./types').GeoCoordinate | null,
+  ) => {
     const text = (content || '').trim();
     if (!text) return;
     const userMsg: Message = { role: 'user', content: text };
@@ -1409,6 +1414,7 @@ const assistantMsg: Message = {
         onSelectProvider={(id) => openSettings('mcp', id)}
         remindersBadge={remindersBadge || undefined}
         onShowReminders={() => setShowRemindersPopup(true)}
+        onOpenApps={() => setShowApps(true)}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
       />
@@ -1499,6 +1505,8 @@ const assistantMsg: Message = {
           />
         )}
       </div>
+
+      <AppsModal isOpen={showApps} onClose={() => setShowApps(false)} />
 
       <SettingsModal
         isOpen={isSettingsOpen}

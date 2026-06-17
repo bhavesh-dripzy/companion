@@ -1009,3 +1009,42 @@ def food_saved_addresses(
         "addresses": rows,
         "count": len(rows),
     }
+
+
+# ── Instamart default delivery address (per-user source of truth) ──────────────
+# Stored per-user in DynamoDB (ProfileCacheRepository / PROFILE_CACHE_TABLE) —
+# the right home for a non-secret, every-turn-read preference (fast reads, no
+# Secrets Manager SCP/throttle limits). This is the single source of truth the
+# cart flow pins to; auth is untouched.
+
+from companion_api.instamart_address import (  # noqa: E402
+    get_default_instamart_address,
+    save_default_instamart_address,
+)
+
+
+class InstamartDefaultAddress(BaseModel):
+    address_id: str
+    tag: str | None = None
+    line: str | None = None
+
+
+@router.get("/api/mcp/instamart/default-address/")
+def get_instamart_default_address(user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """Return the user's saved Instamart default delivery address (or null)."""
+    return {"default_address": get_default_instamart_address(user)}
+
+
+@router.post("/api/mcp/instamart/default-address/")
+def set_instamart_default_address(
+    payload: InstamartDefaultAddress,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Persist the user's chosen Instamart default delivery address."""
+    address_id = payload.address_id.strip()
+    if not address_id:
+        raise HTTPException(status_code=400, detail="address_id is required.")
+    record = save_default_instamart_address(
+        user, address_id=address_id, tag=payload.tag, line=payload.line
+    )
+    return {"status": "saved", "default_address": record}

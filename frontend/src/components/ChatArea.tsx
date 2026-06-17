@@ -527,7 +527,7 @@ export function ChatArea({
 
             <form
               onSubmit={handleSubmit}
-              className="w-full bg-white shadow-[0_2px_16px_rgba(0,0,0,0.08)] rounded-2xl flex items-center pl-4 pr-2 py-2 gap-2 transition-all duration-200"
+              className="w-full bg-white shadow-[0_2px_16px_rgba(0,0,0,0.08)] rounded-2xl flex items-center pl-4 pr-2 py-3 gap-2 transition-all duration-200"
             >
               {/* Sparkle icon */}
               <span className="shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
