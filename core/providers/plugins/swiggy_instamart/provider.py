@@ -252,7 +252,40 @@ class SwiggyInstamartProvider(McpProvider):
         session = ctx.session if isinstance(ctx.session, dict) else {}
         return str(session.get(_SESSION_SELECTED_ADDRESS) or "").strip() or None
 
+    @staticmethod
+    def _valid_spins(ctx: ExecCtx) -> set[str]:
+        """Spin ids known-valid for the CURRENT store: this turn's search results
+        (scratch) plus the carried products LRU plus items already in the cart.
+
+        Swiggy rejects update_cart with a spinId that isn't a real product at the
+        selected address ("No valid items in cart") — and the planner sometimes
+        invents one (e.g. the price "239"). We only send ids drawn from a real
+        search, so a fabricated id is dropped before it reaches Swiggy."""
+        valid: set[str] = set(ctx.scratch.get("_instamart_valid_spins") or set())
+        session = ctx.session if isinstance(ctx.session, dict) else {}
+        for prod in session.get("session_instamart_products") or []:
+            for var in (prod.get("variants") or []) if isinstance(prod, dict) else []:
+                sid = str((var or {}).get("spin_id") or (var or {}).get("spinId") or "").strip()
+                if sid:
+                    valid.add(sid)
+        cart = session.get("session_instamart_cart")
+        for it in (cart.get("items") if isinstance(cart, dict) else None) or []:
+            sid = str((it or {}).get("spin_id") or (it or {}).get("spinId") or "").strip()
+            if sid:
+                valid.add(sid)
+        return valid
+
     def harvest(self, tool: str, envelope: dict[str, Any], ctx: ExecCtx) -> None:
+        # Record spinIds returned by a search so a later update_cart in the same
+        # plan can be validated against real, store-correct product ids.
+        if tool in _SEARCH_TOOLS and isinstance(envelope, dict) and not envelope.get("is_error"):
+            data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
+            valid = ctx.scratch.setdefault("_instamart_valid_spins", set())
+            for prod in data.get("products") or []:
+                for var in (prod.get("variations") or []) if isinstance(prod, dict) else []:
+                    sid = str((var or {}).get("spinId") or "").strip()
+                    if sid:
+                        valid.add(sid)
         # A successful clear_cart earlier in THIS plan means the existing cart is
         # gone — a later update_cart must rebuild from scratch, not merge onto it.
         if tool == "clear_cart" and not envelope.get("is_error"):
@@ -276,6 +309,7 @@ class SwiggyInstamartProvider(McpProvider):
                     qty = 1
                 if qty > 0:
                     merged[sid] = qty
+        valid = self._valid_spins(ctx)
         for it in args.get("items") or []:
             if not isinstance(it, dict):
                 continue
@@ -287,9 +321,19 @@ class SwiggyInstamartProvider(McpProvider):
             except (TypeError, ValueError):
                 qty = 1
             if qty <= 0:
+                # Removal is by OMISSION — never send qty=0 (Swiggy errors on it
+                # AND corrupts the cart session). Drop the line from the payload.
                 merged.pop(sid, None)
-            else:
-                merged[sid] = qty
+                continue
+            # Reject a spinId the planner invented (not from a real search at this
+            # store). Skipping it is far better than Swiggy nuking the whole call
+            # with "No valid items in cart".
+            if valid and sid not in valid:
+                # Drop a spinId the planner invented (not from a real search at
+                # this store) — skipping it beats Swiggy rejecting the whole call
+                # with "No valid items in cart".
+                continue
+            merged[sid] = qty
         args["items"] = [{"spinId": sid, "quantity": qty} for sid, qty in merged.items()]
 
     def planner_context(self, ctx: Any) -> str:

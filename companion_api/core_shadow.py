@@ -47,6 +47,7 @@ _SESSION_KEYS = (
     "session_instamart_products",
     "session_instamart_addresses",
     "session_instamart_cart",
+    # NOTE: _SESSION_SELECTED_ADDRESS (below) is also part of this tuple.
     # The address the user picked for Instamart this session — must survive the
     # round-trip so cart/checkout reuse it instead of re-picking the nearest
     # (which may be a non-serviceable address) every turn.
@@ -61,6 +62,9 @@ _SESSION_KEYS = (
     "session_serp_places",
     "session_serp_hotels",
 )
+
+# The committed Instamart delivery address key (a member of _SESSION_KEYS above).
+_SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
 
 _runner = None
 
@@ -81,6 +85,20 @@ def _payload_dict(payload: Any) -> dict[str, Any]:
 def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> TurnRequest:
     history = data.get("history") if isinstance(data.get("history"), list) else []
     legacy = {k: data[k] for k in _SESSION_KEYS if data.get(k) is not None}
+    # Pin the user's saved Instamart default address (DynamoDB source of truth)
+    # when the client didn't carry one this turn. This anchors search/cart to a
+    # known-good address instead of the executor falling back to the nearest
+    # saved address (which may be non-serviceable). The live cart's address still
+    # wins inside the provider when a cart already has items.
+    if not str(legacy.get(_SESSION_SELECTED_ADDRESS) or "").strip():
+        try:
+            from companion_api.instamart_address import get_default_instamart_address
+
+            default = get_default_instamart_address(user)
+            if default and default.get("address_id"):
+                legacy[_SESSION_SELECTED_ADDRESS] = default["address_id"]
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
     session = SessionState(placeholders=data.get("session_state") or {}, legacy=legacy)
     return TurnRequest(
         message=str(data.get("message") or ""),

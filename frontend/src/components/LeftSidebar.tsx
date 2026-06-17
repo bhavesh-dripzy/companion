@@ -56,6 +56,9 @@ interface LeftSidebarProps {
   remindersBadge?: number;
   onShowReminders: () => void;
 
+  // Apps onboarding (Swiggy)
+  onOpenApps?: () => void;
+
   // Layout
   isCollapsed: boolean;
   onToggleCollapse: () => void;
@@ -146,6 +149,7 @@ export function LeftSidebar({
   onSelectProvider,
   remindersBadge,
   onShowReminders,
+  onOpenApps,
   isCollapsed,
   onToggleCollapse,
 }: LeftSidebarProps) {
@@ -216,6 +220,7 @@ export function LeftSidebar({
       label: 'Apps',
       icon: LayoutGrid,
       bg: 'bg-blue-50 text-blue-600 border-blue-100',
+      onClick: onOpenApps,
     },
     {
       id: 'daily-tasks',
