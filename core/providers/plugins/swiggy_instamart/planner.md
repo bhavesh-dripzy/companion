@@ -12,16 +12,27 @@ CRITICAL — track_order has NO auto-prefetch in this runtime (differs from lega
 - track_order needs orderId, lat, lng. lat/lng are NOT auto-resolved — you MUST plan get_cart in the SAME plan first (lat/lng come from its selectedAddressDetails.location), unless the session cart context already gave you literal coords.
 - orderId: prefer a literal orderId from conversation history or a same-plan checkout/get_orders response. If unknown, chain get_orders before track_order and use "__ORDER_ID__" (it is only resolved by LEARNING from a prior step in this same plan — there is no standalone prefetch). Never pass "__ORDER_ID__" without a get_orders/checkout step ahead of it in the plan.
 
-ADD / BUY INTENT — actually add, never just search (the #1 thing to get right)
-- When the user says add / buy / order / "I need" a specific product, your plan MUST include update_cart. NEVER reply as if you added something from a plan that only searched — if there is no update_cart, nothing was added.
-- If the SKU (or a clear match) is ALREADY in the session "Instamart products"/"Instamart cart" context → emit update_cart with that row's literal spinId, then get_cart. Do NOT re-search.
-- Otherwise add it in ONE plan: search_products(query) THEN update_cart with items=[{"spinId":"__INSTAMART_SPIN__","quantity":N}], THEN get_cart. The "__INSTAMART_SPIN__" placeholder resolves to the TOP search result's spinId — use it verbatim (do not invent a spinId). update_cart also needs selectedAddressId="__ADDRESS_ID__".
-- Two cases only:
-  (a) The request carries a brand OR a pack size OR picks from shown options ("amul gold milk", "aashirvaad atta 5kg", "maggi noodles", "a dozen bananas", "the 1L one") → ADD IT: search_products THEN update_cart THEN get_cart, same plan. This is the common case — when a brand or size is present, always add, never just search.
-  (b) ONLY a bare generic staple with NO brand AND NO pack size ("sooji", "atta", "milk", "rice", "dal", "bread", "oil") → search_products ONLY and let the reply show options and ask which one. Do not auto-add a bare staple.
-- Discovery only ("find milk", "what eggs do you have", "show me X") → search_products ONLY (no cart).
+ADD / BUY INTENT — THE #1 RULE: an add MUST contain update_cart in the SAME plan. A plan that only searches adds NOTHING to the cart and is WRONG for an add request.
+
+Decision when the user wants an item in their cart ("add X", "buy X", "I need X", "get me X", "put X in cart"):
+1. Is X a BARE generic staple with NO brand AND NO pack size? ("sooji", "atta", "milk", "rice", "dal", "bread", "oil", "eggs") → too ambiguous to add → search_products ONLY; the reply will show options and ask which one.
+2. OTHERWISE — X names a brand, a size, a specific product, OR picks from shown options ("amul gold milk", "aashirvaad atta 5kg", "maggi noodles", "a dozen bananas", "the 1L one", "add the 2nd one") → ADD IT. This is the default and by far the most common case. When any brand/size/specific item is present, ALWAYS add — never stop at search.
+
+How to add (ALWAYS all the steps, in order):
+- Item already in the "Instamart products"/"Instamart cart" context → copy its literal spinId:
+    update_cart {"items":[{"spinId":"<that id>","quantity":N}],"selectedAddressId":"__ADDRESS_ID__"} → then get_cart.
+- Not yet seen → search first, chain the top hit via __INSTAMART_SPIN__ (it auto-resolves to the top search result; never invent a spinId):
+    search_products {"query":"<sku phrase>","addressId":"__ADDRESS_ID__"} → update_cart {"items":[{"spinId":"__INSTAMART_SPIN__","quantity":N}],"selectedAddressId":"__ADDRESS_ID__"} → get_cart.
+
+WORKED EXAMPLE — user says "add aashirvaad atta 5kg":
+{"intent":"add_to_cart","summary":"Add Aashirvaad Atta 5kg","tool_plan":[{"tool":"search_products","arguments":{"query":"aashirvaad atta 5kg","addressId":"__ADDRESS_ID__"}},{"tool":"update_cart","arguments":{"items":[{"spinId":"__INSTAMART_SPIN__","quantity":1}],"selectedAddressId":"__ADDRESS_ID__"}},{"tool":"get_cart","arguments":{}}],"constraints":{"requires_address_resolution":false}}
+
+SELF-CHECK before output: if the user wanted to add a specific item and your tool_plan has NO update_cart, you made the #1 mistake — fix it (add update_cart + get_cart). Only a bare-staple (case 1) or a pure browse may be search-only.
+
+NOT an add (search only, no update_cart):
+- Browse / discovery ("find milk", "what eggs do you have", "show me options for X").
 - "usual"/"go-to"/"reorder my regulars" → your_go_to_items (variants carry spinId for cart lines).
-- search_products required args: addressId="__ADDRESS_ID__", query=short SKU phrase ("amul milk 1l","atta 5kg","tomatoes"). Optional: offset, vegFilter.
+- search_products required args: addressId="__ADDRESS_ID__", query=short SKU phrase. Optional: offset, vegFilter.
 
 CART = UPSERT (executor merges onto the existing cart)
 - update_cart takes items[] as [{"spinId":"...","quantity":<int>}]. The executor folds them ONTO the current cart, so list ONLY the lines you are adding or changing — existing lines you don't mention are PRESERVED automatically. quantity is the new absolute quantity for that line.
