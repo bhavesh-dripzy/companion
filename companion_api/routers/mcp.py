@@ -270,7 +270,9 @@ def _compute_mcp_status(provider: str, user: str) -> dict[str, Any]:
         elif sid and probe.get("session_alive"):
             detail = "Login started but not finished — tap Connect and complete the Zerodha login."
         else:
-            detail = "Not connected. Tap Connect to log in to Zerodha (session lasts the trading day)."
+            detail = (
+                "Not connected. Tap Connect to log in to Zerodha (session lasts the trading day)."
+            )
         return {
             "provider": tool_provider.name,
             "provider_label": tool_provider.label,
@@ -281,7 +283,10 @@ def _compute_mcp_status(provider: str, user: str) -> dict[str, Any]:
             "has_local_tokens": authed,
             "has_secret_tokens": authed,
             "token_status": {"auth_mode": "tool", "transport": "http", "session": bool(sid)},
-            "diagnostics": {"transport": "streamable-http", "session_alive": probe.get("session_alive")},
+            "diagnostics": {
+                "transport": "streamable-http",
+                "session_alive": probe.get("session_alive"),
+            },
         }
     url_set = bool(mcp_url.strip())
 
@@ -1040,14 +1045,47 @@ def set_instamart_default_address(
     payload: InstamartDefaultAddress,
     user: str = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Persist the user's chosen Instamart default delivery address."""
+    """Persist the user's chosen Instamart default delivery address.
+
+    Validates serviceability first (the only reliable signal is update_cart),
+    keeping the cart safe — a non-serviceable address is NOT saved and the
+    existing cart is left untouched. Returns ``serviceable`` (+ any cart items
+    that didn't survive a switch). Fails OPEN if the check itself errors, so a
+    transient MCP hiccup never blocks onboarding."""
     address_id = payload.address_id.strip()
     if not address_id:
         raise HTTPException(status_code=400, detail="address_id is required.")
+
+    serviceable, switched, dropped, message = True, False, [], ""
+    try:
+        from companion_api.instamart_serviceability import check_serviceability_and_switch
+
+        verdict = check_serviceability_and_switch(user, address_id)
+        serviceable = bool(verdict.get("serviceable", True))
+        switched = bool(verdict.get("switched"))
+        dropped = verdict.get("dropped") or []
+        message = str(verdict.get("message") or "")
+    except Exception:  # pragma: no cover - never block a save on a probe hiccup
+        logger.exception("serviceability check failed for %s; saving without it", address_id)
+
+    if not serviceable:
+        return {
+            "status": "not_serviceable",
+            "serviceable": False,
+            "message": message or "Instamart doesn't deliver to this address. Please pick another.",
+            "default_address": get_default_instamart_address(user),
+        }
+
     record = save_default_instamart_address(
         user, address_id=address_id, tag=payload.tag, line=payload.line
     )
-    return {"status": "saved", "default_address": record}
+    return {
+        "status": "saved",
+        "serviceable": True,
+        "switched": switched,
+        "dropped_items": dropped,
+        "default_address": record,
+    }
 
 
 # ── Zepto default delivery location (per-user source of truth) ─────────────────

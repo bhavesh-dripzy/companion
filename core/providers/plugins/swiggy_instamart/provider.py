@@ -56,6 +56,15 @@ _ADDRESS_ARG = {
 _DEFAULT_URL = "https://mcp.swiggy.com/im"
 _SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
 
+# Swiggy errors a get_cart on an EMPTY cart with one of these — not a failure.
+_EMPTY_CART_MARKERS = ("cart not found", "session expired", "cart is empty", "no items")
+
+
+def _is_empty_cart_error(detail: str | None) -> bool:
+    text = (detail or "").lower()
+    return any(m in text for m in _EMPTY_CART_MARKERS)
+
+
 # Let the planner add a freshly-searched SKU in ONE plan: search_products issues
 # __INSTAMART_SPIN__ (the top result's spinId) so update_cart can reference it
 # without a second turn. Mirrors Zepto's __ZEPTO_PVID__ chain.
@@ -91,6 +100,16 @@ class SwiggyInstamartProvider(McpProvider):
 
     async def run(self, calls: list, ctx: ExecCtx) -> ProviderResult:
         result = await super().run(calls, ctx)
+        # An empty Instamart cart makes get_cart ERROR ("Cart not found or session
+        # expired") — that's not a failure, the cart is just empty. Reclassify it
+        # to a successful empty cart so the narrator (and the failure fallback)
+        # report "your cart is empty", never "technical issue".
+        for tr in result.results:
+            if tr.tool == "get_cart" and not tr.ok and _is_empty_cart_error(tr.error_detail):
+                tr.ok = True
+                tr.error = None
+                tr.error_detail = None
+                tr.data = {"is_error": False, "data": {"items": [], "isEmpty": True}}
         # Surface the full saved-address list (from before_run) for the UI picker.
         rows = ctx.scratch.get("saved_address_rows")
         if isinstance(rows, list) and rows:
