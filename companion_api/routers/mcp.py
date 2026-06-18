@@ -1048,3 +1048,46 @@ def set_instamart_default_address(
         user, address_id=address_id, tag=payload.tag, line=payload.line
     )
     return {"status": "saved", "default_address": record}
+
+
+# ── Zepto default delivery location (per-user source of truth) ─────────────────
+# Zepto binds the cart to a *store*, resolved from a GPS coordinate — so unlike
+# Instamart (a saved-address id), Zepto's source of truth is a {lat,lng} point
+# captured once during onboarding. Same storage strategy (DynamoDB + cache).
+
+from companion_api.zepto_location import (  # noqa: E402
+    get_default_zepto_location,
+    save_default_zepto_location,
+)
+
+
+class ZeptoDefaultLocation(BaseModel):
+    latitude: float
+    longitude: float
+    label: str | None = None
+    address_id: str | None = None
+
+
+@router.get("/api/mcp/zepto/default-location/")
+def get_zepto_default_location(user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """Return the user's saved Zepto default delivery location (or null)."""
+    return {"default_location": get_default_zepto_location(user)}
+
+
+@router.post("/api/mcp/zepto/default-location/")
+def set_zepto_default_location(
+    payload: ZeptoDefaultLocation,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Persist the user's chosen Zepto default delivery location."""
+    try:
+        record = save_default_zepto_location(
+            user,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            label=payload.label,
+            address_id=payload.address_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "saved", "default_location": record}

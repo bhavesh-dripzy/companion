@@ -27,6 +27,9 @@ ALLOWLIST: frozenset[str] = frozenset(
         # Instamart provider (added in #74; cart card refactor pushed it over 250L).
         "core/providers/plugins/swiggy_instamart/provider.py",
         "core/providers/plugins/swiggy_instamart/cart_cards.py",
+        # Zepto provider (cart hardening: location anchor + pvid/spid validation,
+        # mirrors the Instamart provider's cart-reconcile that lives inline).
+        "core/providers/plugins/zepto/provider.py",
         # Narrate stage (formatting nudge in #74 added ~14 lines; split planned separately).
         "core/pipeline/stages/narrate.py",
     }

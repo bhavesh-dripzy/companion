@@ -80,3 +80,6 @@ app/
 scripts/e2e_instamart_cart_flow.py
 scripts/fetch_instamart_category_images.py
 scripts/probe_instamart_cart.py
+
+# Zepto per-user default location (local dev fallback)
+.zepto_prefs/
