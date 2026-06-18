@@ -147,12 +147,13 @@ def test_instamart_display_address_follows_the_address_search_used(monkeypatch):
     assert not prov.merge({}, result).get("selected_instamart_address_id")
 
 
-def test_selected_address_anchored_to_cart_not_search():
-    """selected_instamart_address_id is driven by the CART's committed address,
-    and the cart's address is authoritative for resolution (repairs a stale
-    selected that drifted to a different/non-serviceable address)."""
+def test_committed_selection_overrides_planner_per_call_address():
+    """The committed selection (UI picker / saved default) drives every call and
+    overrides the planner's per-call addressId, which drifts to the first saved
+    address. (A bare search still never *sets* the selection — see the test
+    above; seeding happens only from the live cart when none is set.)"""
     prov = SwiggyInstamartProvider()
-    # A cart on STARRRS must set selected=STARRRS in merge...
+    # A cart built at STARRRS seeds selected=STARRRS when none was set.
     cart_tr = ToolResult(
         tool="get_cart",
         provider="swiggy_instamart",
@@ -166,22 +167,15 @@ def test_selected_address_anchored_to_cart_not_search():
         },
     )
     merged = prov.merge(
-        {"selected_instamart_address_id": "HOLIDAY"},  # stale/poisoned value
-        ProviderResult(provider="swiggy_instamart", results=[cart_tr]),
+        {}, ProviderResult(provider="swiggy_instamart", results=[cart_tr])
     )
-    assert merged["selected_instamart_address_id"] == "STARRRS"  # repaired from cart
+    assert merged["selected_instamart_address_id"] == "STARRRS"
 
-    # ...and the live cart's address wins over a stale selected when resolving.
-    ctx = ExecCtx(
-        session={
-            "selected_instamart_address_id": "HOLIDAY",
-            "session_instamart_cart": {"items": [{"spin_id": "S1", "quantity": 1}], "selected_address_id": "STARRRS"},
-        }
-    )
-    assert SwiggyInstamartProvider._anchor_address(ctx) == "STARRRS"
-    args = {"items": [{"spinId": "S1", "quantity": 2}]}
+    # The committed selection wins over the planner's drifted per-call addressId.
+    ctx = ExecCtx(session={"selected_instamart_address_id": "STARRRS"})
+    args = {"items": [{"spinId": "S1", "quantity": 2}], "selectedAddressId": "HOLIDAY"}
     prov.before_call("update_cart", args, ctx)
-    assert args["selectedAddressId"] == "STARRRS"  # not the stale HOLIDAY
+    assert args["selectedAddressId"] == "STARRRS"  # planner's HOLIDAY drift overridden
 
 
 def test_instamart_merge_persists_resolved_addresses_for_next_turn():
@@ -263,14 +257,36 @@ def test_builds_cart_card_and_session_cart():
     assert provider.merge({}, result)["session_instamart_cart"]["items"]
 
 
-def _exec_ctx_with_cart(items: list[dict]) -> ExecCtx:
-    return ExecCtx(session={"session_instamart_cart": {"items": items}})
+def test_instamart_spin_placeholder_chains_search_into_update_cart():
+    """A single-plan add: search_products issues __INSTAMART_SPIN__ (top result's
+    spinId), which substitutes into a following update_cart in the same plan."""
+    prov = SwiggyInstamartProvider()
+    env = _FIX.get("result") or _FIX
+    ph: dict = {}
+    learned = prov.resolver.learn(ph, env if isinstance(env, dict) else {})
+    assert learned.get("__INSTAMART_SPIN__") == "S8PF9T8YLG"
+    ph.update(learned)
+    sub = prov.resolver.substitute({"items": [{"spinId": "__INSTAMART_SPIN__", "quantity": 1}]}, ph)
+    assert sub["items"][0]["spinId"] == "S8PF9T8YLG"
+    # __INSTAMART_SPIN__ is transient — it must not persist across turns.
+    assert "__INSTAMART_SPIN__" in prov.resolver.transient
+
+
+def _exec_ctx_with_cart(items: list[dict], valid: list[str] | None = None) -> ExecCtx:
+    # Seed the valid-spin set the way a real turn would: items already in the
+    # cart are valid, plus any freshly-searched spins the test is about to add.
+    spins = {str(i.get("spin_id")) for i in items if i.get("spin_id")}
+    spins.update(valid or [])
+    return ExecCtx(
+        session={"session_instamart_cart": {"items": items}},
+        scratch={"_instamart_valid_spins": spins},
+    )
 
 
 def test_update_cart_upsert_preserves_existing_lines_when_adding():
     """Regression: adding a second item must NOT wipe the first. The planner sends
     only the new line; the executor folds it onto the existing cart."""
-    ctx = _exec_ctx_with_cart([{"spin_id": "ATTA", "quantity": 1}])
+    ctx = _exec_ctx_with_cart([{"spin_id": "ATTA", "quantity": 1}], valid=["BREAD"])
     args = {"selectedAddressId": "A1", "items": [{"spinId": "BREAD", "quantity": 1}]}
     SwiggyInstamartProvider().before_call("update_cart", args, ctx)
     by_spin = {i["spinId"]: i["quantity"] for i in args["items"]}
@@ -296,7 +312,7 @@ def test_update_cart_upsert_removes_line_on_zero_quantity():
 def test_update_cart_after_clear_cart_rebuilds_from_scratch():
     """clear_cart earlier in the plan means update_cart must NOT merge the stale
     session cart back in."""
-    ctx = _exec_ctx_with_cart([{"spin_id": "OLD", "quantity": 5}])
+    ctx = _exec_ctx_with_cart([{"spin_id": "OLD", "quantity": 5}], valid=["NEW"])
     provider = SwiggyInstamartProvider()
     provider.harvest("clear_cart", {"is_error": False}, ctx)
     args = {"items": [{"spinId": "NEW", "quantity": 1}]}
@@ -334,6 +350,94 @@ def test_checkout_injects_address_when_missing():
     args = {"paymentMethod": "Cash"}
     SwiggyInstamartProvider().before_call("checkout", args, ctx)
     assert args["addressId"] == "STARRRS"
+
+
+# ── address-switch correctness (regression: switch was silently ignored) ───────
+
+
+def test_explicit_selection_overrides_cart_address_for_switch():
+    """A user's explicit address selection must win over the cart's address so an
+    address SWITCH takes effect — even when the cart is non-empty at another addr."""
+    ctx = ExecCtx(
+        session={
+            "session_instamart_cart": {"items": [{"spin_id": "X", "quantity": 1}],
+                                       "selected_address_id": "CART_ADDR"},
+            "selected_instamart_address_id": "PICKED_ADDR",
+        }
+    )
+    assert SwiggyInstamartProvider._anchor_address(ctx) == "PICKED_ADDR"
+    # search + update_cart both get the picked address, not the cart's.
+    prov = SwiggyInstamartProvider()
+    s = {"query": "milk"}
+    prov.before_call("search_products", s, ctx)
+    assert s["addressId"] == "PICKED_ADDR"
+
+
+def test_anchor_falls_back_to_cart_address_when_no_selection():
+    ctx = ExecCtx(
+        session={
+            "session_instamart_cart": {"items": [{"spin_id": "X", "quantity": 1}],
+                                       "selected_address_id": "CART_ADDR"}
+        }
+    )
+    assert SwiggyInstamartProvider._anchor_address(ctx) == "CART_ADDR"
+
+
+def test_merge_never_overwrites_an_explicit_selection():
+    """Regression: merge used to reset selected_* to the cart address every turn,
+    silently reverting a switch. It must only SEED when none is set."""
+    tr = ToolResult(
+        tool="get_cart", provider="swiggy_instamart", ok=True, data=_live_cart_env()
+    )
+    result = ProviderResult(provider="swiggy_instamart", results=[tr])
+    # User has switched to PICKED_ADDR; cart still reports ADDR1.
+    merged = SwiggyInstamartProvider().merge(
+        {"selected_instamart_address_id": "PICKED_ADDR"}, result
+    )
+    assert merged["selected_instamart_address_id"] == "PICKED_ADDR"
+
+
+def test_merge_seeds_selection_from_cart_when_unset():
+    tr = ToolResult(
+        tool="get_cart", provider="swiggy_instamart", ok=True, data=_live_cart_env()
+    )
+    result = ProviderResult(provider="swiggy_instamart", results=[tr])
+    merged = SwiggyInstamartProvider().merge({}, result)
+    assert merged["selected_instamart_address_id"] == "ADDR1"
+
+
+def test_switch_address_does_not_merge_old_address_items():
+    """On an address switch, the old store's items must NOT be folded into an
+    update_cart at the new address (Swiggy's one-cart-per-address model)."""
+    prov = SwiggyInstamartProvider()
+    ctx = ExecCtx(
+        session={
+            "selected_instamart_address_id": "NEWADDR",
+            "session_instamart_cart": {
+                "items": [{"spin_id": "OLD1", "quantity": 2}],
+                "selected_address_id": "OLDADDR",
+            },
+        },
+        scratch={"_instamart_valid_spins": {"NEW1"}},
+    )
+    args = {"items": [{"spinId": "NEW1", "quantity": 1}]}
+    prov.before_call("update_cart", args, ctx)
+    assert args["selectedAddressId"] == "NEWADDR"
+    spins = {i["spinId"] for i in args["items"]}
+    assert spins == {"NEW1"}, "old-address item must not leak into the new-address cart"
+
+
+def test_clear_cart_empties_session_cart_snapshot():
+    """Regression: clear_cart left the old items in the session snapshot, so the
+    'cleared' cart kept showing stale items."""
+    tr = ToolResult(
+        tool="clear_cart", provider="swiggy_instamart", ok=True, data={"is_error": False}
+    )
+    result = ProviderResult(provider="swiggy_instamart", results=[tr])
+    merged = SwiggyInstamartProvider().merge(
+        {"session_instamart_cart": {"items": [{"spin_id": "OLD", "quantity": 3}]}}, result
+    )
+    assert merged["session_instamart_cart"]["items"] == []
 
 
 def _live_cart_env() -> dict:

@@ -94,3 +94,84 @@ def test_session_products_lru_keyed_by_variant_id():
     products = merged.get("session_zepto_products") or []
     ids = [p["product_variant_id"] for p in products]
     assert _PVID in ids and len(ids) == len(set(ids)), "deduped variant LRU"
+
+
+# ── cart hardening + location anchor (POC-verified Zepto contract) ─────────────
+
+from core.providers.base import ExecCtx  # noqa: E402
+
+
+def _ctx(**kw) -> ExecCtx:
+    ctx = ExecCtx(user_id="u1")
+    ctx.placeholders["__ZEPTO_DEVICE_ID__"] = "dev-123"
+    for k, v in kw.items():
+        setattr(ctx, k, v)
+    return ctx
+
+
+def test_effective_geo_prefers_saved_location_over_live_gps():
+    ctx = _ctx(
+        user_geo={"latitude": 1.0, "longitude": 2.0},
+        session={"selected_zepto_location": {"latitude": 12.93, "longitude": 77.62}},
+    )
+    assert ZeptoProvider._effective_geo(ctx) == (12.93, 77.62)
+    # Falls back to live GPS when nothing saved.
+    assert ZeptoProvider._effective_geo(_ctx(user_geo={"latitude": 1.0, "longitude": 2.0})) == (
+        1.0,
+        2.0,
+    )
+    assert ZeptoProvider._effective_geo(_ctx()) is None
+
+
+def test_update_cart_forces_device_id_and_strips_replace_cart():
+    provider = ZeptoProvider()
+    ctx = _ctx(scratch={"_zepto_valid_ids": {"pv1": "sp1"}})
+    args = {
+        "deviceId": "planner-guess",
+        "replaceCart": True,
+        "cartItems": [{"productVariantId": "pv1", "storeProductId": "WRONG", "quantity": 2}],
+    }
+    provider.before_call("update_cart", args, ctx)
+    assert args["deviceId"] == "dev-123"
+    assert "replaceCart" not in args
+    # spid repaired from the validated map (planner sent WRONG).
+    assert args["cartItems"] == [{"productVariantId": "pv1", "storeProductId": "sp1", "quantity": 2}]
+
+
+def test_update_cart_drops_fabricated_pvid_but_keeps_removal():
+    provider = ZeptoProvider()
+    ctx = _ctx(scratch={"_zepto_valid_ids": {"pv1": "sp1"}})
+    args = {
+        "cartItems": [
+            {"productVariantId": "pv1", "storeProductId": "sp1", "quantity": 1},
+            {"productVariantId": "FAKE", "storeProductId": "x", "quantity": 3},  # invented → drop
+            {"productVariantId": "pv9", "storeProductId": "sp9", "quantity": 0},  # removal → keep
+        ]
+    }
+    provider.before_call("update_cart", args, ctx)
+    pvids = {i["productVariantId"]: i["quantity"] for i in args["cartItems"]}
+    assert pvids == {"pv1": 1, "pv9": 0}, "fabricated add dropped; qty=0 removal preserved"
+
+
+def test_harvest_collects_pvid_spid_from_search():
+    provider = ZeptoProvider()
+    ctx = _ctx()
+    provider.harvest("search_products", _FIX["result"], ctx)
+    valid = ctx.scratch.get("_zepto_valid_ids") or {}
+    assert valid.get(_PVID), "search results feed the valid pvid->spid map"
+
+
+def test_emptied_cart_clears_session_snapshot():
+    """Regression: an emptied/cleared Zepto cart must clear the session snapshot
+    (structured isEmpty or prose 'cart is empty'), not keep showing stale items."""
+    provider = ZeptoProvider()
+    for env in (
+        {"is_error": False, "data": {"items": [], "isEmpty": True}},
+        {"is_error": False, "data": "🛒 Your cart is empty."},
+    ):
+        tr = ToolResult(tool="view_cart", provider="zepto", ok=True, data=env)
+        result = ProviderResult(provider="zepto", results=[tr])
+        merged = provider.merge(
+            {"session_zepto_cart": {"items": [{"product_variant_id": "X", "quantity": 2}]}}, result
+        )
+        assert merged["session_zepto_cart"]["items"] == [], env

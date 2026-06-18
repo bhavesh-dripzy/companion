@@ -25,6 +25,7 @@ from core.providers.mcp.address import merge_saved_addresses
 from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.info_cards import build_info_cards
 from core.providers.mcp.mcp_base import McpProvider
+from core.providers.mcp.placeholders import DEFAULT_ALIASES, DEFAULT_ISSUERS, PlaceholderResolver
 from core.providers.mcp.remote import stdio_spec as remote_stdio_spec
 from core.providers.mcp.result_cards import build_order_cards, build_tracking_card
 from core.providers.plugins.swiggy_instamart.cards import (
@@ -55,8 +56,26 @@ _ADDRESS_ARG = {
 _DEFAULT_URL = "https://mcp.swiggy.com/im"
 _SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
 
+# Let the planner add a freshly-searched SKU in ONE plan: search_products issues
+# __INSTAMART_SPIN__ (the top result's spinId) so update_cart can reference it
+# without a second turn. Mirrors Zepto's __ZEPTO_PVID__ chain.
+_INSTAMART_ALIASES = {**DEFAULT_ALIASES, "__INSTAMART_SPIN__": ("spinId", "spin_id")}
+_INSTAMART_ISSUERS = {
+    **DEFAULT_ISSUERS,
+    "search_products": ("__INSTAMART_SPIN__",),
+    "your_go_to_items": ("__INSTAMART_SPIN__",),
+}
+
+
+class _InstamartResolver(PlaceholderResolver):
+    # The chained spinId is search-scoped — never persist it across turns.
+    transient: frozenset[str] = frozenset({"__INSTAMART_SPIN__"})
+
 
 class SwiggyInstamartProvider(McpProvider):
+    resolver: PlaceholderResolver = _InstamartResolver(
+        aliases=_INSTAMART_ALIASES, issuers=_INSTAMART_ISSUERS
+    )
     id = "swiggy_instamart"
     label = "Swiggy Instamart MCP"
     auth_mode = AuthMode.OAUTH
@@ -153,25 +172,32 @@ class SwiggyInstamartProvider(McpProvider):
         if products:
             merged["session_instamart_products"] = products
         spin_index = build_spin_index(products, result.results)
+        # Apply cart-affecting tools IN ORDER so the last one wins: a clear_cart
+        # empties the snapshot (so a cleared cart never lingers as stale items),
+        # while a later update_cart/get_cart in the same plan (e.g. clear→rebuild)
+        # overwrites it with the fresh contents.
         for tr in result.results:
-            if tr.tool in _CART_TOOLS and tr.ok:
+            if not tr.ok:
+                continue
+            if tr.tool == "clear_cart":
+                merged["session_instamart_cart"] = {"is_empty": True, "items": []}
+            elif tr.tool in _CART_TOOLS:
                 snap = cart_snapshot(
                     tr.data if isinstance(tr.data, dict) else {}, spin_index=spin_index
                 )
                 if snap:
                     merged["session_instamart_cart"] = snap
-        # Sync the committed delivery address to the CART's actual address. The
-        # cart is ground truth (Swiggy holds it at exactly one address), so this
-        # both seeds `selected` on the first add AND repairs a stale value that
-        # drifted (e.g. a search the planner mis-addressed). We never set it from
-        # a search's address — that was the drift source.
+        # SEED the committed selection from the cart's address ONLY when none is
+        # set yet (first add, before any explicit pick). NEVER overwrite an
+        # existing selection — the old code did, which silently reverted a user's
+        # address switch back to the cart's current address every turn.
         cart = merged.get("session_instamart_cart")
         cart_addr = (
             str(cart.get("selected_address_id") or "").strip()
             if isinstance(cart, dict) and cart.get("items")
             else ""
         )
-        if cart_addr:
+        if cart_addr and not str(merged.get(_SESSION_SELECTED_ADDRESS) or "").strip():
             merged[_SESSION_SELECTED_ADDRESS] = cart_addr
         return merged
 
@@ -187,21 +213,26 @@ class SwiggyInstamartProvider(McpProvider):
 
     @staticmethod
     def _anchor_address(ctx: ExecCtx) -> str | None:
-        """The session's committed delivery address, authoritative for every
-        Instamart call (the planner's per-call addressId guess is not trusted —
-        it drifts to the first saved address).
+        """The committed delivery address, authoritative for every Instamart call.
 
-        The LIVE CART's address wins: you can't add to / manage a cart that is
-        bound to a different address, so it's ground truth even if a stale
-        `selected_instamart_address_id` disagrees. Falls back to the user's
-        explicit selection when the cart is empty."""
+        The user's EXPLICIT selection (`selected_instamart_address_id` — set by
+        the UI address picker, the saved default source-of-truth, or seeded from
+        the cart on the first add) WINS. It serves two jobs:
+          1. overrides the planner's per-call addressId, which drifts to the
+             first saved address and mis-addresses searches/cart; and
+          2. lets an explicit address SWITCH take effect even with a non-empty
+             cart — preferring the cart's address here (the old design) silently
+             pinned the user to the cart's store and ignored every switch.
+        The live cart's address is only a fallback to seed the anchor before the
+        user has made any explicit choice."""
         session = ctx.session if isinstance(ctx.session, dict) else {}
+        selected = str(session.get(_SESSION_SELECTED_ADDRESS) or "").strip()
+        if selected:
+            return selected
         cart = session.get("session_instamart_cart")
         if isinstance(cart, dict) and cart.get("items"):
-            cart_addr = str(cart.get("selected_address_id") or "").strip()
-            if cart_addr:
-                return cart_addr
-        return str(session.get(_SESSION_SELECTED_ADDRESS) or "").strip() or None
+            return str(cart.get("selected_address_id") or "").strip() or None
+        return None
 
     def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
         # Guarantee the resolved delivery address on every tool that requires it —
@@ -293,9 +324,23 @@ class SwiggyInstamartProvider(McpProvider):
 
     def _reconcile_cart_items(self, args: dict[str, Any], ctx: ExecCtx) -> None:
         merged: dict[str, int] = {}
-        if not ctx.scratch.get("_instamart_cart_cleared"):
-            session = ctx.session if isinstance(ctx.session, dict) else {}
-            cart = session.get("session_instamart_cart")
+        session = ctx.session if isinstance(ctx.session, dict) else {}
+        cart = session.get("session_instamart_cart") if isinstance(session, dict) else None
+        # Don't fold the existing cart in two cases: (1) a clear_cart ran earlier
+        # this plan, or (2) this update_cart targets a DIFFERENT address than the
+        # cart was built at (an address switch) — those items live on the old
+        # store and would contaminate / be rejected at the new one. Start fresh.
+        cart_addr = (
+            str(cart.get("selected_address_id") or "").strip() if isinstance(cart, dict) else ""
+        )
+        target_addr = str(args.get("selectedAddressId") or "").strip()
+        switched = bool(
+            cart_addr
+            and target_addr
+            and not target_addr.startswith("__")
+            and cart_addr != target_addr
+        )
+        if not ctx.scratch.get("_instamart_cart_cleared") and not switched:
             existing = cart.get("items") if isinstance(cart, dict) else None
             for it in existing or []:
                 if not isinstance(it, dict):

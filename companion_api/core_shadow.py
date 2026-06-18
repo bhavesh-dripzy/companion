@@ -44,6 +44,10 @@ _SESSION_KEYS = (
     "session_zepto_products",
     "session_zepto_addresses",
     "session_zepto_cart",
+    # The committed Zepto delivery location {latitude, longitude, ...} — must
+    # survive the round-trip so the store the cart is bound to stays stable
+    # instead of drifting with ambient GPS each turn (see _SESSION_ZEPTO_LOCATION).
+    "selected_zepto_location",
     "session_instamart_products",
     "session_instamart_addresses",
     "session_instamart_cart",
@@ -65,6 +69,8 @@ _SESSION_KEYS = (
 
 # The committed Instamart delivery address key (a member of _SESSION_KEYS above).
 _SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
+# The committed Zepto delivery location key (a member of _SESSION_KEYS above).
+_SESSION_ZEPTO_LOCATION = "selected_zepto_location"
 
 _runner = None
 
@@ -99,6 +105,23 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
                 legacy[_SESSION_SELECTED_ADDRESS] = default["address_id"]
         except Exception:  # pragma: no cover - never block a turn on prefs lookup
             pass
+    # Pin the user's saved Zepto location (source of truth for the store the cart
+    # binds to). Anchor it in the session so the provider uses it over drifting
+    # GPS, AND seed user_geo from it when the client carried no live coordinate —
+    # otherwise Zepto's needs_location guard would block a turn even though we
+    # know where to deliver.
+    user_geo = data.get("user_geo") or data.get("geo")
+    if not isinstance(legacy.get(_SESSION_ZEPTO_LOCATION), dict):
+        try:
+            from companion_api.zepto_location import get_default_zepto_location
+
+            loc = get_default_zepto_location(user)
+            if loc and loc.get("latitude") is not None and loc.get("longitude") is not None:
+                legacy[_SESSION_ZEPTO_LOCATION] = loc
+                if not user_geo:
+                    user_geo = {"latitude": loc["latitude"], "longitude": loc["longitude"]}
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
     session = SessionState(placeholders=data.get("session_state") or {}, legacy=legacy)
     return TurnRequest(
         message=str(data.get("message") or ""),
@@ -109,9 +132,10 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
         session=session,
         execute_tools=data.get("execute_tools") if data.get("execute_tools") is not None else True,
         reply_language=reply_language,
-        user_geo=data.get("user_geo") or data.get("geo"),
+        user_geo=user_geo,
         enabled_providers=data.get("enabled_providers"),
     )
+
 
 
 def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:

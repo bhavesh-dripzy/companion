@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { isNative, runNativeMcpConnect } from '../native';
+import { getCurrentLocation, GeolocationError } from '../maps';
 import type { McpStatus } from '../types';
 
 // Apps onboarding surface. Scoped to Swiggy Instamart for now. The auth flow is
@@ -39,6 +40,275 @@ function isConnected(status?: McpStatus | null): boolean {
   if (s === 'ready' || s === 'ready_pending') return true;
   return Boolean((status as any).has_local_tokens || (status as any).has_secret_tokens);
 }
+
+interface DefaultLocation {
+  latitude: number;
+  longitude: number;
+  label?: string | null;
+}
+
+// Zepto onboarding. Same auth backend as everything else (provider='zepto'),
+// but the per-user "source of truth" is a LIVE LOCATION, not a saved address —
+// Zepto binds the cart to a store resolved from GPS. We ask for the location
+// permission once during onboarding, persist {lat,lng} via
+// /api/mcp/zepto/default-location/, and reuse it every turn (the user can
+// re-capture it any time). Mirrors the Swiggy card's connect flow.
+const ZeptoApp: React.FC<{ isOpen: boolean }> = ({ isOpen }) => {
+  const [status, setStatus] = useState<McpStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pasteFlow, setPasteFlow] = useState<{ url: string; detail: string } | null>(null);
+  const [pasteText, setPasteText] = useState('');
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [loc, setLoc] = useState<DefaultLocation | null>(null);
+  const [locBusy, setLocBusy] = useState(false);
+  const connected = isConnected(status);
+
+  const refreshStatus = async () => {
+    setBusy(true);
+    try {
+      const data = await api.get(`/api/mcp/status/?provider=zepto`);
+      setStatus(data);
+      return data as McpStatus;
+    } catch {
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadLocation = async () => {
+    try {
+      const data = await api.get('/api/mcp/zepto/default-location/');
+      setLoc(data?.default_location || null);
+    } catch (err) {
+      console.error('load zepto location failed', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setError(null);
+    setPasteFlow(null);
+    setPasteText('');
+    (async () => {
+      await refreshStatus();
+      await loadLocation();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const handleConnect = async () => {
+    setError(null);
+    if (isNative) {
+      setBusy(true);
+      try {
+        await runNativeMcpConnect('zepto');
+        await refreshStatus();
+      } catch (err: any) {
+        if (err?.message !== 'cancelled') setError(err?.message || 'Could not connect. Please try again.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    try {
+      const data = await api.get(`/api/mcp/oauth/start?provider=zepto`);
+      if (data.authorization_url) {
+        if (data.completion === 'paste') {
+          setPasteFlow({ url: data.authorization_url, detail: data.detail || '' });
+          window.open(data.authorization_url, '_blank', 'noopener');
+        } else if (data.completion === 'external') {
+          setError(data.detail || 'Complete the login in the new tab, then tap refresh.');
+          window.open(data.authorization_url, '_blank', 'noopener');
+        } else {
+          window.location.assign(data.authorization_url);
+        }
+        return;
+      }
+      if (data.detail) setError(data.detail);
+    } catch (err: any) {
+      setError(err?.message || 'Could not start the connection. Please try again.');
+    }
+  };
+
+  const handlePasteComplete = async () => {
+    let text = pasteText.trim();
+    if (!text && navigator.clipboard?.readText) {
+      try {
+        text = (await navigator.clipboard.readText()).trim();
+        if (text) setPasteText(text);
+      } catch {
+        /* clipboard blocked — manual paste */
+      }
+    }
+    if (!text) {
+      setError('Paste the full address of the page you landed on after logging in.');
+      return;
+    }
+    setPasteBusy(true);
+    setError(null);
+    try {
+      await api.post('/api/mcp/oauth/complete/', { text });
+      setPasteFlow(null);
+      setPasteText('');
+      await refreshStatus();
+    } catch (err: any) {
+      setError(err?.message || 'Could not finish connecting. Tap Connect to retry.');
+    } finally {
+      setPasteBusy(false);
+    }
+  };
+
+  const handleCaptureLocation = async () => {
+    setError(null);
+    setLocBusy(true);
+    try {
+      const pos = await getCurrentLocation();
+      const data = await api.post('/api/mcp/zepto/default-location/', {
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        label: 'Current location',
+      });
+      setLoc(data?.default_location || { latitude: pos.latitude, longitude: pos.longitude });
+    } catch (err: any) {
+      if (err instanceof GeolocationError) {
+        const reason: Record<string, string> = {
+          permission_denied: 'Location permission denied. Enable location access for Companion and try again.',
+          position_unavailable: 'Could not determine your location. Try again outdoors or with GPS on.',
+          timeout: 'Locating timed out. Try again.',
+          unsupported: 'This device does not support location.',
+        };
+        setError(reason[err.reason] || 'Could not get your location.');
+      } else {
+        setError(err?.message || 'Could not save your location. Please try again.');
+      }
+    } finally {
+      setLocBusy(false);
+    }
+  };
+
+  return (
+    <div className="p-5 bg-white border border-slate-200 rounded-2xl space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="w-11 h-11 rounded-2xl bg-[#7b2ff7]/10 text-[#7b2ff7] flex items-center justify-center font-extrabold shrink-0">
+          Z
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-slate-900">Zepto</h3>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[10px] font-black uppercase text-slate-500">Status:</span>
+            {connected ? (
+              <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 size={12} /> Connected
+              </span>
+            ) : (
+              <span className="text-[10px] font-black uppercase text-amber-600 flex items-center gap-1">
+                <AlertCircle size={12} /> {status?.status || 'Not connected'}
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={refreshStatus}
+          className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors shrink-0"
+          title="Refresh status"
+        >
+          <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {error && !pasteFlow && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+          {error}
+        </p>
+      )}
+
+      <button
+        onClick={handleConnect}
+        disabled={busy}
+        className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-sm font-bold py-2.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
+      >
+        {busy && <Loader2 size={14} className="animate-spin" />}
+        {connected ? 'Reconnect Zepto' : 'Connect Zepto'}
+      </button>
+
+      {pasteFlow && !connected && (
+        <div className="space-y-3 p-4 bg-violet-50/60 border border-violet-200 rounded-2xl">
+          <a
+            href={pasteFlow.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold py-2.5 rounded-xl transition-all shadow-sm"
+          >
+            <ExternalLink size={14} /> Open Zepto login
+          </a>
+          <p className="text-xs text-slate-700 leading-relaxed">
+            After logging in, copy the page's full address, come back here, and tap Paste &amp; Connect.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder="http://localhost:3334/oauth/callback?code=..."
+              className="flex-1 min-w-0 px-3 py-2.5 text-xs font-mono border border-slate-300 rounded-xl bg-white focus:outline-none focus:border-violet-400"
+            />
+            <button
+              onClick={handlePasteComplete}
+              disabled={pasteBusy}
+              className="px-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-all flex items-center gap-2 whitespace-nowrap"
+            >
+              {pasteBusy && <Loader2 size={14} className="animate-spin" />}
+              Paste &amp; Connect
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delivery location (the Zepto source of truth) */}
+      {connected && (
+        <div className="pt-1 space-y-3">
+          <div className="flex items-center gap-2">
+            <MapPin size={16} className="text-[#7b2ff7]" />
+            <h3 className="font-bold text-sm text-slate-900">Delivery location</h3>
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Zepto delivers from the store nearest your location. We save it once and reuse it for
+            every order — update it any time you move.
+          </p>
+          {loc ? (
+            <div className="flex items-center justify-between gap-3 p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-900 truncate">
+                  {loc.label || 'Saved location'}
+                </div>
+                <div className="text-[11px] text-slate-500 truncate">
+                  {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)}
+                </div>
+              </div>
+              <button
+                onClick={handleCaptureLocation}
+                disabled={locBusy}
+                className="text-[11px] font-bold uppercase text-[#7b2ff7] hover:text-[#5a1fb8] tracking-wider shrink-0 flex items-center gap-1"
+              >
+                {locBusy && <Loader2 size={12} className="animate-spin" />} Update
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleCaptureLocation}
+              disabled={locBusy}
+              className="w-full bg-[#7b2ff7] hover:bg-[#5a1fb8] disabled:opacity-60 text-white text-sm font-bold py-2.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
+            >
+              {locBusy ? <Loader2 size={14} className="animate-spin" /> : <MapPin size={14} />}
+              Use my current location
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface AppsModalProps {
   isOpen: boolean;
@@ -368,6 +638,9 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
               )}
             </div>
           )}
+
+          {/* Zepto card */}
+          <ZeptoApp isOpen={isOpen} />
         </div>
       </div>
     </div>
