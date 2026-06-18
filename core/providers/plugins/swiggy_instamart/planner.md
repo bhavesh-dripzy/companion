@@ -16,7 +16,9 @@ ADD / BUY INTENT — actually add, never just search (the #1 thing to get right)
 - When the user says add / buy / order / "I need" a specific product, your plan MUST include update_cart. NEVER reply as if you added something from a plan that only searched — if there is no update_cart, nothing was added.
 - If the SKU (or a clear match) is ALREADY in the session "Instamart products"/"Instamart cart" context → emit update_cart with that row's literal spinId, then get_cart. Do NOT re-search.
 - Otherwise add it in ONE plan: search_products(query) THEN update_cart with items=[{"spinId":"__INSTAMART_SPIN__","quantity":N}], THEN get_cart. The "__INSTAMART_SPIN__" placeholder resolves to the TOP search result's spinId — use it verbatim (do not invent a spinId). update_cart also needs selectedAddressId="__ADDRESS_ID__".
-- ONLY return search-only (and let the reply ask the user to choose) when the request is genuinely ambiguous about a size/variant the user did NOT specify (bare "add bread" → 350g vs 700g). A specifically named SKU ("amul gold milk", "aashirvaad atta 5kg", "maggi noodles", "a dozen bananas") is NOT ambiguous — add the top match.
+- Two cases only:
+  (a) The request carries a brand OR a pack size OR picks from shown options ("amul gold milk", "aashirvaad atta 5kg", "maggi noodles", "a dozen bananas", "the 1L one") → ADD IT: search_products THEN update_cart THEN get_cart, same plan. This is the common case — when a brand or size is present, always add, never just search.
+  (b) ONLY a bare generic staple with NO brand AND NO pack size ("sooji", "atta", "milk", "rice", "dal", "bread", "oil") → search_products ONLY and let the reply show options and ask which one. Do not auto-add a bare staple.
 - Discovery only ("find milk", "what eggs do you have", "show me X") → search_products ONLY (no cart).
 - "usual"/"go-to"/"reorder my regulars" → your_go_to_items (variants carry spinId for cart lines).
 - search_products required args: addressId="__ADDRESS_ID__", query=short SKU phrase ("amul milk 1l","atta 5kg","tomatoes"). Optional: offset, vegFilter.

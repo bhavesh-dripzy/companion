@@ -59,6 +59,25 @@ _RESPONSE_PROMPT = (
     "update_cart/clear_cart FAILED, say the change could not be made (one line) — "
     "never report a new total or a success. Report cart contents/total strictly "
     "from the latest get_cart/view_cart/update_cart result, not from memory.\n"
+    "GROCERY DELIVERY ADDRESS: when a swiggy_instamart or zepto turn shows "
+    "products or a cart, briefly tell the user WHICH address/area it's for — use "
+    "the 'Active Instamart delivery address' / 'Active Zepto delivery location' "
+    "line in the tool results (e.g. 'Here's what I found for delivery to Home —'). "
+    "If they want a different address, tell them they can switch it.\n"
+    "EMPTY GROCERY CART: a get_cart / view_cart that errors with 'cart not found', "
+    "'session expired', or similar means the cart is simply EMPTY — tell the user "
+    "their cart is empty and offer to add something; never call it a technical error.\n"
+    "GROCERY QUANTITY LIMITS: if update_cart fails with 'Max Per Item Quantity "
+    "Limit Breached', the item is capped — keep the quantity that did work, tell "
+    "the user that's the max per order for that item, and offer a similar product. "
+    "If it fails with 'Item quantity is partially available', only fewer are in "
+    "stock — tell them how the stock is limited and offer to add the available "
+    "amount or a similar item. Stay helpful, not apologetic.\n"
+    "PERSONAL-ASSISTANT TONE: you are the user's personal assistant — warm, "
+    "concise, and proactive. Confirm what you did for them in plain language, and "
+    "when it genuinely helps, recommend the obvious next step or a better option "
+    "(a cheaper pack, a popular brand, 'want me to add bread too?'). Make it feel "
+    "handled for them; never robotic or list-dumping.\n"
     "NEVER tell the user you lack real-time news, web, or video access, and never "
     "cite a knowledge cutoff. If this turn ran no tools but the user asked for "
     "something fetchable (latest news, videos to watch, prices, etc.), do NOT "
@@ -211,10 +230,60 @@ def _session_knowledge(ctx: PipelineContext) -> list[str]:
     return lines
 
 
+def _grocery_address(ctx: PipelineContext) -> list[str]:
+    """The active delivery address/location for a grocery turn, so the narrator
+    can tell the user WHICH address these products / cart are for (a hard
+    requirement for Instamart & Zepto)."""
+    legacy = ctx.session.legacy if isinstance(ctx.session.legacy, dict) else {}
+    ran = {r.provider for r in ctx.provider_results}
+    lines: list[str] = []
+    if "swiggy_instamart" in ran:
+        aid = str(legacy.get("selected_instamart_address_id") or "").strip()
+        if aid:
+            rows = legacy.get("session_instamart_addresses") or []
+            label = next(
+                (
+                    r.get("location_name")
+                    for r in rows
+                    if isinstance(r, dict) and r.get("address_id") == aid
+                ),
+                None,
+            )
+            lines.append(f"Active Instamart delivery address: {label or aid}")
+    if "zepto" in ran:
+        loc = legacy.get("selected_zepto_location")
+        if isinstance(loc, dict):
+            lbl = loc.get("label") or f"{loc.get('latitude')}, {loc.get('longitude')}"
+            lines.append(f"Active Zepto delivery location: {lbl}")
+    return lines
+
+
+_EMPTY_CART_TOOLS = {"get_cart", "view_cart"}
+_EMPTY_CART_MARKERS = ("cart not found", "session expired", "cart is empty", "no items")
+
+
+def _is_empty_cart_error(tool_result: Any) -> bool:
+    """A grocery get_cart/view_cart 'cart not found / session expired' error just
+    means the cart is EMPTY — Swiggy/Zepto error on an empty cart read. Treat it
+    as empty deterministically so the narrator never calls it a technical issue."""
+    if tool_result.ok or tool_result.tool not in _EMPTY_CART_TOOLS:
+        return False
+    text = (tool_result.error_detail or "").lower()
+    if not text and isinstance(tool_result.data, dict):
+        text = json.dumps(tool_result.data).lower()
+    return any(m in text for m in _EMPTY_CART_MARKERS)
+
+
 def _results_summary(ctx: PipelineContext) -> str:
     parts: list[str] = []
     for result in ctx.provider_results:
         for tool_result in result.results:
+            if _is_empty_cart_error(tool_result):
+                # Present an empty-cart read as success, not an error.
+                parts.append(
+                    f"[{result.provider}.{tool_result.tool} ok] Your cart is empty (no items)."
+                )
+                continue
             if tool_result.ok:
                 status = "ok"
             else:
@@ -238,6 +307,7 @@ def _results_summary(ctx: PipelineContext) -> str:
         parts.append("Cards rendered to the user this turn:")
         parts.extend(_card_line(a) for a in ctx.attachments)
     parts.extend(_session_knowledge(ctx))
+    parts.extend(_grocery_address(ctx))
     return "\n".join(parts) or "(no tools ran)"
 
 

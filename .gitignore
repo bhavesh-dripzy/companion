@@ -83,3 +83,6 @@ scripts/probe_instamart_cart.py
 
 # Zepto per-user default location (local dev fallback)
 .zepto_prefs/
+
+# Raw Swiggy POC dumps (contain real address/order data)
+swiggy_updated_outputs/
