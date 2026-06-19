@@ -1117,6 +1117,19 @@ const assistantMsg: Message = {
     ]);
   };
 
+  // Movies & Events quick-action: same client-side pattern — drop an in-chat
+  // District discovery picker (a "user" bubble + a cards-only assistant turn
+  // with the `district_categories` attachment). Tapping a tile fires a real,
+  // location-scoped District search through handleSendMessage.
+  const handleOpenDistrict = () => {
+    if (isThinking) return;
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: "What's on near me" },
+      { role: 'assistant', content: '', attachments: [{ kind: 'district_categories' }] },
+    ]);
+  };
+
   // Cards (menu/restaurant/cart) returned by the most recent voice tool call,
   // held until that turn completes so we can attach them to the rendered
   // assistant message in the chat log.
@@ -1511,6 +1524,7 @@ const assistantMsg: Message = {
             }}
             onOpenGroceries={handleOpenGroceries}
             onOpenFood={handleOpenFood}
+            onOpenDistrict={handleOpenDistrict}
             onToggleLeft={() => setIsSidebarCollapsed((v) => !v)}
             isSidebarCollapsed={isSidebarCollapsed}
             connectedCount={

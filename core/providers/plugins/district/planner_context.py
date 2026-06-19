@@ -178,8 +178,16 @@ def build_context(ctx: Any) -> str:
     always present, so the return is non-empty in practice; ``""`` is returned
     only if every block (including date context) renders empty.
     """
-    legacy: dict[str, Any] = getattr(ctx, "session", None) or {}
-    placeholders: dict[str, Any] = getattr(ctx, "placeholders", None) or {}
+    # At the plan stage ``ctx`` is the PipelineContext: ``ctx.session`` is a
+    # SessionState whose flat brief bag (session_restaurants/movies/…) lives on
+    # ``.legacy`` and whose carried ids live on ``.placeholders``. Be tolerant of a
+    # raw dict too (defensive / ExecCtx) and NEVER call ``.get`` on the pydantic
+    # model — that raised AttributeError and crashed every District turn.
+    session = getattr(ctx, "session", None)
+    legacy_src = getattr(session, "legacy", session)
+    legacy: dict[str, Any] = legacy_src if isinstance(legacy_src, dict) else {}
+    ph_src = getattr(session, "placeholders", None) or getattr(ctx, "placeholders", None)
+    placeholders: dict[str, Any] = ph_src if isinstance(ph_src, dict) else {}
 
     parts: list[str | None] = [
         _date_context(),

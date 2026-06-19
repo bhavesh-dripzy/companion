@@ -61,11 +61,14 @@ export function ChatMessageItem({
   const isUser = msg.role === 'user';
   const [liked, setLiked] = React.useState<'up' | 'down' | null>(null);
 
-  // Hide avatar + indent only for the grocery category grid, not the intro card.
+  // Hide avatar + indent only for the category grids (grocery / District), not
+  // the intro card.
   const isCardsOnly =
     !isUser
     && !(msg.content || '').trim()
-    && msg.attachments?.some((a) => a.kind === 'grocery_categories');
+    && msg.attachments?.some(
+      (a) => a.kind === 'grocery_categories' || a.kind === 'district_categories',
+    );
 
   const showAddressPicker =
     !isUser

@@ -51,6 +51,10 @@ _SESSION_KEYS = (
     # truth that select_saved_address binds the store + order to (mirrors
     # Instamart). Must survive the round-trip so cart/order reuse it.
     "selected_zepto_address_id",
+    # The committed District discovery location {latitude, longitude, ...} —
+    # District's source of truth (lat/lng; no saved-address concept). See
+    # _SESSION_DISTRICT_LOCATION.
+    "selected_district_location",
     "session_instamart_products",
     "session_instamart_addresses",
     "session_instamart_cart",
@@ -76,6 +80,10 @@ _SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
 _SESSION_ZEPTO_LOCATION = "selected_zepto_location"
 # The committed Zepto delivery address key (a member of _SESSION_KEYS above).
 _SESSION_ZEPTO_ADDRESS = "selected_zepto_address_id"
+# The committed District discovery location key (a member of _SESSION_KEYS above).
+_SESSION_DISTRICT_LOCATION = "selected_district_location"
+# The committed District discovery location key (a member of _SESSION_KEYS above).
+_SESSION_DISTRICT_LOCATION = "selected_district_location"
 
 _runner = None
 
@@ -133,6 +141,21 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
                 legacy[_SESSION_ZEPTO_LOCATION] = loc
                 if not user_geo:
                     user_geo = {"latitude": loc["latitude"], "longitude": loc["longitude"]}
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
+    # Pin the user's saved District discovery location (source of truth — District
+    # search tools take {lat,lng} and have no saved-address concept). The provider
+    # uses it over drifting GPS; it also seeds user_geo so the needs_location guard
+    # never blocks a turn for a user who set a location during onboarding.
+    if not isinstance(legacy.get(_SESSION_DISTRICT_LOCATION), dict):
+        try:
+            from companion_api.district_location import get_default_district_location
+
+            dloc = get_default_district_location(user)
+            if dloc and dloc.get("latitude") is not None and dloc.get("longitude") is not None:
+                legacy[_SESSION_DISTRICT_LOCATION] = dloc
+                if not user_geo:
+                    user_geo = {"latitude": dloc["latitude"], "longitude": dloc["longitude"]}
         except Exception:  # pragma: no cover - never block a turn on prefs lookup
             pass
     session = SessionState(placeholders=data.get("session_state") or {}, legacy=legacy)

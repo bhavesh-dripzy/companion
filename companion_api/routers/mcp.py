@@ -1208,3 +1208,45 @@ def set_zepto_default_address(
         user, address_id=address_id, tag=payload.tag, line=payload.line
     )
     return {"status": "saved", "serviceable": True, "default_address": record}
+
+
+# ── District default location (per-user source of truth) ──────────────────────
+# District search tools (movies / events / dining / theatres) take a numeric
+# {lat,lng} location and have no saved-address concept. So District's source of
+# truth is a {lat,lng} point captured once during onboarding — same storage
+# strategy as Zepto's default location (DynamoDB + local-file fallback + cache).
+
+from companion_api.district_location import (  # noqa: E402
+    get_default_district_location,
+    save_default_district_location,
+)
+
+
+class DistrictDefaultLocation(BaseModel):
+    latitude: float
+    longitude: float
+    label: str | None = None
+
+
+@router.get("/api/mcp/district/default-location/")
+def get_district_default_location(user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """Return the user's saved District default location (or null)."""
+    return {"default_location": get_default_district_location(user)}
+
+
+@router.post("/api/mcp/district/default-location/")
+def set_district_default_location(
+    payload: DistrictDefaultLocation,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Persist the user's chosen District default location."""
+    try:
+        record = save_default_district_location(
+            user,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            label=payload.label,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "saved", "default_location": record}

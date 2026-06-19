@@ -28,6 +28,7 @@ import { ZeptoCartCard, ZeptoProductCardGrid } from './components/ZeptoCards';
 import { InstamartCartCard, InstamartProductCardGrid } from './components/InstamartCards';
 import { GroceryCategoryCard } from './components/GroceryCategoryCard';
 import { FoodCategoryCard } from './components/FoodCategoryCard';
+import { DistrictCategoryCard } from './components/DistrictCategoryCard';
 import {
   KiteGttCard,
   KiteHoldingsCard,
@@ -1640,6 +1641,18 @@ export const AttachmentList: React.FC<{
         return (
           <FoodCategoryCard
             key={`food-categories-${idx}`}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
+      // District discovery picker — curated tiles (movies / events / dining /
+      // theatres) injected when the user taps the Movies & Events chip; tapping
+      // one fires a location-scoped District search.
+      if (kind === 'district_categories') {
+        return (
+          <DistrictCategoryCard
+            key={`district-categories-${idx}`}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />

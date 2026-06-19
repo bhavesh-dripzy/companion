@@ -30,6 +30,9 @@ interface ChatAreaProps {
    *  (issue #59) — fired by the Groceries chip + the grocery hero nudge. */
   onOpenGroceries?: () => void;
   onOpenFood?: () => void;
+  /** Drops the in-chat District discovery picker (movies / events / dining /
+   *  theatres) into the conversation — fired by the Movies & Events chip. */
+  onOpenDistrict?: () => void;
   onToggleLeft?: () => void;
   connectedCount?: number;
   isSidebarCollapsed?: boolean;
@@ -127,7 +130,7 @@ const PROMPT_OPTIONS = [
   },
   {
     id: 'movie',
-    label: 'Find Events',
+    label: 'Movies & Events',
     prompt: 'Find live music events near me on District',
     icon: Ticket,
     color:
@@ -143,6 +146,7 @@ export function ChatArea({
   onSuggestionClick,
   onOpenGroceries,
   onOpenFood,
+  onOpenDistrict,
   onToggleLeft,
   connectedCount: _connectedCount = 0,
   isSidebarCollapsed = false,
@@ -182,6 +186,10 @@ export function ChatArea({
     }
     if (option.id === 'food' && onOpenFood) {
       onOpenFood();
+      return;
+    }
+    if (option.id === 'movie' && onOpenDistrict) {
+      onOpenDistrict();
       return;
     }
     onSuggestionClick(option.prompt);
