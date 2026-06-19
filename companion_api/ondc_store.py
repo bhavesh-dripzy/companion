@@ -48,3 +48,43 @@ def record_callback(action: str, body: dict[str, Any], *, verified: bool) -> Non
         )
     except Exception:
         logger.exception("failed to persist ONDC callback")
+
+
+def save_transaction(transaction_id: str, **state: Any) -> None:
+    """Persist per-transaction state (domain, bpp routing, selection) for the flow.
+
+    Stored under sort key ``state`` alongside the callback rows for the same
+    transaction. No-op (logs) when no table is configured."""
+    logger.info("ONDC transaction state txn=%s keys=%s", transaction_id, list(state))
+    if not TABLE_NAME or not transaction_id:
+        return
+    now = int(time.time())
+    try:
+        boto3.resource("dynamodb").Table(TABLE_NAME).put_item(
+            Item={
+                "transaction_id": transaction_id,
+                "action_message": "state",
+                "state": json.dumps(state, separators=(",", ":")),
+                "updated_at": now,
+                "expires_at": now + _TTL_SECONDS,
+            }
+        )
+    except Exception:
+        logger.exception("failed to persist ONDC transaction state")
+
+
+def get_transaction(transaction_id: str) -> dict[str, Any]:
+    """Load per-transaction state saved by ``save_transaction`` ({} if absent)."""
+    if not TABLE_NAME or not transaction_id:
+        return {}
+    try:
+        item = (
+            boto3.resource("dynamodb")
+            .Table(TABLE_NAME)
+            .get_item(Key={"transaction_id": transaction_id, "action_message": "state"})
+            .get("Item")
+        )
+    except Exception:
+        logger.exception("failed to load ONDC transaction state")
+        return {}
+    return json.loads(item["state"]) if item and item.get("state") else {}
