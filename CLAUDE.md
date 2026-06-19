@@ -4,20 +4,26 @@ _Companion repo: `bhavesh-dripzy/companion` | AWS: `616551057455` / `ap-south-1`
 
 ---
 
-## Branch & Environment Flow
+## Branch & Environment Flow (model A — batched promotion)
 
 ```
-feature/* ──PR──> dev ──promote──> staging ──promote──> main
-                  (integration)       (pre-prod)            (prod)
+feature/* ──PR──> dev ──Promote (every ~3 days / manual)──> main ──> Deploy (prod)
+                  (integration trunk)                        (prod)
 ```
 
 | Branch   | CI trigger | Deploys to | Notes |
 |----------|-----------|------------|-------|
-| `dev`    | PR + push | —          | Integration branch; CI only, no deploy |
-| `staging`| Push      | `companion-staging-*` stacks | Staging environment, no EC2 |
-| `main`   | Push      | `companion-*` stacks (prod, with EC2) | Protected. **Always deploys after CI passes** |
+| `dev`    | PR + push | —          | **Integration trunk — ALL work lands here via PR.** CI only, no deploy |
+| `staging`| Push      | `companion-staging-*` stacks | Optional staging environment, no EC2 |
+| `main`   | —         | `companion-*` stacks (prod, with EC2) | Protected. Advanced ONLY by the Promote workflow; Deploy runs on trigger |
 
-**Promotion path:** feature → dev → staging → main. One-directional. No hotfix path skips staging unless absolutely necessary (then use `workflow_dispatch` on `main` with care).
+### THE RULE — never touch `main` directly
+
+- **Every change → PR to `dev`.** Never open a PR to `main`, never push/merge to `main` directly.
+- **`main` advances only via `.github/workflows/promote.yml`**, which fast-forwards `main` to `dev` and triggers Deploy. It runs **on a schedule (~every 3 days) or on demand** (`workflow_dispatch`) — so **production ships only when triggered or every 3 days, never on an individual merge**.
+- **`deploy.yml` runs only when triggered** (by Promote, or manually) — it no longer fires on a push to `main`.
+- Promote only ever **fast-forwards**; if `main` has commits not on `dev` (someone broke the rule), it refuses and you must merge `main` back into `dev` first.
+- **Ship now:** run the **Promote** workflow manually (Actions → Promote dev → main → Run workflow), or run **Deploy** manually for a hotfix. Don't wait for the cron.
 
 ---
 
@@ -103,7 +109,7 @@ cd frontend && npm ci && npx tsc --noEmit && npm run build
 
 ### `deploy.yml` — Production (`main` branch)
 
-**Trigger:** push to `main` (skips `.md` and `docs/` changes) + `workflow_dispatch` for manual deploy.
+**Trigger:** `workflow_dispatch` only — run by the Promote workflow after it fast-forwards `main`, or manually for a hotfix. It does **not** fire on a push to `main` (that's how prod ships only on trigger or every ~3 days).
 
 **Environment:** `production`
 
