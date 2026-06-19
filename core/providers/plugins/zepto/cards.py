@@ -108,7 +108,16 @@ def _product_card(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def build_product_cards(results: list[ToolResult]) -> list[Attachment]:
+def build_product_cards(
+    results: list[ToolResult],
+    *,
+    address_id: str | None = None,
+    addresses: list[dict] | None = None,
+) -> list[Attachment]:
+    """``address_id`` / ``addresses`` describe the Zepto delivery address the
+    search ran against (the saved address that bound the store); they ride on
+    every card group so the UI can show + change it (mirrors Instamart)."""
+    addresses = addresses or []
     out: list[Attachment] = []
     for tr in results:
         if tr.tool not in _PRODUCT_TOOLS or not tr.ok:
@@ -127,6 +136,8 @@ def build_product_cards(results: list[ToolResult]) -> list[Attachment]:
                     provider="zepto",
                     source=f"zepto.{tr.tool}",
                     products=cards,
+                    delivery_address_id=address_id,
+                    delivery_addresses=addresses or None,
                 )
             )
     return out

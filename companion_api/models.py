@@ -100,6 +100,10 @@ class FoodQueryRequest(BaseModel):
     session_instamart_products: list[dict[str, Any]] | None = None
     session_instamart_addresses: list[dict[str, Any]] | None = None
     session_instamart_cart: dict[str, Any] | None = None
+    # Committed grocery delivery selections (see AgentQueryRequest below).
+    selected_instamart_address_id: str | None = None
+    selected_zepto_address_id: str | None = None
+    selected_zepto_location: dict[str, Any] | None = None
     # Kite (Zerodha) session indexes — REAL-MONEY trading surface.
     # ``session_kite_instruments`` is an LRU of every instrument the user has
     # seen (tradingsymbol / exchange / instrument_token + last_price +
@@ -175,6 +179,12 @@ class AgentQueryRequest(BaseModel):
     session_instamart_products: list[dict[str, Any]] | None = None
     session_instamart_addresses: list[dict[str, Any]] | None = None
     session_instamart_cart: dict[str, Any] | None = None
+    # Committed grocery delivery selections round-tripped so a UI address switch
+    # persists turn-to-turn (the provider also seeds these; the saved default is
+    # the fallback). selected_zepto_location is the legacy GPS point.
+    selected_instamart_address_id: str | None = None
+    selected_zepto_address_id: str | None = None
+    selected_zepto_location: dict[str, Any] | None = None
     # Kite (Zerodha) session indexes — REAL-MONEY trading surface. See
     # FoodQueryRequest.session_kite_instruments / session_kite_holdings /
     # session_kite_positions / session_kite_open_orders /

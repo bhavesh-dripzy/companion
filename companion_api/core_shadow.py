@@ -44,10 +44,13 @@ _SESSION_KEYS = (
     "session_zepto_products",
     "session_zepto_addresses",
     "session_zepto_cart",
-    # The committed Zepto delivery location {latitude, longitude, ...} — must
-    # survive the round-trip so the store the cart is bound to stays stable
-    # instead of drifting with ambient GPS each turn (see _SESSION_ZEPTO_LOCATION).
+    # The committed Zepto delivery location {latitude, longitude, ...} — kept for
+    # back-compat / optional GPS onboarding hint (see _SESSION_ZEPTO_LOCATION).
     "selected_zepto_location",
+    # The saved address the user picked for Zepto this session — the source of
+    # truth that select_saved_address binds the store + order to (mirrors
+    # Instamart). Must survive the round-trip so cart/order reuse it.
+    "selected_zepto_address_id",
     "session_instamart_products",
     "session_instamart_addresses",
     "session_instamart_cart",
@@ -71,6 +74,8 @@ _SESSION_KEYS = (
 _SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
 # The committed Zepto delivery location key (a member of _SESSION_KEYS above).
 _SESSION_ZEPTO_LOCATION = "selected_zepto_location"
+# The committed Zepto delivery address key (a member of _SESSION_KEYS above).
+_SESSION_ZEPTO_ADDRESS = "selected_zepto_address_id"
 
 _runner = None
 
@@ -105,12 +110,20 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
                 legacy[_SESSION_SELECTED_ADDRESS] = default["address_id"]
         except Exception:  # pragma: no cover - never block a turn on prefs lookup
             pass
-    # Pin the user's saved Zepto location (source of truth for the store the cart
-    # binds to). Anchor it in the session so the provider uses it over drifting
-    # GPS, AND seed user_geo from it when the client carried no live coordinate —
-    # otherwise Zepto's needs_location guard would block a turn even though we
-    # know where to deliver.
+    # Pin the user's saved Zepto delivery ADDRESS (source of truth — mirrors
+    # Instamart). select_saved_address binds the store + order to it; the provider
+    # uses it over drifting GPS. Falls back to the legacy GPS location as an
+    # onboarding hint so the needs_location guard never blocks a known-where turn.
     user_geo = data.get("user_geo") or data.get("geo")
+    if not str(legacy.get(_SESSION_ZEPTO_ADDRESS) or "").strip():
+        try:
+            from companion_api.zepto_address import get_default_zepto_address
+
+            addr = get_default_zepto_address(user)
+            if addr and addr.get("address_id"):
+                legacy[_SESSION_ZEPTO_ADDRESS] = addr["address_id"]
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
     if not isinstance(legacy.get(_SESSION_ZEPTO_LOCATION), dict):
         try:
             from companion_api.zepto_location import get_default_zepto_location

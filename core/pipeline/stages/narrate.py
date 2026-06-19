@@ -251,10 +251,23 @@ def _grocery_address(ctx: PipelineContext) -> list[str]:
             )
             lines.append(f"Active Instamart delivery address: {label or aid}")
     if "zepto" in ran:
-        loc = legacy.get("selected_zepto_location")
-        if isinstance(loc, dict):
-            lbl = loc.get("label") or f"{loc.get('latitude')}, {loc.get('longitude')}"
-            lines.append(f"Active Zepto delivery location: {lbl}")
+        aid = str(legacy.get("selected_zepto_address_id") or "").strip()
+        if aid:
+            rows = legacy.get("session_zepto_addresses") or []
+            label = next(
+                (
+                    (r.get("label") or r.get("tag"))
+                    for r in rows
+                    if isinstance(r, dict) and r.get("address_id") == aid
+                ),
+                None,
+            )
+            lines.append(f"Active Zepto delivery address: {label or aid}")
+        else:
+            loc = legacy.get("selected_zepto_location")
+            if isinstance(loc, dict):
+                lbl = loc.get("label") or f"{loc.get('latitude')}, {loc.get('longitude')}"
+                lines.append(f"Active Zepto delivery location: {lbl}")
     return lines
 
 

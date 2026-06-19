@@ -984,10 +984,12 @@ def food_saved_addresses(
         tool_name = "get_addresses"
     elif "get_user_addresses" in tool_provider.tools:
         tool_name = "get_user_addresses"
+    elif "list_saved_addresses" in tool_provider.tools:
+        tool_name = "list_saved_addresses"  # Zepto (prose reply, parsed below)
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Provider {tool_provider.name!r} has no address-listing tool (expected get_saved_addresses_for_user, get_addresses, or get_user_addresses).",
+            detail=f"Provider {tool_provider.name!r} has no address-listing tool (expected get_saved_addresses_for_user, get_addresses, get_user_addresses, or list_saved_addresses).",
         )
 
     token_status = get_mcp_token_status(root, mcp_url=mcp_url, user_id=user)
@@ -1006,7 +1008,23 @@ def food_saved_addresses(
             status_code=502,
             detail=str(result.get("error_detail") or "MCP address fetch failed"),
         )
-    rows = _extract_saved_addresses_from_envelope(result.get("data"))
+    if tool_name == "list_saved_addresses":
+        # Zepto returns prose with an id footer — parse it to {address_id, location_name}.
+        from core.providers.plugins.zepto.address import extract_zepto_address_rows
+
+        parsed = extract_zepto_address_rows(result.get("data") or {})
+        rows = [
+            {
+                "address_id": r["address_id"],
+                "location_name": (
+                    f"{r['tag']} — {r['line']}" if r.get("tag") and r.get("line")
+                    else (r.get("line") or r.get("tag") or r["address_id"])
+                ),
+            }
+            for r in parsed
+        ]
+    else:
+        rows = _extract_saved_addresses_from_envelope(result.get("data"))
     return {
         "status": "success",
         "provider": tool_provider.name,
@@ -1129,3 +1147,64 @@ def set_zepto_default_location(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "saved", "default_location": record}
+
+
+# ── Zepto default delivery ADDRESS (per-user source of truth) ──────────────────
+# Mirrors Instamart: Zepto's select_saved_address binds BOTH the store and the
+# order's delivery doorstep from one saved-address id, so the source of truth is
+# a saved-address id (not a raw GPS point). Validates serviceability first.
+
+from companion_api.zepto_address import (  # noqa: E402
+    get_default_zepto_address,
+    save_default_zepto_address,
+)
+
+
+class ZeptoDefaultAddress(BaseModel):
+    address_id: str
+    tag: str | None = None
+    line: str | None = None
+
+
+@router.get("/api/mcp/zepto/default-address/")
+def get_zepto_default_address(user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """Return the user's saved Zepto default delivery address (or null)."""
+    return {"default_address": get_default_zepto_address(user)}
+
+
+@router.post("/api/mcp/zepto/default-address/")
+def set_zepto_default_address(
+    payload: ZeptoDefaultAddress,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Persist the user's chosen Zepto default delivery address.
+
+    Validates serviceability first via select_saved_address (which binds the
+    store) — a non-serviceable address is NOT saved. Fails OPEN on a probe
+    hiccup so a transient MCP error never blocks onboarding."""
+    address_id = payload.address_id.strip()
+    if not address_id:
+        raise HTTPException(status_code=400, detail="address_id is required.")
+
+    serviceable, message = True, ""
+    try:
+        from companion_api.zepto_serviceability import check_serviceability_and_switch
+
+        verdict = check_serviceability_and_switch(user, address_id)
+        serviceable = bool(verdict.get("serviceable", True))
+        message = str(verdict.get("message") or "")
+    except Exception:  # pragma: no cover - never block a save on a probe hiccup
+        logger.exception("zepto serviceability check failed for %s; saving anyway", address_id)
+
+    if not serviceable:
+        return {
+            "status": "not_serviceable",
+            "serviceable": False,
+            "message": message or "Zepto doesn't deliver to this address. Please pick another.",
+            "default_address": get_default_zepto_address(user),
+        }
+
+    record = save_default_zepto_address(
+        user, address_id=address_id, tag=payload.tag, line=payload.line
+    )
+    return {"status": "saved", "serviceable": True, "default_address": record}

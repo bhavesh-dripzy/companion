@@ -17,6 +17,7 @@ import type {
 } from '../types';
 import { cn } from '../utils';
 import { themeFor } from '../ChatLog';
+import { useInstamartAddresses } from '../InstamartAddressContext';
 
 const formatPriceFromInr = (value: number | null | undefined): string | null => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
@@ -315,17 +316,36 @@ const DeliveryAddressBar: React.FC<{
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const theme = themeFor('instamart');
+  const ctx = useInstamartAddresses();
 
-  if (!addressId && !(addresses && addresses.length)) return null;
+  // The product-card attachment usually carries only the selected address id
+  // (no list), so fall back to the Swiggy saved-address list fetched at the App
+  // level (same source as the Apps modal) to resolve the human label, and to
+  // the App's selected id when the attachment omits it.
+  const effectiveId = addressId || ctx.selectedId || null;
+  const effectiveAddresses: DeliveryAddr[] =
+    addresses && addresses.length
+      ? addresses
+      : ctx.addresses.map((a) => {
+          const [tag, ...rest] = (a.location_name || '').split(' — ');
+          return {
+            id: a.address_id,
+            tag: rest.length ? tag.trim() : '',
+            line: rest.length ? rest.join(' — ').trim() : (a.location_name || '').trim(),
+          };
+        });
 
-  const current = addresses?.find(a => a.id === addressId) || addresses?.[0];
+  if (!effectiveId && !effectiveAddresses.length) return null;
+
+  const current =
+    effectiveAddresses.find((a) => a.id === effectiveId) || effectiveAddresses[0];
   const displayTag = current?.tag || cleanAddrLine(current?.line || '').split(',')[0] || 'Delivery address';
   const displayLine = current ? cleanAddrLine(current.line) : '';
-  const canChange = !!addresses && addresses.length > 1 && !!onQuickPrompt && !disabled;
+  const canChange = effectiveAddresses.length > 1 && !!onQuickPrompt && !disabled;
 
   const handleSelect = (addr: DeliveryAddr) => {
     setOpen(false);
-    if (!onQuickPrompt || disabled || addr.id === (current?.id ?? addressId)) return;
+    if (!onQuickPrompt || disabled || addr.id === (current?.id ?? effectiveId)) return;
     onQuickPrompt(`Search ${query || 'groceries'} on Swiggy Instamart, deliver to ${addr.tag || addr.line.split(',')[0]}`);
   };
 
@@ -370,8 +390,8 @@ const DeliveryAddressBar: React.FC<{
             Deliver to
           </p>
           <div className="max-h-[260px] overflow-y-auto">
-            {addresses!.map(addr => {
-              const isSelected = addr.id === (current?.id ?? addressId);
+            {effectiveAddresses.map(addr => {
+              const isSelected = addr.id === (current?.id ?? effectiveId);
               return (
                 <button
                   key={addr.id}
