@@ -6,6 +6,13 @@ on:
   push:
     branches: [dev, staging, main]
 
+# Least-privilege token. `pull-requests: read` is required by dorny/paths-filter
+# on pull_request events — without it the `changes` job fails and gates everything
+# else to "skipped", turning every PR's checks red.
+permissions:
+  contents: read
+  pull-requests: read
+
 # Cancel superseded runs on the same ref. Rapid successive pushes (a busy dev
 # day) shouldn't each run CI to completion — that's the biggest Actions-minutes
 # drain. Deploy workflows keep cancel-in-progress:false; only CI cancels.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from core.contracts.tool_result import Effect
 from core.pipeline.context import PipelineContext
 
 _RESPONSE_PROMPT = (
@@ -27,7 +28,11 @@ _RESPONSE_PROMPT = (
     "present one platform's data as another's. When the user asks to compare "
     "platforms, report each side strictly from its own tagged results; if one "
     "side's tools failed or returned nothing, say that about that platform only — "
-    "do not claim a platform had no results while its cards are being rendered.\n"
+    "do not claim a platform had no results while its cards are being rendered. "
+    "When comparing the SAME item across platforms, line up the closest matches "
+    "(same brand and pack size where possible), call out which platform is cheaper "
+    "for the comparable pack, and flag any pack-size difference so the comparison "
+    "is fair (e.g. ₹59/1L vs ₹47/500ml is not the cheaper option).\n"
     "If some tools failed while others succeeded, lead with what succeeded and "
     "mention the failure only if it blocks what the user asked for. NEVER give a "
     "blanket 'technical issue' apology while results are being shown.\n"
@@ -44,12 +49,15 @@ _RESPONSE_PROMPT = (
     "apology or hide the results that did come back.\n"
     "You DO have live web access through tools: news/headlines on any topic, "
     "video search, flights, hotels, product prices, maps, stock quotes, AND "
-    "outbound phone calls (via make_phone_call — speaks a message to any number). "
-    "If the tool results show a make_phone_call that succeeded, confirm the call "
-    "was placed. If it was blocked pending confirmation, ask the user to confirm. "
-    "If it failed with an error, tell the user the call could not be placed and "
-    "suggest trying again. NEVER claim a call was placed when the tool results "
-    "show it blocked or failed.\n"
+    "outbound phone calls (via make_phone_call — speaks a message to any number).\n"
+    "GROUND TRUTH for any state change: a tool result tagged MUTATION_APPLIED means "
+    "that write took effect (cart updated, order placed, call made, address switched, "
+    "reminder set); MUTATION_NOT_APPLIED means it did NOT. Confirm a state change ONLY "
+    "when its result is tagged MUTATION_APPLIED. If no MUTATION_APPLIED line is present, "
+    "NEVER tell the user something was added/ordered/placed/switched/booked — instead "
+    "report what the tools actually returned, or ask the clarifying question needed to "
+    "proceed (e.g. which size/variant). This holds even if an earlier turn claimed the "
+    "action was done.\n"
     "GROCERY CART TRUTH (swiggy_instamart, zepto): only state that an item was "
     "added, removed, its quantity changed, or the cart cleared when THIS turn's "
     "results include a SUCCESSFUL update_cart or clear_cart. If this turn only "
@@ -313,6 +321,12 @@ def _results_summary(ctx: PipelineContext) -> str:
                 blob = (
                     tool_result.error_detail if not blob else f"{tool_result.error_detail} — {blob}"
                 )
+            if tool_result.effect is not None:
+                status += (
+                    " MUTATION_APPLIED"
+                    if tool_result.effect is Effect.APPLIED
+                    else " MUTATION_NOT_APPLIED"
+                )
             parts.append(f"[{result.provider}.{tool_result.tool} {status}] {blob}")
     if ctx.blocked:
         parts.append("Blocked pending confirmation: " + ", ".join(c.tool for c in ctx.blocked))
@@ -327,6 +341,10 @@ def _results_summary(ctx: PipelineContext) -> str:
 def _fallback_message(ctx: PipelineContext) -> str:
     if ctx.blocked:
         return "Please confirm and I'll go ahead."
+    # Cards rendered this turn are real results — never degrade to a bare "Done."
+    # or a blanket error apology when the narrator LLM hiccups but data is shown.
+    if ctx.attachments:
+        return "Here's what I found — details are in the cards above."
     if any(not r.ok for r in ctx.provider_results):
         return "Sorry, I hit an error reaching that service. Want to try again?"
     return "Done."

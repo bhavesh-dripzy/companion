@@ -58,6 +58,19 @@ import './index.css';
 // every time the backend confirms (or lazy-creates) a chat_id.
 const ACTIVE_CHAT_STORAGE_KEY = 'companion.active_chat_id';
 
+// Path-based chat routing: the active chat lives in the URL as `/c/<chat_id>`
+// (shareable, refresh-safe, back/forward-aware). `localStorage` stays the
+// cold-start fallback — in the packaged (Capacitor) app the webview boots at the
+// bundle root with no path, so the last-active chat is restored from storage.
+function chatIdFromPath(): string | null {
+  const match = window.location.pathname.match(/^\/c\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function chatPathFor(chatId: string | null): string {
+  return chatId ? `/c/${encodeURIComponent(chatId)}` : '/';
+}
+
 // Per-chat session snapshot. Mirrors the `session_*` fields the backend
 // round-trips on every /api/agent/query/ turn — restaurants the user
 // has been shown, the LRU of menu items (variant_ids needed to resolve
@@ -429,7 +442,7 @@ function App() {
   // return its id, which we'll then pin.
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [chatId, setChatId] = useState<string | null>(
-    () => localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || null,
+    () => chatIdFromPath() || localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || null,
   );
 
   const { location: userLocation, ensureLocation } = useUserLocation();
@@ -1367,6 +1380,35 @@ const assistantMsg: Message = {
     window.history.replaceState({}, '', window.location.pathname);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
+
+  // Path-based chat routing. One effect mirrors `chatId` → `/c/<id>` so the URL
+  // always names the open chat; a `popstate` listener mirrors the other way for
+  // back/forward. The path-equality guard makes the two non-circular: a
+  // popstate-driven `setChatId` lands on a URL that already matches, so the sync
+  // effect pushes nothing back.
+  const navRef = useRef({ select: handleSelectChat, neu: handleNewChat, chatId });
+  navRef.current = { select: handleSelectChat, neu: handleNewChat, chatId };
+  const urlSyncedRef = useRef(false);
+  useEffect(() => {
+    const desired = chatPathFor(chatId);
+    if (window.location.pathname !== desired) {
+      // First sync replaces (no spurious history entry on load); later chat
+      // switches push so the back button walks the visited chats.
+      if (urlSyncedRef.current) window.history.pushState(null, '', desired);
+      else window.history.replaceState(null, '', desired);
+    }
+    urlSyncedRef.current = true;
+  }, [chatId]);
+  useEffect(() => {
+    const onPopState = () => {
+      const target = chatIdFromPath();
+      if (target === navRef.current.chatId) return;
+      if (target) navRef.current.select(target);
+      else navRef.current.neu();
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   // Load the Swiggy saved-address list once Instamart is connected (same
   // endpoint the Apps modal uses) so the delivery-address bar can map the

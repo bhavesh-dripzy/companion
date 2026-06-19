@@ -62,6 +62,7 @@ class SwiggyFoodProvider(McpProvider):
     label = "Swiggy Food MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = SwiggyFoodSession
+    capability_class = "food"
     saved_addresses_tool = "get_addresses"
     resolver = SwiggyFoodResolver()
 
