@@ -17,6 +17,7 @@ from core.pipeline.orchestration import (
     fallback_routing,
     frame_message,
     parse_routing,
+    stick_to_active_cart,
 )
 
 _PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "orchestrator.system.md"
@@ -64,4 +65,7 @@ class Route:
                 enabled=True,
                 allowed=ctx.request.enabled_providers,
             )
+        # Pin a grocery turn to the live-cart provider so cart ops never leak to the
+        # other grocery app's cart (deterministic; the orchestrator bounces providers).
+        ctx.routing = stick_to_active_cart(ctx.routing, ctx.request.message, ctx.session.legacy)
         ctx.tracer.event("route", task=ctx.routing.task_type, providers=list(ctx.routing.providers))
