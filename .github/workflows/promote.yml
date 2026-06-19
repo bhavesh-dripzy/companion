@@ -1,0 +1,60 @@
+name: Promote dev → main
+
+# Batched deploys. `dev` is the integration trunk; this fast-forwards `main` to
+# `dev` 3×/day (and on demand), and each successful promotion triggers Deploy.
+# Replaces deploy-on-every-push-to-main — work accumulates on dev, ships 3×/day.
+on:
+  schedule:
+    # GitHub cron is UTC. IST = UTC+5:30 → these are 10:30 / 14:30 / 18:30 IST.
+    - cron: '0 5,9,13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+# Never run two promotions at once, and never cancel one mid-flight.
+concurrency:
+  group: promote-dev-main
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fast-forward main → dev (skip if nothing new)
+        id: ff
+        run: |
+          git config user.name "promote-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin dev:refs/remotes/origin/dev
+          DEV="$(git rev-parse refs/remotes/origin/dev)"
+          MAIN="$(git rev-parse HEAD)"
+          if [ "$DEV" = "$MAIN" ]; then
+            echo "main already at dev ($MAIN) — nothing to promote."
+            echo "promoted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Only ever fast-forward. If main carries commits not on dev (e.g. an
+          # emergency hotfix pushed straight to main), refuse and surface it
+          # rather than clobbering — reconcile dev with main first.
+          if ! git merge-base --is-ancestor "$MAIN" "$DEV"; then
+            echo "::error::main has commits not on dev — refusing non-fast-forward promote. Merge main back into dev first."
+            exit 1
+          fi
+          git push origin "$DEV:refs/heads/main"
+          echo "Promoted dev ($DEV) → main."
+          echo "promoted=true" >> "$GITHUB_OUTPUT"
+
+      # A push made with GITHUB_TOKEN does not trigger other workflows, so kick
+      # Deploy explicitly for the freshly-promoted commit on main.
+      - name: Trigger deploy
+        if: steps.ff.outputs.promoted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main

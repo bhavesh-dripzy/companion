@@ -3,8 +3,11 @@ name: CI
 on:
   pull_request:
     branches: [dev, staging, main]
+  # Not `main`: main only receives already-tested commits via the promote
+  # workflow, and Deploy runs its own smoke test. Skipping it here drops 3
+  # redundant CI runs/day.
   push:
-    branches: [dev, staging, main]
+    branches: [dev, staging]
 
 # Cancel superseded runs on the same ref. Rapid successive pushes (a busy dev
 # day) shouldn't each run CI to completion — that's the biggest Actions-minutes
@@ -122,3 +125,23 @@ jobs:
       - name: Vite build
         working-directory: frontend
         run: npm run build
+
+  # Single always-run gate used as the one required status check in branch
+  # protection. Green when no upstream job failed/was cancelled — a skipped job
+  # (e.g. backend-tests on a frontend-only change) counts as OK, so required
+  # checks never get "stuck waiting" on a job that correctly didn't run.
+  ci-gate:
+    needs: [lint, backend-tests, frontend-build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require no failed CI jobs
+        run: |
+          results="${{ join(needs.*.result, ',') }}"
+          echo "upstream results: $results"
+          case ",$results," in
+            *,failure,*|*,cancelled,*)
+              echo "::error::A required CI job failed or was cancelled."; exit 1 ;;
+            *)
+              echo "CI gate passed." ;;
+          esac
