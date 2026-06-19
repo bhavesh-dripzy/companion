@@ -45,15 +45,75 @@ async def _named_location_geo(ctx: PipelineContext) -> dict[str, dict[str, float
     return overrides
 
 
+def _valid_geo(geo: Any) -> dict[str, float] | None:
+    """Normalize a geo dict to {latitude, longitude} floats, or None if absent."""
+    if not isinstance(geo, dict):
+        return None
+    lat = geo.get("latitude", geo.get("lat"))
+    lng = geo.get("longitude", geo.get("lng"))
+    if lat is None or lng is None:
+        return None
+    try:
+        return {"latitude": float(lat), "longitude": float(lng)}
+    except (TypeError, ValueError):
+        return None
+
+
+def _committed_address_text(legacy: dict[str, Any]) -> str | None:
+    """The user's committed delivery address line (Instamart selection first,
+    then any saved Instamart/Zepto address) for geocoding a fallback geo."""
+    selected = str(legacy.get("selected_instamart_address_id") or "").strip()
+    sources = [legacy.get("session_instamart_addresses"), legacy.get("session_zepto_addresses")]
+    for i, rows in enumerate(sources):
+        if not isinstance(rows, list):
+            continue
+        if i == 0 and selected:
+            for row in rows:
+                if isinstance(row, dict) and str(row.get("address_id") or "") == selected:
+                    line = str(row.get("address_line") or "").strip()
+                    if line:
+                        return line
+        for row in rows:
+            if isinstance(row, dict):
+                line = str(row.get("address_line") or "").strip()
+                if line:
+                    return line
+    return None
+
+
+async def _fallback_geo(ctx: PipelineContext) -> dict[str, float] | None:
+    """Turn geo for providers that need a location but got none named this turn.
+
+    Prefers the turn's GPS; when the client withheld it, geocodes the user's
+    committed delivery address so a store-locating provider (Zepto) resolves
+    instead of fail-closing — the asymmetry that made grocery comparisons (one
+    side serviceable, one side "needs your location") flaky. Generic: every
+    geo-consuming provider inherits the same fallback.
+    """
+    turn = _valid_geo(ctx.request.user_geo)
+    if turn or ctx.deps.geocode is None:
+        return turn
+    legacy = ctx.session.legacy if isinstance(ctx.session.legacy, dict) else {}
+    text = _committed_address_text(legacy)
+    if not text:
+        return None
+    try:
+        point = await ctx.deps.geocode.geocode(text)
+    except Exception:
+        return None
+    return {"latitude": point[0], "longitude": point[1]} if point else None
+
+
 def _exec_ctx_for(
     ctx: PipelineContext,
     provider_id: str,
     budget: RepairBudget,
     geo_overrides: dict[str, dict[str, float]],
+    fallback_geo: dict[str, float] | None,
 ) -> ExecCtx:
     plan = ctx.plans.get(provider_id)
     tools = ctx.deps.registry.tools.for_provider(provider_id)
-    user_geo: Any = geo_overrides.get(provider_id) or ctx.request.user_geo
+    user_geo: Any = geo_overrides.get(provider_id) or fallback_geo
     return ExecCtx(
         user_id=ctx.request.user_id,
         address_id=ctx.session.selected_address_id,
@@ -93,8 +153,10 @@ class Execute:
         dispatcher = Dispatcher(ctx.deps.registry)
         budget = RepairBudget()  # shared across this turn's provider fan-out
         geo_overrides = await _named_location_geo(ctx)
+        fallback_geo = await _fallback_geo(ctx)
         ctx.provider_results = await dispatcher.dispatch(
-            allowed, ctx_for=lambda pid: _exec_ctx_for(ctx, pid, budget, geo_overrides)
+            allowed,
+            ctx_for=lambda pid: _exec_ctx_for(ctx, pid, budget, geo_overrides, fallback_geo),
         )
         provider_tools = [
             {

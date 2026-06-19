@@ -572,6 +572,13 @@ export interface Attachment {
   //   kind === "metric_card" → metric (MetricCardPayload) — provider-agnostic
   //     "number that moved" tile: market data today, any KPI tomorrow.
   metric?: MetricCardPayload;
+  // blablacar_card fields — a single deep-link tile (no nested entry list):
+  //   kind === "blablacar_card" → url + origin/destination/date/seats
+  url?: string;
+  origin?: string;
+  destination?: string;
+  date?: string;
+  seats?: number | string;
   // Optional header override for any card tray (e.g. "Price comparison" on
   // shop_product_cards when results span many stores, not just Amazon).
   card_title?: string;

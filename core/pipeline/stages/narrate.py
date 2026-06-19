@@ -27,7 +27,11 @@ _RESPONSE_PROMPT = (
     "present one platform's data as another's. When the user asks to compare "
     "platforms, report each side strictly from its own tagged results; if one "
     "side's tools failed or returned nothing, say that about that platform only — "
-    "do not claim a platform had no results while its cards are being rendered.\n"
+    "do not claim a platform had no results while its cards are being rendered. "
+    "When comparing the SAME item across platforms, line up the closest matches "
+    "(same brand and pack size where possible), call out which platform is cheaper "
+    "for the comparable pack, and flag any pack-size difference so the comparison "
+    "is fair (e.g. ₹59/1L vs ₹47/500ml is not the cheaper option).\n"
     "If some tools failed while others succeeded, lead with what succeeded and "
     "mention the failure only if it blocks what the user asked for. NEVER give a "
     "blanket 'technical issue' apology while results are being shown.\n"
@@ -235,6 +239,10 @@ def _results_summary(ctx: PipelineContext) -> str:
 def _fallback_message(ctx: PipelineContext) -> str:
     if ctx.blocked:
         return "Please confirm and I'll go ahead."
+    # Cards rendered this turn are real results — never degrade to a bare "Done."
+    # or a blanket error apology when the narrator LLM hiccups but data is shown.
+    if ctx.attachments:
+        return "Here's what I found — details are in the cards above."
     if any(not r.ok for r in ctx.provider_results):
         return "Sorry, I hit an error reaching that service. Want to try again?"
     return "Done."
