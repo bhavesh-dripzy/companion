@@ -84,6 +84,8 @@ class ZeptoProvider(McpProvider):
     label = "Zepto MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = ZeptoSession
+    capability_class = "grocery"
+    cart_session_key = "session_zepto_cart"
     # Zepto's list_saved_addresses returns prose, not the structured shape the
     # base's saved_addresses_tool path expects — so we leave that None and do our
     # own fetch + parse in before_run (extract_zepto_address_rows).
