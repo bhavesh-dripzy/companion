@@ -1,26 +1,56 @@
-"""ONDC onboarding endpoints: registry site-verification + /on_subscribe handshake.
+"""ONDC endpoints: registry onboarding handshake + Beckn transaction callbacks.
 
-These are the two routes the ONDC registry probes when we call /subscribe (see
-scripts/ondc_subscribe.py): it fetches /ondc-site-verification.html (served at
-the domain root) to verify the signed request_id, and POSTs an encrypted
-challenge to <callback_url>/on_subscribe which we decrypt and echo back. The
-transaction callbacks (/on_search, /on_select, ...) are added later, once the
-subscriber_id is live on the test network.
+Onboarding: /ondc-site-verification.html (signed request_id) and /ondc/on_subscribe
+(challenge decrypt) — what the registry probes during /subscribe.
+
+Transactions (BAP): the async on_* callbacks (on_search ... on_support) the
+network sends back after we dispatch an action. Each is signature-verified
+against the sender's registry key, persisted, and ACK'd per the Beckn contract.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from companion_api.ondc_crypto import decrypt_challenge, load_ondc_keys, sign_request_id
+from companion_api.ondc_registry import lookup_signing_key
+from companion_api.ondc_signing import key_id_parts, verify_authorization
+from companion_api.ondc_store import record_callback
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_CALLBACK_ACTIONS = {
+    "on_search",
+    "on_select",
+    "on_init",
+    "on_confirm",
+    "on_status",
+    "on_track",
+    "on_cancel",
+    "on_update",
+    "on_rating",
+    "on_support",
+}
+_STRICT_CALLBACKS = os.getenv("ONDC_STRICT_CALLBACKS", "false").lower() == "true"
+
+
+def _ack() -> dict[str, Any]:
+    return {"message": {"ack": {"status": "ACK"}}}
+
+
+def _nack(code: str, message: str) -> dict[str, Any]:
+    return {
+        "message": {"ack": {"status": "NACK"}},
+        "error": {"type": "CONTEXT-ERROR", "code": code, "message": message},
+    }
 
 _SITE_VERIFICATION_HTML = """<html>
     <head>
@@ -61,3 +91,37 @@ async def ondc_on_subscribe(payload: dict[str, Any]) -> dict[str, str]:
     except Exception:
         logger.exception("ONDC on_subscribe challenge decryption failed")
         raise HTTPException(status_code=500, detail="challenge decryption failed")
+
+
+def _verify_callback(auth_header: str, raw_body: str) -> bool:
+    """Best-effort signature check: resolve the sender's key via registry, verify."""
+    if not auth_header:
+        return False
+    subscriber_id, unique_key_id = key_id_parts(auth_header)
+    signing_key = lookup_signing_key(subscriber_id, unique_key_id)
+    if not signing_key:
+        logger.warning("ONDC callback: no signing key for %s|%s; cannot verify", subscriber_id, unique_key_id)
+        return False
+    return verify_authorization(auth_header, raw_body, signing_key)
+
+
+@router.post("/ondc/{action}")
+async def ondc_callback(action: str, request: Request) -> dict[str, Any]:
+    """Receive an async Beckn callback (on_search ... on_support).
+
+    Declared after /ondc/on_subscribe so that route wins; this catches the rest.
+    Verifies the sender's signature, persists the body, and ACK/NACKs.
+    """
+    if action not in _CALLBACK_ACTIONS:
+        raise HTTPException(status_code=404, detail="unknown ONDC action")
+    raw = (await request.body()).decode("utf-8")
+    try:
+        body = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        return _nack("10001", "invalid JSON body")
+
+    verified = _verify_callback(request.headers.get("Authorization", ""), raw)
+    if _STRICT_CALLBACKS and not verified:
+        return _nack("20001", "signature verification failed")
+    record_callback(action, body, verified=verified)
+    return _ack()
