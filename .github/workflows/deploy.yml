@@ -1,13 +1,10 @@
 name: Deploy
 
 on:
-  push:
-    branches: [main]
-    # Docs-only commits never need a cdk deploy — skip them (workflow_dispatch
-    # stays available for a manual deploy regardless).
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
+  # Deploy runs ONLY when triggered — never on an individual push to main. The
+  # Promote workflow (scheduled ~every 3 days, or on demand) fast-forwards main and
+  # then calls this; a human can also run it manually for a hotfix. So production
+  # ships only when triggered or every 3 days, never on each merge.
   workflow_dispatch:
 
 permissions:
