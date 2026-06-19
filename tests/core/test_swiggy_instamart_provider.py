@@ -122,6 +122,122 @@ def test_reconcile_folds_live_cart_not_stale_session():
     assert args["selectedAddressId"] == "REAL_ADDR"  # targets the live address
 
 
+def test_address_switch_with_no_new_items_moves_existing_cart():
+    """A pure address MOVE (switch, planner sends no items) re-lists the existing
+    cart at the new store instead of sending items:[] (which Swiggy rejects and
+    which can poison the cart)."""
+    prov = SwiggyInstamartProvider()
+    ctx = ExecCtx(session={"selected_instamart_address_id": "OLDADDR"})
+    ctx.scratch["saved_address_rows"] = [{"address_id": "NEWADDR"}, {"address_id": "OLDADDR"}]
+    ctx.scratch["live_cart_address"] = "OLDADDR"
+    ctx.scratch["live_cart_snapshot"] = {
+        "items": [{"spin_id": "S1", "quantity": 2}],
+        "selected_address_id": "OLDADDR",
+    }
+    ctx.scratch["_instamart_valid_spins"] = {"S1"}
+    # Planner switches address (concrete NEWADDR) with NO items — a pure move.
+    args = {"items": [], "selectedAddressId": "NEWADDR"}
+    out = prov.before_call("update_cart", args, ctx)
+    assert out is None  # not short-circuited — we have the existing item to move
+    assert args["selectedAddressId"] == "NEWADDR"
+    assert {i["spinId"]: i["quantity"] for i in args["items"]} == {"S1": 2}
+
+
+def test_empty_update_cart_is_short_circuited():
+    """update_cart with nothing to send is skipped (synthetic no-op), never sent as
+    items:[] — which Swiggy rejects with 'items array is required'."""
+    prov = SwiggyInstamartProvider()
+    ctx = ExecCtx(session={"selected_instamart_address_id": "A1"})
+    args = {"items": [], "selectedAddressId": "A1"}
+    out = prov.before_call("update_cart", args, ctx)
+    assert isinstance(out, dict) and out.get("is_error") is False
+    assert not args.get("items")
+
+
+def _fake_session_cm():
+    class _S:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    return _S()
+
+
+def test_failed_update_cart_restores_prior_cart(monkeypatch):
+    """A failed update_cart poisons the Swiggy cart; recovery re-sends the prior
+    valid cart (live snapshot) so the next get_cart works again."""
+    prov = SwiggyInstamartProvider()
+    sent: list = []
+
+    async def fake_call_tool(session, name, arguments=None):
+        sent.append((name, arguments))
+        return "RAW"
+
+    monkeypatch.setattr(prov, "open_session", lambda ctx: _fake_session_cm())
+    monkeypatch.setattr(
+        "core.providers.plugins.swiggy_instamart.provider.call_tool", fake_call_tool
+    )
+    ctx = ExecCtx()
+    ctx.scratch["live_cart_address"] = "OLDADDR"
+    ctx.scratch["live_cart_snapshot"] = {
+        "items": [{"spin_id": "S1", "quantity": 1}],
+        "selected_address_id": "OLDADDR",
+    }
+    failed = ToolResult(
+        tool="update_cart",
+        provider="swiggy_instamart",
+        ok=False,
+        error_detail="Max Per Item Quantity Limit Breached",
+    )
+    result = ProviderResult(provider="swiggy_instamart", results=[failed])
+    asyncio.run(prov._restore_cart_if_poisoned(result, ctx))
+    assert sent == [
+        ("update_cart", {"items": [{"spinId": "S1", "quantity": 1}], "selectedAddressId": "OLDADDR"})
+    ]
+
+
+def test_restore_is_noop_without_prior_snapshot(monkeypatch):
+    prov = SwiggyInstamartProvider()
+    sent: list = []
+
+    async def fake_call_tool(session, name, arguments=None):
+        sent.append(name)
+        return "RAW"
+
+    monkeypatch.setattr(prov, "open_session", lambda ctx: _fake_session_cm())
+    monkeypatch.setattr(
+        "core.providers.plugins.swiggy_instamart.provider.call_tool", fake_call_tool
+    )
+    failed = ToolResult(tool="update_cart", provider="swiggy_instamart", ok=False, error_detail="x")
+    result = ProviderResult(provider="swiggy_instamart", results=[failed])
+    asyncio.run(prov._restore_cart_if_poisoned(result, ExecCtx()))
+    assert sent == []  # nothing to restore from → no calls
+
+
+def test_successful_update_cart_does_not_trigger_restore(monkeypatch):
+    prov = SwiggyInstamartProvider()
+    sent: list = []
+
+    async def fake_call_tool(session, name, arguments=None):
+        sent.append(name)
+        return "RAW"
+
+    monkeypatch.setattr(prov, "open_session", lambda ctx: _fake_session_cm())
+    monkeypatch.setattr(
+        "core.providers.plugins.swiggy_instamart.provider.call_tool", fake_call_tool
+    )
+    ctx = ExecCtx()
+    ctx.scratch["live_cart_address"] = "OLDADDR"
+    ctx.scratch["live_cart_snapshot"] = {"items": [{"spin_id": "S1", "quantity": 1}]}
+    ok = ToolResult(tool="update_cart", provider="swiggy_instamart", ok=True, data={})
+    asyncio.run(
+        prov._restore_cart_if_poisoned(ProviderResult(provider="swiggy_instamart", results=[ok]), ctx)
+    )
+    assert sent == []
+
+
 def test_before_run_skips_live_probe_on_non_mutating_turn(monkeypatch):
     """A read-only turn (search / show cart) must NOT pay the extra get_cart probe."""
     called: list[str] = []

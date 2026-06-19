@@ -14,6 +14,7 @@ bootstrap swap is gated on those + session parity so dev never regresses.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -40,6 +41,31 @@ from core.providers.plugins.swiggy_instamart.cart_cards import (
 )
 from core.providers.plugins.swiggy_instamart.planner_context import build_context
 from core.providers.plugins.swiggy_instamart.session import SwiggyInstamartSession, merge_products
+
+logger = logging.getLogger(__name__)
+# Address/cart-flow tracing — OFF by default. Set INSTAMART_ADDR_DEBUG=1 to enable
+# locally while debugging a flow (grep the API log for "[ADDR-DBG]"). Kept dormant
+# in prod so raw cart envelopes (names / phones / addresses) are never logged there.
+_DBG = "[ADDR-DBG] instamart"
+_DBG_ON = os.getenv("INSTAMART_ADDR_DEBUG") == "1"
+
+
+def _dbg(msg: str, **kv: Any) -> None:
+    if not _DBG_ON:
+        return
+    logger.warning("%s %s | %s", _DBG, msg, " ".join(f"{k}={v!r}" for k, v in kv.items()))
+
+
+def _trim(value: Any, n: int = 900) -> str:
+    """Compact, length-capped repr of a raw tool envelope for debug logging."""
+    import json
+
+    try:
+        s = json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        s = str(value)
+    return s[:n]
+
 
 _CART_TOOLS = {"get_cart", "update_cart", "clear_cart"}
 # Tools that CHANGE the cart's contents/address — these must target the cart's
@@ -109,6 +135,17 @@ class SwiggyInstamartProvider(McpProvider):
         if any(getattr(c, "tool", None) in _MUTATING_CART_TOOLS for c in calls):
             ctx.scratch["_instamart_mutating"] = True
         result = await super().run(calls, ctx)
+        # RAW Swiggy envelopes for every tool this turn (mcp-remote logs only method
+        # names) — captures the real get_cart/update_cart error text + cart shape.
+        for tr in result.results if _DBG_ON else []:
+            _dbg(
+                "RAW tool result",
+                tool=tr.tool,
+                ok=tr.ok,
+                args=_trim(tr.arguments, 300),
+                error=(tr.error_detail or "")[:400],
+                data=_trim(tr.data),
+            )
         # An empty Instamart cart makes get_cart ERROR ("Cart not found or session
         # expired") — that's not a failure, the cart is just empty. Reclassify it
         # to a successful empty cart so the narrator (and the failure fallback)
@@ -142,7 +179,44 @@ class SwiggyInstamartProvider(McpProvider):
         lru = session.get("session_instamart_products")
         if isinstance(lru, list) and lru:
             result.diagnostics["session_instamart_products"] = lru
+        await self._restore_cart_if_poisoned(result, ctx)
         return result
+
+    async def _restore_cart_if_poisoned(self, result: ProviderResult, ctx: ExecCtx) -> None:
+        """A failed ``update_cart`` can POISON the Swiggy cart: it mutates THEN
+        validates, so an over-limit/invalid quantity leaves the cart in a state
+        where even ``get_cart`` keeps erroring (the "Max Per Item Quantity Limit
+        Breached" loop). Mirror the serviceability move-with-rollback: re-send the
+        prior valid cart (the live snapshot taken in before_run) so the cart returns
+        to a readable state for the next turn. No-op when update_cart succeeded or
+        there's no prior snapshot to restore from."""
+        if not any(tr.tool == "update_cart" and not tr.ok for tr in result.results):
+            return
+        scratch = ctx.scratch if isinstance(ctx.scratch, dict) else {}
+        snap = scratch.get("live_cart_snapshot")
+        addr = str(scratch.get("live_cart_address") or "").strip()
+        items: list[dict[str, Any]] = []
+        for it in (snap or {}).get("items") or []:
+            sid = str((it or {}).get("spin_id") or (it or {}).get("spinId") or "").strip()
+            if not sid:
+                continue
+            try:
+                qty = int(it.get("quantity") or 1)
+            except (TypeError, ValueError):
+                qty = 1
+            if qty > 0:
+                items.append({"spinId": sid, "quantity": qty})
+        if not items or not addr:
+            _dbg(
+                "cart restore SKIPPED (no prior snapshot)", have_addr=bool(addr), n_items=len(items)
+            )
+            return
+        try:
+            async with self.open_session(ctx) as session:
+                await call_tool(session, "update_cart", {"items": items, "selectedAddressId": addr})
+            _dbg("cart RESTORED after failed update_cart", addr=addr, items=items)
+        except Exception:
+            logger.warning("%s cart restore FAILED", _DBG, exc_info=True)
 
     @staticmethod
     def _used_address_id(results: list) -> str | None:
@@ -256,6 +330,13 @@ class SwiggyInstamartProvider(McpProvider):
         switched = str(result.diagnostics.get("switched_address_id") or "").strip()
         if switched:
             merged[_SESSION_SELECTED_ADDRESS] = switched
+        _dbg(
+            "merge commit",
+            committed_in=str(slice_.get(_SESSION_SELECTED_ADDRESS) or ""),
+            fresh_cart_addr=fresh_cart_addr,
+            switched=switched,
+            committed_out=str(merged.get(_SESSION_SELECTED_ADDRESS) or ""),
+        )
         return merged
 
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
@@ -290,6 +371,14 @@ class SwiggyInstamartProvider(McpProvider):
             try:
                 snap = cart_snapshot(tool_result_payload(await call_tool(session, "get_cart", {})))
                 live = str((snap or {}).get("selected_address_id") or "").strip()
+                _dbg(
+                    "before_run live-cart probe",
+                    committed=str((ctx.session or {}).get(_SESSION_SELECTED_ADDRESS) or "")
+                    if isinstance(ctx.session, dict)
+                    else "",
+                    live_cart_addr=live,
+                    live_items=[i.get("spin_id") for i in (snap or {}).get("items", [])],
+                )
                 if live:
                     ctx.scratch["live_cart_address"] = live
                     # Keep the live cart itself so update_cart reconciles against the
@@ -299,7 +388,7 @@ class SwiggyInstamartProvider(McpProvider):
                     ctx.placeholders["__ADDRESS_ID__"] = live
                     ctx.scratch["resolved_address_id"] = live
             except Exception:
-                pass  # never block a turn on the live-cart probe
+                logger.warning("%s before_run live-cart probe FAILED", _DBG, exc_info=True)
 
     @staticmethod
     def _anchor_address(ctx: ExecCtx) -> str | None:
@@ -345,6 +434,16 @@ class SwiggyInstamartProvider(McpProvider):
         # regardless of whether the planner re-listed every line.
         if tool == "update_cart":
             self._reconcile_cart_items(args, ctx)
+            # Swiggy rejects an empty items[] ("items array is required …") AND that
+            # failed call can poison the cart. If reconcile produced nothing to send
+            # (e.g. a pure address re-address on an already-empty cart), skip the
+            # call entirely with a synthetic no-op instead of poking Swiggy.
+            if not args.get("items"):
+                _dbg(
+                    "update_cart skipped (no items after reconcile)",
+                    addr=args.get("selectedAddressId"),
+                )
+                return {"is_error": False, "data": {"raw_text": "No cart changes to apply."}}
         return None
 
     def _ensure_address(self, args: dict[str, Any], key: str, ctx: ExecCtx) -> None:
@@ -368,10 +467,12 @@ class SwiggyInstamartProvider(McpProvider):
             and planned != anchor
             and self._is_saved_address(planned, ctx)
         ):
+            _dbg("ensure_address SWITCH", key=key, planned=planned, anchor=anchor)
             ctx.scratch["instamart_switched_address_id"] = planned
             args[key] = planned
             return
         if anchor:
+            _dbg("ensure_address use ANCHOR", key=key, planned=planned, anchor=anchor)
             args[key] = anchor
             return
         if planned and not planned.startswith("__"):
@@ -466,10 +567,14 @@ class SwiggyInstamartProvider(McpProvider):
             if isinstance(live_snap, dict) and live_snap.get("items")
             else (session.get("session_instamart_cart") if isinstance(session, dict) else None)
         )
-        # Don't fold the existing cart in two cases: (1) a clear_cart ran earlier
-        # this plan, or (2) this update_cart targets a DIFFERENT address than the
-        # cart was built at (an address switch) — those items live on the old
-        # store and would contaminate / be rejected at the new one. Start fresh.
+        # Folding rule for the existing cart:
+        #   * clear_cart ran this plan  → never fold (rebuild from scratch).
+        #   * address SWITCH + new items → don't fold (a switch-and-add: the user's
+        #     new items only; old-store items don't carry).
+        #   * address SWITCH + NO new items → a pure MOVE: DO fold, so the existing
+        #     cart is re-listed at the new store and actually moves (sending []
+        #     would just error "items array is required" and leave the cart put).
+        #   * same address → fold (normal upsert).
         cart_addr = (
             str(cart.get("selected_address_id") or "").strip() if isinstance(cart, dict) else ""
         )
@@ -480,7 +585,28 @@ class SwiggyInstamartProvider(McpProvider):
             and not target_addr.startswith("__")
             and cart_addr != target_addr
         )
-        if not ctx.scratch.get("_instamart_cart_cleared") and not switched:
+        planner_has_items = bool(args.get("items"))
+        skip_fold = ctx.scratch.get("_instamart_cart_cleared") or (switched and planner_has_items)
+        _dbg(
+            "reconcile start",
+            cart_source="live"
+            if (isinstance(live_snap, dict) and live_snap.get("items"))
+            else "session",
+            cart_addr=cart_addr,
+            target_addr=target_addr,
+            switched=switched,
+            cleared=bool(ctx.scratch.get("_instamart_cart_cleared")),
+            existing=[
+                i.get("spin_id") or i.get("spinId")
+                for i in (cart.get("items") if isinstance(cart, dict) else []) or []
+            ],
+            planner_items=[
+                (i.get("spinId") or i.get("spin_id"), i.get("quantity"))
+                for i in args.get("items") or []
+                if isinstance(i, dict)
+            ],
+        )
+        if not skip_fold:
             existing = cart.get("items") if isinstance(cart, dict) else None
             for it in existing or []:
                 if not isinstance(it, dict):
@@ -520,6 +646,11 @@ class SwiggyInstamartProvider(McpProvider):
                 continue
             merged[sid] = qty
         args["items"] = [{"spinId": sid, "quantity": qty} for sid, qty in merged.items()]
+        _dbg(
+            "reconcile result",
+            items_sent=list(merged.items()),
+            addr_sent=args.get("selectedAddressId"),
+        )
 
     def planner_context(self, ctx: Any) -> str:
         return build_context(ctx)
