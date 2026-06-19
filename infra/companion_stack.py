@@ -468,6 +468,39 @@ class CompanionStack(Stack):
                 ),
             )
 
+            ondc_domain = apigwv2.CfnDomainName(
+                self,
+                "OndcCustomDomain",
+                domain_name=f"ondc.{domain_name}",
+                domain_name_configurations=[
+                    apigwv2.CfnDomainName.DomainNameConfigurationProperty(
+                        certificate_arn=certificate.certificate_arn,
+                        endpoint_type="REGIONAL",
+                    )
+                ],
+            )
+
+            apigwv2.CfnApiMapping(
+                self,
+                "OndcApiMapping",
+                api_id=api.ref,
+                domain_name=f"ondc.{domain_name}",
+                stage="$default",
+            ).add_dependency(ondc_domain)
+
+            route53.ARecord(
+                self,
+                "OndcAliasRecord",
+                zone=zone,
+                record_name="ondc",
+                target=route53.RecordTarget.from_alias(
+                    targets.ApiGatewayv2DomainProperties(
+                        regional_domain_name=ondc_domain.attr_regional_domain_name,
+                        regional_hosted_zone_id=ondc_domain.attr_regional_hosted_zone_id,
+                    )
+                ),
+            )
+
         # ── Outputs ────────────────────────────────────────────────────
 
         cdk.CfnOutput(
