@@ -67,6 +67,8 @@ class ZeptoProvider(McpProvider):
     label = "Zepto MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = ZeptoSession
+    capability_class = "grocery"
+    cart_session_key = "session_zepto_cart"
 
     def mcp_url(self, ctx: ExecCtx) -> str | None:
         return os.getenv("ZEPTO_MCP_URL", _DEFAULT_URL)

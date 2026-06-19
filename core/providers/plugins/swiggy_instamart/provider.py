@@ -63,6 +63,8 @@ class SwiggyInstamartProvider(McpProvider):
     session_cls = SwiggyInstamartSession
     saved_addresses_tool = "get_addresses"
     saved_addresses_session_key = "session_instamart_addresses"
+    capability_class = "grocery"
+    cart_session_key = "session_instamart_cart"
 
     def mcp_url(self, ctx: ExecCtx) -> str | None:
         return os.getenv("SWIGGY_INSTAMART_MCP_URL", _DEFAULT_URL)

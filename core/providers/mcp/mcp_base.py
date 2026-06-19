@@ -60,6 +60,10 @@ class McpProvider(ABC):
     resolver: PlaceholderResolver = PlaceholderResolver()
     saved_addresses_tool: str | None = None
     saved_addresses_session_key: str = "session_addresses"
+    # Same-class write disambiguation: providers sharing a capability_class (e.g.
+    # "grocery") never both mutate in one turn; cart_session_key picks the winner.
+    capability_class: str = ""
+    cart_session_key: str = ""
 
     @property
     def planner_preamble(self) -> str | None:

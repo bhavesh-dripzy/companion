@@ -18,6 +18,7 @@ from typing import Any
 from core.contracts.tool import ConfirmPolicy
 from core.middleware.attestation import attest
 from core.middleware.confirmation import partition
+from core.middleware.disambiguation import collapse_same_class_writes
 from core.middleware.dispatcher import Dispatcher
 from core.middleware.repair import RepairBudget
 from core.pipeline.context import PipelineContext
@@ -139,6 +140,9 @@ class Execute:
     async def run(self, ctx: PipelineContext) -> None:
         if not ctx.calls or not ctx.request.execute_tools:
             return
+        legacy = ctx.session.legacy if isinstance(ctx.session.legacy, dict) else {}
+        for event in collapse_same_class_writes(ctx.plans, ctx.deps.registry, legacy):
+            ctx.tracer.event("collapse_writes", **event)
         allowed = []
         for provider_id, plan in ctx.plans.items():
             ok_calls, blocked = partition(
