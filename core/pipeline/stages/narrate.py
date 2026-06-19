@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from core.contracts.tool_result import Effect
 from core.pipeline.context import PipelineContext
 
 _RESPONSE_PROMPT = (
@@ -48,12 +49,15 @@ _RESPONSE_PROMPT = (
     "apology or hide the results that did come back.\n"
     "You DO have live web access through tools: news/headlines on any topic, "
     "video search, flights, hotels, product prices, maps, stock quotes, AND "
-    "outbound phone calls (via make_phone_call — speaks a message to any number). "
-    "If the tool results show a make_phone_call that succeeded, confirm the call "
-    "was placed. If it was blocked pending confirmation, ask the user to confirm. "
-    "If it failed with an error, tell the user the call could not be placed and "
-    "suggest trying again. NEVER claim a call was placed when the tool results "
-    "show it blocked or failed.\n"
+    "outbound phone calls (via make_phone_call — speaks a message to any number).\n"
+    "GROUND TRUTH for any state change: a tool result tagged MUTATION_APPLIED means "
+    "that write took effect (cart updated, order placed, call made, address switched, "
+    "reminder set); MUTATION_NOT_APPLIED means it did NOT. Confirm a state change ONLY "
+    "when its result is tagged MUTATION_APPLIED. If no MUTATION_APPLIED line is present, "
+    "NEVER tell the user something was added/ordered/placed/switched/booked — instead "
+    "report what the tools actually returned, or ask the clarifying question needed to "
+    "proceed (e.g. which size/variant). This holds even if an earlier turn claimed the "
+    "action was done.\n"
     "NEVER tell the user you lack real-time news, web, or video access, and never "
     "cite a knowledge cutoff. If this turn ran no tools but the user asked for "
     "something fetchable (latest news, videos to watch, prices, etc.), do NOT "
@@ -225,6 +229,12 @@ def _results_summary(ctx: PipelineContext) -> str:
             if not tool_result.ok and tool_result.error_detail:
                 blob = (
                     tool_result.error_detail if not blob else f"{tool_result.error_detail} — {blob}"
+                )
+            if tool_result.effect is not None:
+                status += (
+                    " MUTATION_APPLIED"
+                    if tool_result.effect is Effect.APPLIED
+                    else " MUTATION_NOT_APPLIED"
                 )
             parts.append(f"[{result.provider}.{tool_result.tool} {status}] {blob}")
     if ctx.blocked:

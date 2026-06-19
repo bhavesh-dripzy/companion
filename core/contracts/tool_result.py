@@ -28,6 +28,16 @@ class ErrorCode(str, Enum):
     UNKNOWN = "unknown"
 
 
+class Effect(str, Enum):
+    """Whether a mutating tool actually changed state — the narrator's ground truth.
+
+    None on a read (no claim to make); set only on tools flagged `Tool.mutating`.
+    """
+
+    APPLIED = "applied"
+    NOT_APPLIED = "not_applied"
+
+
 class ToolResult(BaseModel):
     """The outcome of a single tool call."""
 
@@ -38,6 +48,7 @@ class ToolResult(BaseModel):
     data: Any = None  # the parsed provider envelope (restaurants, menu, cart, ...)
     error: ErrorCode | None = None
     error_detail: str | None = None
+    effect: Effect | None = None  # set on mutating tools: did the write actually apply?
     # Placeholders this call resolved for downstream steps (e.g. {"__CART_ID__": "abc"}).
     learned_placeholders: dict[str, str] = Field(default_factory=dict)
 

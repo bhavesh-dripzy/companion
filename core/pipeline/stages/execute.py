@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.contracts.tool import ConfirmPolicy
+from core.middleware.attestation import attest
 from core.middleware.confirmation import partition
 from core.middleware.dispatcher import Dispatcher
 from core.middleware.repair import RepairBudget
@@ -158,6 +159,7 @@ class Execute:
             allowed,
             ctx_for=lambda pid: _exec_ctx_for(ctx, pid, budget, geo_overrides, fallback_geo),
         )
+        attest(ctx.provider_results, ctx.deps.registry.tools)
         provider_tools = [
             {
                 "provider": r.provider,
@@ -167,6 +169,7 @@ class Execute:
                         "tool": tr.tool,
                         "ok": tr.ok,
                         "error": tr.error.value if tr.error else None,
+                        "effect": tr.effect.value if tr.effect else None,
                     }
                     for tr in r.results
                 ],
