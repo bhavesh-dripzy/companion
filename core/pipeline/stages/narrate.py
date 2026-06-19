@@ -11,6 +11,7 @@ import json
 from typing import Any
 
 from core.contracts.tool_result import Effect
+from core.middleware.claim_guard import honest_message, unsupported_mutation_claim
 from core.pipeline.context import PipelineContext
 
 _RESPONSE_PROMPT = (
@@ -364,4 +365,7 @@ class Narrate:
             ctx.assistant_message = ""
         if not ctx.assistant_message:
             ctx.assistant_message = _fallback_message(ctx)
+        if unsupported_mutation_claim(ctx.assistant_message, ctx.provider_results):
+            ctx.assistant_message = honest_message(ctx.provider_results, bool(ctx.attachments))
+            ctx.tracer.event("claim_guard", overrode=True)
         ctx.tracer.event("narrate", chars=len(ctx.assistant_message))
