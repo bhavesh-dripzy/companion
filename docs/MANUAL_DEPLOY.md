@@ -6,12 +6,21 @@ down, e.g. Actions billing failure).
 
 - AWS account: `616551057455` / `ap-south-1`
 - ECR image tag convention: `manual-<short-sha>-<epoch>`
+- ECR repo: **the CDK container-assets repo** `cdk-hnb659fds-container-assets-616551057455-ap-south-1`
+  (the API image is a CDK Docker asset — there is **no** standalone `companion` repo)
+- Lambda function: CDK-generated name `companion-serverless-ApiFunction*`
+  (e.g. `companion-serverless-ApiFunctionCE271BD4-8ZNytOKC6UXy`) — **not** `companion-api`.
+  Discover the current name with:
+  `aws lambda list-functions --region ap-south-1 --query "Functions[?starts_with(FunctionName,\`companion-serverless-ApiFunction\`)].FunctionName" --output text`
 - Lambda smoke test (TLS-cert-safe): API Gateway endpoint
   `https://dy8rmz0pql.execute-api.ap-south-1.amazonaws.com/api/`
 - Public APK URL: `https://app.jatayulabs.com/companion.apk`
 - APK S3 bucket: `companion-serverless-appdownloads326c8a2d-lbwlmzrzvmhj`
 
 > Only deploy after the user asks. Confirm `main` is at the intended commit first.
+> CI/CD note: `deploy.yml` has been failing (~4s, GitHub Actions billing) — that is
+> why this manual path is in use. Pushing to `main` will still trigger (and fail) it;
+> the live Lambda/APK come from the manual steps below, not from CI.
 
 ---
 
@@ -36,18 +45,26 @@ REGION=ap-south-1
 SHA=$(git rev-parse --short HEAD)
 TAG="manual-${SHA}-$(date +%s)"
 ECR="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
-REPO="companion"                    # ECR repo for the API image
-FUNCTION="companion-api"            # Lambda function name
+# The API image is a CDK Docker asset — push it to the CDK container-assets repo,
+# NOT a standalone "companion" repo (which does not exist).
+REPO="cdk-hnb659fds-container-assets-${ACCOUNT}-${REGION}"
+# CDK-generated function name — discover it (don't hardcode the random suffix):
+FUNCTION=$(aws lambda list-functions --region "$REGION" \
+  --query "Functions[?starts_with(FunctionName,\`companion-serverless-ApiFunction\`)].FunctionName" \
+  --output text)
+echo "FUNCTION=$FUNCTION"           # sanity-check it resolved to exactly one name
 
 # 1a. Auth Docker to ECR
 aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$ECR"
 
-# 1b. Build the image (repo root has the Lambda Dockerfile)
-docker build -t "${REPO}:${TAG}" .
+# 1b. Build the image (repo root has the Lambda Dockerfile).
+# NOTE: the Dockerfile runs `npm run build` (tsc -b) inside the build, so a
+# TypeScript error in frontend/ will FAIL the image build. Fix it and re-commit
+# before retrying. (Run `cd frontend && npx tsc --noEmit` first to catch it.)
+docker build -t "${ECR}/${REPO}:${TAG}" .
 
-# 1c. Tag + push to ECR
-docker tag "${REPO}:${TAG}" "${ECR}/${REPO}:${TAG}"
+# 1c. Push to ECR
 docker push "${ECR}/${REPO}:${TAG}"
 
 # 1d. Point the Lambda at the new image
@@ -92,8 +109,16 @@ BUCKET=companion-serverless-appdownloads326c8a2d-lbwlmzrzvmhj
 cp ~/.android/debug.keystore ~/.android/debug.keystore.bak
 cp ci/companion-debug.keystore ~/.android/debug.keystore
 
-# 2b. Sync web assets into the Android project
+# 2b. Build a FRESH web bundle, then sync it into the Android project.
+# `cap sync` only COPIES frontend/dist — it does not build it. Skipping the build
+# ships a stale dist (an APK without your latest changes). Build with an empty
+# .env so the native API base falls back to the prod default
+# (https://app.jatayulabs.com — see frontend/src/api.ts).
 cd frontend
+[ -f .env ] && cp .env .env.predeploybak    # preserve any local .env
+echo "" > .env
+JAVA_HOME=$JAVA_HOME ANDROID_HOME=$ANDROID_HOME npm run build
+[ -f .env.predeploybak ] && mv .env.predeploybak .env || rm -f .env   # restore
 JAVA_HOME=$JAVA_HOME ANDROID_HOME=$ANDROID_HOME npx cap sync android
 
 # 2c. Build the debug APK
@@ -134,7 +159,10 @@ A `HTTP/2 302` with a `location:` pointing at the S3 bucket = APK is live.
   with `unable to get local issuer certificate` (local cert bundle, not the
   server). Use the API Gateway endpoint or `curl -k`.
 - **Keystore**: always restore `~/.android/debug.keystore` from the `.bak` after
-  building, or local dev builds will be signed with the CI key.
+  building, or local dev builds will be signed with the CI key. On this machine
+  `~/.android/debug.keystore`, its `.bak`, and `ci/companion-debug.keystore` are
+  already byte-identical (the CI key), so the swap/restore is currently a no-op —
+  verify with `md5sum` if in doubt before clobbering a real local keystore.
 - **Java/Node**: APK build needs Java 21 and Node ≥22 (Capacitor 8).
 - **Prefer CI**: when GitHub Actions is healthy, push to `main` and let
   `deploy.yml` do all of this. This manual path is the fallback.
