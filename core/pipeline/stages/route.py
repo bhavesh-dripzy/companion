@@ -17,8 +17,8 @@ from core.pipeline.orchestration import (
     fallback_routing,
     frame_message,
     parse_routing,
-    stick_to_active_cart,
 )
+from core.pipeline.routing_corrections import honor_named_providers, stick_to_active_cart
 
 _PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "orchestrator.system.md"
 
@@ -65,7 +65,9 @@ class Route:
                 enabled=True,
                 allowed=ctx.request.enabled_providers,
             )
-        # Pin a grocery turn to the live-cart provider so cart ops never leak to the
-        # other grocery app's cart (deterministic; the orchestrator bounces providers).
+        # Deterministic routing corrections the orchestrator LLM gets wrong: honour an
+        # explicitly-named food app, then pin a grocery turn to the live-cart provider
+        # so cart ops never leak to the other grocery app's cart.
+        ctx.routing = honor_named_providers(ctx.routing, ctx.request.message)
         ctx.routing = stick_to_active_cart(ctx.routing, ctx.request.message, ctx.session.legacy)
         ctx.tracer.event("route", task=ctx.routing.task_type, providers=list(ctx.routing.providers))

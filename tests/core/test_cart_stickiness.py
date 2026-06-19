@@ -1,7 +1,7 @@
 """An active grocery cart pins grocery turns to that provider (no leak to the other app)."""
 
 from core.contracts.routing import RoutingDecision
-from core.pipeline.orchestration import active_cart_provider, stick_to_active_cart
+from core.pipeline.routing_corrections import active_cart_provider, stick_to_active_cart
 
 _INSTA_CART = {"session_instamart_cart": {"items": [{"spin_id": "x"}]}}
 
