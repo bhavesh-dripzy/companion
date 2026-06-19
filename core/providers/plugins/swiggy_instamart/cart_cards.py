@@ -251,7 +251,11 @@ def cart_snapshot(
 
 
 def build_cart_cards(
-    results: list[ToolResult], *, session_products: Any = None
+    results: list[ToolResult],
+    *,
+    session_products: Any = None,
+    address_id: str | None = None,
+    addresses: list[dict] | None = None,
 ) -> list[Attachment]:
     spin_index = build_spin_index(session_products, results)
     # update_cart REPLACES the whole cart, so multiple cart calls in one turn
@@ -267,11 +271,17 @@ def build_cart_cards(
     if last is None:
         return []
     tool, snap = last
+    # Always carry the delivery address WITH the cart so the UI can show where it
+    # ships. The cart's OWN address (from selectedAddressDetails) is authoritative;
+    # fall back to the turn's resolved/committed address when the payload omits it.
+    delivery_address_id = str(snap.get("selected_address_id") or "").strip() or address_id
     return [
         Attachment(
             kind="instamart_cart_card",
             provider="swiggy_instamart",
             source=f"swiggy_instamart.{tool}",
             instamart_cart=snap,
+            delivery_address_id=delivery_address_id,
+            delivery_addresses=addresses or None,
         )
     ]

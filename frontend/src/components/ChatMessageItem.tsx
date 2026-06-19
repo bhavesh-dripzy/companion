@@ -14,7 +14,6 @@ import remarkBreaks from 'remark-breaks';
 import { motion } from 'motion/react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { AddressChoices, AttachmentList, looksLikeAddressPrompt } from '../ChatLog';
-import { ActivityTrail } from './ActivityTrail';
 import { LocationPicker } from './LocationPicker';
 import type { GeoCoordinate, Message, SessionAddress } from '../types';
 
@@ -62,11 +61,14 @@ export function ChatMessageItem({
   const isUser = msg.role === 'user';
   const [liked, setLiked] = React.useState<'up' | 'down' | null>(null);
 
-  // Hide avatar + indent only for the grocery category grid, not the intro card.
+  // Hide avatar + indent only for the category grids (grocery / District), not
+  // the intro card.
   const isCardsOnly =
     !isUser
     && !(msg.content || '').trim()
-    && msg.attachments?.some((a) => a.kind === 'grocery_categories');
+    && msg.attachments?.some(
+      (a) => a.kind === 'grocery_categories' || a.kind === 'district_categories',
+    );
 
   const showAddressPicker =
     !isUser
@@ -135,17 +137,6 @@ export function ChatMessageItem({
         {/* Inline location picker — shown when Zepto needed GPS but it was unavailable */}
         {!isUser && msg.askLocation && isLatestAssistant && !isThinking && onGrantLocation && (
           <LocationPicker onConfirm={onGrantLocation} />
-        )}
-
-        {/* Human activity trail — replaces the raw meta chips + "View trace
-            details" block with a warm status pill and friendly step rail. */}
-        {!isUser && ((msg.meta && msg.meta.length > 0) || (msg.trace && msg.trace.length > 0)) && (
-          <ActivityTrail
-            meta={msg.meta}
-            trace={msg.trace}
-            toolsOk={msg.toolsOk}
-            toolsError={msg.toolsError}
-          />
         )}
 
         {/* Timestamp + like buttons (assistant only) */}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { Login } from './Login';
 import { SettingsModal } from './SettingsModal';
+import { AppsModal } from './components/AppsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { LeftSidebar } from './components/LeftSidebar';
 import { ChatArea } from './components/ChatArea';
@@ -11,6 +12,8 @@ import { CartDock } from './components/CartDock';
 import { VoiceStage } from './components/VoiceStage';
 import { api, clearToken, clearRefreshToken, getToken } from './api';
 import { lastKnownUser, prefetchHeroGreeting, rememberLastUser } from './heroGreeting';
+import { InstamartAddressProvider, type InstamartSavedAddress } from './InstamartAddressContext';
+import { ZeptoAddressProvider, type ZeptoSavedAddress } from './ZeptoAddressContext';
 import type {
   Attachment,
   ChatSummary,
@@ -360,6 +363,7 @@ function App() {
   // up-front. Users can toggle items / add / delete entries and the
   // state lives for the session.
   const [showRemindersPopup, setShowRemindersPopup] = useState(false);
+  const [showApps, setShowApps] = useState(false);
   const [showOrdersPopup, setShowOrdersPopup] = useState(false);
   const [reminders, setReminders] = useState(INITIAL_REMINDERS);
   const [orders, setOrders] = useState(INITIAL_ORDERS);
@@ -410,6 +414,14 @@ function App() {
   const [sessionInstamartAddresses, setSessionInstamartAddresses] = useState<SessionInstamartAddress[]>([]);
   const [sessionInstamartCart, setSessionInstamartCart] = useState<SessionInstamartCart | null>(null);
   const [selectedInstamartAddressId, setSelectedInstamartAddressId] = useState<string | null>(null);
+  // Full Swiggy saved-address list (same source as the Apps modal). The product
+  // card attachment only carries the opaque selected id, so we fetch the list
+  // here and resolve the label in the delivery-address bar via context.
+  const [instamartSavedAddresses, setInstamartSavedAddresses] = useState<InstamartSavedAddress[]>([]);
+  // Zepto saved-address list + selected id (mirrors Instamart). select_saved_address
+  // binds the store + order doorstep; shown in the "Delivering to" bar below cards.
+  const [zeptoSavedAddresses, setZeptoSavedAddresses] = useState<ZeptoSavedAddress[]>([]);
+  const [selectedZeptoAddressId, setSelectedZeptoAddressId] = useState<string | null>(null);
   // Kite (Zerodha trading) session memory. Same echo contract as the other
   // indexes — round-trip on every /api/agent/query/ so the planner can
   // re-use literal instrument triples, read the latest portfolio snapshots,
@@ -829,7 +841,12 @@ function App() {
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
 
-  const buildAgentBody = (content: string, geo?: GeoCoordinate | null, forceProviders?: string[] | null) => {
+  const buildAgentBody = (
+    content: string,
+    geo?: GeoCoordinate | null,
+    forceProviders?: string[] | null,
+    overrides?: { instamartAddressId?: string },
+  ) => {
     const body: Record<string, any> = {
       message: content,
       address_id: selectedAddressId || '',
@@ -867,7 +884,10 @@ function App() {
     if (sessionInstamartProducts.length > 0) body.session_instamart_products = sessionInstamartProducts;
     if (sessionInstamartAddresses.length > 0) body.session_instamart_addresses = sessionInstamartAddresses;
     if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
-    if (selectedInstamartAddressId) body.selected_instamart_address_id = selectedInstamartAddressId;
+    // A picker-driven address switch overrides the (stale) committed selection so
+    // the backend anchors this turn's search/cart to the newly chosen address.
+    const instamartAddressId = overrides?.instamartAddressId || selectedInstamartAddressId;
+    if (instamartAddressId) body.selected_instamart_address_id = instamartAddressId;
     if (sessionKiteInstruments.length > 0) body.session_kite_instruments = sessionKiteInstruments;
     if (sessionSerpFlights.length > 0) body.session_serp_flights = sessionSerpFlights;
     if (sessionSerpProducts.length > 0) body.session_serp_products = sessionSerpProducts;
@@ -936,7 +956,11 @@ const assistantMsg: Message = {
     }
   };
 
-  const handleSendMessage = async (content: string, geoOverride?: import('./types').GeoCoordinate | null) => {
+  const handleSendMessage = async (
+    content: string,
+    geoOverride?: import('./types').GeoCoordinate | null,
+    overrides?: { instamartAddressId?: string },
+  ) => {
     const text = (content || '').trim();
     if (!text) return;
     const userMsg: Message = { role: 'user', content: text };
@@ -944,14 +968,14 @@ const assistantMsg: Message = {
     setIsThinking(true);
 
     try {
-      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? effectiveGeo));
+      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? effectiveGeo, null, overrides));
 
       const errorCode = (data as any)?.tool_execution?.error_code;
       if (errorCode === 'needs_location') {
         try {
           const fresh = await ensureLocation();
           setGrantedGeo(fresh);
-          data = await runTurn(buildAgentBody(text, fresh));
+          data = await runTurn(buildAgentBody(text, fresh, null, overrides));
         } catch (geoErr: any) {
           const reason = geoErr?.reason ?? 'unknown';
           const friendly: Record<string, string> = {
@@ -1031,6 +1055,20 @@ const assistantMsg: Message = {
         const sid = (data as any).selected_instamart_address_id;
         setSelectedInstamartAddressId(typeof sid === 'string' && sid ? sid : null);
       }
+      if (Array.isArray(data.session_zepto_addresses) && data.session_zepto_addresses.length) {
+        // Backend rows are {address_id, label/tag, line}; map to the picker shape.
+        setZeptoSavedAddresses(
+          (data.session_zepto_addresses as any[]).map((r) => ({
+            address_id: String(r.address_id || ''),
+            location_name:
+              r.tag && r.line ? `${r.tag} — ${r.line}` : String(r.label || r.line || r.tag || r.address_id || ''),
+          })).filter((r) => r.address_id),
+        );
+      }
+      if ('selected_zepto_address_id' in data) {
+        const zid = (data as any).selected_zepto_address_id;
+        setSelectedZeptoAddressId(typeof zid === 'string' && zid ? zid : null);
+      }
       if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
       if (Array.isArray(data.session_serp_flights)) setSessionSerpFlights(data.session_serp_flights);
       if (Array.isArray(data.session_serp_products)) setSessionSerpProducts(data.session_serp_products);
@@ -1098,6 +1136,19 @@ const assistantMsg: Message = {
       { role: 'user', content: 'Order food' },
       { role: 'assistant', content: '', attachments: [{ kind: 'food_intro' }] },
       { role: 'assistant', content: '', attachments: [{ kind: 'food_categories' }] },
+    ]);
+  };
+
+  // Movies & Events quick-action: same client-side pattern — drop an in-chat
+  // District discovery picker (a "user" bubble + a cards-only assistant turn
+  // with the `district_categories` attachment). Tapping a tile fires a real,
+  // location-scoped District search through handleSendMessage.
+  const handleOpenDistrict = () => {
+    if (isThinking) return;
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: "What's on near me" },
+      { role: 'assistant', content: '', attachments: [{ kind: 'district_categories' }] },
     ]);
   };
 
@@ -1359,6 +1410,56 @@ const assistantMsg: Message = {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  // Load the Swiggy saved-address list once Instamart is connected (same
+  // endpoint the Apps modal uses) so the delivery-address bar can map the
+  // selected address id → human label. The product-card attachment only
+  // carries the opaque id; without this list the bar shows a placeholder.
+  const instamartConnected = useMemo(() => {
+    const st = (mcpStatuses['swiggy_instamart'] as any)?.status;
+    return st === 'ready' || st === 'ready_pending';
+  }, [mcpStatuses]);
+  useEffect(() => {
+    if (!isAuthenticated || !instamartConnected) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api.get('/api/food/saved-addresses/?provider=swiggy_instamart');
+        if (!cancelled && Array.isArray(data?.addresses)) {
+          setInstamartSavedAddresses(data.addresses as InstamartSavedAddress[]);
+        }
+      } catch (err) {
+        console.error('load instamart saved addresses failed', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, instamartConnected]);
+
+  // Load the Zepto saved-address list once Zepto is connected (same endpoint the
+  // Apps modal uses) so the "Delivering to" bar can map the selected id → label.
+  const zeptoConnected = useMemo(() => {
+    const st = (mcpStatuses['zepto'] as any)?.status;
+    return st === 'ready' || st === 'ready_pending';
+  }, [mcpStatuses]);
+  useEffect(() => {
+    if (!isAuthenticated || !zeptoConnected) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api.get('/api/food/saved-addresses/?provider=zepto');
+        if (!cancelled && Array.isArray(data?.addresses)) {
+          setZeptoSavedAddresses(data.addresses as ZeptoSavedAddress[]);
+        }
+      } catch (err) {
+        console.error('load zepto saved addresses failed', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, zeptoConnected]);
+
   // Cosmetic reminders/orders handlers — unchanged from the new UI's
   // reference App.tsx, just lifted into local state because there's no
   // backend wiring for them yet.
@@ -1426,6 +1527,21 @@ const assistantMsg: Message = {
   }
 
   return (
+    <InstamartAddressProvider
+      value={{
+        addresses: instamartSavedAddresses,
+        selectedId: selectedInstamartAddressId,
+        onSwitch: (addressId, prompt) => {
+          if (isThinking || !addressId) return;
+          // Commit optimistically so the bar reflects the switch immediately, and
+          // pass the id as an explicit override (React state is async, so the
+          // in-flight turn can't rely on the setState above landing first).
+          setSelectedInstamartAddressId(addressId);
+          handleSendMessage(prompt, undefined, { instamartAddressId: addressId });
+        },
+      }}
+    >
+    <ZeptoAddressProvider value={{ addresses: zeptoSavedAddresses, selectedId: selectedZeptoAddressId }}>
     <div className="flex h-[100dvh] w-screen overflow-hidden font-sans select-none relative pt-[var(--safe-top)] box-border">
       <LeftSidebar
         username={username}
@@ -1451,6 +1567,7 @@ const assistantMsg: Message = {
         onSelectProvider={(id) => openSettings('mcp', id)}
         remindersBadge={remindersBadge || undefined}
         onShowReminders={() => setShowRemindersPopup(true)}
+        onOpenApps={() => setShowApps(true)}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
       />
@@ -1469,6 +1586,7 @@ const assistantMsg: Message = {
             }}
             onOpenGroceries={handleOpenGroceries}
             onOpenFood={handleOpenFood}
+            onOpenDistrict={handleOpenDistrict}
             onToggleLeft={() => setIsSidebarCollapsed((v) => !v)}
             isSidebarCollapsed={isSidebarCollapsed}
             connectedCount={
@@ -1542,6 +1660,8 @@ const assistantMsg: Message = {
         )}
       </div>
 
+      <AppsModal isOpen={showApps} onClose={() => setShowApps(false)} />
+
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -1585,6 +1705,8 @@ const assistantMsg: Message = {
         )}
       </AnimatePresence>
     </div>
+    </ZeptoAddressProvider>
+    </InstamartAddressProvider>
   );
 }
 

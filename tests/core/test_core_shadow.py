@@ -35,6 +35,47 @@ def test_selected_instamart_address_round_trips():
     assert env["selected_instamart_address_id"] == "STARRRS"
 
 
+def test_persist_instamart_default_saves_on_change(monkeypatch):
+    """A switched delivery address is persisted as the DB default (with the
+    saved-address label) and the prefs cache is invalidated. No-op when the
+    committed address already matches the stored default."""
+    saved: list[dict] = []
+    monkeypatch.setattr(
+        "companion_api.instamart_address.get_default_instamart_address",
+        lambda user: {"address_id": "OLD"},
+    )
+    monkeypatch.setattr(
+        "companion_api.instamart_address.save_default_instamart_address",
+        lambda user, *, address_id, tag=None, line=None: saved.append(
+            {"user": user, "address_id": address_id, "tag": tag, "line": line}
+        ),
+    )
+    legacy = {
+        "selected_instamart_address_id": "ROOM",
+        "session_instamart_addresses": [
+            {"address_id": "ROOM", "tag": "Room", "line": "5th floor, Star residency"},
+        ],
+    }
+    cs._persist_instamart_default("u1", legacy)
+    assert saved == [
+        {"user": "u1", "address_id": "ROOM", "tag": "Room", "line": "5th floor, Star residency"}
+    ]
+
+
+def test_persist_instamart_default_noop_when_unchanged(monkeypatch):
+    saved: list[dict] = []
+    monkeypatch.setattr(
+        "companion_api.instamart_address.get_default_instamart_address",
+        lambda user: {"address_id": "ROOM"},
+    )
+    monkeypatch.setattr(
+        "companion_api.instamart_address.save_default_instamart_address",
+        lambda *a, **k: saved.append(k),
+    )
+    cs._persist_instamart_default("u1", {"selected_instamart_address_id": "ROOM"})
+    assert saved == []
+
+
 def test_shadow_adapts_request_and_envelope(monkeypatch):
     monkeypatch.setattr(
         cs, "resolve_llm_from_env", lambda *_a: (ResolvedLlm("sarvam", "k", "m"), None)

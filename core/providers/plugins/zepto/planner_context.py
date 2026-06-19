@@ -71,10 +71,10 @@ def _addresses_block(addresses: Any) -> str | None:
         if not isinstance(entry, dict):
             continue
         aid = str(entry.get("address_id") or "").strip()
-        label = str(entry.get("label") or "").strip()
+        label = str(entry.get("label") or entry.get("tag") or "").strip()
         if not aid or not label:
             continue
-        line = str(entry.get("address_line") or "").strip()
+        line = str(entry.get("line") or entry.get("address_line") or "").strip()
         tail = f" ({line[:80]})" if line else ""
         zaddr_rows.append(f"  - {label} → addressId={aid}{tail}")
     if not zaddr_rows:

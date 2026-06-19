@@ -14,8 +14,8 @@
 // Zepto turns are visually distinct from Zomato red / Swiggy orange /
 // District purple in the chat scroll.
 
-import React, { useState } from 'react';
-import { Plus, Minus, Trash2, ShoppingCart, Sparkles, Receipt, Tag } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Minus, Trash2, ShoppingCart, Sparkles, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
 import type {
   Attachment,
   ZeptoCart,
@@ -24,6 +24,7 @@ import type {
 } from '../types';
 import { cn } from '../utils';
 import { themeFor } from '../ChatLog';
+import { useZeptoAddresses } from '../ZeptoAddressContext';
 
 const formatPriceFromInr = (value: number | null | undefined): string | null => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
@@ -166,6 +167,140 @@ const ZeptoProductTile: React.FC<{
 // When the backend used `search_multiple_products`, every product carries
 // a `query` field; we group them so each query gets its own labeled row.
 // ---------------------------------------------------------------------------
+type ZeptoDeliveryAddr = { id: string; tag: string; line: string };
+
+// Strip a leading recipient prefix the backend may keep on a line.
+const cleanZeptoLine = (s: string) => s.replace(/^[^:]+:\s*/, '').trim();
+
+// Full-width delivery-ADDRESS bar shown BELOW the Zepto product cards (mirrors
+// Instamart). Zepto delivers to a saved address (select_saved_address binds the
+// store + doorstep), so we surface that address with a Change dropdown listing
+// every saved address; selecting one fires a switch prompt.
+const ZeptoDeliveryAddressBar: React.FC<{
+  addressId: string | null | undefined;
+  addresses: ZeptoDeliveryAddr[] | null | undefined;
+  query?: string;
+  onQuickPrompt?: (prompt: string) => void;
+  disabled?: boolean;
+  /** Override the natural-language turn a switch fires (defaults to a plain
+      address switch). The cart passes a cart-refresh prompt so changing the
+      address keeps the user on the cart. */
+  promptForAddress?: (addr: ZeptoDeliveryAddr) => string;
+}> = ({ addressId, addresses, onQuickPrompt, disabled, promptForAddress }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const theme = themeFor('zepto');
+  const ctx = useZeptoAddresses();
+
+  // The card attachment usually carries only the selected id (no list), so fall
+  // back to the saved-address list fetched at the App level and the App's
+  // selected id when the attachment omits them.
+  const effectiveId = addressId || ctx.selectedId || null;
+  const effectiveAddresses: ZeptoDeliveryAddr[] =
+    addresses && addresses.length
+      ? addresses
+      : ctx.addresses.map((a) => {
+          const [tag, ...rest] = (a.location_name || '').split(' — ');
+          return {
+            id: a.address_id,
+            tag: rest.length ? tag.trim() : '',
+            line: rest.length ? rest.join(' — ').trim() : (a.location_name || '').trim(),
+          };
+        });
+
+  if (!effectiveId && !effectiveAddresses.length) return null;
+
+  const current = effectiveAddresses.find((a) => a.id === effectiveId) || effectiveAddresses[0];
+  const displayTag = current?.tag || cleanZeptoLine(current?.line || '').split(',')[0] || 'Delivery address';
+  const displayLine = current ? cleanZeptoLine(current.line) : '';
+  const canChange = effectiveAddresses.length > 1 && !!onQuickPrompt && !disabled;
+
+  const handleSelect = (addr: ZeptoDeliveryAddr) => {
+    setOpen(false);
+    if (!onQuickPrompt || disabled || addr.id === (current?.id ?? effectiveId)) return;
+    onQuickPrompt(
+      promptForAddress
+        ? promptForAddress(addr)
+        : `Switch my Zepto delivery address to: ${addr.tag || addr.line.split(',')[0]}.`,
+    );
+  };
+
+  return (
+    <div className="relative mt-2 px-1" ref={ref}>
+      <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <span
+          className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: `${theme.brandHex}1a` }}
+        >
+          <MapPin size={14} style={{ color: theme.brandHex }} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400 leading-none">
+            Delivering to
+          </p>
+          <p className="text-[12.5px] font-bold text-slate-800 leading-snug truncate mt-0.5">
+            {displayTag}
+            {displayLine && displayLine !== displayTag && (
+              <span className="font-normal text-slate-400"> · {displayLine}</span>
+            )}
+          </p>
+        </div>
+        {canChange && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="shrink-0 flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
+          >
+            Change
+            <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+      </div>
+
+      {open && canChange && (
+        <div
+          className="absolute right-1 bottom-full mb-1 z-30 bg-white rounded-xl border border-slate-200 shadow-lg min-w-[260px] max-w-[340px] overflow-hidden"
+          onMouseLeave={() => setOpen(false)}
+        >
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-3 pt-2.5 pb-1">
+            Deliver to
+          </p>
+          <div className="max-h-[260px] overflow-y-auto">
+            {effectiveAddresses.map((addr) => {
+              const isSelected = addr.id === (current?.id ?? effectiveId);
+              return (
+                <button
+                  key={addr.id}
+                  type="button"
+                  onClick={() => handleSelect(addr)}
+                  className={`w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-slate-50 transition-colors ${isSelected ? 'bg-violet-50' : ''}`}
+                >
+                  <MapPin size={12} className="shrink-0 mt-0.5" style={{ color: isSelected ? theme.brandHex : '#94a3b8' }} />
+                  <div className="min-w-0">
+                    <p className={`text-[12px] font-semibold leading-snug truncate ${isSelected ? 'text-[#7B2CFA]' : 'text-slate-800'}`}>
+                      {addr.tag || cleanZeptoLine(addr.line).split(',')[0]}
+                    </p>
+                    {addr.line && (
+                      <p className="text-[10px] text-slate-400 leading-snug truncate mt-px">
+                        {cleanZeptoLine(addr.line)}
+                      </p>
+                    )}
+                  </div>
+                  {isSelected && (
+                    <span className="ml-auto shrink-0 w-3.5 h-3.5 rounded-full flex items-center justify-center mt-0.5" style={{ backgroundColor: theme.brandHex }}>
+                      <svg width="7" height="5" viewBox="0 0 7 5" fill="none"><path d="M1 2.5L2.8 4L6 1" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ZeptoProductCardGrid: React.FC<{
   attachment: Attachment;
   onQuickPrompt?: (prompt: string) => void;
@@ -183,6 +318,10 @@ export const ZeptoProductCardGrid: React.FC<{
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(p);
   }
+
+  const deliveryAddressId = attachment.delivery_address_id;
+  const deliveryAddresses = attachment.delivery_addresses as ZeptoDeliveryAddr[] | null | undefined;
+  const primaryQuery = Array.from(groups.keys())[0] || '';
 
   return (
     <div className="mt-2 w-full max-w-full space-y-3">
@@ -205,6 +344,13 @@ export const ZeptoProductCardGrid: React.FC<{
           </div>
         </div>
       ))}
+      <ZeptoDeliveryAddressBar
+        addressId={deliveryAddressId}
+        addresses={deliveryAddresses}
+        query={primaryQuery}
+        onQuickPrompt={onQuickPrompt}
+        disabled={disabled}
+      />
     </div>
   );
 };
@@ -331,9 +477,11 @@ const ZeptoCartItemRow: React.FC<{
 // in its `view_cart` response — only the running total.
 export const ZeptoCartCard: React.FC<{
   cart: ZeptoCart;
+  addressId?: string | null;
+  addresses?: ZeptoDeliveryAddr[] | null;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ cart, onQuickPrompt, disabled }) => {
+}> = ({ cart, addressId, addresses, onQuickPrompt, disabled }) => {
   if (!cart) return null;
   const theme = themeFor('zepto');
   const items = Array.isArray(cart.items) ? cart.items : [];
@@ -451,6 +599,18 @@ export const ZeptoCartCard: React.FC<{
           </>
         )}
       </div>
+      {/* Always show WHERE this cart ships — and let the user switch it right from
+          the cart. The cart-refresh prompt keeps them on the cart at the new
+          address. Falls back to the App-level saved-address context for the list. */}
+      <ZeptoDeliveryAddressBar
+        addressId={addressId}
+        addresses={addresses}
+        onQuickPrompt={onQuickPrompt}
+        disabled={disabled}
+        promptForAddress={(addr) =>
+          `Switch my Zepto delivery address to ${addr.tag || addr.line.split(',')[0]} and show my updated cart.`
+        }
+      />
     </div>
   );
 };

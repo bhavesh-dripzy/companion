@@ -51,6 +51,53 @@ def test_district_seeds_from_resolved_geo_not_raw_text():
     assert ctx.placeholders["__USER_LNG__"] == 77.25
 
 
+def test_district_seeds_from_saved_location_when_no_live_gps():
+    """The per-user saved District location (source of truth, carried in the
+    session legacy bag) seeds the search coordinates when there's no live GPS."""
+    ctx = ExecCtx(session={"selected_district_location": {"latitude": 19.07, "longitude": 72.87}})
+    asyncio.run(DistrictProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__USER_LAT__"] == 19.07
+    assert ctx.placeholders["__USER_LNG__"] == 72.87
+
+
+def test_district_saved_location_beats_drifting_gps():
+    """Without a user-named locality this turn, the committed saved location wins
+    over ambient GPS — a moved phone must not silently shift the search area."""
+    ctx = ExecCtx(
+        user_geo={"latitude": 28.61, "longitude": 77.20},
+        session={"selected_district_location": {"latitude": 19.07, "longitude": 72.87}},
+    )
+    asyncio.run(DistrictProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__USER_LAT__"] == 19.07
+    assert ctx.placeholders["__USER_LNG__"] == 72.87
+
+
+def test_district_named_locality_beats_saved_location():
+    """A locality the user named this turn (geocoded into user_geo by the Execute
+    stage) outranks the saved location."""
+    ctx = ExecCtx(
+        user_geo={"latitude": 12.97, "longitude": 77.59},
+        requested_location_text="Bangalore",
+        session={"selected_district_location": {"latitude": 19.07, "longitude": 72.87}},
+    )
+    asyncio.run(DistrictProvider().before_run(session=None, ctx=ctx))
+    assert ctx.placeholders["__USER_LAT__"] == 12.97
+    assert ctx.placeholders["__USER_LNG__"] == 77.59
+
+
+def test_district_run_needs_location_without_any_geo():
+    """No named locality, no saved location, no GPS → return needs_location
+    without opening an MCP session (mirrors Zepto's guard)."""
+    from core.contracts.tool_call import ToolCall
+    from core.contracts.tool_result import ErrorCode
+
+    calls = [ToolCall(tool="search_movies", arguments={"location": {}})]
+    result = asyncio.run(DistrictProvider().run(calls, ExecCtx()))
+    assert result.ok is False
+    assert result.error is ErrorCode.NEEDS_LOCATION
+    assert result.results[0].tool == "search_movies"
+
+
 def _tr(name: str) -> ToolResult:
     fix = json.loads((_DIR / f"{name}.json").read_text())
     return ToolResult(

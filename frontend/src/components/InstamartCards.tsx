@@ -17,6 +17,7 @@ import type {
 } from '../types';
 import { cn } from '../utils';
 import { themeFor } from '../ChatLog';
+import { useInstamartAddresses } from '../InstamartAddressContext';
 
 const formatPriceFromInr = (value: number | null | undefined): string | null => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
@@ -308,25 +309,57 @@ const cleanAddrLine = (s: string) => s.replace(/^[^:]+:\s*/, '').trim();
 const DeliveryAddressBar: React.FC<{
   addressId: string | null | undefined;
   addresses: DeliveryAddr[] | null | undefined;
-  query: string;
+  query?: string;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ addressId, addresses, query, onQuickPrompt, disabled }) => {
+  /** Override the natural-language turn a switch fires (defaults to a re-search).
+      The cart passes a cart-refresh prompt so changing the address keeps the user
+      on the cart instead of dropping them into search results. */
+  promptForAddress?: (addr: DeliveryAddr) => string;
+}> = ({ addressId, addresses, query, onQuickPrompt, disabled, promptForAddress }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const theme = themeFor('instamart');
+  const ctx = useInstamartAddresses();
 
-  if (!addressId && !(addresses && addresses.length)) return null;
+  // The product-card attachment usually carries only the selected address id
+  // (no list), so fall back to the Swiggy saved-address list fetched at the App
+  // level (same source as the Apps modal) to resolve the human label, and to
+  // the App's selected id when the attachment omits it.
+  const effectiveId = addressId || ctx.selectedId || null;
+  const effectiveAddresses: DeliveryAddr[] =
+    addresses && addresses.length
+      ? addresses
+      : ctx.addresses.map((a) => {
+          const [tag, ...rest] = (a.location_name || '').split(' — ');
+          return {
+            id: a.address_id,
+            tag: rest.length ? tag.trim() : '',
+            line: rest.length ? rest.join(' — ').trim() : (a.location_name || '').trim(),
+          };
+        });
 
-  const current = addresses?.find(a => a.id === addressId) || addresses?.[0];
+  if (!effectiveId && !effectiveAddresses.length) return null;
+
+  const current =
+    effectiveAddresses.find((a) => a.id === effectiveId) || effectiveAddresses[0];
   const displayTag = current?.tag || cleanAddrLine(current?.line || '').split(',')[0] || 'Delivery address';
   const displayLine = current ? cleanAddrLine(current.line) : '';
-  const canChange = !!addresses && addresses.length > 1 && !!onQuickPrompt && !disabled;
+  const canChange =
+    effectiveAddresses.length > 1 && (!!onQuickPrompt || !!ctx.onSwitch) && !disabled;
 
   const handleSelect = (addr: DeliveryAddr) => {
     setOpen(false);
-    if (!onQuickPrompt || disabled || addr.id === (current?.id ?? addressId)) return;
-    onQuickPrompt(`Search ${query || 'groceries'} on Swiggy Instamart, deliver to ${addr.tag || addr.line.split(',')[0]}`);
+    if (disabled || addr.id === (current?.id ?? effectiveId)) return;
+    const prompt = promptForAddress
+      ? promptForAddress(addr)
+      : `Search ${query || 'groceries'} on Swiggy Instamart, deliver to ${addr.tag || addr.line.split(',')[0]}`;
+    // Prefer the context switch: it commits addr.id as the new
+    // selected_instamart_address_id so the backend anchors this turn's search to
+    // it. Without that, the stale committed address overrides the switch and the
+    // search (and the address bar) stay pinned to the old address.
+    if (ctx.onSwitch) ctx.onSwitch(addr.id, prompt);
+    else onQuickPrompt?.(prompt);
   };
 
   return (
@@ -370,8 +403,8 @@ const DeliveryAddressBar: React.FC<{
             Deliver to
           </p>
           <div className="max-h-[260px] overflow-y-auto">
-            {addresses!.map(addr => {
-              const isSelected = addr.id === (current?.id ?? addressId);
+            {effectiveAddresses.map(addr => {
+              const isSelected = addr.id === (current?.id ?? effectiveId);
               return (
                 <button
                   key={addr.id}
@@ -577,9 +610,11 @@ const InstamartCartItemRow: React.FC<{
 
 export const InstamartCartCard: React.FC<{
   cart: InstamartCart;
+  addressId?: string | null;
+  addresses?: DeliveryAddr[] | null;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ cart, onQuickPrompt, disabled }) => {
+}> = ({ cart, addressId, addresses, onQuickPrompt, disabled }) => {
   if (!cart) return null;
   const theme = themeFor('instamart');
   const items = Array.isArray(cart.items) ? cart.items : [];
@@ -687,6 +722,18 @@ export const InstamartCartCard: React.FC<{
           </>
         )}
       </div>
+      {/* Always show WHERE this cart ships — and let the user switch it right from
+          the cart. The cart-refresh prompt keeps them on the cart at the new
+          address. Falls back to the App-level saved-address context for the list. */}
+      <DeliveryAddressBar
+        addressId={addressId}
+        addresses={addresses}
+        onQuickPrompt={onQuickPrompt}
+        disabled={disabled}
+        promptForAddress={(addr) =>
+          `Switch my Swiggy Instamart delivery address to ${addr.tag || addr.line.split(',')[0]} and show my updated cart.`
+        }
+      />
     </div>
   );
 };

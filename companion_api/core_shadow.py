@@ -44,9 +44,21 @@ _SESSION_KEYS = (
     "session_zepto_products",
     "session_zepto_addresses",
     "session_zepto_cart",
+    # The committed Zepto delivery location {latitude, longitude, ...} — kept for
+    # back-compat / optional GPS onboarding hint (see _SESSION_ZEPTO_LOCATION).
+    "selected_zepto_location",
+    # The saved address the user picked for Zepto this session — the source of
+    # truth that select_saved_address binds the store + order to (mirrors
+    # Instamart). Must survive the round-trip so cart/order reuse it.
+    "selected_zepto_address_id",
+    # The committed District discovery location {latitude, longitude, ...} —
+    # District's source of truth (lat/lng; no saved-address concept). See
+    # _SESSION_DISTRICT_LOCATION.
+    "selected_district_location",
     "session_instamart_products",
     "session_instamart_addresses",
     "session_instamart_cart",
+    # NOTE: _SESSION_SELECTED_ADDRESS (below) is also part of this tuple.
     # The address the user picked for Instamart this session — must survive the
     # round-trip so cart/checkout reuse it instead of re-picking the nearest
     # (which may be a non-serviceable address) every turn.
@@ -61,6 +73,17 @@ _SESSION_KEYS = (
     "session_serp_places",
     "session_serp_hotels",
 )
+
+# The committed Instamart delivery address key (a member of _SESSION_KEYS above).
+_SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
+# The committed Zepto delivery location key (a member of _SESSION_KEYS above).
+_SESSION_ZEPTO_LOCATION = "selected_zepto_location"
+# The committed Zepto delivery address key (a member of _SESSION_KEYS above).
+_SESSION_ZEPTO_ADDRESS = "selected_zepto_address_id"
+# The committed District discovery location key (a member of _SESSION_KEYS above).
+_SESSION_DISTRICT_LOCATION = "selected_district_location"
+# The committed District discovery location key (a member of _SESSION_KEYS above).
+_SESSION_DISTRICT_LOCATION = "selected_district_location"
 
 _runner = None
 
@@ -81,6 +104,60 @@ def _payload_dict(payload: Any) -> dict[str, Any]:
 def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> TurnRequest:
     history = data.get("history") if isinstance(data.get("history"), list) else []
     legacy = {k: data[k] for k in _SESSION_KEYS if data.get(k) is not None}
+    # Pin the user's saved Instamart default address (DynamoDB source of truth)
+    # when the client didn't carry one this turn. This anchors search/cart to a
+    # known-good address instead of the executor falling back to the nearest
+    # saved address (which may be non-serviceable). The live cart's address still
+    # wins inside the provider when a cart already has items.
+    if not str(legacy.get(_SESSION_SELECTED_ADDRESS) or "").strip():
+        try:
+            from companion_api.instamart_address import get_default_instamart_address
+
+            default = get_default_instamart_address(user)
+            if default and default.get("address_id"):
+                legacy[_SESSION_SELECTED_ADDRESS] = default["address_id"]
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
+    # Pin the user's saved Zepto delivery ADDRESS (source of truth — mirrors
+    # Instamart). select_saved_address binds the store + order to it; the provider
+    # uses it over drifting GPS. Falls back to the legacy GPS location as an
+    # onboarding hint so the needs_location guard never blocks a known-where turn.
+    user_geo = data.get("user_geo") or data.get("geo")
+    if not str(legacy.get(_SESSION_ZEPTO_ADDRESS) or "").strip():
+        try:
+            from companion_api.zepto_address import get_default_zepto_address
+
+            addr = get_default_zepto_address(user)
+            if addr and addr.get("address_id"):
+                legacy[_SESSION_ZEPTO_ADDRESS] = addr["address_id"]
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
+    if not isinstance(legacy.get(_SESSION_ZEPTO_LOCATION), dict):
+        try:
+            from companion_api.zepto_location import get_default_zepto_location
+
+            loc = get_default_zepto_location(user)
+            if loc and loc.get("latitude") is not None and loc.get("longitude") is not None:
+                legacy[_SESSION_ZEPTO_LOCATION] = loc
+                if not user_geo:
+                    user_geo = {"latitude": loc["latitude"], "longitude": loc["longitude"]}
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
+    # Pin the user's saved District discovery location (source of truth — District
+    # search tools take {lat,lng} and have no saved-address concept). The provider
+    # uses it over drifting GPS; it also seeds user_geo so the needs_location guard
+    # never blocks a turn for a user who set a location during onboarding.
+    if not isinstance(legacy.get(_SESSION_DISTRICT_LOCATION), dict):
+        try:
+            from companion_api.district_location import get_default_district_location
+
+            dloc = get_default_district_location(user)
+            if dloc and dloc.get("latitude") is not None and dloc.get("longitude") is not None:
+                legacy[_SESSION_DISTRICT_LOCATION] = dloc
+                if not user_geo:
+                    user_geo = {"latitude": dloc["latitude"], "longitude": dloc["longitude"]}
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
     session = SessionState(placeholders=data.get("session_state") or {}, legacy=legacy)
     return TurnRequest(
         message=str(data.get("message") or ""),
@@ -91,9 +168,49 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
         session=session,
         execute_tools=data.get("execute_tools") if data.get("execute_tools") is not None else True,
         reply_language=reply_language,
-        user_geo=data.get("user_geo") or data.get("geo"),
+        user_geo=user_geo,
         enabled_providers=data.get("enabled_providers"),
     )
+
+
+def _persist_instamart_default(user: str, legacy: dict[str, Any]) -> None:
+    """Sync the user's saved Instamart default address with the address the turn
+    committed to. When the user switches delivery address mid-session (e.g. via
+    the product-card "Change" picker), the new ``selected_instamart_address_id``
+    becomes the DB source of truth so it sticks for the next turn / fresh session,
+    and the in-process prefs cache is invalidated. No-op when unchanged."""
+    aid = str((legacy or {}).get(_SESSION_SELECTED_ADDRESS) or "").strip()
+    if not aid:
+        return
+    try:
+        from companion_api.instamart_address import (
+            get_default_instamart_address,
+            save_default_instamart_address,
+        )
+
+        current = get_default_instamart_address(user) or {}
+        if str(current.get("address_id") or "").strip() == aid:
+            return  # already the default — nothing to persist / invalidate
+        tag = line = None
+        for r in legacy.get("session_instamart_addresses") or []:
+            if isinstance(r, dict) and str(r.get("address_id") or "").strip() == aid:
+                tag = (
+                    str(r.get("tag") or r.get("addressTag") or r.get("label") or "").strip() or None
+                )
+                line = (
+                    str(
+                        r.get("line")
+                        or r.get("address_line")
+                        or r.get("addressLine")
+                        or r.get("location_name")
+                        or ""
+                    ).strip()
+                    or None
+                )
+                break
+        save_default_instamart_address(user, address_id=aid, tag=tag, line=line)
+    except Exception:  # pragma: no cover - never block a turn on prefs persistence
+        pass
 
 
 def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
@@ -131,7 +248,11 @@ def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
             error_msg = tr.error_detail
     if error_code is None and first.error is not None:
         error_code = first.error.value
-    out: dict[str, Any] = {"ok": False, "error": error_msg or "Tool execution failed.", "error_code": error_code}
+    out: dict[str, Any] = {
+        "ok": False,
+        "error": error_msg or "Tool execution failed.",
+        "error_code": error_code,
+    }
     if location_needed_by:
         out["location_needed_by"] = location_needed_by
     if reauth_needed_by:
@@ -173,6 +294,7 @@ async def _run(
         response = await _get_runner().run(request, llm, tracer=tracer)
     else:
         response = await _get_runner().run(request, llm)
+    _persist_instamart_default(user, response.session.legacy)
     return _to_envelope(response, request.chat_id)
 
 

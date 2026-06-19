@@ -19,7 +19,9 @@ from typing import Any
 
 from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode
-from core.contracts.tool_result import ProviderResult
+from core.contracts.tool_call import ToolCall
+from core.contracts.tool_result import ErrorCode, ProviderResult
+from core.middleware.errors import NeedsLocationError, result_from_exception
 from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec
 from core.providers.mcp.mcp_base import McpProvider
@@ -38,6 +40,10 @@ from core.providers.plugins.district.slots_reviews import (
 )
 
 _BOOKING_TOOLS = {"create_table_reservation_booking", "get_booking_details"}
+
+# The committed District discovery location, carried in the session legacy bag
+# (seeded from the per-user saved location by the API; mirrors Zepto/Instamart).
+_SESSION_DISTRICT_LOCATION = "selected_district_location"
 
 _DEFAULT_URL = "https://mcp-server.district.in/mcp"
 
@@ -93,24 +99,58 @@ class DistrictProvider(McpProvider):
         out["filters"] = filters
         return out
 
-    async def before_run(self, session: Any, ctx: ExecCtx) -> None:
-        """Seed __USER_LAT__/__USER_LNG__ for search tools from ctx.user_geo.
+    @staticmethod
+    def _effective_geo(ctx: ExecCtx) -> tuple[float, float] | None:
+        """The coordinate District search should run against.
 
-        The planner emits these as placeholder strings (planner.md). The Execute
-        stage resolves user_geo for the whole turn — a user-named locality
-        (geocoded) outranks ambient GPS — so this just copies the floats in.
-        Unresolved placeholders make the District server reject the call."""
+        A user-named locality this turn is already geocoded into ``ctx.user_geo``
+        by the Execute stage (it outranks ambient GPS). Otherwise the user's SAVED
+        District location (committed during onboarding, carried in the session)
+        wins over drifting ambient GPS. Falls back to live GPS when nothing is
+        saved."""
+        session = ctx.session if isinstance(ctx.session, dict) else {}
+        saved = session.get(_SESSION_DISTRICT_LOCATION)
+        named = ctx.user_geo if ctx.requested_location_text else None
+        for src in (named, saved, ctx.user_geo if isinstance(ctx.user_geo, dict) else None):
+            if not isinstance(src, dict):
+                continue
+            try:
+                lat = float(src.get("latitude", src.get("lat")))
+                lng = float(src.get("longitude", src.get("lng")))
+            except (TypeError, ValueError):
+                continue
+            return lat, lng
+        return None
+
+    async def run(self, calls: list[ToolCall], ctx: ExecCtx) -> ProviderResult:
+        """Guard: District search is location-scoped — without a resolvable geo
+        (named locality / saved location / live GPS) return needs_location instead
+        of sending unresolved __USER_LAT__/__USER_LNG__ the server would reject."""
+        if self._effective_geo(ctx) is None:
+            exc = NeedsLocationError("Share your location to discover what's on near you.")
+            return ProviderResult(
+                provider=self.id,
+                results=[
+                    result_from_exception(c.tool, self.id, exc, arguments=c.arguments)
+                    for c in calls
+                ],
+                ok=False,
+                error=ErrorCode.NEEDS_LOCATION,
+                error_detail=str(exc),
+            )
+        return await super().run(calls, ctx)
+
+    async def before_run(self, session: Any, ctx: ExecCtx) -> None:
+        """Seed __USER_LAT__/__USER_LNG__ for search tools from the effective geo.
+
+        The planner emits these as placeholder strings (planner.md); this copies
+        the resolved floats in. The saved District location wins over drifting GPS
+        (mirrors Zepto). Unresolved placeholders make the server reject the call."""
         await super().before_run(session, ctx)
-        geo = ctx.user_geo if isinstance(ctx.user_geo, dict) else {}
-        lat = geo.get("latitude", geo.get("lat"))
-        lng = geo.get("longitude", geo.get("lng"))
-        if lat is None or lng is None:
+        geo = self._effective_geo(ctx)
+        if geo is None:
             return
-        try:
-            ctx.placeholders["__USER_LAT__"] = float(lat)
-            ctx.placeholders["__USER_LNG__"] = float(lng)
-        except (TypeError, ValueError):
-            return
+        ctx.placeholders["__USER_LAT__"], ctx.placeholders["__USER_LNG__"] = geo
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         return [
