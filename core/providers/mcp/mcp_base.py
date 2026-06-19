@@ -64,6 +64,8 @@ class McpProvider(ABC):
     # "grocery") never both mutate in one turn; cart_session_key picks the winner.
     capability_class: str = ""
     cart_session_key: str = ""
+    # Entities the user can switch by name in chat (delivery address, store, …).
+    selectables: tuple = ()
 
     @property
     def planner_preamble(self) -> str | None:

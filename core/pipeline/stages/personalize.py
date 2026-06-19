@@ -7,6 +7,7 @@ addresses are never used as an id (they become geo elsewhere).
 
 from __future__ import annotations
 
+from core.middleware.selection import resolve_selections
 from core.pipeline.context import PipelineContext
 
 _HOME_WORDS = ("home", "ghar")
@@ -32,6 +33,22 @@ def _resolve_address(ctx: PipelineContext) -> None:
         ctx.session.selected_address_id = address.provider_address_id
 
 
+def _resolve_selections(ctx: PipelineContext) -> None:
+    """Commit any saved entity the user switched to by name ("deliver to Work").
+
+    Generic across every provider that declares `selectables` — the resolved id is
+    written to the provider's committed session key, which its before_run reads."""
+    legacy = ctx.session.legacy if isinstance(ctx.session.legacy, dict) else {}
+    selectables = [s for p in ctx.deps.registry.all() for s in getattr(p, "selectables", ())]
+    if not selectables:
+        return
+    commits = resolve_selections(ctx.request.message, legacy, selectables)
+    if commits:
+        legacy.update(commits)
+        ctx.session.legacy = legacy
+        ctx.tracer.event("select", committed=list(commits))
+
+
 class Personalize:
     name = "personalize"
 
@@ -40,6 +57,7 @@ class Personalize:
         if ctx.request.user_id:
             ctx.profile = await ctx.deps.profile_service.get(ctx.request.user_id)
         _resolve_address(ctx)
+        _resolve_selections(ctx)
         ctx.tracer.event(
             "personalize",
             has_profile=ctx.profile is not None,

@@ -18,6 +18,7 @@ import os
 from typing import Any
 
 from core.contracts.attachment import Attachment
+from core.contracts.selectable import Selectable
 from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ProviderResult
 from core.providers.base import ExecCtx
@@ -65,6 +66,15 @@ class SwiggyInstamartProvider(McpProvider):
     saved_addresses_session_key = "session_instamart_addresses"
     capability_class = "grocery"
     cart_session_key = "session_instamart_cart"
+    selectables = (
+        Selectable(
+            kind="delivery_address",
+            saved_key="session_instamart_addresses",
+            committed_key=_SESSION_SELECTED_ADDRESS,
+            id_field="address_id",
+            label_fields=("addressTag", "address_tag", "label"),
+        ),
+    )
 
     def mcp_url(self, ctx: ExecCtx) -> str | None:
         return os.getenv("SWIGGY_INSTAMART_MCP_URL", _DEFAULT_URL)
