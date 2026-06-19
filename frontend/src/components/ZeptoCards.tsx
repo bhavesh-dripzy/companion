@@ -182,7 +182,7 @@ const ZeptoDeliveryAddressBar: React.FC<{
   query: string;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ addressId, addresses, query, onQuickPrompt, disabled }) => {
+}> = ({ addressId, addresses, onQuickPrompt, disabled }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const theme = themeFor('zepto');
