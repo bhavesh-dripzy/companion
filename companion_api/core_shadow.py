@@ -173,6 +173,45 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
     )
 
 
+def _persist_instamart_default(user: str, legacy: dict[str, Any]) -> None:
+    """Sync the user's saved Instamart default address with the address the turn
+    committed to. When the user switches delivery address mid-session (e.g. via
+    the product-card "Change" picker), the new ``selected_instamart_address_id``
+    becomes the DB source of truth so it sticks for the next turn / fresh session,
+    and the in-process prefs cache is invalidated. No-op when unchanged."""
+    aid = str((legacy or {}).get(_SESSION_SELECTED_ADDRESS) or "").strip()
+    if not aid:
+        return
+    try:
+        from companion_api.instamart_address import (
+            get_default_instamart_address,
+            save_default_instamart_address,
+        )
+
+        current = get_default_instamart_address(user) or {}
+        if str(current.get("address_id") or "").strip() == aid:
+            return  # already the default — nothing to persist / invalidate
+        tag = line = None
+        for r in legacy.get("session_instamart_addresses") or []:
+            if isinstance(r, dict) and str(r.get("address_id") or "").strip() == aid:
+                tag = (
+                    str(r.get("tag") or r.get("addressTag") or r.get("label") or "").strip() or None
+                )
+                line = (
+                    str(
+                        r.get("line")
+                        or r.get("address_line")
+                        or r.get("addressLine")
+                        or r.get("location_name")
+                        or ""
+                    ).strip()
+                    or None
+                )
+                break
+        save_default_instamart_address(user, address_id=aid, tag=tag, line=line)
+    except Exception:  # pragma: no cover - never block a turn on prefs persistence
+        pass
+
 
 def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
     """Legacy ``{ok, error?, error_code?}`` summary for the frontend.
@@ -209,7 +248,11 @@ def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
             error_msg = tr.error_detail
     if error_code is None and first.error is not None:
         error_code = first.error.value
-    out: dict[str, Any] = {"ok": False, "error": error_msg or "Tool execution failed.", "error_code": error_code}
+    out: dict[str, Any] = {
+        "ok": False,
+        "error": error_msg or "Tool execution failed.",
+        "error_code": error_code,
+    }
     if location_needed_by:
         out["location_needed_by"] = location_needed_by
     if reauth_needed_by:
@@ -251,6 +294,7 @@ async def _run(
         response = await _get_runner().run(request, llm, tracer=tracer)
     else:
         response = await _get_runner().run(request, llm)
+    _persist_instamart_default(user, response.session.legacy)
     return _to_envelope(response, request.chat_id)
 
 

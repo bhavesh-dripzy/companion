@@ -325,7 +325,7 @@ class ZeptoProvider(McpProvider):
         )
         return [
             *build_product_cards(result.results, address_id=address_id, addresses=addresses),
-            *build_cart_cards(result.results),
+            *build_cart_cards(result.results, address_id=address_id, addresses=addresses),
             *build_order_cards(
                 result.results,
                 tools={"list_order_history", "get_order_detail"},

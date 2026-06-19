@@ -1553,6 +1553,8 @@ export const AttachmentList: React.FC<{
           <ZeptoCartCard
             key={`zepto-cart-${idx}`}
             cart={att.zepto_cart}
+            addressId={att.delivery_address_id}
+            addresses={att.delivery_addresses as any}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />
@@ -1574,6 +1576,8 @@ export const AttachmentList: React.FC<{
           <InstamartCartCard
             key={`instamart-cart-${idx}`}
             cart={att.instamart_cart}
+            addressId={att.delivery_address_id}
+            addresses={att.delivery_addresses as any}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />

@@ -89,6 +89,29 @@ def test_builds_cart_card_and_session_cart():
     assert provider.merge({}, result)["session_zepto_cart"]["items"]
 
 
+def test_cart_card_always_carries_delivery_address():
+    """The Zepto cart card ships with the committed delivery address (resolved this
+    turn) + the saved-address list so the UI can always show where it delivers."""
+    env = {
+        "is_error": False,
+        "data": {
+            "items": [
+                {"productVariantId": _PVID, "storeProductId": "sp1", "name": "Milk", "quantity": 1}
+            ],
+            "isEmpty": False,
+        },
+    }
+    tr = ToolResult(tool="view_cart", provider="zepto", ok=True, data=env)
+    provider = ZeptoProvider()
+    result = ProviderResult(provider="zepto", results=[tr])
+    result.diagnostics["resolved_zepto_address_id"] = "ZHOME"
+    result.diagnostics["saved_address_rows"] = [{"address_id": "ZHOME", "label": "Home"}]
+    card = next(c for c in provider.build_attachments(result) if c.kind == "zepto_cart_card")
+    wire = card.to_wire()
+    assert wire["delivery_address_id"] == "ZHOME"
+    assert wire["delivery_addresses"][0]["id"] == "ZHOME"
+
+
 def test_session_products_lru_keyed_by_variant_id():
     merged = ZeptoProvider().merge({}, _result())
     products = merged.get("session_zepto_products") or []

@@ -828,7 +828,12 @@ function App() {
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
 
-  const buildAgentBody = (content: string, geo?: GeoCoordinate | null, forceProviders?: string[] | null) => {
+  const buildAgentBody = (
+    content: string,
+    geo?: GeoCoordinate | null,
+    forceProviders?: string[] | null,
+    overrides?: { instamartAddressId?: string },
+  ) => {
     const body: Record<string, any> = {
       message: content,
       address_id: selectedAddressId || '',
@@ -866,7 +871,10 @@ function App() {
     if (sessionInstamartProducts.length > 0) body.session_instamart_products = sessionInstamartProducts;
     if (sessionInstamartAddresses.length > 0) body.session_instamart_addresses = sessionInstamartAddresses;
     if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
-    if (selectedInstamartAddressId) body.selected_instamart_address_id = selectedInstamartAddressId;
+    // A picker-driven address switch overrides the (stale) committed selection so
+    // the backend anchors this turn's search/cart to the newly chosen address.
+    const instamartAddressId = overrides?.instamartAddressId || selectedInstamartAddressId;
+    if (instamartAddressId) body.selected_instamart_address_id = instamartAddressId;
     if (sessionKiteInstruments.length > 0) body.session_kite_instruments = sessionKiteInstruments;
     if (sessionSerpFlights.length > 0) body.session_serp_flights = sessionSerpFlights;
     if (sessionSerpProducts.length > 0) body.session_serp_products = sessionSerpProducts;
@@ -938,6 +946,7 @@ const assistantMsg: Message = {
   const handleSendMessage = async (
     content: string,
     geoOverride?: import('./types').GeoCoordinate | null,
+    overrides?: { instamartAddressId?: string },
   ) => {
     const text = (content || '').trim();
     if (!text) return;
@@ -946,14 +955,14 @@ const assistantMsg: Message = {
     setIsThinking(true);
 
     try {
-      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? effectiveGeo));
+      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? effectiveGeo, null, overrides));
 
       const errorCode = (data as any)?.tool_execution?.error_code;
       if (errorCode === 'needs_location') {
         try {
           const fresh = await ensureLocation();
           setGrantedGeo(fresh);
-          data = await runTurn(buildAgentBody(text, fresh));
+          data = await runTurn(buildAgentBody(text, fresh, null, overrides));
         } catch (geoErr: any) {
           const reason = geoErr?.reason ?? 'unknown';
           const friendly: Record<string, string> = {
@@ -1477,7 +1486,18 @@ const assistantMsg: Message = {
 
   return (
     <InstamartAddressProvider
-      value={{ addresses: instamartSavedAddresses, selectedId: selectedInstamartAddressId }}
+      value={{
+        addresses: instamartSavedAddresses,
+        selectedId: selectedInstamartAddressId,
+        onSwitch: (addressId, prompt) => {
+          if (isThinking || !addressId) return;
+          // Commit optimistically so the bar reflects the switch immediately, and
+          // pass the id as an explicit override (React state is async, so the
+          // in-flight turn can't rely on the setState above landing first).
+          setSelectedInstamartAddressId(addressId);
+          handleSendMessage(prompt, undefined, { instamartAddressId: addressId });
+        },
+      }}
     >
     <ZeptoAddressProvider value={{ addresses: zeptoSavedAddresses, selectedId: selectedZeptoAddressId }}>
     <div className="flex h-[100dvh] w-screen overflow-hidden font-sans select-none relative pt-[var(--safe-top)] box-border">

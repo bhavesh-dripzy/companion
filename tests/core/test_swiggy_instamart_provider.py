@@ -60,6 +60,90 @@ def test_instamart_before_run_auto_fetch_resolves_id_only_rows(monkeypatch):
     assert ctx.placeholders.get("__ADDRESS_ID__") == "363294542"
 
 
+def test_before_run_pins_live_cart_address_on_mutating_turn(monkeypatch):
+    """TRUST SWIGGY (mutating): before update_cart runs, before_run reads the cart's
+    REAL address and pins it, overriding a stale committed selection — so the
+    mutation can't drag the cart back to the wrong store."""
+    cart_env = {
+        "is_error": False,
+        "data": {
+            "items": [{"spinId": "S1", "itemName": "X", "quantity": 1, "discountedFinalPrice": 50}],
+            "selectedAddressDetails": {"id": "LIVE_ADDR"},
+        },
+    }
+
+    async def fake_call_tool(session, name, arguments=None):
+        assert name == "get_cart"
+        return "RAW"
+
+    monkeypatch.setattr(
+        "core.providers.plugins.swiggy_instamart.provider.call_tool", fake_call_tool
+    )
+    monkeypatch.setattr(
+        "core.providers.plugins.swiggy_instamart.provider.tool_result_payload",
+        lambda raw: cart_env,
+    )
+    ctx = ExecCtx(session={"selected_instamart_address_id": "STALE_ADDR"})
+    ctx.scratch["saved_address_rows"] = [{"address_id": "STALE_ADDR"}]  # skip saved-addr fetch
+    ctx.scratch["_instamart_mutating"] = True
+    asyncio.run(SwiggyInstamartProvider().before_run(session=object(), ctx=ctx))
+    assert ctx.scratch["live_cart_address"] == "LIVE_ADDR"
+    assert ctx.placeholders["__ADDRESS_ID__"] == "LIVE_ADDR"
+    # The anchor every subsequent call uses is now Swiggy's live address.
+    assert SwiggyInstamartProvider._anchor_address(ctx) == "LIVE_ADDR"
+
+
+def test_reconcile_folds_live_cart_not_stale_session():
+    """When before_run captured the LIVE cart, update_cart must fold THOSE items
+    (real, at the real address) — not the stale session snapshot whose lagging
+    address would falsely trip the switch-guard and drop unmentioned lines."""
+    prov = SwiggyInstamartProvider()
+    ctx = ExecCtx(
+        session={
+            # Stale carried snapshot: different (old) address, would look "switched".
+            "session_instamart_cart": {
+                "items": [{"spin_id": "BREAD", "quantity": 2}],
+                "selected_address_id": "OLD_ADDR",
+            }
+        }
+    )
+    # before_run read the real cart at the real address (bread x2 still there).
+    ctx.scratch["live_cart_address"] = "REAL_ADDR"
+    ctx.scratch["live_cart_snapshot"] = {
+        "items": [{"spin_id": "BREAD", "quantity": 2}],
+        "selected_address_id": "REAL_ADDR",
+    }
+    ctx.scratch["_instamart_valid_spins"] = {"BREAD", "MILK"}
+    # Planner adds milk only; bread must be preserved (folded from the live cart).
+    args = {"items": [{"spinId": "MILK", "quantity": 1}], "selectedAddressId": "__ADDRESS_ID__"}
+    prov.before_call("update_cart", args, ctx)
+    sent = {i["spinId"]: i["quantity"] for i in args["items"]}
+    assert sent == {"BREAD": 2, "MILK": 1}
+    assert args["selectedAddressId"] == "REAL_ADDR"  # targets the live address
+
+
+def test_before_run_skips_live_probe_on_non_mutating_turn(monkeypatch):
+    """A read-only turn (search / show cart) must NOT pay the extra get_cart probe."""
+    called: list[str] = []
+
+    async def fake_call_tool(session, name, arguments=None):
+        called.append(name)
+        return "RAW"
+
+    monkeypatch.setattr(
+        "core.providers.plugins.swiggy_instamart.provider.call_tool", fake_call_tool
+    )
+    monkeypatch.setattr(
+        "core.providers.plugins.swiggy_instamart.provider.tool_result_payload",
+        lambda raw: {"data": {}},
+    )
+    ctx = ExecCtx(session={"selected_instamart_address_id": "X"})
+    ctx.scratch["saved_address_rows"] = [{"address_id": "X"}]
+    asyncio.run(SwiggyInstamartProvider().before_run(session=object(), ctx=ctx))
+    assert "get_cart" not in called
+    assert "live_cart_address" not in ctx.scratch
+
+
 def test_instamart_before_run_records_resolved_address_in_scratch(monkeypatch):
     """before_run must record the resolved id + full list into ctx.scratch so the
     UI can show 'Delivering to ...' even when search args omit addressId."""
@@ -178,6 +262,44 @@ def test_committed_selection_overrides_planner_per_call_address():
     assert args["selectedAddressId"] == "STARRRS"  # planner's HOLIDAY drift overridden
 
 
+def test_explicit_address_switch_wins_over_committed_and_recommits():
+    """When the planner (the LLM) resolves an explicit switch — emitting a CONCRETE
+    saved addressId that differs from the committed one — that address wins over the
+    anchor and is re-committed as the session's selection. No message-text rule is
+    involved: the only signal is the LLM choosing a concrete saved id over the
+    "__ADDRESS_ID__" placeholder. A fabricated (non-saved) id is still rejected."""
+    prov = SwiggyInstamartProvider()
+    ctx = ExecCtx(session={"selected_instamart_address_id": "STARRRS"})
+    # The saved-address list the planner copied "ROOM" from (loaded by before_run).
+    ctx.scratch["saved_address_rows"] = [
+        {"address_id": "STARRRS", "label": "Starrs"},
+        {"address_id": "ROOM", "label": "Room"},
+    ]
+
+    # Switch: a concrete, known-saved id beats the committed STARRRS.
+    args = {"query": "atta", "addressId": "ROOM"}
+    prov.before_call("search_products", args, ctx)
+    assert args["addressId"] == "ROOM"
+    assert ctx.scratch["instamart_switched_address_id"] == "ROOM"
+
+    # merge re-commits the switched address (surfaced via diagnostics by run()).
+    result = ProviderResult(provider="swiggy_instamart", results=[])
+    result.diagnostics["switched_address_id"] = "ROOM"
+    assert prov.merge({}, result)["selected_instamart_address_id"] == "ROOM"
+
+
+def test_unknown_address_id_is_not_treated_as_a_switch():
+    """A concrete id that is NOT one of the user's saved addresses is a planner
+    fabrication, not an intent — the committed anchor still wins."""
+    prov = SwiggyInstamartProvider()
+    ctx = ExecCtx(session={"selected_instamart_address_id": "STARRRS"})
+    ctx.scratch["saved_address_rows"] = [{"address_id": "STARRRS", "label": "Starrs"}]
+    args = {"query": "atta", "addressId": "MADE_UP"}
+    prov.before_call("search_products", args, ctx)
+    assert args["addressId"] == "STARRRS"
+    assert "instamart_switched_address_id" not in ctx.scratch
+
+
 def test_instamart_merge_persists_resolved_addresses_for_next_turn():
     """merge must carry the resolved address list into the session so later turns
     skip the get_addresses round-trip."""
@@ -255,6 +377,32 @@ def test_builds_cart_card_and_session_cart():
     assert cart["items"][0]["name"] == "Amul Gold Milk 1 Ltr" and cart["items"][0]["quantity"] == 2
     assert cart["grand_total_paise"] == 14400
     assert provider.merge({}, result)["session_instamart_cart"]["items"]
+
+
+def test_cart_card_always_carries_delivery_address():
+    """The cart card must ship with the delivery address so the UI can show where
+    it delivers. The cart's OWN selectedAddressDetails wins; the saved-address list
+    rides along for label resolution."""
+    env = {
+        "is_error": False,
+        "data": {
+            "items": [{"spinId": "S1", "displayName": "Milk", "quantity": 1, "price": {"mrp": 50}}],
+            "selectedAddressDetails": {"id": "ROOM"},
+            "grandTotalPaise": 5000,
+        },
+    }
+    tr = ToolResult(tool="get_cart", provider="swiggy_instamart", ok=True, data=env)
+    provider = SwiggyInstamartProvider()
+    result = ProviderResult(provider="swiggy_instamart", results=[tr])
+    result.diagnostics["resolved_address_id"] = "STARRRS"
+    result.diagnostics["saved_address_rows"] = [
+        {"address_id": "ROOM", "label": "Room"},
+        {"address_id": "STARRRS", "label": "Starrs"},
+    ]
+    card = next(c for c in provider.build_attachments(result) if c.kind == "instamart_cart_card")
+    wire = card.to_wire()
+    assert wire["delivery_address_id"] == "ROOM"  # cart's own address wins
+    assert {a["id"] for a in wire["delivery_addresses"]} == {"ROOM", "STARRRS"}
 
 
 def test_instamart_spin_placeholder_chains_search_into_update_cart():
@@ -383,16 +531,34 @@ def test_anchor_falls_back_to_cart_address_when_no_selection():
     assert SwiggyInstamartProvider._anchor_address(ctx) == "CART_ADDR"
 
 
-def test_merge_never_overwrites_an_explicit_selection():
-    """Regression: merge used to reset selected_* to the cart address every turn,
-    silently reverting a switch. It must only SEED when none is set."""
+def test_get_cart_address_reconciles_drifted_committed_selection():
+    """TRUST SWIGGY: when this turn's get_cart reports the cart's real delivery
+    address, it wins over a stale committed selection. This self-heals a committed
+    address that drifted from the cart (e.g. the address was changed on the Apps
+    screen, which moves Swiggy's cart but never tells the chat) — otherwise the
+    stale value would override Swiggy's on the next add and revert the cart."""
     tr = ToolResult(
         tool="get_cart", provider="swiggy_instamart", ok=True, data=_live_cart_env()
     )
     result = ProviderResult(provider="swiggy_instamart", results=[tr])
-    # User has switched to PICKED_ADDR; cart still reports ADDR1.
+    # We come in committed to a STALE address; Swiggy's cart is actually at ADDR1.
     merged = SwiggyInstamartProvider().merge(
-        {"selected_instamart_address_id": "PICKED_ADDR"}, result
+        {"selected_instamart_address_id": "STALE_ADDR"}, result
+    )
+    assert merged["selected_instamart_address_id"] == "ADDR1"
+
+
+def test_explicit_switch_wins_over_swiggy_cart_address():
+    """A switch the user made THIS turn still wins over the cart's current address
+    (the move takes effect on the next mutating call) — so trust-Swiggy reconcile
+    never silently reverts a same-turn switch."""
+    tr = ToolResult(
+        tool="get_cart", provider="swiggy_instamart", ok=True, data=_live_cart_env()
+    )
+    result = ProviderResult(provider="swiggy_instamart", results=[tr])
+    result.diagnostics["switched_address_id"] = "PICKED_ADDR"
+    merged = SwiggyInstamartProvider().merge(
+        {"selected_instamart_address_id": "OLD_ADDR"}, result
     )
     assert merged["selected_instamart_address_id"] == "PICKED_ADDR"
 

@@ -4,9 +4,10 @@ Respond with ONLY one JSON object, no markdown fences:
 {"intent":"<snake_case>","summary":"<one sentence>","tool_plan":[{"tool":"<exact tool name>","arguments":{}}],"constraints":{"requires_address_resolution":false}}
 
 ADDRESS RESOLUTION (placeholder; resolved for you)
-- Use the literal string "__ADDRESS_ID__" for the delivery-address arg — NEVER fabricate ids like "default"/"1". The runtime substitutes the UI-selected address_id (shown as "(resolved address_id: ...)" in your input when present), else learns it from get_addresses run earlier in THIS plan.
+- DEFAULT: use the literal string "__ADDRESS_ID__" for the delivery-address arg — NEVER fabricate ids like "default"/"1". The runtime substitutes the committed/UI-selected address_id (shown as "(resolved address_id: ...)" in your input when present), else learns it from get_addresses run earlier in THIS plan.
+- SWITCH: ONLY when the user is explicitly changing where to deliver this turn ("deliver to my office", "use my home address", "change address to Room", "send it to Mom's place") — and YOU judge that intent from the message — put the matching CONCRETE addressId (copied verbatim from the "Instamart saved addresses" block) into the delivery-address arg INSTEAD of "__ADDRESS_ID__". A concrete id there is your signal that this is a deliberate switch; the runtime then re-commits it as the session's delivery address. Do NOT emit a concrete id on ordinary search/add/cart turns — use "__ADDRESS_ID__" so the committed address is preserved.
 - The address ARG KEY differs per tool: search_products / your_go_to_items / checkout use "addressId"; update_cart uses "selectedAddressId" (Instamart-specific). Use the right key.
-- Plan get_addresses explicitly ONLY when the user is choosing/switching address. If a saved address is implied, omit get_addresses and just use "__ADDRESS_ID__".
+- Plan get_addresses explicitly ONLY when the user is choosing/switching address and the saved-addresses block is absent. If a saved address is implied, omit get_addresses and just use "__ADDRESS_ID__".
 
 CRITICAL — track_order has NO auto-prefetch in this runtime (differs from legacy):
 - track_order needs orderId, lat, lng. lat/lng are NOT auto-resolved — you MUST plan get_cart in the SAME plan first (lat/lng come from its selectedAddressDetails.location), unless the session cart context already gave you literal coords.

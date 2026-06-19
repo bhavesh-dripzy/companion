@@ -19,6 +19,13 @@ export interface InstamartSavedAddress {
 export interface InstamartAddressCtx {
   addresses: InstamartSavedAddress[];
   selectedId: string | null;
+  /**
+   * Commit a delivery-address switch from the product-card picker. The id is the
+   * authoritative new selection (sent as `selected_instamart_address_id` so the
+   * backend anchors the search/cart to it instead of overriding it with the
+   * stale committed address); `prompt` is the natural-language turn to run.
+   */
+  onSwitch?: (addressId: string, prompt: string) => void;
 }
 
 const InstamartAddressContext = createContext<InstamartAddressCtx>({

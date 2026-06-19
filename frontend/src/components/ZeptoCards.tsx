@@ -179,10 +179,14 @@ const cleanZeptoLine = (s: string) => s.replace(/^[^:]+:\s*/, '').trim();
 const ZeptoDeliveryAddressBar: React.FC<{
   addressId: string | null | undefined;
   addresses: ZeptoDeliveryAddr[] | null | undefined;
-  query: string;
+  query?: string;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ addressId, addresses, onQuickPrompt, disabled }) => {
+  /** Override the natural-language turn a switch fires (defaults to a plain
+      address switch). The cart passes a cart-refresh prompt so changing the
+      address keeps the user on the cart. */
+  promptForAddress?: (addr: ZeptoDeliveryAddr) => string;
+}> = ({ addressId, addresses, onQuickPrompt, disabled, promptForAddress }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const theme = themeFor('zepto');
@@ -214,7 +218,11 @@ const ZeptoDeliveryAddressBar: React.FC<{
   const handleSelect = (addr: ZeptoDeliveryAddr) => {
     setOpen(false);
     if (!onQuickPrompt || disabled || addr.id === (current?.id ?? effectiveId)) return;
-    onQuickPrompt(`Switch my Zepto delivery address to: ${addr.tag || addr.line.split(',')[0]}.`);
+    onQuickPrompt(
+      promptForAddress
+        ? promptForAddress(addr)
+        : `Switch my Zepto delivery address to: ${addr.tag || addr.line.split(',')[0]}.`,
+    );
   };
 
   return (
@@ -469,9 +477,11 @@ const ZeptoCartItemRow: React.FC<{
 // in its `view_cart` response — only the running total.
 export const ZeptoCartCard: React.FC<{
   cart: ZeptoCart;
+  addressId?: string | null;
+  addresses?: ZeptoDeliveryAddr[] | null;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ cart, onQuickPrompt, disabled }) => {
+}> = ({ cart, addressId, addresses, onQuickPrompt, disabled }) => {
   if (!cart) return null;
   const theme = themeFor('zepto');
   const items = Array.isArray(cart.items) ? cart.items : [];
@@ -589,6 +599,18 @@ export const ZeptoCartCard: React.FC<{
           </>
         )}
       </div>
+      {/* Always show WHERE this cart ships — and let the user switch it right from
+          the cart. The cart-refresh prompt keeps them on the cart at the new
+          address. Falls back to the App-level saved-address context for the list. */}
+      <ZeptoDeliveryAddressBar
+        addressId={addressId}
+        addresses={addresses}
+        onQuickPrompt={onQuickPrompt}
+        disabled={disabled}
+        promptForAddress={(addr) =>
+          `Switch my Zepto delivery address to ${addr.tag || addr.line.split(',')[0]} and show my updated cart.`
+        }
+      />
     </div>
   );
 };
