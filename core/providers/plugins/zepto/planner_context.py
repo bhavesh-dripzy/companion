@@ -122,11 +122,20 @@ def build_context(ctx: Any) -> str:
 
     Returns the present blocks joined by blank lines, or "" when none apply.
     """
-    # ExecCtx.session is the flat legacy dict already — read it directly.
-    # (The old `session.legacy` path was wrong: getattr on a dict returns None.)
-    legacy = getattr(ctx, "session", None)
-    legacy = legacy if isinstance(legacy, dict) else {}
-    placeholders = getattr(ctx, "placeholders", None)
+    # In the plan stage ctx.session is a typed `SessionState` (the `legacy` flat
+    # bag + `placeholders`) — read it like the Instamart renderer does. Stay
+    # tolerant of a raw flat dict too (some call sites pass the legacy bag
+    # directly). The previous "treat ctx.session as a dict" path silently produced
+    # an EMPTY brief on a SessionState, so the planner never saw the cart / saved
+    # addresses / products and fell back to search placeholders for cart-line ops.
+    session = getattr(ctx, "session", None)
+    if isinstance(session, dict):
+        legacy: dict[str, Any] = session
+        placeholders = getattr(ctx, "placeholders", None) or {}
+    else:
+        legacy = getattr(session, "legacy", None) or {}
+        legacy = legacy if isinstance(legacy, dict) else {}
+        placeholders = getattr(session, "placeholders", None) or {}
 
     blocks: list[str | None] = [
         placeholders_block(placeholders, "zepto"),

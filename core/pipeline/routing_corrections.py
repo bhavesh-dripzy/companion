@@ -25,6 +25,41 @@ _GROCERY_CARTS = (
     ("zepto", "session_zepto_cart"),
 )
 
+# Grocery providers + the session key holding each one's shown-products LRU. Used
+# to infer the active grocery app BEFORE a cart exists (e.g. right after a search),
+# so the first "add … to cart" stays on the app the user was just browsing.
+_GROCERY_PRODUCTS = (
+    ("swiggy_instamart", "session_instamart_products"),
+    ("zepto", "session_zepto_products"),
+)
+
+# Add / cart intent — used ONLY before a cart exists (to pin the first add to the
+# lone searched grocery app). Once a cart exists we use the broader non-discovery
+# rule below instead, because quantity edits are phrased endlessly ("set it to 5",
+# "make it 2", "bring the milk down") and can't be whitelisted reliably.
+_CART_OP_RE = re.compile(
+    r"\b(cart|basket|checkout|check ?out|empty|clear)\b|\bmy (cart|order)\b|"
+    r"\b(add|remove|delete|increase|decrease|reduce)\b"
+)
+# Browse/discovery verbs — these keep a grocery turn's price-comparison fan-out
+# even when an app is already active (the user is comparing, not editing a cart).
+_DISCOVERY_RE = re.compile(
+    r"\b(search|show|find|browse|look|looking|recommend|suggest|compare|options|"
+    r"explore|see|available)\b"
+)
+# A reference to the user's own cart/order — a "show my cart" must stay on the cart
+# even though it contains a discovery verb ("show").
+_CART_REF_RE = re.compile(r"\bcart\b|\bbasket\b|\bmy order\b")
+
+
+def _is_cart_op(message: str) -> bool:
+    return bool(_CART_OP_RE.search((message or "").lower()))
+
+
+def _is_browse(message: str) -> bool:
+    low = (message or "").lower()
+    return bool(_DISCOVERY_RE.search(low)) and not _CART_REF_RE.search(low)
+
 
 def _routed(decision: RoutingDecision, providers: list[str], note: str) -> RoutingDecision:
     return RoutingDecision(
@@ -64,22 +99,47 @@ def active_cart_provider(legacy: dict[str, Any]) -> str | None:
     return None
 
 
+def active_grocery_provider(legacy: dict[str, Any]) -> str | None:
+    """The grocery app the user is currently working with.
+
+    A live cart is the strongest signal; before any cart exists, fall back to the
+    grocery app whose products were shown this session — but ONLY when exactly one
+    has (both → genuinely ambiguous, keep the fan-out; neither → nothing to pin)."""
+    if not isinstance(legacy, dict):
+        return None
+    cart_pid = active_cart_provider(legacy)
+    if cart_pid:
+        return cart_pid
+    shown = [pid for pid, key in _GROCERY_PRODUCTS if legacy.get(key)]
+    return shown[0] if len(shown) == 1 else None
+
+
 def stick_to_active_cart(
     decision: RoutingDecision, message: str, legacy: dict[str, Any]
 ) -> RoutingDecision:
-    """Pin a grocery turn to the provider holding the live cart.
+    """Keep one grocery conversation on the app the user is actually working with.
 
-    The orchestrator routes the same grocery conversation to Instamart, then Zepto,
-    then both — so "remove the milk" / "what's in my cart" lands on whichever cart,
-    and a stray write leaks to the wrong app. Once a grocery cart is active, route
-    grocery turns to THAT provider — unless the user named one (then honour the
-    name). Discovery with no cart still fans out for price comparison."""
+    The orchestrator scatters a single cart conversation across Instamart / Zepto /
+    Zomato, so writes leak to the wrong app: "add milk to cart" after a Zepto search
+    went to Instamart; "what's in my cart" / "set the milk to 5" went to Zomato.
+
+    Two tiers, strongest signal first:
+      * A LIVE CART exists → pin EVERY non-browse turn to that cart's app, even over
+        a non-grocery mis-route. Quantity edits are phrased endlessly ("set it to 5",
+        "make it 2", "bring the milk down") and can't be whitelisted, so we invert:
+        only a genuine browse ("show me bread") fans out; everything else (edits,
+        "what's in my cart", "remove the eggs") sticks.
+      * NO CART YET, one grocery app searched → pin the first explicit add/cart turn
+        to it, while plain discovery still fans out for price comparison.
+    An explicitly-named app always wins (handled first)."""
     if message_names_provider(message):
         return decision
-    grocery = {pid for pid, _ in _GROCERY_CARTS}
-    if not any(p in grocery for p in decision.providers):
-        return decision
-    pid = active_cart_provider(legacy)
-    if not pid or set(decision.providers) == {pid}:
-        return decision
-    return _routed(decision, [pid], f"pinned to active {pid} cart")
+    cart_pid = active_cart_provider(legacy)
+    if cart_pid:
+        if set(decision.providers) == {cart_pid} or _is_browse(message):
+            return decision
+        return _routed(decision, [cart_pid], f"pinned to active {cart_pid} cart")
+    sticky = active_grocery_provider(legacy)
+    if sticky and set(decision.providers) != {sticky} and _is_cart_op(message):
+        return _routed(decision, [sticky], f"pinned to searched grocery {sticky}")
+    return decision
