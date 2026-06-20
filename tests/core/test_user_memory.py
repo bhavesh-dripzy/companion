@@ -20,7 +20,8 @@ pytestmark = pytest.mark.unit
 
 _LLM = ResolvedLlm(provider="sarvam", api_key="x", model="m")
 
-# Production-shaped profile: interests carry `details: [...]` + stringified `weight`.
+# Personalization is personal info + preferences. The leadgen fields (interests /
+# leads) are present here ONLY to prove they are NOT surfaced for personalization.
 _PROFILE = Profile(
     user_id="u1",
     name="Bhavesh",
@@ -28,26 +29,21 @@ _PROFILE = Profile(
     language="Hindi",
     occupation="Not mentioned",  # placeholder must be skipped
     phone="9990001111",  # private — must NOT appear
-    interests=[
-        {"category": "electronics", "weight": "0.7", "details": ["iPhone 16 Pro"]},
-        {"category": "entertainment", "weight": "0.9", "details": ["latest news headlines"]},
-        {"category": "grocery", "weight": "0.8", "detail": "quick commerce"},
-    ],
+    preferences=["prefers vegetarian", "follows cricket", "prefers vegetarian"],  # dup collapses
+    interests=[{"category": "electronics", "weight": "0.9", "details": ["iPhone 16 Pro"]}],
     open_leads=[{"category": "electronics", "product": "1.5 ton split AC"}],
     matched_leads=[{"category": "electronics", "product": "split AC", "vendor_name": "Daikin"}],
 )
 
 
-def test_render_includes_identity_interests_leads_sorted_by_weight():
+def test_render_includes_identity_and_preferences_not_products():
     out = render_user_memory(_PROFILE)
     assert "Bhavesh" in out and "Gurgaon" in out and "Hindi" in out
-    # interests present and ordered by weight (entertainment 0.9 before electronics 0.7)
-    assert "latest news headlines" in out and "iPhone 16 Pro" in out
-    assert out.index("entertainment") < out.index("electronics")
-    # the `detail` (singular) shape is read too
-    assert "quick commerce" in out
-    # leads carried through
-    assert "1.5 ton split AC" in out and "Daikin" in out
+    assert "prefers vegetarian" in out and "follows cricket" in out
+    assert out.count("prefers vegetarian") == 1  # de-duped
+    # products / interests / leads are leadgen (vendor matching), NOT personalization
+    assert "iPhone 16 Pro" not in out
+    assert "1.5 ton split AC" not in out and "Daikin" not in out and "re-pitch" not in out
 
 
 def test_render_is_privacy_light_and_skips_placeholders():
@@ -59,6 +55,23 @@ def test_render_is_privacy_light_and_skips_placeholders():
 def test_render_empty_when_nothing_known():
     assert render_user_memory(Profile(user_id="u1")) == ""
     assert render_user_memory(None) == ""
+
+
+def test_extractor_captures_and_normalizes_preferences():
+    from companion_api.personal_fact_extractor import (
+        normalize_personal_facts,
+        normalize_preferences,
+    )
+
+    # list + scalar inputs, case-insensitive de-dup, whitespace trim
+    assert normalize_preferences(
+        {"preferences": ["Vegetarian", "vegetarian", " follows cricket "]}
+    ) == ["Vegetarian", "follows cricket"]
+    assert normalize_preferences({"preferences": "pays via UPI"}) == ["pays via UPI"]
+    assert normalize_preferences({}) == []
+    # preferences ride alongside the scalar personal columns
+    out = normalize_personal_facts({"city": "Pune", "preferences": ["loves spicy food"]})
+    assert out["city"] == "Pune" and out["preferences"] == ["loves spicy food"]
 
 
 def test_reply_language_mirrors_message_then_profile_fallback():

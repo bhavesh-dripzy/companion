@@ -24,9 +24,10 @@ _PERSONAL_COLUMNS = (
 )
 
 PERSONAL_FACT_SYSTEM_PROMPT = """
-You extract DURABLE PERSONAL FACTS about the user from a single conversation turn.
-Return ONLY facts the user clearly stated or that are clearly implied about THEM —
-never guesses, never facts about other people, products, or places.
+You extract DURABLE PERSONAL FACTS and PREFERENCES about the user from a single
+conversation turn. Return ONLY things the user clearly stated or that are clearly
+implied about THEM — never guesses, never facts about other people, and never
+specific products they want to buy or vendors (those are handled elsewhere).
 
 Extract only these fields (omit any you are not confident about):
 - name: the user's name
@@ -38,12 +39,16 @@ Extract only these fields (omit any you are not confident about):
 - occupation: job / profession (e.g. "doctor", "software engineer")
 - family_size: number of family members
 - family_composition: family roles, comma-separated (e.g. "spouse, child, parent")
+- preferences: a list of SHORT durable preference phrases about how THEY like things
+  — dietary ("vegetarian", "no onion garlic"), tastes ("loves spicy food", "prefers
+  filter coffee"), habits/style ("pays via UPI", "likes concise answers"), or topics
+  they follow ("follows cricket"). NOT one-off product purchases or shopping lists.
 
 Do NOT extract home/work/delivery addresses or street locations.
-Do NOT invent values. If the turn contains no personal facts, return an empty object.
+Do NOT invent values. If the turn reveals nothing durable, return an empty object.
 
 Output MUST be a JSON object with only the fields you found, e.g.:
-{"occupation": "doctor", "city": "Gurugram", "family_composition": "spouse, child"}
+{"occupation": "doctor", "city": "Gurugram", "preferences": ["vegetarian", "follows cricket"]}
 """
 
 
@@ -56,8 +61,26 @@ def _coerce(key: str, value: Any) -> Any:
     return text or None
 
 
+def normalize_preferences(raw: dict[str, Any]) -> list[str]:
+    """Clean the freeform preference list — short non-empty phrases, de-duped, capped."""
+    value = raw.get("preferences") if isinstance(raw, dict) else None
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list | tuple):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = str(item).strip()
+        key = text.lower()
+        if text and len(text) <= 80 and key not in seen:
+            seen.add(key)
+            out.append(text)
+    return out[:10]
+
+
 def normalize_personal_facts(raw: dict[str, Any]) -> dict[str, Any]:
-    """Keep only known personal columns with non-empty values, as scalars (graph parity)."""
+    """Known personal columns (scalars, graph parity) plus the freeform preference list."""
     if not isinstance(raw, dict):
         return {}
     out: dict[str, Any] = {}
@@ -65,6 +88,9 @@ def normalize_personal_facts(raw: dict[str, Any]) -> dict[str, Any]:
         coerced = _coerce(key, raw.get(key))
         if coerced is not None:
             out[key] = coerced
+    prefs = normalize_preferences(raw)
+    if prefs:
+        out["preferences"] = prefs
     return out
 
 

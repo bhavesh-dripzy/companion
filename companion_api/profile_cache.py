@@ -60,6 +60,25 @@ class ProfileCacheRepository:
         fields["updated_at_personal"] = utc_now_iso()
         self.update_fields(user_id, fields)
 
+    def merge_preferences(self, user_id: str, new: list[str], cap: int = 20) -> None:
+        """Union durable personal preferences into the profile (Tier-1), newest last,
+        case-insensitively de-duped and capped. Read-merge-write: preferences
+        accumulate across turns (unlike scalar columns, which are overwritten)."""
+        incoming = [str(p).strip() for p in new if str(p).strip()]
+        if not incoming:
+            return
+        existing = (self.get(user_id) or {}).get("preferences") or []
+        merged: list[str] = []
+        seen: set[str] = set()
+        for pref in [*existing, *incoming]:
+            key = pref.strip().lower()
+            if pref.strip() and key not in seen:
+                seen.add(key)
+                merged.append(pref.strip())
+        self.update_fields(
+            user_id, {"preferences": merged[-cap:], "updated_at_personal": utc_now_iso()}
+        )
+
     def merge_projection(self, user_id: str, projection: dict[str, Any]) -> None:
         """Persist the worker's graph projection (Tier-2) as a merge, stamping updated_at_leads."""
         fields = dict(projection)

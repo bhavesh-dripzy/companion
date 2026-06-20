@@ -27,9 +27,10 @@ _GENERIC_PREAMBLE = (
 
 
 def _user_context(ctx: PipelineContext) -> str:
-    """The remembered user-memory block (identity + interests + leads) so the planner
-    personalizes and never re-pitches a known lead. Shared with the narrator via the
-    generic render_user_memory seam; empty when nothing is known."""
+    """The remembered user-memory block (personal info + preferences) so the planner
+    personalizes — e.g. a dietary preference biases a restaurant search. Shared with
+    the narrator via the generic render_user_memory seam; empty when nothing is known.
+    Products / interests / leads are intentionally excluded (leadgen, not personal)."""
     return render_user_memory(getattr(ctx, "profile", None))
 
 

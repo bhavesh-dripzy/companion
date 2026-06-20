@@ -46,4 +46,10 @@ class LlmPersonalFactWriter:
     def _write(user_id: str, facts: dict[str, Any]) -> None:
         from companion_api.profile_cache import ProfileCacheRepository
 
-        ProfileCacheRepository().merge_personal(user_id, facts)
+        repo = ProfileCacheRepository()
+        facts = dict(facts)
+        prefs = facts.pop("preferences", None)  # union-merged; scalars are overwritten
+        if facts:
+            repo.merge_personal(user_id, facts)
+        if prefs:
+            repo.merge_preferences(user_id, list(prefs))
