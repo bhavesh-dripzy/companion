@@ -129,7 +129,7 @@ def message_names_provider(message: str) -> bool:
 
 
 _TRANSACTIONAL_RE = re.compile(
-    r"\b(checkout|check out|pay|payment|confirm|cancel|track|reorder)\b|my (cart|order)"
+    r"\b(checkout|check out|pay|payment|confirm|cancel|track|reorder)\b|^my (cart|order)"
 )
 
 
