@@ -355,6 +355,309 @@ const ZeptoApp: React.FC<{ isOpen: boolean }> = ({ isOpen }) => {
   );
 };
 
+// Swiggy Food onboarding. Same auth backend as everything else (provider='swiggy_food').
+// The per-user "source of truth" is a SAVED DELIVERY ADDRESS (mirrors Swiggy
+// Instamart / Zepto): Swiggy Food's search / menu / cart / order tools all require
+// an addressId, so we pin one. After connecting, the user picks a saved Swiggy
+// address; we persist it via /api/mcp/swiggy-food/default-address/ and the executor
+// anchors it every turn. (Serviceability on Swiggy is per-restaurant, so there's
+// nothing to validate at save time.)
+const SwiggyFoodApp: React.FC<{ isOpen: boolean }> = ({ isOpen }) => {
+  const [status, setStatus] = useState<McpStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pasteFlow, setPasteFlow] = useState<{ url: string; detail: string } | null>(null);
+  const [pasteText, setPasteText] = useState('');
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [addresses, setAddresses] = useState<SavedAddress[]>([]);
+  const [addrLoading, setAddrLoading] = useState(false);
+  const [defaultAddr, setDefaultAddr] = useState<DefaultAddress | null>(null);
+  const [savingAddr, setSavingAddr] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const connected = isConnected(status);
+
+  const refreshStatus = async () => {
+    setBusy(true);
+    try {
+      const data = await api.get(`/api/mcp/status/?provider=swiggy_food`);
+      setStatus(data);
+      return data as McpStatus;
+    } catch {
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadDefaultAddress = async () => {
+    try {
+      const data = await api.get('/api/mcp/swiggy-food/default-address/');
+      setDefaultAddr(data?.default_address || null);
+    } catch (err) {
+      console.error('load swiggy food default address failed', err);
+    }
+  };
+
+  const loadAddresses = async () => {
+    setAddrLoading(true);
+    try {
+      const data = await api.get('/api/food/saved-addresses/?provider=swiggy_food');
+      setAddresses(Array.isArray(data?.addresses) ? data.addresses : []);
+    } catch (err: any) {
+      console.error('load swiggy food addresses failed', err);
+      setError(err?.message || 'Could not load your Swiggy addresses.');
+    } finally {
+      setAddrLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setError(null);
+    setPasteFlow(null);
+    setPasteText('');
+    (async () => {
+      await refreshStatus();
+      await loadDefaultAddress();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && connected) loadAddresses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, connected]);
+
+  const handleConnect = async () => {
+    setError(null);
+    if (isNative) {
+      setBusy(true);
+      try {
+        await runNativeMcpConnect('swiggy_food');
+        await refreshStatus();
+      } catch (err: any) {
+        if (err?.message !== 'cancelled') setError(err?.message || 'Could not connect. Please try again.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    try {
+      const data = await api.get(`/api/mcp/oauth/start?provider=swiggy_food`);
+      if (data.authorization_url) {
+        if (data.completion === 'paste') {
+          setPasteFlow({ url: data.authorization_url, detail: data.detail || '' });
+          window.open(data.authorization_url, '_blank', 'noopener');
+        } else if (data.completion === 'external') {
+          setError(data.detail || 'Complete the login in the new tab, then tap refresh.');
+          window.open(data.authorization_url, '_blank', 'noopener');
+        } else {
+          window.location.assign(data.authorization_url);
+        }
+        return;
+      }
+      if (data.detail) setError(data.detail);
+    } catch (err: any) {
+      setError(err?.message || 'Could not start the connection. Please try again.');
+    }
+  };
+
+  const handlePasteComplete = async () => {
+    let text = pasteText.trim();
+    if (!text && navigator.clipboard?.readText) {
+      try {
+        text = (await navigator.clipboard.readText()).trim();
+        if (text) setPasteText(text);
+      } catch {
+        /* clipboard blocked — manual paste */
+      }
+    }
+    if (!text) {
+      setError('Paste the full address of the page you landed on after logging in.');
+      return;
+    }
+    setPasteBusy(true);
+    setError(null);
+    try {
+      await api.post('/api/mcp/oauth/complete/', { text });
+      setPasteFlow(null);
+      setPasteText('');
+      await refreshStatus();
+    } catch (err: any) {
+      setError(err?.message || 'Could not finish connecting. Tap Connect to retry.');
+    } finally {
+      setPasteBusy(false);
+    }
+  };
+
+  const handleSelectDefault = async (addressId: string) => {
+    const row = addresses.find((a) => a.address_id === addressId);
+    if (!row) return;
+    setSavingAddr(true);
+    setError(null);
+    try {
+      const data = await api.post('/api/mcp/swiggy-food/default-address/', {
+        address_id: row.address_id,
+        tag: row.location_name,
+        line: row.location_name,
+      });
+      setDefaultAddr(data?.default_address || { address_id: row.address_id, line: row.location_name });
+      setPicking(false);
+    } catch (err: any) {
+      setError(err?.message || 'Could not save the address. Please try again.');
+    } finally {
+      setSavingAddr(false);
+    }
+  };
+
+  return (
+    <div className="p-5 bg-white border border-slate-200 rounded-2xl space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="w-11 h-11 rounded-2xl bg-[#fc8019]/10 text-[#fc8019] flex items-center justify-center font-extrabold shrink-0">
+          S
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-slate-900">Swiggy Food</h3>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[10px] font-black uppercase text-slate-500">Status:</span>
+            {connected ? (
+              <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 size={12} /> Connected
+              </span>
+            ) : (
+              <span className="text-[10px] font-black uppercase text-amber-600 flex items-center gap-1">
+                <AlertCircle size={12} /> {status?.status || 'Not connected'}
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={refreshStatus}
+          className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors shrink-0"
+          title="Refresh status"
+        >
+          <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {error && !pasteFlow && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+          {error}
+        </p>
+      )}
+
+      <button
+        onClick={handleConnect}
+        disabled={busy}
+        className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-sm font-bold py-2.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
+      >
+        {busy && <Loader2 size={14} className="animate-spin" />}
+        {connected ? 'Reconnect Swiggy Food' : 'Connect Swiggy Food'}
+      </button>
+
+      {pasteFlow && !connected && (
+        <div className="space-y-3 p-4 bg-orange-50/60 border border-orange-200 rounded-2xl">
+          <a
+            href={pasteFlow.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full bg-[#fc8019] hover:bg-[#e0710f] text-white text-sm font-bold py-2.5 rounded-xl transition-all shadow-sm"
+          >
+            <ExternalLink size={14} /> Open Swiggy login
+          </a>
+          <p className="text-xs text-slate-700 leading-relaxed">
+            After logging in, copy the page's full address, come back here, and tap Paste &amp; Connect.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder="http://localhost:3334/oauth/callback?code=..."
+              className="flex-1 min-w-0 px-3 py-2.5 text-xs font-mono border border-slate-300 rounded-xl bg-white focus:outline-none focus:border-orange-400"
+            />
+            <button
+              onClick={handlePasteComplete}
+              disabled={pasteBusy}
+              className="px-4 bg-[#fc8019] hover:bg-[#e0710f] disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-all flex items-center gap-2 whitespace-nowrap"
+            >
+              {pasteBusy && <Loader2 size={14} className="animate-spin" />}
+              Paste &amp; Connect
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Default delivery address (the Swiggy Food source of truth — mirrors Instamart) */}
+      {connected && (
+        <div className="pt-1 space-y-3">
+          <div className="flex items-center gap-2">
+            <MapPin size={16} className="text-[#fc8019]" />
+            <h3 className="font-bold text-sm text-slate-900">Default delivery address</h3>
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            We'll deliver every Swiggy Food order to this saved address. You can change it anytime.
+          </p>
+
+          {defaultAddr && !picking ? (
+            <div className="flex items-center justify-between gap-3 p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-900 truncate">
+                  {defaultAddr.tag || defaultAddr.line || defaultAddr.address_id}
+                </div>
+                {defaultAddr.line && defaultAddr.line !== defaultAddr.tag && (
+                  <div className="text-[11px] text-slate-500 truncate">{defaultAddr.line}</div>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setPicking(true);
+                  if (addresses.length === 0) loadAddresses();
+                }}
+                className="text-[11px] font-bold uppercase text-[#fc8019] hover:text-[#e0710f] tracking-wider shrink-0"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {addrLoading ? (
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Loader2 size={14} className="animate-spin" /> Loading your Swiggy addresses…
+                </div>
+              ) : addresses.length === 0 ? (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  No saved Swiggy addresses found. Add one in the Swiggy app, then refresh.
+                </p>
+              ) : (
+                <select
+                  defaultValue={defaultAddr?.address_id || ''}
+                  disabled={savingAddr}
+                  onChange={(e) => e.target.value && handleSelectDefault(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-xl bg-white focus:outline-none focus:border-[#fc8019] disabled:opacity-60"
+                >
+                  <option value="" disabled>
+                    Select a delivery address…
+                  </option>
+                  {addresses.map((a) => (
+                    <option key={a.address_id} value={a.address_id}>
+                      {a.location_name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {savingAddr && (
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Loader2 size={14} className="animate-spin" /> Saving…
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // District onboarding. Same auth backend as everything else (provider='district'),
 // and like Zepto its source of truth is a LIVE LOCATION, not a saved address —
 // District search tools take {lat,lng} and have no saved-address concept. We ask
@@ -946,6 +1249,9 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
               )}
             </div>
           )}
+
+          {/* Swiggy Food card */}
+          <SwiggyFoodApp isOpen={isOpen} />
 
           {/* Zepto card */}
           <ZeptoApp isOpen={isOpen} />
