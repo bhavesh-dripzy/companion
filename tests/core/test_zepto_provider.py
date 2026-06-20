@@ -154,7 +154,7 @@ def test_update_cart_forces_device_id_and_strips_replace_cart():
         "replaceCart": True,
         "cartItems": [{"productVariantId": "pv1", "storeProductId": "WRONG", "quantity": 2}],
     }
-    provider.before_call("update_cart", args, ctx)
+    provider.resolve_session_args("update_cart", args, ctx)
     assert args["deviceId"] == "dev-123"
     assert "replaceCart" not in args
     # spid repaired from the validated map (planner sent WRONG).
@@ -163,15 +163,22 @@ def test_update_cart_forces_device_id_and_strips_replace_cart():
 
 def test_update_cart_drops_fabricated_pvid_but_keeps_removal():
     provider = ZeptoProvider()
-    ctx = _ctx(scratch={"_zepto_valid_ids": {"pv1": "sp1"}})
+    ctx = _ctx(
+        scratch={"_zepto_valid_ids": {"pv1": "sp1"}},
+        session={
+            "session_zepto_cart": {
+                "items": [{"product_variant_id": "pv9", "store_product_id": "sp9", "name": "Milk"}]
+            }
+        },
+    )
     args = {
         "cartItems": [
             {"productVariantId": "pv1", "storeProductId": "sp1", "quantity": 1},
-            {"productVariantId": "FAKE", "storeProductId": "x", "quantity": 3},  # invented → drop
+            {"productVariantId": "FAKE", "name": "Mystery", "quantity": 3},  # invented → drop
             {"productVariantId": "pv9", "storeProductId": "sp9", "quantity": 0},  # removal → keep
         ]
     }
-    provider.before_call("update_cart", args, ctx)
+    provider.resolve_session_args("update_cart", args, ctx)
     pvids = {i["productVariantId"]: i["quantity"] for i in args["cartItems"]}
     assert pvids == {"pv1": 1, "pv9": 0}, "fabricated add dropped; qty=0 removal preserved"
 
@@ -198,3 +205,21 @@ def test_emptied_cart_clears_session_snapshot():
             {"session_zepto_cart": {"items": [{"product_variant_id": "X", "quantity": 2}]}}, result
         )
         assert merged["session_zepto_cart"]["items"] == [], env
+
+
+def test_multi_item_query_is_split_into_one_per_item():
+    # F3: a combined multi-item query is split so each item gets a real result set.
+    provider = ZeptoProvider()
+    out = provider.normalize_args("search_multiple_products", {"queries": ["bread, eggs and butter"]})
+    assert out["queries"] == ["bread", "eggs", "butter"]
+
+
+def test_summarize_result_reports_rupees():
+    # F1: the narrator digest must show ₹26, not raw paise 2600.
+    env = {"is_error": False, "data": {"products": [
+        {"productVariantId": "P1", "storeProductId": "S1", "name": "Milk", "price": 2600}
+    ]}}
+    digest = ZeptoProvider().summarize_result(
+        ToolResult(tool="search_products", provider="zepto", ok=True, data=env)
+    )
+    assert "₹26" in digest and "2600" not in digest

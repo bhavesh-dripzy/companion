@@ -41,3 +41,26 @@ def test_no_active_cart_still_fans_out():
 def test_non_grocery_route_untouched():
     out = stick_to_active_cart(_dec(["zomato"]), "remove the milk", _INSTA_CART)
     assert list(out.providers) == ["zomato"]
+
+
+_BOTH_CARTS = {
+    "session_instamart_cart": {"items": [{"name": "Harvest Gold Atta Bread"}]},
+    "session_zepto_cart": {"items": [{"name": "Amul Taaza Toned Milk"}]},
+}
+
+
+def test_both_carts_disambiguated_by_named_item():
+    # F17: milk is in Zepto, bread in Instamart -> "remove the milk" must hit Zepto.
+    out = stick_to_active_cart(_dec(["swiggy_instamart", "zepto"]), "remove the milk", _BOTH_CARTS)
+    assert list(out.providers) == ["zepto"]
+
+
+def test_both_carts_fallback_to_previous_provider():
+    dec = RoutingDecision(
+        task_type="food_delivery",
+        providers=["swiggy_instamart", "zepto"],
+        reasoning="r",
+        previous_provider="zepto",
+    )
+    out = stick_to_active_cart(dec, "what's in my cart", _BOTH_CARTS)
+    assert list(out.providers) == ["zepto"]

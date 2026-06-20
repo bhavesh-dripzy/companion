@@ -21,7 +21,7 @@ from typing import Any
 from core.contracts.attachment import Attachment
 from core.contracts.tool import AuthMode
 from core.contracts.tool_call import ToolCall
-from core.contracts.tool_result import ErrorCode, ProviderResult
+from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
 from core.middleware.errors import NeedsLocationError, result_from_exception
 from core.providers.base import ExecCtx
 from core.providers.mcp.connection import StdioSpec, call_tool
@@ -35,8 +35,11 @@ from core.providers.plugins.zepto.address import (
     extract_zepto_address_rows,
     normalize_address_rows,
 )
+from core.providers.plugins.zepto.address_resolve import resolve_address_id
 from core.providers.plugins.zepto.cards import build_product_cards, products_from_search
 from core.providers.plugins.zepto.cart_cards import build_cart_cards, cart_snapshot
+from core.providers.plugins.zepto.cart_resolve import resolve_cart_items
+from core.providers.plugins.zepto.digest import summarize as zepto_summarize
 from core.providers.plugins.zepto.planner_context import build_context
 from core.providers.plugins.zepto.session import ZeptoSession, merge_products
 
@@ -76,6 +79,20 @@ _ZEPTO_ISSUERS = {
 class _ZeptoResolver(PlaceholderResolver):
     # pvid/spid are product-search-scoped — don't persist them across turns.
     transient: frozenset[str] = frozenset({"__ZEPTO_PVID__", "__ZEPTO_SPID__"})
+
+
+def _split_queries(queries: Any) -> list[str]:
+    """Flatten a search_multiple_products `queries` list, splitting any combined
+    entry ("bread, eggs and butter") into separate items. The planner often folds
+    several items into one query, so Zepto searches the literal string and returns
+    only the last item's matches; splitting gives a real result set per item."""
+    out: list[str] = []
+    for q in queries if isinstance(queries, list) else [queries]:
+        for part in re.split(r",|\band\b|&|\bplus\b", str(q or ""), flags=re.IGNORECASE):
+            term = part.strip()
+            if term and term.lower() not in {o.lower() for o in out}:
+                out.append(term)
+    return out
 
 
 class ZeptoProvider(McpProvider):
@@ -207,7 +224,9 @@ class ZeptoProvider(McpProvider):
         # Zepto's pageNumber is 0-indexed; planners routinely emit pageNumber:1
         # thinking it means "first page". Drop it so the server uses the default (0).
         if tool in {"search_products", "search_multiple_products"} and args.get("pageNumber") == 1:
-            return {k: v for k, v in args.items() if k != "pageNumber"}
+            args = {k: v for k, v in args.items() if k != "pageNumber"}
+        if tool == "search_multiple_products":
+            args = {**args, "queries": _split_queries(args.get("queries"))}
         return args
 
     def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
@@ -227,9 +246,30 @@ class ZeptoProvider(McpProvider):
                         "is_error": False,
                         "data": {"raw_text": "Address already selected for this session."},
                     }
-        if tool == "update_cart":
-            self._reconcile_cart_items(args, ctx)
         return None
+
+    def resolve_session_args(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> None:
+        """Resolve a cart/address mutation to REAL ids from session state before the
+        unresolved-placeholder check — so an edit to an item already in the cart, or
+        an address switch by tag, works without a fresh same-turn search."""
+        session = ctx.session if isinstance(ctx.session, dict) else {}
+        message = str(getattr(ctx, "intent_summary", "") or "")
+        if tool == "update_cart":
+            resolve_cart_items(
+                args,
+                session,
+                valid_ids=self._valid_ids(ctx),
+                device_id=ctx.placeholders.get("__ZEPTO_DEVICE_ID__"),
+                message=message,
+            )
+        elif tool == "select_saved_address":
+            resolved = resolve_address_id(str(args.get("addressId") or ""), message, session)
+            if resolved:
+                args["addressId"] = resolved
+
+    def summarize_result(self, tool_result: ToolResult) -> str | None:
+        data = tool_result.data if isinstance(tool_result.data, dict) else None
+        return zepto_summarize(tool_result.tool, data) or super().summarize_result(tool_result)
 
     def harvest(self, tool: str, envelope: dict[str, Any], ctx: ExecCtx) -> None:
         # Record the (pvid -> spid) pairs returned by a search so a later
@@ -273,51 +313,6 @@ class ZeptoProvider(McpProvider):
             if pvid and spid:
                 valid.setdefault(pvid, spid)
         return valid
-
-    def _reconcile_cart_items(self, args: dict[str, Any], ctx: ExecCtx) -> None:
-        """Harden a planner-built update_cart payload.
-
-        * deviceId is forced to the stable per-user id (the planner can't know
-          it, and an omitted/wrong one orphans the cart).
-        * replaceCart is forced OFF — Zepto's default is a safe MERGE/upsert, so
-          a partial item list never wipes the rest of the cart. Removal is done
-          per-item with quantity=0 (verified: clean removal, others preserved).
-        * Every add/update item's spid is set from the validated (pvid -> spid)
-          map; a pvid we've never seen at this store is dropped (fabricated id).
-          quantity=0 removals pass through (harmless even for unknown ids)."""
-        args["deviceId"] = ctx.placeholders.get("__ZEPTO_DEVICE_ID__") or args.get("deviceId")
-        args.pop("replaceCart", None)
-        valid = self._valid_ids(ctx)
-        out: list[dict[str, Any]] = []
-        for it in args.get("cartItems") or []:
-            if not isinstance(it, dict):
-                continue
-            pvid = str(it.get("productVariantId") or it.get("product_variant_id") or "").strip()
-            if not pvid:
-                continue
-            try:
-                qty = int(it.get("quantity"))
-            except (TypeError, ValueError):
-                qty = 1
-            spid = (
-                valid.get(pvid)
-                or str(it.get("storeProductId") or it.get("store_product_id") or "").strip()
-            )
-            if qty <= 0:
-                # Removal — keep it through even if the id is unknown (no-op then).
-                out.append({"productVariantId": pvid, "storeProductId": spid, "quantity": 0})
-                continue
-            if valid and pvid not in valid:
-                # Drop a pvid the planner invented (not from a real search at this
-                # store) — skipping beats a wrong/failed add.
-                continue
-            item = {"productVariantId": pvid, "storeProductId": spid, "quantity": qty}
-            for k in ("name", "price", "mrp", "imageUrl", "packSize"):
-                if it.get(k) is not None:
-                    item[k] = it[k]
-            out.append(item)
-        if out:
-            args["cartItems"] = out
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         rows = result.diagnostics.get("saved_address_rows")

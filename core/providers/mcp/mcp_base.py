@@ -136,6 +136,12 @@ class McpProvider(ABC):
         (e.g. re-nest filter keys). Default: pass through unchanged."""
         return args
 
+    def resolve_session_args(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> None:  # noqa: B027 — optional hook, intentionally a no-op
+        """Hook: deterministically resolve planner placeholders / fake-id / label
+        args to REAL ids from session state, BEFORE the unresolved-placeholder
+        check rejects the call. Lets a mutation that targets an existing entity
+        (cart line, saved address) resolve without a fresh same-turn search."""
+
     def before_call(self, tool: str, args: dict[str, Any], ctx: ExecCtx) -> dict[str, Any] | None:
         """Hook: gate a call after substitution/normalization. Returning an
         envelope dict SKIPS the MCP call and uses it as the result (e.g. defer
@@ -252,6 +258,7 @@ class McpProvider(ABC):
                 self.resolver.learn_from_args(ctx.placeholders, call.tool, call.arguments)
                 args = self.resolver.substitute(dict(call.arguments), ctx.placeholders)
                 args = self.normalize_args(call.tool, args)
+                self.resolve_session_args(call.tool, args, ctx)
                 unresolved = self.resolver.unresolved(args)
                 if unresolved:
                     raise UnresolvedPlaceholderError(
