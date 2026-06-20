@@ -1,0 +1,205 @@
+# Golden routing cases — used by test_routing_regression.py (L2 live tests)
+# and by scripts/diff_routing.py for human-readable diffs.
+#
+# Format per entry:
+#   - message: <string>
+#     previous: <provider_id | null>
+#     expected_task_type: <task_type>
+#     expected_providers: [<provider>, ...]  # null means any/order-insensitive
+#     notes: <optional explanation>
+#
+# When a routing decision intentionally changes, update this file and the
+# corresponding test case. A PR that breaks a golden case without updating
+# this file MUST NOT be merged.
+
+- message: "order biryani"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["zomato"]
+  notes: "generic restaurant food → zomato default"
+
+- message: "order biryani"
+  previous: "zomato"
+  expected_task_type: "food_delivery"
+  expected_providers: ["zomato"]
+  notes: "mid-flow stickiness"
+
+- message: "show me pizza options"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["zomato"]
+
+- message: "find good restaurants in Koramangala"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["zomato"]
+
+- message: "get biryani delivered"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["zomato"]
+
+- message: "checkout my cart"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["zomato"]
+  notes: "transactional → no fan-out"
+
+- message: "buy milk"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["swiggy_instamart"]
+  notes: "generic grocery → swiggy_instamart default"
+
+- message: "order groceries"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["swiggy_instamart"]
+
+- message: "show me eggs and bread"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["swiggy_instamart"]
+
+- message: "need atta and rice"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["swiggy_instamart"]
+
+- message: "order on Zepto"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["zepto"]
+
+- message: "show Instamart items"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["swiggy_instamart"]
+
+- message: "movies near Koramangala"
+  previous: null
+  expected_task_type: "going_out"
+  expected_providers: ["district"]
+
+- message: "book a table for 2 at an Italian restaurant"
+  previous: null
+  expected_task_type: "going_out"
+  expected_providers: ["district"]
+
+- message: "IMAX showtimes tonight"
+  previous: null
+  expected_task_type: "going_out"
+  expected_providers: ["district"]
+
+- message: "comedy shows this weekend"
+  previous: null
+  expected_task_type: "going_out"
+  expected_providers: ["district"]
+
+- message: "what concerts are happening near me"
+  previous: null
+  expected_task_type: "going_out"
+  expected_providers: ["district"]
+
+- message: "things to do this weekend"
+  previous: null
+  expected_task_type: "going_out"
+  expected_providers: ["district"]
+
+- message: "show my Zerodha holdings"
+  previous: null
+  expected_task_type: "finance_investing"
+  expected_providers: ["kite"]
+
+- message: "what is my Nifty portfolio"
+  previous: null
+  expected_task_type: "finance_investing"
+  expected_providers: ["kite"]
+
+- message: "log my lunch"
+  previous: null
+  expected_task_type: "health_nutrition"
+  expected_providers: ["daily_calorie_tracker"]
+
+- message: "calories in paneer"
+  previous: null
+  expected_task_type: "health_nutrition"
+  expected_providers: ["daily_calorie_tracker"]
+
+- message: "how long to reach MG Road"
+  previous: null
+  expected_task_type: "maps_query"
+  expected_providers: []
+
+- message: "distance from here to the airport"
+  previous: null
+  expected_task_type: "maps_query"
+  expected_providers: []
+
+- message: "call my father at 9910295298"
+  previous: null
+  expected_task_type: "phone_call"
+  expected_providers: ["twilio"]
+
+- message: "what is the latest in geopolitics"
+  previous: null
+  expected_task_type: "data_lookup"
+  expected_providers: []
+  notes: "prod regression: was misrouted to normal_query before fix"
+
+- message: "flights from Delhi to Mumbai on Friday"
+  previous: null
+  expected_task_type: "data_lookup"
+  expected_providers: []
+
+- message: "hotels in Goa under 5000"
+  previous: null
+  expected_task_type: "data_lookup"
+  expected_providers: []
+
+- message: "show me some videos on the indian economy"
+  previous: null
+  expected_task_type: "data_lookup"
+  expected_providers: []
+  notes: "prod regression: video misrouted to normal_query before fix"
+
+- message: "what is photosynthesis"
+  previous: null
+  expected_task_type: "normal_query"
+  expected_providers: []
+
+- message: "hello"
+  previous: null
+  expected_task_type: "normal_query"
+  expected_providers: []
+
+- message: "thanks"
+  previous: null
+  expected_task_type: "normal_query"
+  expected_providers: []
+
+- message: "explain how inflation works"
+  previous: null
+  expected_task_type: "normal_query"
+  expected_providers: []
+
+- message: "add paneer to my order"
+  previous: "zomato"
+  expected_task_type: "food_delivery"
+  expected_providers: ["zomato"]
+
+- message: "show me my saved addresses for instamart"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["swiggy_instamart"]
+  notes: "account recall must not dead-end at normal_query"
+
+- message: "reorder my go-to items on instamart"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["swiggy_instamart"]
+
+- message: "switch my instamart delivery address to Work"
+  previous: null
+  expected_task_type: "food_delivery"
+  expected_providers: ["swiggy_instamart"]
