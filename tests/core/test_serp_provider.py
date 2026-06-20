@@ -224,7 +224,8 @@ def test_budget_exhaustion_is_a_tool_error_not_a_crash(monkeypatch):
 def test_instagram_gated_behind_flag(monkeypatch):
     monkeypatch.delenv("SERP_INSTAGRAM_ENABLED", raising=False)
     names = {t.name for t in SerpProvider().declared_tools()}
-    assert "instagram_profile" not in names and len(names) == 12
+    assert "instagram_profile" not in names and len(names) == 13
+    assert "web_search" in names  # general Google web-search engine
     monkeypatch.setenv("SERP_INSTAGRAM_ENABLED", "true")
     names = {t.name for t in SerpProvider().declared_tools()}
     assert "instagram_profile" in names

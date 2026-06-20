@@ -55,6 +55,18 @@ _DATA_LOOKUP_CASES = [
     "what is latest in the news",
 ]
 
+# Web-search Layer 1: specific factual questions about named real-world entities /
+# numbers should route to data_lookup so the general Google web_search engine can
+# look them up — never answered from the model's memory (where it confabulates).
+_WEB_SEARCH_CASES = [
+    "who is the CEO of Anthropic",
+    "when did SpaceX launch its first Starship orbital flight",
+    "what is the population of Pune",
+    "who won the 2023 Cricket World Cup",
+    "what's the latest iPhone model",
+    "what is Reliance Industries' annual revenue",
+]
+
 # Controls: timeless knowledge / chit-chat must stay normal_query, so the
 # broadened cues don't swallow genuine general-knowledge questions.
 _NORMAL_QUERY_CASES = [
@@ -78,6 +90,12 @@ _FOOD_RECALL_CASES = [
 @_SKIP
 @pytest.mark.parametrize("message", _DATA_LOOKUP_CASES)
 def test_current_info_and_video_route_to_data_lookup(message):
+    assert _classify(message) == "data_lookup", message
+
+
+@_SKIP
+@pytest.mark.parametrize("message", _WEB_SEARCH_CASES)
+def test_specific_factual_questions_route_to_data_lookup(message):
     assert _classify(message) == "data_lookup", message
 
 

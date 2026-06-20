@@ -29,6 +29,8 @@ from core.registry.provider_registry import ProviderRegistry
 
 # (*, user_message, system_prompt, llm) -> dict — matches core.llm.complete_json_object.
 CompleteJson = Callable[..., Awaitable[dict[str, Any]]]
+# (*, user_message, system_prompt, llm) -> str — matches core.llm.complete_text (narrator prose).
+CompleteText = Callable[..., Awaitable[str]]
 
 
 @dataclass
@@ -39,6 +41,7 @@ class PipelineDeps:
     complete_json: CompleteJson
     geocode: GeocodeService | None = None
     personal_fact_writer: PersonalFactWriter | None = None
+    complete_text: CompleteText | None = None
 
 
 @dataclass

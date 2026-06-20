@@ -15,6 +15,7 @@ import {
   ShoppingCart,
   PlayCircle,
   ArrowRight,
+  Search,
   Star,
   TrendingUp,
   TrendingDown,
@@ -29,6 +30,7 @@ import type {
   PlaceResult,
   ShopProduct,
   VideoResult,
+  WebSearchResult,
 } from '../types';
 
 type QuickPrompt = ((prompt: string) => void) | undefined;
@@ -442,6 +444,35 @@ export const VideoCardGrid: React.FC<{ videos: VideoResult[]; keyword?: string }
     <Scroller>
       {videos.map((v, idx) => (
         <VideoTile key={v.video_id || idx} video={v} />
+      ))}
+    </Scroller>
+  </Shell>
+);
+
+export const WebSearchCardGrid: React.FC<{ results: WebSearchResult[]; keyword?: string }> = ({
+  results,
+  keyword,
+}) => (
+  <Shell icon={<Search size={14} />} label="Web search" trailing={keyword}>
+    <Scroller>
+      {results.map((r, idx) => (
+        <a
+          key={idx}
+          href={r.link || undefined}
+          target="_blank"
+          rel="noreferrer"
+          className="w-64 shrink-0 rounded-xl border border-slate-200/80 bg-white p-2.5 outline-none hover:shadow-md hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-slate-300 transition-all"
+        >
+          <p className="text-[11px] font-bold text-slate-800 leading-snug line-clamp-2">
+            {r.title}
+          </p>
+          {r.snippet ? (
+            <p className="mt-1 text-[10px] text-slate-600 leading-snug line-clamp-3">{r.snippet}</p>
+          ) : null}
+          <p className="mt-1.5 text-[9.5px] text-slate-500 truncate">
+            {[r.source, r.date].filter(Boolean).join(' · ')}
+          </p>
+        </a>
       ))}
     </Scroller>
   </Shell>

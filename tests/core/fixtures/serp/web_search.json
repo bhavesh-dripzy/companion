@@ -1,0 +1,44 @@
+{
+  "search_metadata": {"status": "Success", "id": "rep-fixture"},
+  "search_parameters": {"engine": "google", "q": "who is the prime minister of india", "gl": "in", "hl": "en"},
+  "answer_box": {
+    "type": "organic_result",
+    "title": "Prime Minister of India",
+    "answer": "Narendra Modi",
+    "snippet": "Narendra Modi is the current Prime Minister of India, in office since 26 May 2014."
+  },
+  "knowledge_graph": {
+    "title": "Narendra Modi",
+    "type": "14th Prime Minister of India",
+    "description": "Narendra Damodardas Modi is an Indian politician serving as the 14th and current prime minister of India since May 2014.",
+    "source": {"name": "Wikipedia", "link": "https://en.wikipedia.org/wiki/Narendra_Modi"}
+  },
+  "organic_results": [
+    {
+      "position": 1,
+      "title": "Prime Minister of India - Wikipedia",
+      "link": "https://en.wikipedia.org/wiki/Prime_Minister_of_India",
+      "displayed_link": "https://en.wikipedia.org › wiki › Prime_Minister_of_India",
+      "snippet": "The prime minister of India is the head of government of the Republic of India.",
+      "source": {"name": "Wikipedia"}
+    },
+    {
+      "position": 2,
+      "title": "PM of India | National Portal",
+      "link": "https://www.india.gov.in/",
+      "snippet": "Official information about the Prime Minister of India and the government.",
+      "source": "india.gov.in",
+      "date": "2 days ago"
+    },
+    {
+      "position": 3,
+      "title": "Narendra Modi - Official Website",
+      "link": "https://www.narendramodi.in/",
+      "snippet": "The official website of the Prime Minister of India.",
+      "source": "narendramodi.in"
+    }
+  ],
+  "related_questions": [
+    {"question": "Who was the first prime minister of India?", "snippet": "Jawaharlal Nehru."}
+  ]
+}

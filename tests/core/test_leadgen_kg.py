@@ -205,7 +205,7 @@ def test_user_context_renders_identity_and_leads():
         matched_leads=[{"category": "furniture", "product": "sofa", "vendor_name": "Woodcraft"}],
     )
     block = _user_context(SimpleNamespace(profile=profile))
-    assert "USER CONTEXT:" in block
+    assert "WHAT YOU KNOW ABOUT THIS USER" in block  # shared render_user_memory seam
     assert "Rahul" in block and "Doctor" in block
     assert "split AC" in block and "don't re-pitch" in block
     assert "Woodcraft" in block

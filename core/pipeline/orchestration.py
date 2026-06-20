@@ -199,7 +199,13 @@ def parse_routing(raw: dict[str, Any], previous_provider: str | None) -> Routing
         ]
     elif task in _SOLE_PROVIDER:
         providers = [_SOLE_PROVIDER[task]]
-    else:  # normal_query — chit-chat, no tools
+    elif task == "normal_query":
+        # Informational. Don't starve it of tools: hand it to the serp planner, which
+        # SEES web_search / search_news / etc. and decides whether to fetch. (The LLM
+        # only "refused" news because normal_query had no tools to reach for; given the
+        # tools, it fetches. No keyword/intent matching here — the planner decides.)
+        providers = ["serp"]
+    else:  # unhandled task (e.g. cab_booking with uber removed) — no provider
         providers = []
 
     reasoning = str(raw.get("reasoning") or "").strip() or "(no reasoning given)"
