@@ -16,6 +16,7 @@ from core.providers.mcp.info_cards import build_info_cards
 
 _KINDS: dict[str, tuple[str, str, str]] = {
     # tool -> (kind, data key in the lean envelope, attachment field)
+    "web_search": ("web_search_cards", "results", "search_results"),
     "search_flights": ("flight_cards", "flights", "flight_options"),
     "search_hotels": ("hotel_cards", "hotels", "hotel_options"),
     "search_places": ("place_cards", "places", "place_results"),
@@ -161,6 +162,7 @@ def build_serp_cards(result: ProviderResult, provider_id: str) -> list[Attachmen
             if args.get("departure_token"):
                 payload["leg"] = "return"
         if tr.tool in (
+            "web_search",
             "search_hotels",
             "search_places",
             "search_products",

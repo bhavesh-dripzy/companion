@@ -33,7 +33,9 @@ def test_parse_routing_sole_provider_tasks():
     assert parse_routing({"task_type": "cab_booking"}, None).providers == []  # uber removed
     assert parse_routing({"task_type": "phone_call"}, None).providers == ["twilio"]
     assert parse_routing({"task_type": "maps_query"}, None).providers == ["maps"]
-    assert parse_routing({"task_type": "normal_query"}, None).providers == []
+    # normal_query is serp-backed: the planner sees web_search/search_news and decides
+    # whether to fetch, so an informational chat turn is never starved of tools.
+    assert parse_routing({"task_type": "normal_query"}, None).providers == ["serp"]
 
 
 def test_fallback_routing_sticks_with_previous():

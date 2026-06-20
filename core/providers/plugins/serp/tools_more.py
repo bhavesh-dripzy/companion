@@ -21,6 +21,17 @@ def _tool(name: str, description: str, props: dict, required: list[str]) -> Tool
 
 MORE_TOOLS: list[Tool] = [
     _tool(
+        "web_search",
+        "General Google web search — the CATCH-ALL lookup for any factual "
+        "question that no other engine covers: who/what/when/where, definitions "
+        "of niche or proper-noun things, specific stats, current real-world "
+        "state. Returns a direct answer, an entity snapshot, and cited source "
+        "links. Use this whenever you'd otherwise have to answer from memory and "
+        "might be wrong. Read-only — fetches information, never acts.",
+        {"query": {"type": "string", "description": "What to look up, in plain words"}},
+        ["query"],
+    ),
+    _tool(
         "search_news",
         "Google News headlines (India edition): title, source, date, link per "
         "article. For current-affairs questions and daily briefings.",

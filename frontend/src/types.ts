@@ -569,6 +569,8 @@ export interface Attachment {
   videos?: VideoResult[];
   //   kind === "news_cards" → articles (NewsArticle[])
   articles?: NewsArticle[];
+  //   kind === "web_search_cards" → search_results (cited Google web results)
+  search_results?: WebSearchResult[];
   //   kind === "metric_card" → metric (MetricCardPayload) — provider-agnostic
   //     "number that moved" tile: market data today, any KPI tomorrow.
   metric?: MetricCardPayload;
@@ -648,6 +650,14 @@ export interface NewsArticle {
   date?: string;
   link?: string;
   image?: string;
+}
+
+export interface WebSearchResult {
+  title?: string;
+  snippet?: string;
+  link?: string;
+  source?: string;
+  date?: string;
 }
 
 export interface MetricCardPayload {

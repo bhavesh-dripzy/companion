@@ -9,6 +9,7 @@ list, each call tagged with its provider for dispatch.
 from __future__ import annotations
 
 from core.middleware.planner_prompt import build_planner_prompt
+from core.middleware.user_memory import render_user_memory
 from core.middleware.validator import normalize_plan
 from core.pipeline.clock import clock_line
 from core.pipeline.context import PipelineContext
@@ -26,49 +27,11 @@ _GENERIC_PREAMBLE = (
 
 
 def _user_context(ctx: PipelineContext) -> str:
-    """Compact personal + lead context so the planner personalizes and never
-    re-pitches an existing lead (issue #64, Phase 5). Empty when nothing is known."""
-    profile = getattr(ctx, "profile", None)
-    if profile is None:
-        return ""
-    lines: list[str] = []
-
-    identity = [
-        f"Name: {profile.name}" if profile.name else "",
-        f"Occupation: {profile.occupation}" if profile.occupation else "",
-        f"Family: {profile.family_composition}" if profile.family_composition else "",
-        f"City: {profile.city}" if profile.city else "",
-        f"Language: {profile.language}" if profile.language else "",
-    ]
-    identity = [part for part in identity if part]
-    if identity:
-        lines.append("- " + "; ".join(identity))
-
-    open_leads = profile.open_leads or []
-    if open_leads:
-        rendered = ", ".join(
-            f'{lead.get("category")}: "{lead.get("product")}"'
-            for lead in open_leads[:5]
-            if lead.get("product")
-        )
-        if rendered:
-            lines.append(f"- Open leads (already known — update, don't re-pitch): {rendered}")
-
-    matched = profile.matched_leads or []
-    if matched:
-        rendered = ", ".join(
-            f'{lead.get("category")}: "{lead.get("product")}" → {lead.get("vendor_name")}'
-            for lead in matched[:5]
-            if lead.get("product")
-        )
-        if rendered:
-            lines.append(
-                f"- Matched leads (you may offer to connect the user to the vendor): {rendered}"
-            )
-
-    if not lines:
-        return ""
-    return "USER CONTEXT:\n" + "\n".join(lines)
+    """The remembered user-memory block (personal info + preferences) so the planner
+    personalizes — e.g. a dietary preference biases a restaurant search. Shared with
+    the narrator via the generic render_user_memory seam; empty when nothing is known.
+    Products / interests / leads are intentionally excluded (leadgen, not personal)."""
+    return render_user_memory(getattr(ctx, "profile", None))
 
 
 def _format_input(ctx: PipelineContext) -> str:

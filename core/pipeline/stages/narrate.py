@@ -12,6 +12,7 @@ from typing import Any
 
 from core.contracts.tool_result import Effect
 from core.middleware.claim_guard import honest_message, unsupported_mutation_claim
+from core.middleware.user_memory import render_user_memory
 from core.pipeline.context import PipelineContext
 
 _RESPONSE_PROMPT = (
@@ -87,6 +88,11 @@ _RESPONSE_PROMPT = (
     "when it genuinely helps, recommend the obvious next step or a better option "
     "(a cheaper pack, a popular brand, 'want me to add bread too?'). Make it feel "
     "handled for them; never robotic or list-dumping.\n"
+    "PERSONALIZATION: if a 'WHAT YOU KNOW ABOUT THIS USER' block is present, use those "
+    "remembered facts (their name, interests, usual apps/items) to tailor your reply "
+    "and address them by name when it fits — but ONLY when relevant to what they just "
+    "asked. Never recite the facts back, never volunteer unrelated interests, and never "
+    "assume a detail not in the block or the conversation.\n"
     "NEVER tell the user you lack real-time news, web, or video access, and never "
     "cite a knowledge cutoff. If this turn ran no tools but the user asked for "
     "something fetchable (latest news, videos to watch, prices, etc.), do NOT "
@@ -109,8 +115,22 @@ _RESPONSE_PROMPT = (
     "even if a different name appears in the task description or earlier turns.\n"
     "Reply ONLY in this language/style: {language}.\n"
     "If tools were blocked pending confirmation, ask the user to confirm.\n"
-    'Respond with ONLY a JSON object: {{"message": "<reply>"}}.'
+    "Write ONLY the reply text itself — no JSON, no quotes, no labels, no preamble."
 )
+
+
+def _reply_language(ctx: PipelineContext) -> str:
+    """Voice turns pass an explicit reply_language; otherwise mirror the language the
+    user just wrote, falling back to their remembered language when the message is too
+    short/ambiguous to tell. Generic — the model detects the language, no list here."""
+    if ctx.request.reply_language:
+        return ctx.request.reply_language
+    lang = str(getattr(getattr(ctx, "profile", None), "language", "") or "").strip()
+    fallback = lang if lang and lang.lower() not in ("not mentioned", "none", "n/a") else "English"
+    return (
+        "the SAME language and script the user used in their latest message above; "
+        f"if their message is too short or ambiguous to tell, use {fallback}"
+    )
 
 
 def _conversation(ctx: PipelineContext) -> str:
@@ -355,12 +375,23 @@ class Narrate:
     name = "narrate"
 
     async def run(self, ctx: PipelineContext) -> None:
-        language = ctx.request.reply_language or "English"
-        system = _RESPONSE_PROMPT.format(language=language)
+        system = _RESPONSE_PROMPT.format(language=_reply_language(ctx))
         user = f"{_conversation(ctx)}\n\nTool results:\n{_results_summary(ctx)}"
+        memory = render_user_memory(getattr(ctx, "profile", None))
+        if memory:
+            user = f"{memory}\n\n{user}"
         try:
-            raw = await ctx.deps.complete_json(user_message=user, system_prompt=system, llm=ctx.llm)
-            ctx.assistant_message = str(raw.get("message") or "").strip()
+            text_fn = ctx.deps.complete_text
+            if text_fn is not None:
+                # Plain text — the narrator's output is prose, so there is no JSON
+                # envelope for a weak model to drop on a long / non-Latin reply.
+                reply = await text_fn(user_message=user, system_prompt=system, llm=ctx.llm)
+                ctx.assistant_message = str(reply or "").strip()
+            else:  # legacy deps without a text path — fall back to the JSON envelope
+                raw = await ctx.deps.complete_json(
+                    user_message=user, system_prompt=system, llm=ctx.llm
+                )
+                ctx.assistant_message = str(raw.get("message") or "").strip()
         except Exception:
             ctx.assistant_message = ""
         if not ctx.assistant_message:

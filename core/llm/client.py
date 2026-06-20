@@ -16,7 +16,7 @@ _TIMEOUT_SECONDS = 40.0
 
 
 async def _openai_compatible_call(
-    *, llm: ResolvedLlm, system_prompt: str, user_message: str
+    *, llm: ResolvedLlm, system_prompt: str, user_message: str, json_mode: bool = True
 ) -> str:
     from openai import AsyncOpenAI
 
@@ -30,20 +30,24 @@ async def _openai_compatible_call(
     }
     if llm.base_url:  # OpenAI-compatible third parties (Sarvam)
         kwargs["base_url"] = llm.base_url
+    create: dict[str, Any] = {
+        "model": llm.model,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message.strip()},
+        ],
+    }
+    if json_mode:
+        create["response_format"] = {"type": "json_object"}
     async with AsyncOpenAI(**kwargs) as client:
-        completion = await client.chat.completions.create(
-            model=llm.model,
-            temperature=0.2,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message.strip()},
-            ],
-            response_format={"type": "json_object"},
-        )
-    return completion.choices[0].message.content or "{}"
+        completion = await client.chat.completions.create(**create)
+    return completion.choices[0].message.content or ("{}" if json_mode else "")
 
 
-async def _gemini_call(*, llm: ResolvedLlm, system_prompt: str, user_message: str) -> str:
+async def _gemini_call(
+    *, llm: ResolvedLlm, system_prompt: str, user_message: str, json_mode: bool = True
+) -> str:
     try:
         from google import genai as google_genai
     except ImportError as exc:  # pragma: no cover - env-dependent
@@ -54,15 +58,30 @@ async def _gemini_call(*, llm: ResolvedLlm, system_prompt: str, user_message: st
         model=llm.model,
         contents=f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_message.strip()}\n",
     )
-    return response.text or "{}"
+    return response.text or ("{}" if json_mode else "")
 
 
-async def _provider_call(*, llm: ResolvedLlm, system_prompt: str, user_message: str) -> str:
+async def _provider_call(
+    *, llm: ResolvedLlm, system_prompt: str, user_message: str, json_mode: bool = True
+) -> str:
     if llm.provider in ("openai", "sarvam"):
         return await _openai_compatible_call(
-            llm=llm, system_prompt=system_prompt, user_message=user_message
+            llm=llm, system_prompt=system_prompt, user_message=user_message, json_mode=json_mode
         )
-    return await _gemini_call(llm=llm, system_prompt=system_prompt, user_message=user_message)
+    return await _gemini_call(
+        llm=llm, system_prompt=system_prompt, user_message=user_message, json_mode=json_mode
+    )
+
+
+async def complete_text(*, user_message: str, system_prompt: str, llm: ResolvedLlm) -> str:
+    """Single-turn PLAIN TEXT (no JSON envelope) — for the narrator, whose output is
+    prose, not structured data. A `{"message": ...}` wrapper is one more thing a weak
+    model fumbles on long / non-Latin replies (it drops the envelope and the reply is
+    lost); returning text directly removes that failure mode at the root."""
+    content = await _provider_call(
+        llm=llm, system_prompt=system_prompt, user_message=user_message, json_mode=False
+    )
+    return content.strip()
 
 
 async def complete_json_object(

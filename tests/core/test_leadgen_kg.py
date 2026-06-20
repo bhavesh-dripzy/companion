@@ -195,20 +195,22 @@ def test_merge_personal_stamps_updated_at_personal(monkeypatch):
 
 # ── planner user-context block ──────────────────────────────────────────────
 
-def test_user_context_renders_identity_and_leads():
+def test_user_context_renders_identity_and_preferences_not_leads():
     profile = Profile(
         user_id="u1",
         name="Rahul",
         occupation="Doctor",
         city="Gurugram",
+        preferences=["prefers vegetarian"],
         open_leads=[{"category": "electronics", "product": "1.5 ton split AC"}],
         matched_leads=[{"category": "furniture", "product": "sofa", "vendor_name": "Woodcraft"}],
     )
     block = _user_context(SimpleNamespace(profile=profile))
-    assert "USER CONTEXT:" in block
+    assert "WHAT YOU KNOW ABOUT THIS USER" in block  # shared render_user_memory seam
     assert "Rahul" in block and "Doctor" in block
-    assert "split AC" in block and "don't re-pitch" in block
-    assert "Woodcraft" in block
+    assert "prefers vegetarian" in block
+    # personalization is personal info + preferences — leads/products are excluded
+    assert "split AC" not in block and "Woodcraft" not in block and "re-pitch" not in block
 
 
 def test_user_context_empty_when_no_profile():

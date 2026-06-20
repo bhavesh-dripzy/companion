@@ -36,6 +36,10 @@ class Profile(BaseModel):
     occupation: str | None = None
     family_size: Any = None
     family_composition: Any = None
+    # Durable personal PREFERENCES the user states ("prefers vegetarian", "pays via
+    # UPI", "follows cricket") — captured on-path, surfaced for personalization.
+    # Distinct from `interests`/leads, which are leadgen/commercial (vendor matching).
+    preferences: list[str] = Field(default_factory=list)
     addresses: dict[str, SavedAddress] = Field(default_factory=dict)
     interests: list[dict[str, Any]] = Field(default_factory=list)
     open_leads: list[dict[str, Any]] = Field(default_factory=list)

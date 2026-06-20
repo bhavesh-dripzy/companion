@@ -35,8 +35,9 @@ from core.providers.plugins.serp.session import (
     places_brief,
     products_brief,
 )
-from core.providers.plugins.serp.tools import _INSTAGRAM_TOOL, _TOOLS
+from core.providers.plugins.serp.tools import _INSTAGRAM_TOOL, _TOOLS, PREAMBLE
 from core.providers.plugins.serp.tools_more import MORE_TOOLS
+from core.providers.plugins.serp.web_search import extract_web_search, web_search_params
 
 _DATE_ARGS = ("outbound_date", "return_date", "check_in_date", "check_out_date")
 
@@ -53,34 +54,6 @@ def _past_dates(args: dict[str, Any]) -> str:
     return ", ".join(stale)
 
 
-_PREAMBLE = (
-    "You are the data-lookup planning agent (SerpApi-backed; read-only, no booking "
-    "or purchasing). Translate the user's message into a machine-ready tool plan.\n"
-    "Respond with ONLY a JSON object shaped exactly like:\n"
-    '{"intent": "<snake_case>", "summary": "<one sentence>", '
-    '"tool_plan": [{"tool": "<exact tool name>", "arguments": {<filled from the user\'s words>}}], '
-    '"constraints": {"requires_address_resolution": false, '
-    '"requested_location_text": "<city/locality the user named, else null>"}}\n'
-    "Fill EVERY required argument (marked * in the tool list) with literal values.\n"
-    "- Set constraints.requested_location_text whenever the user names a city or "
-    "locality — it geo-biases place searches; null when they mean 'near me'.\n"
-    "- Dates MUST be YYYY-MM-DD; resolve relative dates ('next Friday') yourself.\n"
-    "- search_flights needs IATA codes (Delhi→DEL, Mumbai→BOM, Bengaluru→BLR, "
-    "Goa→GOI, Hyderabad→HYD, Chennai→MAA, Kolkata→CCU, Pune→PNQ, Jaipur→JAI).\n"
-    "- Round-trip flights: the first call returns outbound options each with a "
-    "departure_token; when the user picks one, call search_flights AGAIN with that "
-    "departure_token (same route/dates) to fetch return legs.\n"
-    "- get_place_reviews / get_product_details / get_hotel_details are the DEEP-DIVE "
-    "tools: use literal ids/tokens from results or the session brief (query fallback "
-    "exists for places and products). get_market_data is general market info; the "
-    "user's own portfolio belongs to the Kite provider, never here.\n"
-    "- For details/reviews/images of ONE product, use get_product_details with the "
-    "literal asin from search results or the session brief (or query as fallback).\n"
-    "- These tools only FETCH data — never claim a booking or purchase happened.\n"
-    "{{TOOLS}}"
-)
-
-
 def _instagram_enabled() -> bool:
     return os.getenv("SERP_INSTAGRAM_ENABLED", "false").strip().lower() == "true"
 
@@ -90,7 +63,7 @@ class SerpProvider(HttpProvider):
     label = "SerpApi Data"
     auth_mode = AuthMode.NONE
 
-    planner_preamble = _PREAMBLE
+    planner_preamble = PREAMBLE
 
     def declared_tools(self) -> list[Tool]:
         tools = [*_TOOLS, *MORE_TOOLS]
@@ -185,6 +158,8 @@ class SerpProvider(HttpProvider):
         return [name for name in required if str(args.get(name) or "").strip() == ""]
 
     def _route(self, tool: str, args: dict[str, Any], ctx: ExecCtx):
+        if tool == "web_search":
+            return web_search_params(args), extract_web_search
         if tool == "search_flights":
             return engines.flights_params(args), engines.extract_flights
         if tool == "search_hotels":

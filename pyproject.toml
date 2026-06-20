@@ -36,4 +36,5 @@ markers = [
     "integration: mocked external services (LLM/MCP/AWS)",
     "component: per-provider end-to-end against recorded fixtures",
     "live: hits real external services; skipped in CI",
+    "mutating: live test that performs a reversible write (add-to-cart / address); never orders or pays",
 ]

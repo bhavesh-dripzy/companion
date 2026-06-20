@@ -23,7 +23,10 @@ Provider = Literal["gemini", "openai", "sarvam"]
 
 # Sarvam AI — India-hosted, OpenAI-compatible. Sarvam-M (24B) was deprecated on
 # the managed API (mid-2026); sarvam-30b / sarvam-105b are the current models.
-SARVAM_MODEL_DEFAULT = "sarvam-30b"
+# Default to 105b: ~1.6x the 30b cost but materially more reliable on routing /
+# tool-selection (A/B: 105b 18/18 vs 30b 15/18), and still ~20x cheaper than
+# DeepSeek V4 Pro. Override per-env with SARVAM_MODEL.
+SARVAM_MODEL_DEFAULT = "sarvam-105b"
 SARVAM_BASE_URL = "https://api.sarvam.ai/v1"
 GEMINI_MODEL_DEFAULT = "gemini-2.5-flash-lite"
 OPENAI_MODEL_DEFAULT = "gpt-4o-mini"

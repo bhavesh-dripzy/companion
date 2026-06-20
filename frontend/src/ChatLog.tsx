@@ -56,6 +56,7 @@ import {
   PlaceCardGrid,
   ShopProductCardGrid,
   VideoCardGrid,
+  WebSearchCardGrid,
 } from './components/SerpCards';
 import { SwipeDeckTray } from './components/SwipeDeck';
 import { deckForAttachment } from './components/deckTiles';
@@ -1850,6 +1851,15 @@ export const AttachmentList: React.FC<{
       }
       if (kind === 'news_cards' && att.articles?.length) {
         return <NewsCardGrid key={`news-${idx}`} articles={att.articles} keyword={att.keyword} />;
+      }
+      if (kind === 'web_search_cards' && att.search_results?.length) {
+        return (
+          <WebSearchCardGrid
+            key={`web-${idx}`}
+            results={att.search_results}
+            keyword={att.keyword}
+          />
+        );
       }
       if (kind === 'metric_card' && att.metric) {
         return <MetricCard key={`metric-${idx}`} metric={att.metric} provider={att.provider} />;
