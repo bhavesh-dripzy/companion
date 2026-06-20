@@ -39,7 +39,7 @@ EXECUTION CONTRACT (deterministic plumbing only — every literal argument is YO
 
 8. DISCOVERY routing:
    - Single concrete item ("milk", "diet coke", "1L Amul gold") → `search_products` with `{query}` only — never include `pageNumber` (the server default 0 is the first page; passing 1 returns an empty second page).
-   - ≥2 distinct items ("milk, bread, eggs") → ONE `search_multiple_products` with `{queries:[...]}` — never N parallel search_products.
+   - ≥2 distinct items ("milk, bread, eggs") → ONE `search_multiple_products` with `{queries:[...]}`, ONE entry PER item (queries:["milk","bread","eggs"]) — never a single combined string ("milk, bread, eggs") and never N parallel search_products.
    - `get_product_details` needs `product_variant_id` (the pvid; use `__ZEPTO_PVID__` or a literal from the index).
    - `zepto_shop` is the conversational entry point — skip it in favor of search unless the user literally types "open zepto".
 

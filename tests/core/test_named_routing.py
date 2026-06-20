@@ -32,3 +32,25 @@ def test_chitchat_mention_not_promoted_to_food():
 def test_named_matches_routed_no_change():
     out = honor_named_providers(_dec(["zomato"]), "order pizza from zomato")
     assert list(out.providers) == ["zomato"]
+
+
+def test_named_grocery_search_promoted_from_chitchat():
+    # F18: orchestrator intermittently labels a named grocery search normal_query
+    # and routes it nowhere — a named app + a food intent must reach the app.
+    out = honor_named_providers(_dec([], task="normal_query"), "search zepto for milk")
+    assert list(out.providers) == ["zepto"] and out.task_type == "food_delivery"
+
+
+def test_address_listing_for_named_provider_promoted():
+    # F10: "what addresses do I have on zepto" was denied; route it to Zepto.
+    out = honor_named_providers(
+        _dec([], task="normal_query"), "what delivery addresses do I have saved on zepto"
+    )
+    assert list(out.providers) == ["zepto"]
+
+
+def test_finance_query_mentioning_zomato_not_hijacked():
+    # Promotion is grocery-only: "Zomato stock price" must stay a data lookup,
+    # not become a restaurant search (Zomato is a listed company).
+    out = honor_named_providers(_dec([], task="data_lookup"), "what is zomato stock price today")
+    assert list(out.providers) == []

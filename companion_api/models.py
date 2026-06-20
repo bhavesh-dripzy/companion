@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ErrorResponse(BaseModel):
@@ -27,12 +27,23 @@ class UserGeoLocation(BaseModel):
 
 class FoodQueryRequest(BaseModel):
     message: str = Field(min_length=1)
-    history: list[dict[str, str]] | None = None
+    # Values are Any (not str): an assistant turn carries provider=None for a
+    # turn that ran no provider — the API's own responses emit routed_provider=null,
+    # so a client that echoes it back must not be rejected with a 422.
+    history: list[dict[str, Any]] | None = None
     address_id: str = ""
     provider: str | None = None
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
     geo: UserGeoLocation | None = None
+
+    @field_validator("message")
+    @classmethod
+    def _message_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("message must not be blank")
+        return value
+
     # Opaque carry-forward IDs the executor learned on previous turns
     # (cart_id, restaurant_id, order_id, ...). Frontends should echo back the
     # ``session_state`` value the previous turn's response returned. Keys must
@@ -133,12 +144,22 @@ class AgentQueryRequest(BaseModel):
     """Request body for the primary agent endpoint (POST /api/agent/query/)."""
 
     message: str = Field(min_length=1)
-    history: list[dict[str, str]] | None = None
+    # Any values (not str): assistant turns carry provider=None for a no-provider
+    # turn; the API emits routed_provider=null, so echoing it back must not 422.
+    history: list[dict[str, Any]] | None = None
     address_id: str = ""
     provider: str | None = None
     execute_tools: bool | None = None
     execute_zomato: bool | None = None
     geo: UserGeoLocation | None = None
+
+    @field_validator("message")
+    @classmethod
+    def _message_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("message must not be blank")
+        return value
+
     # Multi-chat support: client echoes the chat_id it received on the
     # previous turn so all messages for this conversation land under the
     # same ``msg#<chat_id>#…`` Dynamo prefix. When omitted (or blank), the
