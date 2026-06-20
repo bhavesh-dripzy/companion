@@ -1,0 +1,70 @@
+# Pre-commit hooks for companion
+#
+# Install:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run manually:
+#   pre-commit run --all-files
+#
+# The routing-regression unit tests (layer-1) run on every commit and catch
+# deterministic routing regressions without needing any API key.
+#
+# The routing-live entry (off by default, see comment) calls the real LLM
+# against the golden table — enable it locally if you want to validate
+# behaviour before pushing. It skips gracefully when no SARVAM_API_KEY is set.
+
+repos:
+  - repo: local
+    hooks:
+      # ── Routing regression — unit tests (always fast) ──────────────────
+      # Catches: parse_routing, expand_agnostic, cart stickiness,
+      # KNOWN_FOOD exhaustiveness, _AGNOSTIC_GROUPS coverage.
+      # Zero API calls, ~2-3s total.
+      - id: routing-regression-unit
+        name: routing-regression-unit
+        entry: pytest tests/core/test_routing_regression.py -m unit -v --tb=short -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        description: "Run routing regression unit tests (no LLM required)"
+
+      # ── Golden fixture YAML is valid ────────────────────────────────────
+      # Catches typos/broken YAML in the routing golden table before commit.
+      - id: routing-fixtures-valid
+        name: routing-fixtures-valid
+        entry: python3 -c "import yaml,sys; yaml.safe_load(open('tests/fixtures/routing/golden_cases.yaml')); print('golden_cases.yaml OK')"
+        language: system
+        files: '^tests/fixtures/routing/golden_cases.yaml$'
+        pass_filenames: false
+        always_run: true
+        description: "Validate golden_cases.yaml is parseable YAML"
+
+      # ── diff_routing.py syntax check ───────────────────────────────────
+      # Catches syntax errors in the routing diff script.
+      - id: diff-routing-syntax
+        name: diff-routing-syntax
+        entry: python3 -m py_compile
+        args: ['scripts/diff_routing.py']
+        language: system
+        files: '^scripts/diff_routing.py$'
+        pass_filenames: false
+        always_run: true
+        description: "Check scripts/diff_routing.py syntax"
+
+      # ── (Optional) Live LLM routing regression ─────────────────────────
+      # Uncomment to run live LLM golden cases as a pre-commit check.
+      # Requires SARVAM_API_KEY (or GEMINI_API_KEY / OPENAI_API_KEY) in env.
+      # Skips with exit 0 if no key is present — safe to leave uncommented.
+      #
+      # Run manually when you want to validate routing before pushing:
+      #   pytest tests/core/test_routing_regression.py -m live -v --tb=short
+      #
+      # - id: routing-regression-live
+      #   name: routing-regression-live
+      #   entry: sh -c 'python3 -c "import os; key=os.environ.get(\"SARVAM_API_KEY\") or os.environ.get(\"GEMINI_API_KEY\") or os.environ.get(\"OPENAI_API_KEY\"); exit(0 if key else 1)" && pytest tests/core/test_routing_regression.py -m live -v --tb=short || pytest tests/core/test_routing_regression.py -m live -v --tb=short'
+      #   language: system
+      #   types: [python]
+      #   pass_filenames: false
+      #   description: "Run live LLM routing regression (requires API key, skips if absent)"
