@@ -15,10 +15,11 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from companion_api.ondc_crypto import decrypt_challenge, load_ondc_keys, sign_request_id
+from companion_api.ondc_flow import advance, start_order_flow
 from companion_api.ondc_registry import lookup_signing_key
 from companion_api.ondc_signing import key_id_parts, verify_authorization
 from companion_api.ondc_store import record_callback
@@ -40,6 +41,8 @@ _CALLBACK_ACTIONS = {
     "on_support",
 }
 _STRICT_CALLBACKS = os.getenv("ONDC_STRICT_CALLBACKS", "false").lower() == "true"
+# Shared secret gating the test-flow trigger (unset => trigger disabled).
+_FLOW_TOKEN = os.getenv("ONDC_FLOW_TOKEN", "")
 
 
 def _ack() -> dict[str, Any]:
@@ -105,12 +108,30 @@ def _verify_callback(auth_header: str, raw_body: str) -> bool:
     return verify_authorization(auth_header, raw_body, signing_key)
 
 
+@router.post("/ondc/flow/start")
+async def ondc_flow_start(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Trigger a BAP transaction flow (for Pramaan). Gated by the X-Flow-Token header."""
+    if not _FLOW_TOKEN or request.headers.get("X-Flow-Token", "") != _FLOW_TOKEN:
+        raise HTTPException(status_code=403, detail="flow trigger disabled")
+    query = (payload or {}).get("query", "")
+    if not query:
+        raise HTTPException(status_code=400, detail="query required")
+    return start_order_flow(
+        query,
+        gps=payload.get("gps"),
+        area_code=payload.get("area_code"),
+        domain=payload.get("domain", "ONDC:RET10"),
+        category_id=payload.get("category_id"),
+    )
+
+
 @router.post("/ondc/{action}")
-async def ondc_callback(action: str, request: Request) -> dict[str, Any]:
+async def ondc_callback(action: str, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     """Receive an async Beckn callback (on_search ... on_support).
 
     Declared after /ondc/on_subscribe so that route wins; this catches the rest.
-    Verifies the sender's signature, persists the body, and ACK/NACKs.
+    Verifies the sender's signature, persists the body, ACK/NACKs, and (for ``on_*``
+    callbacks) advances the transaction flow to the next action in the background.
     """
     if action not in _CALLBACK_ACTIONS:
         raise HTTPException(status_code=404, detail="unknown ONDC action")
@@ -124,4 +145,6 @@ async def ondc_callback(action: str, request: Request) -> dict[str, Any]:
     if _STRICT_CALLBACKS and not verified:
         return _nack("20001", "signature verification failed")
     record_callback(action, body, verified=verified)
+    if action.startswith("on_"):
+        background_tasks.add_task(advance, action, body)
     return _ack()
