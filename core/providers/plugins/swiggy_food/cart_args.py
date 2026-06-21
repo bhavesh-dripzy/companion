@@ -58,6 +58,30 @@ def collect_menu_index(envelope: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
+def collect_item_ids(envelope: dict[str, Any]) -> set[str]:
+    """Every ``menu_item_id`` in a search_menu / get_restaurant_menu envelope.
+
+    Unlike ``collect_menu_index`` (variant-bearing rows only) this captures ALL
+    items so the cart-add validator never drops a real no-variant item (e.g. a
+    Garlic Bread the planner just searched and added)."""
+    out: set[str] = set()
+    if not isinstance(envelope, dict) or envelope.get("is_error"):
+        return out
+    for obj in _walk(envelope.get("data")):
+        if not isinstance(obj, dict):
+            continue
+        iid_raw = (
+            obj.get("menu_item_id")
+            or obj.get("menuItemId")
+            or obj.get("itemId")
+            or obj.get("item_id")
+        )
+        iid = str(iid_raw).strip() if iid_raw is not None else ""
+        if iid:
+            out.add(iid)
+    return out
+
+
 def is_choice_trivial(variants_v2: list[Any]) -> bool:
     """True when every variant group has ≤1 in-stock variation (no real choice)."""
     for group in variants_v2 or []:

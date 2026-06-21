@@ -5,8 +5,8 @@ Faithful parity port of the Swiggy session blocks from the legacy
 addresses / menu / pending-variant-choice). Renders ONLY the session-state
 brief prepended to the planner input; the transcript, current user message,
 and ``(resolved address_id: ...)`` line are added by ``plan._format_input``
-and must NOT be repeated. ``session_cart`` is executor-seed-only and was never
-surfaced to the legacy planner, so neither is it here. Reads typed
+and must NOT be repeated. ``session_cart`` is surfaced (UPSERT awareness — see
+``cart_context``) now that update_food_cart folds onto existing lines. Reads typed
 ``ctx.session`` (``core/contracts/session.py``): ``legacy`` flat bag
 (``session_restaurants`` / ``session_addresses`` / ``session_menu``),
 ``placeholders``, ``selected_address_id``, ``pending_variant_choice``.
@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.providers.mcp.planner_context import placeholders_block, rows_for_provider
+from core.providers.plugins.swiggy_food.cart_context import cart_block
 
 _PROVIDER_ID = "swiggy_food"
 
@@ -240,6 +241,7 @@ def build_context(ctx: Any) -> str:
             session.selected_address_id,
         ),
         _menu_block(rows_for_provider(legacy.get("session_menu"), _PROVIDER_ID)),
+        cart_block(legacy.get("session_cart")),
         _pending_variant_block(session.pending_variant_choice),
     ]
     return "\n\n".join(block for block in parts if block)

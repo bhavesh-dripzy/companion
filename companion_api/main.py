@@ -351,6 +351,20 @@ app.include_router(mcp_router)
 app.include_router(ondc_router)
 
 
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+def spa_fallback(full_path: str):
+    """SPA deep-link fallback: serve the shell for client-routed paths (`/c/<id>`).
+
+    Registered last so concrete routes, `/api/*` routers and the `/assets`
+    `/static` mounts always win. Unmatched `/api/*` stays a real 404 (never the
+    HTML shell); every other GET returns `index.html` so a refresh or shared link
+    to a client route boots the app instead of 404ing.
+    """
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    return food_ui()
+
+
 _http_handler = Mangum(app, lifespan="off")
 
 

@@ -30,6 +30,9 @@ ALLOWLIST: frozenset[str] = frozenset(
         # Zepto provider (cart hardening: location anchor + pvid/spid validation,
         # mirrors the Instamart provider's cart-reconcile that lives inline).
         "core/providers/plugins/zepto/provider.py",
+        # Swiggy Food provider (address anchor + cart upsert/poison-recovery + valid-id
+        # guard, mirroring the Instamart/Zepto cart-reconcile that lives inline).
+        "core/providers/plugins/swiggy_food/provider.py",
         # Narrate stage (formatting nudge in #74 added ~14 lines; split planned separately).
         "core/pipeline/stages/narrate.py",
     }

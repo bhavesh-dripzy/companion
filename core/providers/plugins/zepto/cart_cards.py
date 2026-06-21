@@ -93,23 +93,29 @@ def build_cart_cards(
     address_id: str | None = None,
     addresses: list[dict] | None = None,
 ) -> list[Attachment]:
-    # Always carry the committed delivery address WITH the cart so the UI shows
-    # where it ships (Zepto binds the address at the session level, so the turn's
-    # resolved/committed address is authoritative — there's no per-cart address).
-    out: list[Attachment] = []
+    # update_cart MERGES then view_cart echoes the same final cart, so multiple cart
+    # calls in one turn (e.g. update_cart then view_cart) describe ONE cart — render
+    # only the last successful one to avoid duplicate cards (mirrors Instamart).
+    last: tuple[str, dict[str, Any]] | None = None
     for tr in results:
         if tr.tool not in _CART_TOOLS or not tr.ok:
             continue
         snap = cart_snapshot(tr.data if isinstance(tr.data, dict) else {})
         if snap and snap.get("items"):
-            out.append(
-                Attachment(
-                    kind="zepto_cart_card",
-                    provider="zepto",
-                    source=f"zepto.{tr.tool}",
-                    zepto_cart=snap,
-                    delivery_address_id=address_id,
-                    delivery_addresses=addresses or None,
-                )
-            )
-    return out
+            last = (tr.tool, snap)
+    if last is None:
+        return []
+    tool, snap = last
+    # Always carry the committed delivery address WITH the cart so the UI shows
+    # where it ships (Zepto binds the address at the session level, so the turn's
+    # resolved/committed address is authoritative — there's no per-cart address).
+    return [
+        Attachment(
+            kind="zepto_cart_card",
+            provider="zepto",
+            source=f"zepto.{tool}",
+            zepto_cart=snap,
+            delivery_address_id=address_id,
+            delivery_addresses=addresses or None,
+        )
+    ]

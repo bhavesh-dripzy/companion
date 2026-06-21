@@ -102,6 +102,7 @@ class FoodQueryRequest(BaseModel):
     session_instamart_cart: dict[str, Any] | None = None
     # Committed grocery delivery selections (see AgentQueryRequest below).
     selected_instamart_address_id: str | None = None
+    selected_swiggy_food_address_id: str | None = None
     selected_zepto_address_id: str | None = None
     selected_zepto_location: dict[str, Any] | None = None
     # Kite (Zerodha) session indexes — REAL-MONEY trading surface.
@@ -183,6 +184,7 @@ class AgentQueryRequest(BaseModel):
     # persists turn-to-turn (the provider also seeds these; the saved default is
     # the fallback). selected_zepto_location is the legacy GPS point.
     selected_instamart_address_id: str | None = None
+    selected_swiggy_food_address_id: str | None = None
     selected_zepto_address_id: str | None = None
     selected_zepto_location: dict[str, Any] | None = None
     # Kite (Zerodha) session indexes — REAL-MONEY trading surface. See

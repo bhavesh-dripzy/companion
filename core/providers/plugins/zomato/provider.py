@@ -69,6 +69,8 @@ class ZomatoProvider(McpProvider):
     label = "Zomato MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = ZomatoSession
+    capability_class = "food"
+    cart_session_key = "session_cart"
     saved_addresses_tool = "get_saved_addresses_for_user"
     # Name-aware __RESTAURANT_ID__ learning: a search for a named outlet picks
     # the matching result, not Zomato's fuzzy first hit (see placeholders.py).

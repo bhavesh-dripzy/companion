@@ -64,6 +64,16 @@ _NORMAL_QUERY_CASES = [
     "thanks!",
 ]
 
+# Seam 4 (Instamart audit): account/recall intents about the user's OWN delivery
+# data must reach food_delivery (→ a provider), not dead-end at normal_query with
+# providers=[] ("I don't have access to your saved addresses").
+_FOOD_RECALL_CASES = [
+    "show me my saved addresses for instamart",
+    "reorder my go-to items on instamart",
+    "switch my instamart delivery address to Work",
+    "show my past instamart orders",
+]
+
 
 @_SKIP
 @pytest.mark.parametrize("message", _DATA_LOOKUP_CASES)
@@ -75,6 +85,12 @@ def test_current_info_and_video_route_to_data_lookup(message):
 @pytest.mark.parametrize("message", _NORMAL_QUERY_CASES)
 def test_timeless_knowledge_stays_normal_query(message):
     assert _classify(message) == "normal_query", message
+
+
+@_SKIP
+@pytest.mark.parametrize("message", _FOOD_RECALL_CASES)
+def test_account_recall_routes_to_food_delivery(message):
+    assert _classify(message) == "food_delivery", message
 
 
 # ── location continuity (prod chats 5c22086f / 613cca04) ──────────────────────

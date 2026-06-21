@@ -95,7 +95,7 @@ Provider rules:
 - **Video phrasings (all → data_lookup, even without the word "YouTube"):** "videos about/on <topic>", "suggest/recommend/show me/find me some videos", "<topic> videos", "watch something on <topic>", "clips/footage of <topic>". Any request to find or suggest videos is a video search.
 **Not data-lookup:** restaurants or food places ("falooda places near me" → food_delivery; "dinner places to go" → going_out); directions/ETA ("how far is the airport" → maps_query).
 
-If the message has **no** food-ordering, grocery-shopping, going-out, finance, nutrition, scheduling/reminder, maps/distance, cab-booking, phone-call, or data-lookup intent → **normal_query**.
+If the message has **no** food-ordering, grocery-shopping (including viewing saved/delivery addresses, switching address, past orders, or reordering usuals), going-out, finance, nutrition, scheduling/reminder, maps/distance, cab-booking, phone-call, or data-lookup intent → **normal_query**.
 **normal_query is for TIMELESS questions only** ("what is X", "how does X work", definitions, explanations, opinions) and chit-chat. The moment a question asks for *current, latest, or real-world-state* information — news, what's happening, latest on a topic, or videos to watch — it is **data_lookup**, NOT normal_query, even if it reads like a knowledge question. When in doubt between normal_query and data_lookup for a real-world topic, choose **data_lookup** — we have live web/news/video search and must never refuse it as unavailable.
 When unsure between normal chat and food, prefer **food_delivery** only if there are clear food/grocery cues.
 
@@ -115,6 +115,7 @@ When unsure between normal chat and food, prefer **food_delivery** only if there
 | "find pizza", "biryani near me", "restaurants near me", "good restaurants", "best Italian places", "search restaurants near X" — **no explicit going-out cue** | **food_delivery** | `zomato` (default) |
 | "order food", "order from", "deliver", "delivery", "home delivery", "send to my address", "cart", "checkout" | **food_delivery** | `zomato` / `swiggy_food` |
 | "buy", "groceries", milk/atta/eggs/bread/rice/etc. | **food_delivery** | `swiggy_instamart` / `zepto` |
+| **Account / recall** about the user's OWN delivery data — "my saved/delivery addresses", "switch my address", "reorder", "my usual / go-to items", "my past orders" — NO product noun needed | **food_delivery** | grocery → `swiggy_instamart` / `zepto`; restaurant → `zomato` |
 | Mixed: restaurant query + ANY movie/theatre/showtime word | **going_out** | `district` |
 | Mixed: restaurant query + ANY "book a table" / "going out" / "dine in" cue | **going_out** | `district` |
 | Live event / concert / comedy / festival / "what's happening" / "things to do" | **going_out** | `district` |

@@ -76,6 +76,101 @@ def test_persist_instamart_default_noop_when_unchanged(monkeypatch):
     assert saved == []
 
 
+def test_persist_zepto_default_saves_on_change(monkeypatch):
+    """A switched Zepto delivery address is persisted as the DB default (with the
+    saved-address label) so it sticks across sessions — mirrors Instamart."""
+    saved: list[dict] = []
+    monkeypatch.setattr(
+        "companion_api.zepto_address.get_default_zepto_address",
+        lambda user: {"address_id": "OLD"},
+    )
+    monkeypatch.setattr(
+        "companion_api.zepto_address.save_default_zepto_address",
+        lambda user, *, address_id, tag=None, line=None: saved.append(
+            {"user": user, "address_id": address_id, "tag": tag, "line": line}
+        ),
+    )
+    legacy = {
+        "selected_zepto_address_id": "OFFICE",
+        "session_zepto_addresses": [
+            {"address_id": "OFFICE", "tag": "Office", "line": "Sector 38, Gurgaon"},
+        ],
+    }
+    cs._persist_zepto_default("u1", legacy)
+    assert saved == [
+        {"user": "u1", "address_id": "OFFICE", "tag": "Office", "line": "Sector 38, Gurgaon"}
+    ]
+
+
+def test_persist_zepto_default_noop_when_unchanged(monkeypatch):
+    saved: list[dict] = []
+    monkeypatch.setattr(
+        "companion_api.zepto_address.get_default_zepto_address",
+        lambda user: {"address_id": "OFFICE"},
+    )
+    monkeypatch.setattr(
+        "companion_api.zepto_address.save_default_zepto_address",
+        lambda *a, **k: saved.append(k),
+    )
+    cs._persist_zepto_default("u1", {"selected_zepto_address_id": "OFFICE"})
+    assert saved == []
+
+
+def test_selected_zepto_address_round_trips():
+    """The user's chosen Zepto address must survive the session round-trip."""
+    assert "selected_zepto_address_id" in cs._SESSION_KEYS
+    req = cs._to_request({"message": "add milk", "selected_zepto_address_id": "OFFICE"}, "u1", None)
+    assert req.session.legacy["selected_zepto_address_id"] == "OFFICE"
+
+
+def test_reconcile_zepto_stale_default_clears_db_when_flagged(monkeypatch):
+    """When the Zepto provider flags a committed address as stale (deleted on the
+    app) AND it still equals the DB default, the DB default is cleared so it stops
+    being re-pinned every turn."""
+    cleared: list[str] = []
+    monkeypatch.setattr(
+        "companion_api.zepto_address.get_default_zepto_address",
+        lambda user: {"address_id": "GONE"},
+    )
+    monkeypatch.setattr(
+        "companion_api.zepto_address.clear_default_zepto_address",
+        lambda user: cleared.append(user),
+    )
+    pr = ProviderResult(provider="zepto", results=[])
+    pr.diagnostics["stale_committed_address"] = "GONE"
+    cs._reconcile_zepto_stale_default("u1", [pr])
+    assert cleared == ["u1"]
+
+
+def test_reconcile_zepto_stale_default_noop_when_db_differs(monkeypatch):
+    """No clear when the DB default no longer matches the flagged stale id (the user
+    already re-picked) — avoids nuking a freshly chosen address."""
+    cleared: list[str] = []
+    monkeypatch.setattr(
+        "companion_api.zepto_address.get_default_zepto_address",
+        lambda user: {"address_id": "NEWPICK"},
+    )
+    monkeypatch.setattr(
+        "companion_api.zepto_address.clear_default_zepto_address",
+        lambda user: cleared.append(user),
+    )
+    pr = ProviderResult(provider="zepto", results=[])
+    pr.diagnostics["stale_committed_address"] = "GONE"
+    cs._reconcile_zepto_stale_default("u1", [pr])
+    assert cleared == []
+
+
+def test_reconcile_zepto_stale_default_noop_without_flag(monkeypatch):
+    """No DB read/clear when no provider flagged a stale address."""
+    called: list[str] = []
+    monkeypatch.setattr(
+        "companion_api.zepto_address.get_default_zepto_address",
+        lambda user: called.append(user) or {"address_id": "X"},
+    )
+    cs._reconcile_zepto_stale_default("u1", [ProviderResult(provider="zepto", results=[])])
+    assert called == []
+
+
 def test_shadow_adapts_request_and_envelope(monkeypatch):
     monkeypatch.setattr(
         cs, "resolve_llm_from_env", lambda *_a: (ResolvedLlm("sarvam", "k", "m"), None)

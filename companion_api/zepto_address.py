@@ -106,5 +106,25 @@ def save_default_zepto_address(
     return record
 
 
+def clear_default_zepto_address(user_id: str) -> None:
+    """Drop the saved default address (e.g. it was deleted/renamed on the Zepto app,
+    so it no longer appears in the live saved-address list). Clears DynamoDB + the
+    local fallback and invalidates the cache so the next turn re-resolves from the
+    live list / GPS instead of pinning a dead id."""
+    if not user_id:
+        return
+    try:
+        from companion_api.profile_cache import ProfileCacheRepository
+
+        ProfileCacheRepository().update_fields(user_id, {_FIELD: None})
+    except Exception:
+        logger.warning("DynamoDB clear unavailable; clearing local fallback", exc_info=True)
+    try:
+        _local_path(user_id).unlink(missing_ok=True)
+    except Exception:
+        pass
+    _cache[user_id] = (time.time() + _TTL_SECONDS, None)
+
+
 def invalidate(user_id: str) -> None:
     _cache.pop(user_id, None)

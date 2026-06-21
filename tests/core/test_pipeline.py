@@ -13,6 +13,7 @@ from core.app_factory import build_runner
 from core.boundaries.null_impls import NoopPublisher
 from core.contracts.attachment import Attachment
 from core.contracts.profile import Profile, SavedAddress
+from core.contracts.session import SessionState
 from core.contracts.tool import AuthMode
 from core.contracts.tool_result import ToolResult
 from core.contracts.turn import TurnRequest
@@ -161,6 +162,59 @@ def test_gps_used_when_no_locality_named():
     )
     asyncio.run(runner.run(request, _LLM))
     assert seen["user_geo"] == {"latitude": 25.2048, "longitude": 55.2708}
+
+
+def test_geo_falls_back_to_saved_address_when_no_gps():
+    """No GPS this turn: a geo-needing provider must still get a location — the
+    committed delivery address is geocoded, so the GPS-less side of a grocery
+    comparison (Zepto) resolves instead of fail-closing on 'needs your location'."""
+    seen = {}
+
+    class _GeoProvider(_FakeZomato):
+        async def run(self, calls, ctx):
+            seen["user_geo"] = ctx.user_geo
+            return await _FakeZomato.run(self, calls, ctx)
+
+    class _Geocode:
+        async def geocode(self, text):
+            return (28.5, 77.1) if "Okhla" in text else None
+
+    runner = _runner(geocode=_Geocode(), provider=_GeoProvider())
+    request = TurnRequest(
+        message="order pizza",
+        user_id="u1",
+        user_geo=None,
+        session=SessionState(
+            legacy={
+                "session_instamart_addresses": [
+                    {"address_id": "a1", "address_line": "Okhla Phase I, New Delhi"}
+                ]
+            }
+        ),
+    )
+    asyncio.run(runner.run(request, _LLM))
+    assert seen["user_geo"] == {"latitude": 28.5, "longitude": 77.1}
+
+
+def test_narrator_fallback_points_at_cards_when_llm_empty():
+    """Narrator LLM yields no text but cards were rendered: the reply references
+    the cards, never a bare 'Done.' or a blanket apology over real results."""
+
+    async def complete(*, user_message, system_prompt, llm):
+        if "machine-ready tool plan" in system_prompt:
+            return {
+                "intent": "x",
+                "summary": "x",
+                "tool_plan": [{"tool": "search_restaurants", "arguments": {}}],
+            }
+        if "You are Companion" in system_prompt:
+            return {"message": ""}
+        return {"task_type": "food_delivery", "food_providers": ["zomato"], "reasoning": "f"}
+
+    runner = _runner(complete=complete)
+    response = asyncio.run(runner.run(TurnRequest(message="order pizza", user_id="u1"), _LLM))
+    assert response.attachments
+    assert response.assistant_message == "Here's what I found — details are in the cards above."
 
 
 def test_narrator_receives_conversation_history():

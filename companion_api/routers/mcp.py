@@ -1106,6 +1106,45 @@ def set_instamart_default_address(
     }
 
 
+# ── Swiggy Food default delivery ADDRESS (per-user source of truth) ────────────
+# Mirrors Instamart: Swiggy Food takes a saved-address id (addressId) on search /
+# menu / cart / order, so the source of truth is a saved-address id captured once
+# during onboarding. Serviceability on Swiggy is per-restaurant (not per-address),
+# so there's nothing to validate at save time — just persist it.
+
+from companion_api.swiggy_food_address import (  # noqa: E402
+    get_default_swiggy_food_address,
+    save_default_swiggy_food_address,
+)
+
+
+class SwiggyFoodDefaultAddress(BaseModel):
+    address_id: str
+    tag: str | None = None
+    line: str | None = None
+
+
+@router.get("/api/mcp/swiggy-food/default-address/")
+def get_swiggy_food_default_address(user: str = Depends(get_current_user)) -> dict[str, Any]:
+    """Return the user's saved Swiggy Food default delivery address (or null)."""
+    return {"default_address": get_default_swiggy_food_address(user)}
+
+
+@router.post("/api/mcp/swiggy-food/default-address/")
+def set_swiggy_food_default_address(
+    payload: SwiggyFoodDefaultAddress,
+    user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Persist the user's chosen Swiggy Food default delivery address."""
+    address_id = payload.address_id.strip()
+    if not address_id:
+        raise HTTPException(status_code=400, detail="address_id is required.")
+    record = save_default_swiggy_food_address(
+        user, address_id=address_id, tag=payload.tag, line=payload.line
+    )
+    return {"status": "saved", "default_address": record}
+
+
 # ── Zepto default delivery location (per-user source of truth) ─────────────────
 # Zepto binds the cart to a *store*, resolved from a GPS coordinate — so unlike
 # Instamart (a saved-address id), Zepto's source of truth is a {lat,lng} point

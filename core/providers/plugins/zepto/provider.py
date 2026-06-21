@@ -43,6 +43,24 @@ from core.providers.plugins.zepto.session import ZeptoSession, merge_products
 _CART_TOOLS = {"view_cart", "update_cart"}
 _SEARCH_TOOLS = {"search_products", "search_multiple_products"}
 
+# Zepto can error a view_cart on an EMPTY cart with one of these — that's not a
+# failure, the cart is just empty. Reclassify it to a successful empty cart so the
+# narrator reports "your cart is empty", never "technical issue" (mirrors the
+# Instamart get_cart empty-cart handling).
+_EMPTY_CART_MARKERS = (
+    "cart not found",
+    "session expired",
+    "cart is empty",
+    "no items",
+    "empty cart",
+)
+
+
+def _is_empty_cart_error(detail: str | None) -> bool:
+    text = (detail or "").lower()
+    return any(m in text for m in _EMPTY_CART_MARKERS)
+
+
 _DEFAULT_URL = "https://mcp.zepto.co.in/mcp"
 # The committed Zepto delivery ADDRESS id — pinned by companion_api at the
 # request boundary (source of truth, mirrors Instamart). select_saved_address
@@ -84,6 +102,8 @@ class ZeptoProvider(McpProvider):
     label = "Zepto MCP"
     auth_mode = AuthMode.OAUTH
     session_cls = ZeptoSession
+    capability_class = "grocery"
+    cart_session_key = "session_zepto_cart"
     # Zepto's list_saved_addresses returns prose, not the structured shape the
     # base's saved_addresses_tool path expects — so we leave that None and do our
     # own fetch + parse in before_run (extract_zepto_address_rows).
@@ -143,6 +163,16 @@ class ZeptoProvider(McpProvider):
                 error_detail=str(exc),
             )
         result = await super().run(calls, ctx)
+        # An empty Zepto cart can make view_cart ERROR ("cart is empty" / "cart not
+        # found") — that's not a failure. Reclassify it to a successful empty cart
+        # so the narrator (and the failure fallback) report "your cart is empty",
+        # never "technical issue", and merge clears any stale snapshot.
+        for tr in result.results:
+            if tr.tool == "view_cart" and not tr.ok and _is_empty_cart_error(tr.error_detail):
+                tr.ok = True
+                tr.error = None
+                tr.error_detail = None
+                tr.data = {"is_error": False, "data": {"items": [], "isEmpty": True}}
         # Surface the saved-address list + resolved address (from before_run) for
         # the UI picker and the "Delivering to" bar (mirrors Instamart).
         rows = ctx.scratch.get("saved_address_rows")
@@ -151,7 +181,28 @@ class ZeptoProvider(McpProvider):
         resolved = ctx.scratch.get("resolved_zepto_address_id")
         if resolved:
             result.diagnostics["resolved_zepto_address_id"] = resolved
+        # An explicit address switch this turn (planner-resolved select_saved_address
+        # to a different saved id) must re-commit the session's selection so it
+        # sticks next turn + persists as the DB default (mirrors Instamart).
+        switched = ctx.scratch.get("zepto_switched_address_id")
+        if switched:
+            result.diagnostics["switched_address_id"] = switched
+        # A committed address deleted/renamed on the Zepto app (see before_run) — let
+        # merge clear it from the session and core_shadow clear the DB default.
+        stale = ctx.scratch.get("zepto_stale_committed_address")
+        if stale:
+            result.diagnostics["stale_committed_address"] = stale
         return result
+
+    @staticmethod
+    def _row_has_id(rows: list[dict[str, Any]], address_id: str) -> bool:
+        """True when ``address_id`` appears in a saved-address row list (keyed by
+        ``address_id`` or ``id``)."""
+        target = (address_id or "").strip()
+        return bool(target) and any(
+            isinstance(r, dict) and str(r.get("address_id") or r.get("id") or "").strip() == target
+            for r in rows
+        )
 
     async def before_run(self, session: Any, ctx: ExecCtx) -> None:
         await super().before_run(session, ctx)
@@ -179,6 +230,18 @@ class ZeptoProvider(McpProvider):
         # address (select_saved_address pins both, mirrors Instamart). FALLBACK:
         # the legacy GPS point for users who haven't picked an address yet.
         anchor = self._anchor_address(ctx)
+        # TRUST ZEPTO'S SAVED-ADDRESS LIST (the "address changed outside chat" case):
+        # Zepto has no per-cart address to read back (it rebinds per turn from the
+        # committed id), so the live saved-address list is the source of truth. A
+        # committed id absent from it was DELETED/RENAMED on the Zepto app — binding
+        # it pins a dead id (stale "Delivering to" bar, a store that no longer maps
+        # to it, and it gets re-committed forever). Reconcile: drop it, fall back to
+        # GPS, and flag it so merge clears the committed id (Zepto's analogue of
+        # Instamart's self-heal of a drifted committed address). Only act on a
+        # NON-EMPTY list — an empty fetch is inconclusive, never a deletion signal.
+        if anchor and rows and not self._row_has_id(rows, anchor):
+            ctx.scratch["zepto_stale_committed_address"] = anchor
+            anchor = None
         if anchor:
             ctx.placeholders["__ZEPTO_ADDRESS_ID__"] = anchor
             ctx.scratch["resolved_zepto_address_id"] = anchor
@@ -212,22 +275,53 @@ class ZeptoProvider(McpProvider):
         # Short-circuit the planner's store-binding calls ONLY when they're
         # redundant with what before_run already bound. A select_saved_address to
         # a DIFFERENT id is a real address switch — let it through.
-        if ctx.scratch.get("zepto_store_registered"):
-            if tool == "get_location_serviceability":
+        if tool == "get_location_serviceability" and ctx.scratch.get("zepto_store_registered"):
+            return {
+                "is_error": False,
+                "data": {"raw_text": "Store already registered for this session."},
+            }
+        if tool == "select_saved_address":
+            target = str(args.get("addressId") or "").strip()
+            resolved = str(ctx.scratch.get("resolved_zepto_address_id") or "").strip()
+            # Redundant re-bind of the already-selected address — skip the round-trip.
+            if ctx.scratch.get("zepto_store_registered") and (not target or target == resolved):
                 return {
                     "is_error": False,
-                    "data": {"raw_text": "Store already registered for this session."},
+                    "data": {"raw_text": "Address already selected for this session."},
                 }
-            if tool == "select_saved_address":
-                target = str(args.get("addressId") or "").strip()
-                if not target or target == ctx.scratch.get("resolved_zepto_address_id"):
-                    return {
-                        "is_error": False,
-                        "data": {"raw_text": "Address already selected for this session."},
-                    }
+            # A switch to a DIFFERENT, known-saved address: let it bind AND record it
+            # so run() surfaces it and merge re-commits the session's delivery address
+            # (otherwise the switch binds the store this turn but reverts next turn).
+            # An unknown id is a planner fabrication — never treat it as a switch.
+            if target and target != resolved and self._is_saved_address(target, ctx):
+                ctx.scratch["zepto_switched_address_id"] = target
+                ctx.scratch["resolved_zepto_address_id"] = target
+            return None
         if tool == "update_cart":
             self._reconcile_cart_items(args, ctx)
+            # Nothing valid left to send (e.g. every item was a fabricated pvid). An
+            # empty cartItems would error/no-op on Zepto — skip with a synthetic
+            # no-op instead of poking the server (mirrors Instamart).
+            if not args.get("cartItems"):
+                return {"is_error": False, "data": {"raw_text": "No cart changes to apply."}}
         return None
+
+    @staticmethod
+    def _is_saved_address(address_id: str, ctx: ExecCtx) -> bool:
+        """True when ``address_id`` is one of the user's saved Zepto addresses.
+
+        Guards the switch path: the planner only emits a concrete addressId by
+        copying it from the saved-addresses block, so a value that isn't a known
+        saved id is a fabrication and must not re-commit the delivery address."""
+        candidates: list[Any] = []
+        rows = ctx.scratch.get("saved_address_rows") if isinstance(ctx.scratch, dict) else None
+        if isinstance(rows, list):
+            candidates.extend(rows)
+        session = ctx.session if isinstance(ctx.session, dict) else {}
+        carried = session.get("session_zepto_addresses")
+        if isinstance(carried, list):
+            candidates.extend(carried)
+        return ZeptoProvider._row_has_id(candidates, address_id)
 
     def harvest(self, tool: str, envelope: dict[str, Any], ctx: ExecCtx) -> None:
         # Record the (pvid -> spid) pairs returned by a search so a later
@@ -314,8 +408,10 @@ class ZeptoProvider(McpProvider):
                 if it.get(k) is not None:
                     item[k] = it[k]
             out.append(item)
-        if out:
-            args["cartItems"] = out
+        # Always replace with the reconciled list — when every item was dropped
+        # (all fabricated), send [] so before_call's short-circuit catches it
+        # rather than forwarding the planner's bad payload to Zepto.
+        args["cartItems"] = out
 
     def build_attachments(self, result: ProviderResult) -> list[Attachment]:
         rows = result.diagnostics.get("saved_address_rows")
@@ -380,6 +476,22 @@ class ZeptoProvider(McpProvider):
         resolved = str(result.diagnostics.get("resolved_zepto_address_id") or "").strip()
         if resolved and not str(merged.get(_SESSION_ZEPTO_ADDRESS) or "").strip():
             merged[_SESSION_ZEPTO_ADDRESS] = resolved
+        # An explicit switch this turn WINS over the committed selection — the user
+        # asked to deliver elsewhere; it becomes the session's source of truth and
+        # (via core_shadow) the DB default (mirrors Instamart's switched_address_id).
+        switched = str(result.diagnostics.get("switched_address_id") or "").strip()
+        if switched:
+            merged[_SESSION_ZEPTO_ADDRESS] = switched
+        # A committed address deleted/renamed on the Zepto app was dropped this turn
+        # — clear it so we stop re-committing a dead id (next turn re-resolves from
+        # the saved default / GPS). An explicit switch this turn still wins.
+        stale = str(result.diagnostics.get("stale_committed_address") or "").strip()
+        if (
+            stale
+            and not switched
+            and str(merged.get(_SESSION_ZEPTO_ADDRESS) or "").strip() == stale
+        ):
+            merged.pop(_SESSION_ZEPTO_ADDRESS, None)
         products = merge_products(slice_.get("session_zepto_products"), result.results)
         if products:
             merged["session_zepto_products"] = products
