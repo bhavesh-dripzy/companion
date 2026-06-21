@@ -63,6 +63,10 @@ _SESSION_KEYS = (
     # round-trip so cart/checkout reuse it instead of re-picking the nearest
     # (which may be a non-serviceable address) every turn.
     "selected_instamart_address_id",
+    # The address the user picked for Swiggy Food this session — must survive the
+    # round-trip so cart/checkout reuse it instead of the executor re-picking the
+    # nearest saved address every turn (mirrors Instamart).
+    "selected_swiggy_food_address_id",
     "session_kite_instruments",
     "session_kite_holdings",
     "session_kite_positions",
@@ -76,6 +80,8 @@ _SESSION_KEYS = (
 
 # The committed Instamart delivery address key (a member of _SESSION_KEYS above).
 _SESSION_SELECTED_ADDRESS = "selected_instamart_address_id"
+# The committed Swiggy Food delivery address key (a member of _SESSION_KEYS above).
+_SESSION_SWIGGY_FOOD_ADDRESS = "selected_swiggy_food_address_id"
 # The committed Zepto delivery location key (a member of _SESSION_KEYS above).
 _SESSION_ZEPTO_LOCATION = "selected_zepto_location"
 # The committed Zepto delivery address key (a member of _SESSION_KEYS above).
@@ -116,6 +122,19 @@ def _to_request(data: dict[str, Any], user: str, reply_language: str | None) -> 
             default = get_default_instamart_address(user)
             if default and default.get("address_id"):
                 legacy[_SESSION_SELECTED_ADDRESS] = default["address_id"]
+        except Exception:  # pragma: no cover - never block a turn on prefs lookup
+            pass
+    # Pin the user's saved Swiggy Food default address (DynamoDB source of truth)
+    # when the client didn't carry one this turn — anchors search/menu/cart to a
+    # known-good address instead of the executor falling back to the nearest saved
+    # one (mirrors Instamart).
+    if not str(legacy.get(_SESSION_SWIGGY_FOOD_ADDRESS) or "").strip():
+        try:
+            from companion_api.swiggy_food_address import get_default_swiggy_food_address
+
+            default = get_default_swiggy_food_address(user)
+            if default and default.get("address_id"):
+                legacy[_SESSION_SWIGGY_FOOD_ADDRESS] = default["address_id"]
         except Exception:  # pragma: no cover - never block a turn on prefs lookup
             pass
     # Pin the user's saved Zepto delivery ADDRESS (source of truth — mirrors
@@ -213,6 +232,102 @@ def _persist_instamart_default(user: str, legacy: dict[str, Any]) -> None:
         pass
 
 
+def _persist_swiggy_food_default(user: str, legacy: dict[str, Any]) -> None:
+    """Sync the user's saved Swiggy Food default address with the address the turn
+    committed to (UI "Change" picker or an explicit "deliver to office"). Mirrors
+    ``_persist_instamart_default``. No-op when unchanged."""
+    aid = str((legacy or {}).get(_SESSION_SWIGGY_FOOD_ADDRESS) or "").strip()
+    if not aid:
+        return
+    try:
+        from companion_api.swiggy_food_address import (
+            get_default_swiggy_food_address,
+            save_default_swiggy_food_address,
+        )
+
+        current = get_default_swiggy_food_address(user) or {}
+        if str(current.get("address_id") or "").strip() == aid:
+            return  # already the default — nothing to persist / invalidate
+        tag = line = None
+        for r in legacy.get("session_addresses") or []:
+            if isinstance(r, dict) and str(r.get("address_id") or "").strip() == aid:
+                tag = (
+                    str(r.get("tag") or r.get("addressTag") or r.get("label") or "").strip() or None
+                )
+                line = (
+                    str(
+                        r.get("line")
+                        or r.get("address_line")
+                        or r.get("addressLine")
+                        or r.get("location_name")
+                        or ""
+                    ).strip()
+                    or None
+                )
+                break
+        save_default_swiggy_food_address(user, address_id=aid, tag=tag, line=line)
+    except Exception:  # pragma: no cover - never block a turn on prefs persistence
+        pass
+
+
+def _persist_zepto_default(user: str, legacy: dict[str, Any]) -> None:
+    """Sync the user's saved Zepto default address with the address the turn
+    committed to. When the user switches delivery address mid-session (via the
+    card "Change" picker OR an explicit "deliver to office"), the new
+    ``selected_zepto_address_id`` becomes the DB source of truth so it sticks for
+    the next turn / fresh session, and the prefs cache is invalidated. Mirrors
+    ``_persist_instamart_default``. No-op when unchanged."""
+    aid = str((legacy or {}).get(_SESSION_ZEPTO_ADDRESS) or "").strip()
+    if not aid:
+        return
+    try:
+        from companion_api.zepto_address import (
+            get_default_zepto_address,
+            save_default_zepto_address,
+        )
+
+        current = get_default_zepto_address(user) or {}
+        if str(current.get("address_id") or "").strip() == aid:
+            return  # already the default — nothing to persist / invalidate
+        tag = line = None
+        for r in legacy.get("session_zepto_addresses") or []:
+            if isinstance(r, dict) and str(r.get("address_id") or "").strip() == aid:
+                tag = str(r.get("tag") or r.get("label") or "").strip() or None
+                line = str(r.get("line") or r.get("address_line") or "").strip() or None
+                break
+        save_default_zepto_address(user, address_id=aid, tag=tag, line=line)
+    except Exception:  # pragma: no cover - never block a turn on prefs persistence
+        pass
+
+
+def _reconcile_zepto_stale_default(user: str, provider_results: list[ProviderResult]) -> None:
+    """Clear the DB default Zepto address when the provider determined (from this
+    turn's LIVE saved-address list) that the committed address was deleted/renamed
+    on the Zepto app. Driven by the provider's own ``stale_committed_address``
+    diagnostic — a high-confidence signal (full fetched list), so no false positive
+    from a partial round-trip — and only clears when the DB default still equals the
+    flagged id. Otherwise the dead id would be re-pinned every turn."""
+    stale = ""
+    for r in provider_results:
+        if r.provider == "zepto":
+            stale = str((r.diagnostics or {}).get("stale_committed_address") or "").strip()
+            if stale:
+                break
+    if not stale:
+        return
+    try:
+        from companion_api.zepto_address import (
+            clear_default_zepto_address,
+            get_default_zepto_address,
+        )
+
+        current = str((get_default_zepto_address(user) or {}).get("address_id") or "").strip()
+        if current == stale:
+            clear_default_zepto_address(user)
+    except Exception:  # pragma: no cover - never block a turn on prefs reconcile
+        pass
+
+
 def _tool_execution(results: list[ProviderResult]) -> dict[str, Any]:
     """Legacy ``{ok, error?, error_code?}`` summary for the frontend.
 
@@ -295,6 +410,9 @@ async def _run(
     else:
         response = await _get_runner().run(request, llm)
     _persist_instamart_default(user, response.session.legacy)
+    _persist_swiggy_food_default(user, response.session.legacy)
+    _persist_zepto_default(user, response.session.legacy)
+    _reconcile_zepto_stale_default(user, response.provider_results)
     return _to_envelope(response, request.chat_id)
 
 

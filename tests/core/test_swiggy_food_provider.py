@@ -238,7 +238,9 @@ def test_run_chains_search_to_menu_in_one_plan(monkeypatch):
         )
     )
     assert result.ok, [r.error_detail for r in result.results if not r.ok]
-    assert seen[1] == ("get_restaurant_menu", {"restaurantId": "760631"})
+    # get_restaurant_menu REQUIRES addressId (live schema) — the executor guarantees
+    # the committed/resolved address so the planner can't break the call by omitting it.
+    assert seen[1] == ("get_restaurant_menu", {"restaurantId": "760631", "addressId": "A1"})
 
 
 def test_dish_rows_in_search_results_are_not_restaurants():
