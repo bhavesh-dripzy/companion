@@ -14,7 +14,9 @@ from typing import Any
 
 from companion_api.ondc_crypto import load_ondc_keys
 
-DEFAULT_CORE_VERSION = os.getenv("ONDC_CORE_VERSION", "2.0.2")
+# RET10 (B2C grocery) certifies on Beckn 1.2.0, whose context field is
+# ``core_version`` (2.x uses ``version`` and is B2B). Override via env if needed.
+DEFAULT_CORE_VERSION = os.getenv("ONDC_CORE_VERSION", "1.2.0")
 
 
 def _now_iso() -> str:
@@ -48,11 +50,13 @@ def new_context(
     """Build a Beckn context. ``transaction_id`` is reused across a transaction;
     ``message_id`` is fresh per request. bpp_id/bpp_uri are set for directed
     actions (select/init/confirm/...) and omitted for ``search``."""
+    ver = core_version or DEFAULT_CORE_VERSION
     context: dict[str, Any] = {
         "domain": domain,
         "location": {"country": {"code": country}, "city": {"code": city}},
         "action": action,
-        "version": core_version or DEFAULT_CORE_VERSION,
+        # 1.2.x carries "core_version"; 2.x carries "version".
+        ("core_version" if ver.startswith("1.") else "version"): ver,
         "bap_id": bap_id,
         "bap_uri": bap_uri,
         "transaction_id": transaction_id or str(uuid.uuid4()),
