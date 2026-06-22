@@ -32,6 +32,7 @@ import base64
 import json
 import os
 import sys
+import uuid
 
 import boto3
 from cryptography.hazmat.primitives import serialization
@@ -75,6 +76,7 @@ def generate_keys(*, subscriber_id: str, unique_key_id: str) -> dict[str, str]:
     return {
         "subscriber_id": subscriber_id,
         "unique_key_id": unique_key_id,
+        "request_id": str(uuid.uuid4()),
         # private halves — kept secret
         "signing_private_key": _b64(sign_priv_raw),
         "encryption_private_key": _b64(enc_priv_raw),
@@ -125,6 +127,7 @@ def main() -> None:
     print("\n=== Register these PUBLIC values on the ONDC NP portal ===")
     print(f"subscriber_id          : {payload['subscriber_id']}")
     print(f"unique_key_id          : {payload['unique_key_id']}")
+    print(f"request_id             : {payload['request_id']}")
     print(f"signing_public_key     : {payload['signing_public_key']}")
     print(f"encryption_public_key  : {payload['encryption_public_key']}")
     if args.print_private:

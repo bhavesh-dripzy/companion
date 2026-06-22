@@ -318,6 +318,7 @@ from companion_api.routers.calendar import router as calendar_router  # noqa: E4
 from companion_api.routers.chats import router as chats_router  # noqa: E402
 from companion_api.routers.maps import router as maps_router  # noqa: E402
 from companion_api.routers.mcp import router as mcp_router  # noqa: E402
+from companion_api.routers.ondc import router as ondc_router  # noqa: E402
 from companion_api.routers.profile import router as profile_router  # noqa: E402
 from companion_api.routers.reminders import router as reminders_router  # noqa: E402
 from companion_api.routers.tools import router as tools_router  # noqa: E402
@@ -333,6 +334,7 @@ app.include_router(tools_router)
 app.include_router(auth_router)
 app.include_router(mcp_router)
 app.include_router(agent_router)
+app.include_router(ondc_router)
 
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)

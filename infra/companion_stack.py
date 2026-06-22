@@ -307,6 +307,44 @@ class CompanionStack(Stack):
         )
         cdk.CfnOutput(self, "AppDownloadsBucket", value=app_downloads.bucket_name)
 
+        # Async agent turns: ephemeral job records (status, rolling progress,
+        # final envelope) polled by the frontend; TTL reaps them after an hour.
+        agent_jobs = dynamodb.Table(
+            self,
+            "AgentJobsTable",
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            partition_key=dynamodb.Attribute(name="job_id", type=dynamodb.AttributeType.STRING),
+            time_to_live_attribute="expires_at",
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+        agent_jobs.grant_read_write_data(api_function)
+        api_function.add_environment("AGENT_JOBS_TABLE", agent_jobs.table_name)
+
+        # ONDC BAP transactions: per-transaction state + the async on_* callbacks
+        # (one row per transaction_id + sort key); TTL reaps after a day.
+        ondc_transactions = dynamodb.Table(
+            self,
+            "OndcTransactionsTable",
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            partition_key=dynamodb.Attribute(name="transaction_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="action_message", type=dynamodb.AttributeType.STRING),
+            time_to_live_attribute="expires_at",
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+        ondc_transactions.grant_read_write_data(api_function)
+        api_function.add_environment("ONDC_TXN_TABLE", ondc_transactions.table_name)
+        # The query handler re-invokes this same function (async, Event type)
+        # to run tool-heavy turns past API Gateway's 30s integration cap.
+        api_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[
+                    f"arn:{cdk.Aws.PARTITION}:lambda:{cdk.Aws.REGION}:"
+                    f"{cdk.Aws.ACCOUNT_ID}:function:{cdk.Aws.STACK_NAME}-ApiFunction*",
+                ],
+            )
+        )
+
         api_function.add_to_role_policy(
             iam.PolicyStatement(
                 actions=[
@@ -440,6 +478,39 @@ class CompanionStack(Stack):
                     targets.ApiGatewayv2DomainProperties(
                         regional_domain_name=api_domain.attr_regional_domain_name,
                         regional_hosted_zone_id=api_domain.attr_regional_hosted_zone_id,
+                    )
+                ),
+            )
+
+            ondc_domain = apigwv2.CfnDomainName(
+                self,
+                "OndcCustomDomain",
+                domain_name=f"ondc.{domain_name}",
+                domain_name_configurations=[
+                    apigwv2.CfnDomainName.DomainNameConfigurationProperty(
+                        certificate_arn=certificate.certificate_arn,
+                        endpoint_type="REGIONAL",
+                    )
+                ],
+            )
+
+            apigwv2.CfnApiMapping(
+                self,
+                "OndcApiMapping",
+                api_id=api.ref,
+                domain_name=f"ondc.{domain_name}",
+                stage="$default",
+            ).add_dependency(ondc_domain)
+
+            route53.ARecord(
+                self,
+                "OndcAliasRecord",
+                zone=zone,
+                record_name="ondc",
+                target=route53.RecordTarget.from_alias(
+                    targets.ApiGatewayv2DomainProperties(
+                        regional_domain_name=ondc_domain.attr_regional_domain_name,
+                        regional_hosted_zone_id=ondc_domain.attr_regional_hosted_zone_id,
                     )
                 ),
             )
