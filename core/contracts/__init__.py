@@ -1,33 +1,15 @@
-"""Pure data contracts for the core pipeline — no I/O, no LLM, importable anywhere."""
+"""Core data contracts retained for the MCP/OAuth layer.
 
-from core.contracts.attachment import Attachment
-from core.contracts.profile import Profile, SavedAddress
-from core.contracts.routing import RoutingDecision, TaskType
-from core.contracts.session import ProviderSessionState, SessionState
-from core.contracts.tool import AuthMode, ConfirmPolicy, Tool
-from core.contracts.tool_call import PlanConstraints, ToolCall, ToolPlan
+The tool-calling / pipeline contracts (Tool, ToolCall, ToolPlan, SessionState,
+Attachment, RoutingDecision, Turn*, Profile, …) were removed with the legacy
+orchestrator. The new backend will define its own. What remains is the result
+taxonomy the MCP error/repair path still uses.
+"""
+
 from core.contracts.tool_result import ErrorCode, ProviderResult, ToolResult
-from core.contracts.turn import TurnRequest, TurnResponse
-from core.contracts.turn_event import TurnEvent
 
 __all__ = [
-    "Attachment",
-    "AuthMode",
-    "ConfirmPolicy",
     "ErrorCode",
-    "PlanConstraints",
-    "Profile",
     "ProviderResult",
-    "ProviderSessionState",
-    "RoutingDecision",
-    "SavedAddress",
-    "SessionState",
-    "TaskType",
-    "Tool",
-    "ToolCall",
-    "ToolPlan",
     "ToolResult",
-    "TurnEvent",
-    "TurnRequest",
-    "TurnResponse",
 ]

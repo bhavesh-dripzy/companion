@@ -504,15 +504,20 @@ export const InstamartProductCardGrid: React.FC<{
 
 const InstamartCartItemRow: React.FC<{
   item: InstamartCartItem;
+  index?: number;
+  /** When true, render the compact no-image layout regardless of this item's own image — set
+   *  cart-wide when ANY item lacks an image, so the rows stay visually uniform (no mismatched
+   *  thumbnail-vs-badge rows). */
+  hideImage?: boolean;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ item, onQuickPrompt, disabled }) => {
+}> = ({ item, index, hideImage, onQuickPrompt, disabled }) => {
   const [imageBroken, setImageBroken] = useState(false);
   const theme = themeFor('instamart');
   const qty = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1;
   const lineTotal = typeof item.price_inr === 'number' ? item.price_inr * qty : null;
   const lineTotalLabel = formatPriceFromInr(lineTotal ?? undefined);
-  const showImage = !!item.image_url && !imageBroken;
+  const showImage = !hideImage && !!item.image_url && !imageBroken;
 
   const setQty = (newQty: number) => {
     if (!onQuickPrompt || disabled) return;
@@ -525,10 +530,15 @@ const InstamartCartItemRow: React.FC<{
   };
 
   return (
-    <div className="flex items-start gap-3 py-4 px-4 border-b border-slate-100 last:border-b-0">
-      {/* Image */}
-      <div className="w-[72px] h-[72px] rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
-        {showImage ? (
+    <div
+      className={cn(
+        'flex gap-3 px-4 border-b border-slate-100 last:border-b-0',
+        showImage ? 'items-start py-4' : 'items-center py-2.5',
+      )}
+    >
+      {/* Image when we have one; otherwise a compact numbered badge (no placeholder box). */}
+      {showImage ? (
+        <div className="w-[72px] h-[72px] rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
           <img
             src={item.image_url ?? ''}
             alt={item.name ?? ''}
@@ -537,19 +547,24 @@ const InstamartCartItemRow: React.FC<{
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover"
           />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: `linear-gradient(135deg, ${theme.brandHex}14, transparent)` }}
-          >
-            <ShoppingCart size={22} style={{ color: `${theme.brandHex}80` }} />
-          </div>
-        )}
-      </div>
+        </div>
+      ) : index ? (
+        <span
+          className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+          style={{ backgroundColor: `${theme.brandHex}1a`, color: theme.brandHex }}
+        >
+          {index}
+        </span>
+      ) : null}
 
       {/* Name + pack */}
       <div className="flex-1 min-w-0 pt-0.5">
-        <p className="text-[13.5px] font-bold text-slate-900 leading-snug line-clamp-2">
+        <p
+          className={cn(
+            'text-[13.5px] font-bold text-slate-900 leading-snug',
+            showImage ? 'line-clamp-2' : 'line-clamp-1',
+          )}
+        >
           {item.name || 'Item'}
         </p>
         {item.quantity_description && (
@@ -557,8 +572,13 @@ const InstamartCartItemRow: React.FC<{
         )}
       </div>
 
-      {/* Qty pill + price */}
-      <div className="flex flex-col items-end gap-2 shrink-0 pt-0.5">
+      {/* Qty pill + price — one row when compact (no image), stacked when there's a thumbnail */}
+      <div
+        className={cn(
+          'shrink-0',
+          showImage ? 'flex flex-col items-end gap-2 pt-0.5' : 'flex items-center gap-2.5',
+        )}
+      >
         {/* Quantity pill */}
         <div
           className="flex items-center rounded-xl border overflow-hidden"
@@ -593,7 +613,7 @@ const InstamartCartItemRow: React.FC<{
         </div>
 
         {/* Price */}
-        <div className="flex items-baseline gap-1.5">
+        <div className="flex items-baseline justify-end gap-1.5 min-w-[46px]">
           {item.mrp_inr && item.mrp_inr > (item.price_inr ?? 0) && (
             <span className="text-[12px] text-slate-400 line-through">
               {formatPriceFromInr(item.mrp_inr)}
@@ -620,6 +640,9 @@ export const InstamartCartCard: React.FC<{
   const items = Array.isArray(cart.items) ? cart.items : [];
   const isEmpty = !!cart.is_empty || items.length === 0;
   const totalLabel = formatPriceFromPaise(cart.grand_total_paise);
+  // All-or-nothing thumbnails: if even one item has no image, drop images for every row so the
+  // cart doesn't look lopsided (a single image-less row next to thumbnailed ones).
+  const hideImages = items.some((it) => !it.image_url);
 
   const handleCheckout = onQuickPrompt && !isEmpty
     ? () => onQuickPrompt(theme.checkoutPrompt)
@@ -667,6 +690,8 @@ export const InstamartCartCard: React.FC<{
                 <InstamartCartItemRow
                   key={it.spin_id || `${it.name}-${idx}`}
                   item={it}
+                  index={idx + 1}
+                  hideImage={hideImages}
                   onQuickPrompt={onQuickPrompt}
                   disabled={disabled}
                 />

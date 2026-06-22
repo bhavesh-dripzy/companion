@@ -260,6 +260,10 @@ export interface ZeptoCart {
   // multiply by 0.01 in the UI when rendering.
   grand_total_paise?: number | null;
   summary_text?: string | null;
+  // Item Total + Delivery & charges, from get_payment_methods (empty until priced / store closed).
+  bill_breakdown?: InstamartBillLine[] | null;
+  // Set when checkout pricing fails (store closed / not serviceable) → prompt an address change.
+  unavailable?: string | null;
 }
 
 // Instamart product / cart shapes — mirrors the Zepto types above but
@@ -749,6 +753,30 @@ export interface KiteMfRow {
   pnl?: number;
 }
 
+// ── New agent backend (POST /api/agent/turn) ──────────────────────────────
+export interface AgentCardItem {
+  ref?: string;
+  item_id?: string;
+  name: string;
+  qty?: number;
+  price?: string;
+  in_stock?: boolean;
+}
+export interface AgentCard {
+  type: 'product_list' | 'cart' | 'error';
+  provider?: string;
+  title?: string;
+  items?: AgentCardItem[];
+  total?: string;
+  bill?: { label: string; value: string }[];
+  empty?: boolean;
+  message?: string;
+}
+export interface AgentPendingAction {
+  type: string;                       // disambiguate | pick_provider | pick_another_address | …
+  options?: any[];
+}
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -773,6 +801,9 @@ export interface Message {
   // When Zepto needed location but geo failed, mark this message so the UI
   // can show a "Share location" button to retry with fresh coordinates.
   askLocation?: boolean;
+  // New agent backend: typed cards + a pending action (disambiguate / pick-provider / …).
+  agentCards?: AgentCard[];
+  pendingAction?: AgentPendingAction | null;
 }
 
 export interface SessionRestaurant {

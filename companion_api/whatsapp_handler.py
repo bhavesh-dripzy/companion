@@ -1,15 +1,14 @@
 """Inbound WhatsApp Cloud API webhook handler.
 
-Identifies the member by phone, handles reminder yes/no replies, then runs the
-turn through the core pipeline (`run_core_turn_sync`) and replies over the
-WhatsApp Cloud API. Relocated from `app/services/whatsapp/handler.py` in the
-legacy teardown and rewired off the deleted `run_agent_turn` monolith onto core.
+Identifies the member by phone and handles reminder yes/no replies. General
+turn execution is STUBBED during the backend rebuild (the agent pipeline was
+removed); inbound messages get a clean "unavailable" reply until the new
+backend reconnects its executor.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Any
 
 from companion_api.dynamodb import MemberRepository
@@ -72,66 +71,6 @@ def _handle_reminder_reply(member_id: str, sender_phone: str, lowered: str) -> b
         return False
 
 
-def _recent_history(member_id: str) -> list[dict[str, str]]:
-    try:
-        from companion_api.messages_repo import MessageRepository
-
-        items = MessageRepository().list_recent(member_id, limit=8)
-        return [{"role": item["role"], "content": item["text"]} for item in items]
-    except Exception as exc:
-        logger.warning("Failed to load message history for WhatsApp user: %s", exc)
-        return []
-
-
-def _log_turn(
-    *,
-    member_id: str,
-    sender_phone: str,
-    user_message: str,
-    assistant_message: str,
-    result: dict[str, Any],
-) -> None:
-    """Persist the user+assistant messages and enqueue the leadgen turn event."""
-    try:
-        from companion_api.leadgen_queue import send_turn_event
-        from companion_api.messages_repo import MessageRepository
-
-        turn_id = str(uuid.uuid4())
-        task_type = result.get("task_type")
-        routed_provider = result.get("routed_provider")
-
-        repo = MessageRepository()
-        repo.create(
-            member_id=member_id,
-            message_id=f"{turn_id}-user",
-            role="user",
-            text=user_message.strip(),
-            task_type=task_type,
-            provider=routed_provider,
-        )
-        repo.create(
-            member_id=member_id,
-            message_id=f"{turn_id}-assistant",
-            role="assistant",
-            text=assistant_message,
-            task_type=task_type,
-            provider=routed_provider,
-        )
-        send_turn_event(
-            user_id=member_id,
-            message_id=turn_id,
-            user_message=user_message.strip(),
-            assistant_message=assistant_message,
-            task_type=task_type,
-            routed_provider=routed_provider,
-            session_addresses=result.get("session_addresses"),
-            phone=sender_phone,
-            member_id=member_id,
-        )
-    except Exception as exc:
-        logger.exception("Failed to log message or enqueue turn event for WhatsApp: %s", exc)
-
-
 def _process_incoming_message(msg: dict[str, Any]) -> None:
     sender_phone = msg.get("from")  # e.g. "919773687877"
     if not sender_phone:
@@ -153,41 +92,15 @@ def _process_incoming_message(msg: dict[str, Any]) -> None:
     if _handle_reminder_reply(member_id, sender_phone, user_message.lower()):
         return
 
-    # 3. Run the turn through the core pipeline (LLM resolution happens inside).
+    # 3. Turn execution is STUBBED during the backend rebuild. The agent
+    # pipeline was removed so the execution architecture can be rebuilt from
+    # scratch; reply with a clean "unavailable" so inbound users get a graceful
+    # message instead of an error. The new backend reconnects its executor here.
     try:
-        from companion_api.core_shadow import run_core_turn_sync
-
-        result = run_core_turn_sync(
-            {
-                "message": user_message,
-                "address_id": None,  # profile-resolver handles home/office keywords
-                "execute_tools": True,
-                "history": _recent_history(member_id),
-            },
-            member_id,
-        )
-
-        if result.get("status") == "error":
-            logger.error("WhatsApp core turn error: %s", result.get("error"))
-            WhatsAppClient().send_text_message(
-                sender_phone,
-                "Sorry, I'm having trouble thinking right now. Please try again later.",
-            )
-            return
-
-        assistant_message = (
-            result.get("assistant_message") or "I processed your request but have no reply."
-        )
-        _log_turn(
-            member_id=member_id,
-            sender_phone=sender_phone,
-            user_message=user_message,
-            assistant_message=assistant_message,
-            result=result,
-        )
-        WhatsAppClient().send_text_message(sender_phone, assistant_message)
-    except Exception:
-        logger.exception("Error in WhatsApp core turn")
         WhatsAppClient().send_text_message(
-            sender_phone, "Something went wrong while processing your request."
+            sender_phone,
+            "I'm being rebuilt right now and can't process requests just yet. "
+            "Please try again soon.",
         )
+    except Exception:
+        logger.exception("Error sending WhatsApp reply")

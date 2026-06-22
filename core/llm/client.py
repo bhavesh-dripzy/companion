@@ -68,7 +68,7 @@ async def _provider_call(*, llm: ResolvedLlm, system_prompt: str, user_message: 
 async def complete_json_object(
     *, user_message: str, system_prompt: str, llm: ResolvedLlm
 ) -> dict[str, Any]:
-    """Single-turn JSON object from the model (orchestrator + planners + narrator).
+    """Single-turn JSON object from the model (used wherever the app needs structured JSON).
 
     Transport retries live in the SDK (max_retries). Unparseable output gets ONE
     re-ask with the parse error appended (Instructor pattern), then surfaces."""

@@ -22,7 +22,9 @@ from companion_api.google_maps import (
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, payload: dict[str, Any] | None = None, text: str = "") -> None:
+    def __init__(
+        self, status_code: int, payload: dict[str, Any] | None = None, text: str = ""
+    ) -> None:
         self.status_code = status_code
         self._payload = payload
         self.text = text or (str(payload) if payload else "")
@@ -59,7 +61,9 @@ def test_compute_route_builds_well_formed_request(monkeypatch: pytest.MonkeyPatc
     _stub_api_key(monkeypatch)
     captured: dict[str, Any] = {}
 
-    def fake_post(url: str, headers: dict[str, str], json: dict[str, Any], timeout: int) -> _FakeResponse:
+    def fake_post(
+        url: str, headers: dict[str, str], json: dict[str, Any], timeout: int
+    ) -> _FakeResponse:
         captured.update({"url": url, "headers": headers, "body": json, "timeout": timeout})
         return _FakeResponse(
             200,

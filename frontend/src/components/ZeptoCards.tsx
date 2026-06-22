@@ -364,15 +364,19 @@ export const ZeptoProductCardGrid: React.FC<{
 // ---------------------------------------------------------------------------
 const ZeptoCartItemRow: React.FC<{
   item: ZeptoCartItem;
+  index?: number;
+  /** Cart-wide flag: when ANY item lacks an image we drop thumbnails for every row so the cart
+   *  stays visually uniform (no mismatched thumbnail-vs-badge rows). */
+  hideImage?: boolean;
   onQuickPrompt?: (prompt: string) => void;
   disabled?: boolean;
-}> = ({ item, onQuickPrompt, disabled }) => {
+}> = ({ item, index, hideImage, onQuickPrompt, disabled }) => {
   const [imageBroken, setImageBroken] = useState(false);
   const theme = themeFor('zepto');
   const qty = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1;
   const lineTotal = typeof item.price_inr === 'number' ? item.price_inr * qty : null;
   const lineTotalLabel = formatPriceFromInr(lineTotal ?? undefined);
-  const showImage = !!item.image_url && !imageBroken;
+  const showImage = !hideImage && !!item.image_url && !imageBroken;
 
   const setQty = (newQty: number) => {
     if (!onQuickPrompt || disabled) return;
@@ -389,10 +393,15 @@ const ZeptoCartItemRow: React.FC<{
   };
 
   return (
-    <div className="flex items-start gap-3 py-4 px-4 border-b border-slate-100 last:border-b-0">
-      {/* Image */}
-      <div className="w-[72px] h-[72px] rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
-        {showImage ? (
+    <div
+      className={cn(
+        'flex gap-3 px-4 border-b border-slate-100 last:border-b-0',
+        showImage ? 'items-start py-4' : 'items-center py-2.5',
+      )}
+    >
+      {/* Image when we have one; otherwise a compact numbered badge (no placeholder box). */}
+      {showImage ? (
+        <div className="w-[72px] h-[72px] rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
           <img
             src={item.image_url ?? ''}
             alt={item.name ?? ''}
@@ -401,19 +410,24 @@ const ZeptoCartItemRow: React.FC<{
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover"
           />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: `linear-gradient(135deg, ${theme.brandHex}14, transparent)` }}
-          >
-            <ShoppingCart size={22} style={{ color: `${theme.brandHex}80` }} />
-          </div>
-        )}
-      </div>
+        </div>
+      ) : index ? (
+        <span
+          className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+          style={{ backgroundColor: `${theme.brandHex}1a`, color: theme.brandHex }}
+        >
+          {index}
+        </span>
+      ) : null}
 
       {/* Name + pack */}
       <div className="flex-1 min-w-0 pt-0.5">
-        <p className="text-[13.5px] font-bold text-slate-900 leading-snug line-clamp-2">
+        <p
+          className={cn(
+            'text-[13.5px] font-bold text-slate-900 leading-snug',
+            showImage ? 'line-clamp-2' : 'line-clamp-1',
+          )}
+        >
           {item.name || 'Item'}
         </p>
         {item.pack_size && (
@@ -421,8 +435,13 @@ const ZeptoCartItemRow: React.FC<{
         )}
       </div>
 
-      {/* Qty pill + price */}
-      <div className="flex flex-col items-end gap-2 shrink-0 pt-0.5">
+      {/* Qty pill + price — one row when compact (no image), stacked when there's a thumbnail */}
+      <div
+        className={cn(
+          'shrink-0',
+          showImage ? 'flex flex-col items-end gap-2 pt-0.5' : 'flex items-center gap-2.5',
+        )}
+      >
         {/* Quantity pill */}
         <div
           className="flex items-center rounded-xl border overflow-hidden"
@@ -457,7 +476,7 @@ const ZeptoCartItemRow: React.FC<{
         </div>
 
         {/* Price */}
-        <div className="flex items-baseline gap-1.5">
+        <div className="flex items-baseline justify-end gap-1.5 min-w-[46px]">
           {item.mrp_inr && item.mrp_inr > (item.price_inr ?? 0) && (
             <span className="text-[12px] text-slate-400 line-through">
               {formatPriceFromInr(item.mrp_inr)}
@@ -487,6 +506,8 @@ export const ZeptoCartCard: React.FC<{
   const items = Array.isArray(cart.items) ? cart.items : [];
   const isEmpty = !!cart.is_empty || items.length === 0;
   const totalLabel = formatPriceFromPaise(cart.grand_total_paise);
+  // All-or-nothing thumbnails: one image-less item → drop images for every row (uniform layout).
+  const hideImages = items.some((it) => !it.image_url);
 
   const handleCheckout = onQuickPrompt && !isEmpty
     ? () => onQuickPrompt(theme.checkoutPrompt)
@@ -494,15 +515,9 @@ export const ZeptoCartCard: React.FC<{
 
   const handleClearCart = () => {
     if (!onQuickPrompt || isEmpty) return;
-    // Embed every pvid/spid from the cart so the planner can clear even
-    // if the session state is cold (no prior view_cart in context).
-    const itemLines = items
-      .filter((it) => it.product_variant_id && it.store_product_id)
-      .map((it) => `pvid=${it.product_variant_id}, spid=${it.store_product_id} (${it.name || 'item'})`)
-      .join('\n');
-    onQuickPrompt(
-      `Clear my entire Zepto cart. Set ALL of these items to quantity 0:\n${itemLines}`,
-    );
+    // Deterministic clear: a `clear` client_action goes straight to the provider's native
+    // clear (Zepto: update_cart replaceCart=[]) — no LLM/resolver, no per-item qty-0 dance.
+    onQuickPrompt(`@@A@@${JSON.stringify({ type: 'clear', payload: { provider: 'zepto' } })}`);
   };
 
   return (
@@ -547,21 +562,56 @@ export const ZeptoCartCard: React.FC<{
                 <ZeptoCartItemRow
                   key={it.product_variant_id || `${it.name}-${idx}`}
                   item={it}
+                  index={idx + 1}
+                  hideImage={hideImages}
                   onQuickPrompt={onQuickPrompt}
                   disabled={disabled}
                 />
               ))}
             </div>
             <div className="px-4 py-3 bg-slate-50/60 border-t border-slate-100 space-y-2">
-              <div className="flex items-center justify-between text-[12px] font-semibold text-slate-700">
-                <span className="inline-flex items-center gap-1.5">
-                  <Receipt size={12} style={{ color: theme.brandHex }} />
-                  Total
-                </span>
-                <span className="text-[13.5px] font-extrabold text-slate-900">
-                  {totalLabel || 'calculated at checkout'}
-                </span>
-              </div>
+              {cart.unavailable && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 flex items-center gap-2">
+                  <span className="flex-1 text-[11.5px] text-amber-700">⚠️ {cart.unavailable}</span>
+                  {onQuickPrompt && (
+                    <button
+                      type="button"
+                      onClick={() => onQuickPrompt('Zepto ka delivery address change karna hai')}
+                      disabled={disabled}
+                      className="shrink-0 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      Change Address
+                    </button>
+                  )}
+                </div>
+              )}
+              {Array.isArray(cart.bill_breakdown) && cart.bill_breakdown.length > 0 && (
+                <div className="space-y-1 pb-1.5 border-b border-slate-200/70">
+                  {cart.bill_breakdown.map((line, i) => (
+                    <div
+                      key={`${line.label}-${i}`}
+                      className="flex items-center justify-between text-[11.5px] text-slate-500"
+                    >
+                      <span>{line.label}</span>
+                      <span className="font-medium text-slate-600">{line.value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Bold total = the FINAL Zepto price (get_payment_methods). Only shown when we
+                  actually have it (store open); when closed, the "Item Total" bill line is enough,
+                  so we don't repeat our own item-sum as if it were the payable amount. */}
+              {!cart.unavailable && (
+                <div className="flex items-center justify-between text-[12px] font-semibold text-slate-700">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Receipt size={12} style={{ color: theme.brandHex }} />
+                    Total
+                  </span>
+                  <span className="text-[13.5px] font-extrabold text-slate-900">
+                    {totalLabel || 'calculated at checkout'}
+                  </span>
+                </div>
+              )}
               {handleCheckout && (
                 <button
                   type="button"

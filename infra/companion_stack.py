@@ -307,30 +307,6 @@ class CompanionStack(Stack):
         )
         cdk.CfnOutput(self, "AppDownloadsBucket", value=app_downloads.bucket_name)
 
-        # Async agent turns: ephemeral job records (status, rolling progress,
-        # final envelope) polled by the frontend; TTL reaps them after an hour.
-        agent_jobs = dynamodb.Table(
-            self,
-            "AgentJobsTable",
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            partition_key=dynamodb.Attribute(name="job_id", type=dynamodb.AttributeType.STRING),
-            time_to_live_attribute="expires_at",
-            removal_policy=RemovalPolicy.DESTROY,
-        )
-        agent_jobs.grant_read_write_data(api_function)
-        api_function.add_environment("AGENT_JOBS_TABLE", agent_jobs.table_name)
-        # The query handler re-invokes this same function (async, Event type)
-        # to run tool-heavy turns past API Gateway's 30s integration cap.
-        api_function.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["lambda:InvokeFunction"],
-                resources=[
-                    f"arn:{cdk.Aws.PARTITION}:lambda:{cdk.Aws.REGION}:"
-                    f"{cdk.Aws.ACCOUNT_ID}:function:{cdk.Aws.STACK_NAME}-ApiFunction*",
-                ],
-            )
-        )
-
         api_function.add_to_role_policy(
             iam.PolicyStatement(
                 actions=[
