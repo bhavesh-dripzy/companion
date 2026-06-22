@@ -2,10 +2,9 @@
 
 The provider catalog (built-in MCP providers the user can connect, plus their
 per-user tool overrides and custom/Zapier MCPs) and the DynamoDB-backed CRUD
-behind `/api/tools/providers/*` and the MCP setup routes. Relocated from
-`app/services/tool_runtime.py` in the legacy teardown — only the CRUD/catalog
-moved; the legacy turn-execution dispatch (`route_tool_plan` /
-`execute_tool_plan_sync`) died with the legacy pipeline.
+behind `/api/tools/providers/*` and the MCP setup routes. This module is the
+catalog/CRUD only — turn execution lives elsewhere and will be rebuilt by the
+new backend.
 
 Per-user custom providers and built-in tool overrides persist in the same MCP
 token secret as OAuth tokens, via `core.providers.mcp.token_store`.

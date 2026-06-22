@@ -14,6 +14,7 @@ import remarkBreaks from 'remark-breaks';
 import { motion } from 'motion/react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { AddressChoices, AttachmentList, looksLikeAddressPrompt } from '../ChatLog';
+import { AgentCards } from './AgentCards';
 import { LocationPicker } from './LocationPicker';
 import type { GeoCoordinate, Message, SessionAddress } from '../types';
 
@@ -125,6 +126,21 @@ export function ChatMessageItem({
             attachments={msg.attachments}
             onQuickPrompt={onQuickPrompt}
             quickPromptDisabled={quickPromptDisabled}
+          />
+        )}
+
+        {/* New agent backend renders products/cart via the EXISTING attachment
+            cards above (instamart_product_cards / instamart_cart_card / zepto_*),
+            so the polished old UI + address bar are reused as-is. The ONE extra
+            thing it adds is a pending disambiguation: when a cart op partially
+            resolved (some items added, some genuinely ambiguous), show tappable
+            choice chips so the user picks the exact variant in one tap. Latest
+            assistant turn only, so stale chips don't linger after the next turn. */}
+        {!isUser && isLatestAssistant && !isThinking && msg.pendingAction?.type === 'disambiguate' && (
+          <AgentCards
+            pending={msg.pendingAction}
+            onAction={onQuickPrompt}
+            disabled={quickPromptDisabled}
           />
         )}
 

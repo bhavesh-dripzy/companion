@@ -1,19 +1,7 @@
-"""Shared MCP provider base and helpers."""
+"""MCP OAuth/token + connection layer.
 
-from core.providers.mcp.address import extract_address_rows, first_address_id
-from core.providers.mcp.connection import StdioSpec, call_tool, list_tools, mcp_session
-from core.providers.mcp.mcp_base import McpProvider
-from core.providers.mcp.placeholders import PlaceholderResolver
-from core.providers.mcp.result_parse import tool_result_payload
-
-__all__ = [
-    "McpProvider",
-    "PlaceholderResolver",
-    "StdioSpec",
-    "call_tool",
-    "extract_address_rows",
-    "first_address_id",
-    "list_tools",
-    "mcp_session",
-    "tool_result_payload",
-]
+The `McpProvider` base and its execution/card helpers were removed with the
+legacy per-provider agents. What remains are the OAuth handshake, token vault,
+remote/stdio connection, and result parsing primitives — imported as submodules
+by the OAuth router and address helpers.
+"""

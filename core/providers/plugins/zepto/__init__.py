@@ -1,12 +1,7 @@
-"""Zepto plugin (clean McpProvider) — the sole Zepto path.
+"""Zepto — only the address-row parser survives the teardown.
 
-Product *search* — connection, execution, structured card-building, and the
-productVariantId LRU — is validated against real Zepto data
-(tests/core/test_zepto_provider.py + a live read-only serviceability→search on
-admin_bhavesh tokens). Mutating cart flows execute through the same generic
-`McpProvider.run`; a richer cart-snapshot card is a future enhancement.
+The provider/agent logic was removed with the orchestrator. `address.py`
+remains because the MCP/OAuth router (`companion_api/routers/mcp.py`) uses
+`extract_zepto_address_rows` for the saved-addresses surface. It is
+self-contained (stdlib only).
 """
-
-from core.providers.plugins.zepto.provider import ZeptoProvider
-
-__all__ = ["ZeptoProvider"]

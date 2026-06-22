@@ -327,7 +327,6 @@ function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const [pendingLocationQuery, setPendingLocationQuery] = useState<string | null>(null);
-  const [pendingLocationProvider, setPendingLocationProvider] = useState<string | null>(null);
 
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
   const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
@@ -444,6 +443,11 @@ function App() {
   const [chatId, setChatId] = useState<string | null>(
     () => chatIdFromPath() || localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || null,
   );
+  // The new agent backend (/api/agent/turn) keeps conversation history server-side and is
+  // SEPARATE from the old /api/chats persistence. Track its conversation id in a ref so it
+  // never feeds the chat-list/URL machinery — which, not finding it in /api/chats, would
+  // clear the chat (the root cause of the "chat disappeared" bug).
+  const agentChatIdRef = useRef<string | null>(null);
 
   const { location: userLocation, ensureLocation } = useUserLocation();
   // Persists geo across turns once the user grants it (hook only auto-captures on mount).
@@ -810,6 +814,7 @@ function App() {
   const handleNewChat = () => {
     setIsAdminOpen(false);
     setMessages([]);
+    agentChatIdRef.current = null;   // fresh agent conversation
     setSessionState({});
     setSessionRestaurants([]);
     setSessionAddresses([]);
@@ -841,64 +846,29 @@ function App() {
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
 
-  const buildAgentBody = (
-    content: string,
-    geo?: GeoCoordinate | null,
-    forceProviders?: string[] | null,
-    overrides?: { instamartAddressId?: string },
-  ) => {
-    const body: Record<string, any> = {
-      message: content,
-      address_id: selectedAddressId || '',
-      execute_tools: true,
-      history: messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-        ...(m.role === 'assistant' && m.provider ? { provider: m.provider } : {}),
-      })),
-    };
-    if (geo) {
-      body.geo = {
-        latitude: geo.latitude,
-        longitude: geo.longitude,
-        ...(geo.accuracyMeters !== undefined ? { accuracy_meters: geo.accuracyMeters } : {}),
-        captured_at: new Date().toISOString(),
-      };
-    }
-    if (Object.keys(sessionState).length > 0) body.session_state = sessionState;
-    if (sessionRestaurants.length > 0) body.session_restaurants = sessionRestaurants;
-    if (sessionAddresses.length > 0) body.session_addresses = sessionAddresses;
-    if (sessionMenu.length > 0) body.session_menu = sessionMenu;
-    if (sessionCart && sessionCart.cart_id) body.session_cart = sessionCart;
-    if (sessionMovies.length > 0) body.session_movies = sessionMovies;
-    if (sessionTheatres.length > 0) body.session_theatres = sessionTheatres;
-    if (sessionEvents.length > 0) body.session_events = sessionEvents;
-    if (sessionVenues.length > 0) body.session_venues = sessionVenues;
-    if (sessionArtists.length > 0) body.session_artists = sessionArtists;
-    if (sessionReservation && sessionReservation.booking_id) {
-      body.session_reservation = sessionReservation;
-    }
-    if (sessionZeptoProducts.length > 0) body.session_zepto_products = sessionZeptoProducts;
-    if (sessionZeptoAddresses.length > 0) body.session_zepto_addresses = sessionZeptoAddresses;
-    if (sessionZeptoCart) body.session_zepto_cart = sessionZeptoCart;
-    if (sessionInstamartProducts.length > 0) body.session_instamart_products = sessionInstamartProducts;
-    if (sessionInstamartAddresses.length > 0) body.session_instamart_addresses = sessionInstamartAddresses;
-    if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
-    // A picker-driven address switch overrides the (stale) committed selection so
-    // the backend anchors this turn's search/cart to the newly chosen address.
-    const instamartAddressId = overrides?.instamartAddressId || selectedInstamartAddressId;
-    if (instamartAddressId) body.selected_instamart_address_id = instamartAddressId;
-    if (sessionKiteInstruments.length > 0) body.session_kite_instruments = sessionKiteInstruments;
-    if (sessionSerpFlights.length > 0) body.session_serp_flights = sessionSerpFlights;
-    if (sessionSerpProducts.length > 0) body.session_serp_products = sessionSerpProducts;
-    if (sessionSerpPlaces.length > 0) body.session_serp_places = sessionSerpPlaces;
-    if (sessionSerpHotels.length > 0) body.session_serp_hotels = sessionSerpHotels;
-    if (sessionKiteHoldings) body.session_kite_holdings = sessionKiteHoldings;
-    if (sessionKitePositions) body.session_kite_positions = sessionKitePositions;
-    if (sessionKiteOpenOrders.length > 0) body.session_kite_open_orders = sessionKiteOpenOrders;
-    if (sessionKiteOrderTicket) body.session_kite_order_ticket = sessionKiteOrderTicket;
-    if (chatId) body.chat_id = chatId;
-    if (forceProviders && forceProviders.length > 0) body.force_providers = forceProviders;
+  // The request payload was deliberately reduced to the essentials while the
+  // backend is rebuilt. The old turn shipped ~30 round-tripped `session_*`
+  // echoes (cart/restaurants/menu/zepto/instamart/kite/serp/...), plus
+  // `force_providers` and `selected_instamart_address_id`, so the legacy
+  // orchestrator could rehydrate context. The new backend will define its own
+  // context protocol — until then we send only the message + basic context.
+  // New agent backend (/api/agent/turn): backend owns history/cart/session state, so the
+  // frontend sends only message + mode + geo + chat_id. Taps go via `client_action` (below).
+  // The address the user has selected (sidebar / cart "Change") is authoritative — send it every
+  // turn so the agent operates on the right delivery context even when it changed outside the chat.
+  const currentAddressIds = (): Record<string, string> | undefined => {
+    const ids: Record<string, string> = {};
+    if (selectedInstamartAddressId) ids.instamart = selectedInstamartAddressId;
+    if (selectedZeptoAddressId) ids.zepto = selectedZeptoAddressId;
+    return Object.keys(ids).length ? ids : undefined;
+  };
+
+  const buildAgentBody = (content: string, geo?: GeoCoordinate | null) => {
+    const body: Record<string, any> = { message: content, mode: 'text' };
+    if (geo) body.geo = { lat: geo.latitude, lng: geo.longitude };
+    if (agentChatIdRef.current) body.chat_id = agentChatIdRef.current;
+    const addressIds = currentAddressIds();
+    if (addressIds) body.address_ids = addressIds;
     return body;
   };
 
@@ -907,34 +877,22 @@ function App() {
   // This helper makes that transparent: it polls the job, surfaces each
   // rolling progress line into the thinking bubble, and resolves with the
   // final envelope exactly as if the POST had returned it directly.
+  // Posts a turn and returns the response. The old async-job transport
+  // (status:'accepted' + job_id polling on /api/agent/jobs/) was removed with
+  // the legacy execution backend; the new backend will define its own.
   const runTurn = async (body: Record<string, any>): Promise<QueryResponse> => {
-    const first = await api.post('/api/agent/query/', body);
-    if (first?.status !== 'accepted' || !first?.job_id) return first as QueryResponse;
-    const lines: string[] = Array.isArray(first.progress) ? first.progress : [];
-    if (lines.length) setThinkingStatus(lines[lines.length - 1]);
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < 180_000) {
-      await new Promise((r) => setTimeout(r, 1400));
-      const job = await api.get(`/api/agent/jobs/${encodeURIComponent(first.job_id)}/`);
-      const progress: string[] = Array.isArray(job?.progress) ? job.progress : [];
-      if (progress.length) setThinkingStatus(progress[progress.length - 1]);
-      if (job?.status === 'done' && job.result) return job.result as QueryResponse;
-      if (job?.status === 'error') throw new Error(job.error || 'The request failed.');
-    }
-    throw new Error('This is taking longer than expected — please try again.');
+    return (await api.post('/api/agent/turn', body)) as QueryResponse;
   };
 
   const handleGrantLocation = async (geo: GeoCoordinate) => {
     const query = pendingLocationQuery;
-    const provider = pendingLocationProvider;
     if (!query) return;
     setPendingLocationQuery(null);
-    setPendingLocationProvider(null);
     setGrantedGeo(geo);
     setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, askLocation: false } : m));
     setIsThinking(true);
     try {
-      const data: QueryResponse = await runTurn(buildAgentBody(query, geo, provider ? [provider] : null));
+      const data: QueryResponse = await runTurn(buildAgentBody(query, geo));
 const assistantMsg: Message = {
         role: 'assistant',
         content: data.assistant_message,
@@ -959,23 +917,36 @@ const assistantMsg: Message = {
   const handleSendMessage = async (
     content: string,
     geoOverride?: import('./types').GeoCoordinate | null,
-    overrides?: { instamartAddressId?: string },
   ) => {
     const text = (content || '').trim();
     if (!text) return;
-    const userMsg: Message = { role: 'user', content: text };
-    setMessages((prev) => [...prev, userMsg]);
+    // Card taps arrive as "@@A@@<json>" → a deterministic client_action (no user bubble, no LLM).
+    const isAction = text.startsWith('@@A@@');
+    const clientAction = isAction
+      ? (() => { try { return JSON.parse(text.slice(5)); } catch { return null; } })()
+      : null;
+    if (!isAction) setMessages((prev) => [...prev, { role: 'user', content: text } as Message]);
     setIsThinking(true);
 
     try {
-      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? effectiveGeo, null, overrides));
+      const sendBody = isAction
+        ? {
+            mode: 'text',
+            client_action: clientAction,
+            ...(agentChatIdRef.current ? { chat_id: agentChatIdRef.current } : {}),
+            ...(currentAddressIds() ? { address_ids: currentAddressIds() } : {}),
+          }
+        : buildAgentBody(text, geoOverride ?? effectiveGeo);
+      let data: QueryResponse = await runTurn(sendBody);
+      // Remember the backend conversation id in the ref ONLY — never via setChatId/refreshChatList.
+      if ((data as any).chat_id) agentChatIdRef.current = (data as any).chat_id;
 
       const errorCode = (data as any)?.tool_execution?.error_code;
       if (errorCode === 'needs_location') {
         try {
           const fresh = await ensureLocation();
           setGrantedGeo(fresh);
-          data = await runTurn(buildAgentBody(text, fresh, null, overrides));
+          data = await runTurn(buildAgentBody(text, fresh));
         } catch (geoErr: any) {
           const reason = geoErr?.reason ?? 'unknown';
           const friendly: Record<string, string> = {
@@ -990,7 +961,6 @@ const assistantMsg: Message = {
           // show those results with a "Share location" button to retry Zepto.
           if (data.assistant_message) {
             setPendingLocationQuery(text);
-            setPendingLocationProvider((data as any).tool_execution?.location_needed_by ?? null);
             // Flag the message so ChatMessageItem renders the grant-location button.
             data = { ...data, _askLocation: true } as any;
           } else {
@@ -1016,6 +986,8 @@ const assistantMsg: Message = {
         provider:
           typeof data.routed_provider === 'string' && data.routed_provider ? data.routed_provider : undefined,
         askLocation: !!(data as any)._askLocation,
+        agentCards: Array.isArray((data as any).cards) ? (data as any).cards : undefined,
+        pendingAction: (data as any).pending_action ?? null,
       };
 
       if (data.session_state && typeof data.session_state === 'object') setSessionState(data.session_state);
@@ -1088,13 +1060,9 @@ const assistantMsg: Message = {
         setSessionKiteOrderTicket(kt && typeof kt === 'object' ? kt : null);
       }
 
-      if (typeof data.chat_id === 'string' && data.chat_id) {
-        if (data.chat_id !== chatId) {
-          setChatId(data.chat_id);
-          localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
-        }
-        refreshChatList();
-      }
+      // NOTE: the new backend's chat_id is tracked in agentChatIdRef (above). We deliberately do
+      // NOT setChatId()/refreshChatList() here — that verifies against the legacy /api/chats table,
+      // which the new agent backend doesn't populate, and would wipe the live chat.
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {
@@ -1533,11 +1501,11 @@ const assistantMsg: Message = {
         selectedId: selectedInstamartAddressId,
         onSwitch: (addressId, prompt) => {
           if (isThinking || !addressId) return;
-          // Commit optimistically so the bar reflects the switch immediately, and
-          // pass the id as an explicit override (React state is async, so the
-          // in-flight turn can't rely on the setState above landing first).
+          // Commit optimistically so the bar reflects the switch immediately.
+          // (The turn no longer round-trips the selected address to the backend;
+          // the new backend will define how address context is supplied.)
           setSelectedInstamartAddressId(addressId);
-          handleSendMessage(prompt, undefined, { instamartAddressId: addressId });
+          handleSendMessage(prompt);
         },
       }}
     >

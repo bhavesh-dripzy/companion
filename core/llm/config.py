@@ -21,9 +21,10 @@ except Exception:  # pragma: no cover - import fallback
 
 Provider = Literal["gemini", "openai", "sarvam"]
 
-# Sarvam AI — India-hosted, OpenAI-compatible. Sarvam-M (24B) was deprecated on
-# the managed API (mid-2026); sarvam-30b / sarvam-105b are the current models.
-SARVAM_MODEL_DEFAULT = "sarvam-30b"
+# Sarvam AI — India-hosted, OpenAI-compatible. sarvam-105b is the flagship MoE
+# reasoning model (best-in-class Indian-language + agentic); sarvam-30b is the
+# smaller/cheaper option. Override per-call via the SARVAM_MODEL secret/env.
+SARVAM_MODEL_DEFAULT = "sarvam-105b"
 SARVAM_BASE_URL = "https://api.sarvam.ai/v1"
 GEMINI_MODEL_DEFAULT = "gemini-2.5-flash-lite"
 OPENAI_MODEL_DEFAULT = "gpt-4o-mini"
