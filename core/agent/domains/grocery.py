@@ -135,6 +135,13 @@ class GroceryDomainHandler:
                     state, adapter, s, ctx, pid, requests, cart_only=action in ("set_qty", "remove")
                 )
             resolved = refs.get("resolved", [])
+            # The quantity is the user's explicit number (from the router) — NEVER the resolver LLM's
+            # guess. The resolver only picks WHICH item; forcing the qty here stops "set to 2" silently
+            # resolving to 1 (the LLM gets confused by sizes like "2 Pieces" in the name). Single-item
+            # op only (the norm for set_qty/remove/add); multi-item keeps each request's own qty.
+            if len(requests) == 1 and resolved:
+                for r in resolved:
+                    r["qty"] = int(requests[0].get("qty", 1))
             result = None
             if resolved:  # write the items that DID resolve — even if others are ambiguous/unknown
                 delta, meta = V.build_delta(state, resolved)
