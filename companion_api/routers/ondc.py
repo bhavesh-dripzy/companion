@@ -20,7 +20,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from companion_api.ondc_crypto import decrypt_challenge, load_ondc_keys, sign_request_id
-from companion_api.ondc_flow import advance, start_order_flow
+from companion_api.ondc_flow import advance, send_flow_action, start_order_flow
 from companion_api.ondc_registry import lookup_signing_key
 from companion_api.ondc_signing import key_id_parts, verify_authorization
 from companion_api.ondc_store import record_callback
@@ -123,7 +123,20 @@ async def ondc_flow_start(payload: dict[str, Any], request: Request) -> dict[str
         area_code=payload.get("area_code"),
         domain=payload.get("domain", "ONDC:RET10"),
         category_id=payload.get("category_id"),
+        terminal_step=payload.get("terminal_step", "track"),
     )
+
+
+@router.post("/ondc/flow/action")
+async def ondc_flow_action(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Send a follow-up buyer action (cancel/status/track) for an existing txn. Gated by X-Flow-Token."""
+    if not _FLOW_TOKEN or request.headers.get("X-Flow-Token", "") != _FLOW_TOKEN:
+        raise HTTPException(status_code=403, detail="flow trigger disabled")
+    txn = (payload or {}).get("transaction_id", "")
+    action = (payload or {}).get("action", "")
+    if not txn or not action:
+        raise HTTPException(status_code=400, detail="transaction_id and action required")
+    return send_flow_action(txn, action, payload)
 
 
 @router.post("/ondc/{action}")

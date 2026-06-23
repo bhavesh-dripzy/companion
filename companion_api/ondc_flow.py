@@ -18,6 +18,7 @@ from typing import Any
 from companion_api.ondc_catalog import parse_catalog
 from companion_api.ondc_client import send_action
 from companion_api.ondc_retail import (
+    cancel_message,
     confirm_message,
     init_message,
     search_intent,
@@ -52,13 +53,21 @@ def start_order_flow(
     area_code: str | None = None,
     domain: str = DEFAULT_DOMAIN,
     category_id: str | None = None,
+    terminal_step: str = "track",
 ) -> dict[str, Any]:
-    """Kick off a flow: send ``search`` to the gateway, persist state, return the ACK."""
+    """Kick off a flow: send ``search`` to the gateway, persist state, return the ACK.
+
+    ``terminal_step`` bounds the auto-chain (search->select->init->confirm->status->track);
+    e.g. "confirm" stops after the order is placed so a follow-up action (cancel/update)
+    can be driven via ``send_flow_action`` instead of auto-completing the order.
+    """
     message = search_intent(query, gps=gps, area_code=area_code, category_id=category_id)
     result = send_action("search", message, domain=domain)
     txn = (result.get("context") or {}).get("transaction_id", "")
-    save_transaction(txn, step="search", domain=domain, query=query, gps=gps, area_code=area_code)
-    logger.info("ONDC flow started txn=%s query=%r ack=%s", txn, query, result.get("status_code"))
+    save_transaction(
+        txn, step="search", domain=domain, query=query, gps=gps, area_code=area_code, terminal_step=terminal_step
+    )
+    logger.warning("ONDC flow started txn=%s query=%r terminal=%s ack=%s", txn, query, terminal_step, result.get("status_code"))
     return {"transaction_id": txn, "search": result}
 
 
@@ -84,7 +93,7 @@ def advance(action: str, body: dict[str, Any]) -> dict[str, Any] | None:
     try:
         result = handler(txn, state, body, domain)
         if result:
-            logger.info("ONDC flow: %s -> sent %s status=%s txn=%s", action, result.get("url"), result.get("status_code"), txn)
+            logger.warning("ONDC flow: %s -> sent %s status=%s txn=%s", action, result.get("url"), result.get("status_code"), txn)
         return result
     except Exception:
         logger.exception("ONDC flow advance failed action=%s txn=%s", action, txn)
@@ -149,9 +158,10 @@ def _on_confirm(txn: str, state: dict[str, Any], body: dict[str, Any], domain: s
     bpp_id, bpp_uri = _bpp(state, body)
     order = (body.get("message") or {}).get("order") or {}
     order_id = order.get("id") or state.get("order_id") or ""
-    save_transaction(txn, **{**state, "step": "status", "order_id": order_id})
-    if not order_id:
+    if state.get("terminal_step") == "confirm" or not order_id:
+        save_transaction(txn, **{**state, "step": "done", "order_id": order_id})
         return None
+    save_transaction(txn, **{**state, "step": "status", "order_id": order_id})
     return send_action(
         "status", status_message(order_id), domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri
     )
@@ -161,9 +171,35 @@ def _on_status(txn: str, state: dict[str, Any], body: dict[str, Any], domain: st
     bpp_id, bpp_uri = _bpp(state, body)
     order = (body.get("message") or {}).get("order") or {}
     order_id = order.get("id") or state.get("order_id") or ""
-    save_transaction(txn, **{**state, "step": "track", "order_id": order_id})
-    if not order_id:
+    if state.get("terminal_step") == "status" or not order_id:
+        save_transaction(txn, **{**state, "step": "done", "order_id": order_id})
         return None
+    save_transaction(txn, **{**state, "step": "track", "order_id": order_id})
     return send_action(
         "track", track_message(order_id), domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri
     )
+
+
+_ACTION_MESSAGE = {
+    "cancel": lambda state, params: cancel_message(state.get("order_id", ""), params.get("reason_id", "001")),
+    "status": lambda state, params: status_message(state.get("order_id", "")),
+    "track": lambda state, params: track_message(state.get("order_id", "")),
+}
+
+
+def send_flow_action(txn: str, action: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Send a follow-up buyer action (cancel/status/track) for an existing txn, using stored state."""
+    state = get_transaction(txn)
+    if not state.get("order_id"):
+        return {"error": "no order_id for transaction", "transaction_id": txn}
+    builder = _ACTION_MESSAGE.get(action)
+    if not builder:
+        return {"error": f"unsupported action {action}", "transaction_id": txn}
+    bpp_id, bpp_uri = state.get("bpp_id"), state.get("bpp_uri")
+    domain = state.get("domain") or DEFAULT_DOMAIN
+    result = send_action(
+        action, builder(state, params), domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri
+    )
+    save_transaction(txn, **{**state, "step": action})
+    logger.warning("ONDC flow action %s -> sent %s status=%s txn=%s", action, result.get("url"), result.get("status_code"), txn)
+    return {"transaction_id": txn, "action": action, "result": result}
