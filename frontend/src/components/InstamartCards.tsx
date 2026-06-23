@@ -179,17 +179,20 @@ const InstamartProductTile: React.FC<{
   const showImage = !!variant?.image_url && !imageBroken;
   const hasMoreVariants = item.variants.length > 1;
 
-  const buildPrompt = (v: InstamartVariant) => {
-    const brand = (item.brand || '').trim();
-    const headline = [brand, item.name].filter(Boolean).join(' ');
-    const pack = (v.quantity_description || '').trim();
-    return `Add 1 ${headline}${pack ? ` (${pack})` : ''} to my Instamart cart.`;
-  };
-
+  // Deterministic tap: add THIS exact variant by its spinId — no brand (the name already carries it,
+  // which doubled up as "Vikram Vikram…"), no LLM, no re-search. Carries the item's identity so the
+  // add works even if the session catalog was wiped (restart/cold-start).
   const handleAdd = (v: InstamartVariant) => {
     if (!onQuickPrompt || disabled || v.in_stock === false) return;
     setSheetOpen(false);
-    onQuickPrompt(buildPrompt(v));
+    const pack = (v.quantity_description || '').trim();
+    const label = `${item.name}${pack ? ` (${pack})` : ''}`;
+    onQuickPrompt(
+      `@@A@@${JSON.stringify({
+        type: 'add',
+        payload: { provider: 'instamart', item_id: v.spin_id, secondary_id: '', name: label, qty: 1 },
+      })}`,
+    );
   };
 
   return (

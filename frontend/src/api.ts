@@ -123,3 +123,48 @@ export const api = {
     return request(path, { method: 'DELETE' });
   },
 };
+
+/**
+ * POST and consume a Server-Sent-Events stream, calling `onEvent` for each `data: {json}` frame.
+ * Used by /api/agent/turn/stream for the live, typed turn experience. Resolves when the stream
+ * closes; throws on a non-OK response so the caller can fall back to the plain endpoint.
+ */
+export async function streamPost(
+  path: string,
+  body: any,
+  onEvent: (ev: any) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const token = getToken();
+  const resp = await fetch(apiUrl(path), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!resp.ok || !resp.body) throw new Error(`stream ${path} failed: ${resp.status}`);
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, sep);
+      buf = buf.slice(sep + 2);
+      const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+      if (dataLine) {
+        try {
+          onEvent(JSON.parse(dataLine.slice(5).trim()));
+        } catch {
+          /* ignore a malformed frame */
+        }
+      }
+    }
+  }
+}

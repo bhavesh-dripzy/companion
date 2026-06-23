@@ -85,12 +85,22 @@ const ZeptoProductTile: React.FC<{
   const outOfStock =
     typeof item.available_quantity === 'number' && item.available_quantity <= 0;
 
+  // Deterministic tap: add THIS exact product by its variant id (+ store_product_id) — no LLM,
+  // no re-search, exact variant, works even if the session catalog was wiped. Same pattern as Instamart.
   const handleAdd = () => {
     if (!onQuickPrompt || disabled || outOfStock) return;
-    // Keep the brand word ("Zepto") in the prompt so the orchestrator's
-    // provider stickiness pins this follow-up to the zepto MCP even if
-    // the agent had drifted between turns.
-    onQuickPrompt(`Add 1 ${item.name} to my Zepto cart.`);
+    onQuickPrompt(
+      `@@A@@${JSON.stringify({
+        type: 'add',
+        payload: {
+          provider: 'zepto',
+          item_id: item.product_variant_id,
+          secondary_id: item.store_product_id || '',
+          name: item.name,
+          qty: 1,
+        },
+      })}`,
+    );
   };
 
   return (
