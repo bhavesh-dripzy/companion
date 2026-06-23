@@ -11,6 +11,7 @@ Targets Beckn ``core_version`` 1.2.0.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -90,6 +91,10 @@ def _on_search(txn: str, state: dict[str, Any], body: dict[str, Any], domain: st
     location_id = next((i.get("location_id") for i in items if i.get("location_id")), None)
     location_ids = [location_id] if location_id else None
     bpp_id, bpp_uri = parsed.get("bpp_id"), parsed.get("bpp_uri")
+    target = os.getenv("ONDC_TARGET_BPP", "").strip()
+    if target and target not in (bpp_id or "") and target not in (bpp_uri or ""):
+        logger.info("ONDC flow on_search: skipping non-target bpp_id=%s bpp_uri=%s txn=%s", bpp_id, bpp_uri, txn)
+        return None
     save_transaction(
         txn,
         **{**state, "step": "select", "bpp_id": bpp_id, "bpp_uri": bpp_uri, "provider_id": provider["id"],
