@@ -10,6 +10,7 @@ against the sender's registry key, persisted, and ACK'd per the Beckn contract.
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import os
@@ -135,7 +136,16 @@ async def ondc_callback(action: str, request: Request, background_tasks: Backgro
     """
     if action not in _CALLBACK_ACTIONS:
         raise HTTPException(status_code=404, detail="unknown ONDC action")
-    raw = (await request.body()).decode("utf-8")
+    raw_bytes = await request.body()
+    if raw_bytes[:2] == b"\x1f\x8b":
+        try:
+            raw_bytes = gzip.decompress(raw_bytes)
+        except OSError:
+            return _nack("10001", "invalid gzip body")
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return _nack("10001", "invalid body encoding")
     try:
         body = json.loads(raw) if raw else {}
     except json.JSONDecodeError:

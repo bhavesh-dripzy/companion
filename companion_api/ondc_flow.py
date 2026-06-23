@@ -23,12 +23,21 @@ from companion_api.ondc_retail import (
     search_intent,
     select_message,
     status_message,
+    track_message,
 )
 from companion_api.ondc_store import get_transaction, save_transaction
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DOMAIN = "ONDC:RET10"
+
+_EXPECTED_STEP = {
+    "on_search": "search",
+    "on_select": "select",
+    "on_init": "init",
+    "on_confirm": "confirm",
+    "on_status": "status",
+}
 
 
 def _now_iso() -> str:
@@ -62,13 +71,21 @@ def advance(action: str, body: dict[str, Any]) -> dict[str, Any] | None:
         "on_select": _on_select,
         "on_init": _on_init,
         "on_confirm": _on_confirm,
+        "on_status": _on_status,
     }.get(action)
     if not txn or not handler:
         return None
     state = get_transaction(txn)
+    expected = _EXPECTED_STEP.get(action)
+    if expected and state.get("step") != expected:
+        logger.info("ONDC flow: ignoring %s (step=%s want=%s) txn=%s", action, state.get("step"), expected, txn)
+        return None
     domain = state.get("domain") or context.get("domain") or DEFAULT_DOMAIN
     try:
-        return handler(txn, state, body, domain)
+        result = handler(txn, state, body, domain)
+        if result:
+            logger.info("ONDC flow: %s -> sent %s status=%s txn=%s", action, result.get("url"), result.get("status_code"), txn)
+        return result
     except Exception:
         logger.exception("ONDC flow advance failed action=%s txn=%s", action, txn)
         return None
@@ -137,4 +154,16 @@ def _on_confirm(txn: str, state: dict[str, Any], body: dict[str, Any], domain: s
         return None
     return send_action(
         "status", status_message(order_id), domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri
+    )
+
+
+def _on_status(txn: str, state: dict[str, Any], body: dict[str, Any], domain: str) -> dict[str, Any] | None:
+    bpp_id, bpp_uri = _bpp(state, body)
+    order = (body.get("message") or {}).get("order") or {}
+    order_id = order.get("id") or state.get("order_id") or ""
+    save_transaction(txn, **{**state, "step": "track", "order_id": order_id})
+    if not order_id:
+        return None
+    return send_action(
+        "track", track_message(order_id), domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri
     )

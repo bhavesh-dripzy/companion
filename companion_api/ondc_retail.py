@@ -195,6 +195,11 @@ def status_message(order_id: str) -> dict[str, Any]:
     return {"order_id": order_id}
 
 
+def track_message(order_id: str) -> dict[str, Any]:
+    """Build a ``track`` message (order_id is the only mandatory field)."""
+    return {"order_id": order_id}
+
+
 def cancel_message(order_id: str, reason_id: str = "001") -> dict[str, Any]:
     """Build a ``cancel`` message. reason_id default 001 = delivery delayed/not possible."""
     return {"order_id": order_id, "cancellation_reason_id": reason_id}
