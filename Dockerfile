@@ -39,7 +39,12 @@ COPY core ./core
 # it also transparently serves ordinary API Gateway invokes (e.g. ondc.*).
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 
-ENV PYTHONUNBUFFERED=1 \
+# Bump BUILD_REV to force a fresh CDK Docker-asset hash → new ECR image → the
+# Lambda is re-pointed at it. Needed because deploy #1 rolled back (cert) and
+# left the function pinned to the pre-streaming image; same-frontend redeploys
+# reused the cached asset and never swapped it.
+ENV BUILD_REV=2026-06-24-streaming-cutover-1 \
+    PYTHONUNBUFFERED=1 \
     NODE_BINARY=/usr/local/bin/node \
     PYTHONPATH=${LAMBDA_TASK_ROOT} \
     PORT=8000 \
