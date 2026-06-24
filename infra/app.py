@@ -42,6 +42,17 @@ CompanionStack(
     project_name=resource_prefix,
     domain_name=domain_name,
     enable_custom_domain=is_prod,
+    # us-east-1 ACM cert for the CloudFront edge that fronts app.jatayulabs.com →
+    # the streaming Function URL. Must cover app.{domain} (a *.jatayulabs.com
+    # wildcard cert does). Only needed for prod; overridable via EDGE_CERTIFICATE_ARN.
+    edge_certificate_arn=(
+        (
+            os.getenv("EDGE_CERTIFICATE_ARN")
+            or "arn:aws:acm:us-east-1:616551057455:certificate/489a052c-a6a5-437a-9763-2b50a684a394"
+        )
+        if is_prod
+        else None
+    ),
     profile_cache=graph_stack.profile_cache,
     turns_queue=graph_stack.turns_queue,
     lead_cache=graph_stack.lead_cache,

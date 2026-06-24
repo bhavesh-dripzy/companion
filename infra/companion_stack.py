@@ -14,6 +14,12 @@ from aws_cdk import (
     aws_certificatemanager as acm,
 )
 from aws_cdk import (
+    aws_cloudfront as cloudfront,
+)
+from aws_cdk import (
+    aws_cloudfront_origins as origins,
+)
+from aws_cdk import (
     aws_cognito as cognito,
 )
 from aws_cdk import (
@@ -55,6 +61,10 @@ class CompanionStack(Stack):
         project_name: str,
         domain_name: str = "jatayulabs.com",
         enable_custom_domain: bool = True,
+        # us-east-1 ACM cert ARN covering ``app.{domain_name}`` for the CloudFront
+        # edge that fronts the streaming Function URL (CloudFront certs MUST be in
+        # us-east-1). Same out-of-band pattern as LandingStack.
+        edge_certificate_arn: str | None = None,
         profile_cache: dynamodb.ITable = None,
         turns_queue: sqs.IQueue = None,
         lead_cache: dynamodb.ITable = None,
@@ -429,6 +439,25 @@ class CompanionStack(Stack):
             ),
         )
 
+        # ── Streaming Function URL (true live SSE, exactly like local) ──
+        # The Lambda runs uvicorn via the Web Adapter (see Dockerfile). A
+        # RESPONSE_STREAM Function URL is the ONLY AWS entry that streams the
+        # response body incrementally (HTTP API Gateway always buffers). Auth is
+        # NONE because the app enforces its own bearer token end-to-end, and a
+        # signed origin (OAC/IAM) would hijack the Authorization header. Always
+        # created so dev/staging can stream against the raw URL too.
+        fn_url = api_function.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+            invoke_mode=lambda_.InvokeMode.RESPONSE_STREAM,
+            cors=lambda_.FunctionUrlCorsOptions(
+                allowed_origins=["*"],
+                allowed_methods=[lambda_.HttpMethod.ALL],
+                allowed_headers=["content-type", "authorization"],
+                max_age=Duration.seconds(3600),
+            ),
+        )
+        cdk.CfnOutput(self, "ApiFunctionUrl", value=fn_url.url)
+
         # ── Custom domain & DNS (prod; opt-in per environment) ─────────
         # Guarded so dev/staging can deploy against the raw API Gateway URL
         # without Route53/ACM. prod (enable_custom_domain=True, the default)
@@ -449,37 +478,55 @@ class CompanionStack(Stack):
                 validation=acm.CertificateValidation.from_dns(zone),
             )
 
-            api_domain = apigwv2.CfnDomainName(
-                self,
-                "ApiCustomDomain",
-                domain_name=f"app.{domain_name}",
-                domain_name_configurations=[
-                    apigwv2.CfnDomainName.DomainNameConfigurationProperty(
-                        certificate_arn=certificate.certificate_arn,
-                        endpoint_type="REGIONAL",
-                    )
-                ],
+            # app.{domain} is fronted by CloudFront → the streaming Function URL,
+            # because HTTP API Gateway cannot stream the response. CloudFront's
+            # cert MUST live in us-east-1, supplied out-of-band by ARN (same as
+            # LandingStack). The Function URL itself stays the single origin.
+            if not edge_certificate_arn:
+                raise ValueError(
+                    "edge_certificate_arn (a us-east-1 ACM cert covering "
+                    f"app.{domain_name}) is required when enable_custom_domain=True"
+                )
+            edge_cert = acm.Certificate.from_certificate_arn(
+                self, "AppEdgeCertificate", edge_certificate_arn
             )
-
-            apigwv2.CfnApiMapping(
+            # One shared origin (the streaming Function URL). Forward every viewer
+            # header EXCEPT Host (the Function URL validates its own Host); never
+            # cache the API. Content-hashed /assets/* are immutable → edge-cached.
+            api_origin = origins.FunctionUrlOrigin(fn_url, read_timeout=Duration.seconds(60))
+            asset_behavior = cloudfront.BehaviorOptions(
+                origin=api_origin,
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+                compress=True,
+            )
+            distribution = cloudfront.Distribution(
                 self,
-                "ApiMapping",
-                api_id=api.ref,
-                domain_name=f"app.{domain_name}",
-                stage="$default",
-            ).add_dependency(api_domain)
-
+                "ApiDistribution",
+                comment=f"app.{domain_name} — API + web app (streaming via LWA Function URL)",
+                domain_names=[f"app.{domain_name}"],
+                certificate=edge_cert,
+                price_class=cloudfront.PriceClass.PRICE_CLASS_100,
+                default_behavior=cloudfront.BehaviorOptions(
+                    origin=api_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                    origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+                    compress=True,
+                ),
+                additional_behaviors={"/assets/*": asset_behavior},
+            )
             route53.ARecord(
                 self,
                 "ApiAliasRecord",
                 zone=zone,
                 record_name="app",
-                target=route53.RecordTarget.from_alias(
-                    targets.ApiGatewayv2DomainProperties(
-                        regional_domain_name=api_domain.attr_regional_domain_name,
-                        regional_hosted_zone_id=api_domain.attr_regional_hosted_zone_id,
-                    )
-                ),
+                target=route53.RecordTarget.from_alias(targets.CloudFrontTarget(distribution)),
+            )
+            cdk.CfnOutput(
+                self, "ApiCloudFrontDomain", value=distribution.distribution_domain_name
             )
 
             ondc_domain = apigwv2.CfnDomainName(
