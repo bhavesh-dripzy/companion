@@ -55,7 +55,6 @@ def new_context(
         "domain": domain,
         "country": country,
         "city": city,
-        "location": {"country": {"code": country}, "city": {"code": city}},
         "action": action,
         # 1.2.x carries "core_version"; 2.x carries "version".
         ("core_version" if ver.startswith("1.") else "version"): ver,
