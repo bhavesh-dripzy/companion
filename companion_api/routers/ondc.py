@@ -53,15 +53,18 @@ _STRICT_CALLBACKS = os.getenv("ONDC_STRICT_CALLBACKS", "false").lower() == "true
 _FLOW_TOKEN = os.getenv("ONDC_FLOW_TOKEN", "")
 
 
-def _ack() -> dict[str, Any]:
-    return {"message": {"ack": {"status": "ACK"}}}
+def _ack(context: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Sync ACK. ONDC validates the sync response's context, so echo the request's."""
+    resp: dict[str, Any] = {"message": {"ack": {"status": "ACK"}}}
+    return {"context": context, **resp} if context else resp
 
 
-def _nack(code: str, message: str) -> dict[str, Any]:
-    return {
+def _nack(code: str, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+    resp: dict[str, Any] = {
         "message": {"ack": {"status": "NACK"}},
         "error": {"type": "CONTEXT-ERROR", "code": code, "message": message},
     }
+    return {"context": context, **resp} if context else resp
 
 _SITE_VERIFICATION_HTML = """<html>
     <head>
@@ -174,9 +177,10 @@ async def ondc_callback(action: str, request: Request, background_tasks: Backgro
     except json.JSONDecodeError:
         return _nack("10001", "invalid JSON body")
 
+    ctx = body.get("context")
     verified = _verify_callback(request.headers.get("Authorization", ""), raw)
     if _STRICT_CALLBACKS and not verified:
-        return _nack("20001", "signature verification failed")
+        return _nack("20001", "signature verification failed", ctx)
     record_callback(action, body, verified=verified)
     # Advance synchronously (in a threadpool) BEFORE the ACK: on the streaming
     # stack (Lambda Web Adapter) the env freezes after the response, so a
@@ -186,4 +190,4 @@ async def ondc_callback(action: str, request: Request, background_tasks: Backgro
         await run_in_threadpool(respond_on_recon, body)
     elif action.startswith("on_"):
         await run_in_threadpool(advance, action, body)
-    return _ack()
+    return _ack(ctx)
