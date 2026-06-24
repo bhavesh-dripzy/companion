@@ -203,3 +203,40 @@ def track_message(order_id: str) -> dict[str, Any]:
 def cancel_message(order_id: str, reason_id: str = "001") -> dict[str, Any]:
     """Build a ``cancel`` message. reason_id default 001 = delivery delayed/not possible."""
     return {"order_id": order_id, "cancellation_reason_id": reason_id}
+
+
+def update_return_message(
+    order_id: str,
+    item_ids: list[str] | None = None,
+    *,
+    reason_id: str = "001",
+    quantity: str = "1",
+) -> dict[str, Any]:
+    """Build an ``update`` message for a buyer-initiated return (update_target=item).
+
+    Adds a Return-type fulfillment carrying a ``return_request`` tag for the item.
+    """
+    item_id = (item_ids or [""])[0]
+    return {
+        "update_target": "item",
+        "order": {
+            "id": order_id,
+            "fulfillments": [
+                {
+                    "id": "return-1",
+                    "type": "Return",
+                    "tags": [
+                        {
+                            "code": "return_request",
+                            "list": [
+                                {"code": "id", "value": "1"},
+                                {"code": "item_id", "value": item_id},
+                                {"code": "item_quantity", "value": quantity},
+                                {"code": "reason_id", "value": reason_id},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+    }
