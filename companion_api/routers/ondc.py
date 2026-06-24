@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
+from starlette.concurrency import run_in_threadpool
 
 from companion_api.ondc_crypto import decrypt_challenge, load_ondc_keys, sign_request_id
 from companion_api.ondc_flow import advance, send_flow_action, start_order_flow
@@ -177,8 +178,12 @@ async def ondc_callback(action: str, request: Request, background_tasks: Backgro
     if _STRICT_CALLBACKS and not verified:
         return _nack("20001", "signature verification failed")
     record_callback(action, body, verified=verified)
+    # Advance synchronously (in a threadpool) BEFORE the ACK: on the streaming
+    # stack (Lambda Web Adapter) the env freezes after the response, so a
+    # FastAPI background task never runs the next action. run_in_threadpool keeps
+    # the event loop free while the outbound action completes within the invocation.
     if action == "recon":
-        background_tasks.add_task(respond_on_recon, body)
+        await run_in_threadpool(respond_on_recon, body)
     elif action.startswith("on_"):
-        background_tasks.add_task(advance, action, body)
+        await run_in_threadpool(advance, action, body)
     return _ack()
