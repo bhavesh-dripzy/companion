@@ -390,56 +390,11 @@ class CompanionStack(Stack):
             )
         )
 
-        # ── HTTP API ───────────────────────────────────────────────────
-
-        api = apigwv2.CfnApi(
-            self,
-            "HttpApi",
-            name=f"{project_name}-api",
-            protocol_type="HTTP",
-            cors_configuration=apigwv2.CfnApi.CorsProperty(
-                allow_headers=["content-type", "authorization"],
-                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                allow_origins=["*"],
-                max_age=3600,
-            ),
-        )
-
-        integration = apigwv2.CfnIntegration(
-            self,
-            "ApiIntegration",
-            api_id=api.ref,
-            integration_type="AWS_PROXY",
-            integration_uri=api_function.function_arn,
-            payload_format_version="2.0",
-        )
-        apigwv2.CfnRoute(
-            self,
-            "DefaultRoute",
-            api_id=api.ref,
-            route_key="$default",
-            target=f"integrations/{integration.ref}",
-        )
-        apigwv2.CfnStage(
-            self,
-            "DefaultStage",
-            api_id=api.ref,
-            stage_name="$default",
-            auto_deploy=True,
-        )
-        lambda_.CfnPermission(
-            self,
-            "ApiInvokePermission",
-            action="lambda:InvokeFunction",
-            function_name=api_function.function_name,
-            principal="apigateway.amazonaws.com",
-            source_arn=(
-                f"arn:{cdk.Aws.PARTITION}:execute-api:{cdk.Aws.REGION}:"
-                f"{cdk.Aws.ACCOUNT_ID}:{api.ref}/*/*"
-            ),
-        )
-
         # ── Streaming Function URL (true live SSE, exactly like local) ──
+        # NOTE: HTTP API Gateway was removed. The Web Adapter runs the function in
+        # response_stream mode, which does NOT serve buffered API Gateway invokes
+        # (they 500). Every entry now goes through the Function URL (below) fronted
+        # by CloudFront, so app.* AND ondc.* share one streaming-capable path.
         # The Lambda runs uvicorn via the Web Adapter (see Dockerfile). A
         # RESPONSE_STREAM Function URL is the ONLY AWS entry that streams the
         # response body incrementally (HTTP API Gateway always buffers). Auth is
@@ -470,19 +425,10 @@ class CompanionStack(Stack):
                 domain_name=domain_name,
             )
 
-            certificate = acm.Certificate(
-                self,
-                "Certificate",
-                domain_name=domain_name,
-                subject_alternative_names=[f"*.{domain_name}"],
-                validation=acm.CertificateValidation.from_dns(zone),
-            )
-
-            # app.{domain} is fronted by CloudFront → the streaming Function URL,
-            # because HTTP API Gateway cannot stream the response. CloudFront's
-            # cert MUST live in us-east-1. By default we provision (and DNS-
-            # validate via our own Route53 zone) a dedicated cert there for
-            # app.{domain} — self-contained, guaranteed to cover the CNAME. An
+            # app.{domain} AND ondc.{domain} are both fronted by CloudFront → the
+            # streaming Function URL. CloudFront's cert MUST live in us-east-1. By
+            # default we provision (and DNS-validate via our own Route53 zone) a
+            # dedicated cert there covering both CNAMEs — self-contained. An
             # existing us-east-1 cert ARN may be supplied to override.
             if edge_certificate_arn:
                 edge_cert = acm.Certificate.from_certificate_arn(
@@ -493,6 +439,7 @@ class CompanionStack(Stack):
                     self,
                     "AppEdgeCertificate",
                     domain_name=f"app.{domain_name}",
+                    subject_alternative_names=[f"ondc.{domain_name}"],
                     hosted_zone=zone,
                     region="us-east-1",
                 )
@@ -511,7 +458,7 @@ class CompanionStack(Stack):
                 self,
                 "ApiDistribution",
                 comment=f"app.{domain_name} — API + web app (streaming via LWA Function URL)",
-                domain_names=[f"app.{domain_name}"],
+                domain_names=[f"app.{domain_name}", f"ondc.{domain_name}"],
                 certificate=edge_cert,
                 price_class=cloudfront.PriceClass.PRICE_CLASS_100,
                 default_behavior=cloudfront.BehaviorOptions(
@@ -535,46 +482,18 @@ class CompanionStack(Stack):
                 self, "ApiCloudFrontDomain", value=distribution.distribution_domain_name
             )
 
-            ondc_domain = apigwv2.CfnDomainName(
-                self,
-                "OndcCustomDomain",
-                domain_name=f"ondc.{domain_name}",
-                domain_name_configurations=[
-                    apigwv2.CfnDomainName.DomainNameConfigurationProperty(
-                        certificate_arn=certificate.certificate_arn,
-                        endpoint_type="REGIONAL",
-                    )
-                ],
-            )
-
-            apigwv2.CfnApiMapping(
-                self,
-                "OndcApiMapping",
-                api_id=api.ref,
-                domain_name=f"ondc.{domain_name}",
-                stage="$default",
-            ).add_dependency(ondc_domain)
-
+            # ondc.{domain} → the SAME CloudFront distribution (it's a CNAME on the
+            # distribution); the app routes ONDC by path. No API Gateway involved.
             route53.ARecord(
                 self,
                 "OndcAliasRecord",
                 zone=zone,
                 record_name="ondc",
-                target=route53.RecordTarget.from_alias(
-                    targets.ApiGatewayv2DomainProperties(
-                        regional_domain_name=ondc_domain.attr_regional_domain_name,
-                        regional_hosted_zone_id=ondc_domain.attr_regional_hosted_zone_id,
-                    )
-                ),
+                target=route53.RecordTarget.from_alias(targets.CloudFrontTarget(distribution)),
             )
 
         # ── Outputs ────────────────────────────────────────────────────
 
-        cdk.CfnOutput(
-            self,
-            "HttpApiEndpoint",
-            value=f"https://{api.ref}.execute-api.{cdk.Aws.REGION}.amazonaws.com",
-        )
         cdk.CfnOutput(self, "CognitoUserPoolId", value=user_pool.user_pool_id)
         cdk.CfnOutput(
             self, "CognitoClientId", value=user_pool_client.user_pool_client_id
