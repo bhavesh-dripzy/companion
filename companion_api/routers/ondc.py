@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse
 
 from companion_api.ondc_crypto import decrypt_challenge, load_ondc_keys, sign_request_id
 from companion_api.ondc_flow import advance, send_flow_action, start_order_flow
+from companion_api.ondc_rsf import respond_on_recon
 from companion_api.ondc_registry import lookup_signing_key
 from companion_api.ondc_signing import key_id_parts, verify_authorization
 from companion_api.ondc_store import record_callback
@@ -41,6 +42,10 @@ _CALLBACK_ACTIONS = {
     "on_update",
     "on_rating",
     "on_support",
+    "recon",
+    "on_recon",
+    "on_issue",
+    "issue",
 }
 _STRICT_CALLBACKS = os.getenv("ONDC_STRICT_CALLBACKS", "false").lower() == "true"
 # Shared secret gating the test-flow trigger (unset => trigger disabled).
@@ -172,6 +177,8 @@ async def ondc_callback(action: str, request: Request, background_tasks: Backgro
     if _STRICT_CALLBACKS and not verified:
         return _nack("20001", "signature verification failed")
     record_callback(action, body, verified=verified)
-    if action.startswith("on_"):
+    if action == "recon":
+        background_tasks.add_task(respond_on_recon, body)
+    elif action.startswith("on_"):
         background_tasks.add_task(advance, action, body)
     return _ack()

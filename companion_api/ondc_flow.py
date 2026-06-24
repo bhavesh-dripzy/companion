@@ -28,6 +28,8 @@ from companion_api.ondc_retail import (
     track_message,
     update_return_message,
 )
+from companion_api.ondc_igm import send_issue
+from companion_api.ondc_rsf import send_recon
 from companion_api.ondc_store import get_transaction, save_transaction
 
 logger = logging.getLogger(__name__)
@@ -218,6 +220,17 @@ def send_flow_action(txn: str, action: str, params: dict[str, Any]) -> dict[str,
     state = get_transaction(txn)
     if not state.get("order_id"):
         return {"error": "no order_id for transaction", "transaction_id": txn}
+    if action == "recon":
+        result = send_recon(
+            bpp_id=state.get("bpp_id", ""), bpp_uri=state.get("bpp_uri", ""),
+            order_id=state.get("order_id", ""), transaction_id=txn,
+        )
+        save_transaction(txn, **{**state, "step": "recon"})
+        return {"transaction_id": txn, "action": action, "result": result}
+    if action in ("issue", "issue_close"):
+        result = send_issue(txn, state, {**params, "close": action == "issue_close" or params.get("close", False)})
+        save_transaction(txn, **{**state, "step": action})
+        return {"transaction_id": txn, "action": action, "result": result}
     builder = _ACTION_MESSAGE.get(action)
     if not builder:
         return {"error": f"unsupported action {action}", "transaction_id": txn}
