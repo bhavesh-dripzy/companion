@@ -31,7 +31,7 @@ DEFAULT_FINDER_FEE_PCT = os.getenv("ONDC_FINDER_FEE_PCT", "3.0")
 TEST_BUYER_NAME = os.getenv("ONDC_TEST_BUYER_NAME", "ONDC Test Buyer")
 TEST_BUYER_PHONE = os.getenv("ONDC_TEST_BUYER_PHONE", "9876543210")
 TEST_BUYER_EMAIL = os.getenv("ONDC_TEST_BUYER_EMAIL", "buyer@jatayulabs.com")
-TEST_GPS = os.getenv("ONDC_TEST_GPS", "12.9719,77.5937")
+TEST_GPS = os.getenv("ONDC_TEST_GPS", "12.971599,77.594563")
 TEST_AREA_CODE = os.getenv("ONDC_TEST_AREA_CODE", "560001")
 # 15-char GSTIN (state 29 = Karnataka) for the BAP's bap_terms tax_number.
 BAP_GST = os.getenv("ONDC_BAP_GST", "29AAACB2230M1ZX")
@@ -77,16 +77,13 @@ def search_intent(
     intent: dict[str, Any] = {}
     if query:
         intent["item"] = {"descriptor": {"name": query}}
-    if category_id:
-        intent["category"] = {"id": category_id}
+    intent["category"] = {"id": category_id or "Foodgrains"}
     intent["fulfillment"] = {"type": "Delivery", "end": _delivery_end(gps, area_code)}
     intent["payment"] = {
         "@ondc/org/buyer_app_finder_fee_type": "percent",
         "@ondc/org/buyer_app_finder_fee_amount": finder_fee_pct or DEFAULT_FINDER_FEE_PCT,
     }
-    tags = _search_tags(search_type)
-    if tags:
-        intent["tags"] = tags
+    intent["tags"] = _search_tags(search_type) or []
     return {"intent": intent}
 
 
@@ -132,6 +129,7 @@ def select_message(
         "provider": {"id": provider_id},
         "items": items,
         "fulfillments": [{"type": "Delivery", "end": _delivery_end(gps, area_code)}],
+        "payment": {"type": "ON-ORDER", "collected_by": "BAP"},
     }
     if location_ids:
         order["provider"]["locations"] = [{"id": loc} for loc in location_ids]
@@ -157,6 +155,7 @@ def billing(*, created_at: str, area_code: str | None = None) -> dict[str, Any]:
         "address": _address(area_code),
         "phone": TEST_BUYER_PHONE,
         "email": TEST_BUYER_EMAIL,
+        "tax_number": BAP_GST,
         "created_at": created_at,
         "updated_at": created_at,
     }
@@ -227,7 +226,7 @@ def _confirm_payment(on_init_payment: dict[str, Any], *, amount: str, currency: 
 def confirm_message(on_init_order: dict[str, Any], *, created_at: str, order_id: str | None = None) -> dict[str, Any]:
     """Build a ``confirm`` from the on_init order: set id/state=Created, mark PAID, accept bpp_terms."""
     order = json.loads(json.dumps(on_init_order or {}))
-    order["id"] = order.get("id") or order_id or str(uuid.uuid4())
+    order["id"] = order.get("id") or order_id or uuid.uuid4().hex
     order["state"] = "Created"
     price = (order.get("quote") or {}).get("price") or {}
     order["payment"] = _confirm_payment(
