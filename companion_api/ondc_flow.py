@@ -71,7 +71,8 @@ def start_order_flow(
     (full / inc_pull / inc_push) for the discovery flows.
     """
     message = search_intent(query, gps=gps, area_code=area_code, category_id=category_id, search_type=search_type)
-    result = send_action("search", message, domain=domain)
+    overrides = {"city": "*"} if search_type in ("inc_pull", "inc_push") else None
+    result = send_action("search", message, domain=domain, context_overrides=overrides)
     txn = (result.get("context") or {}).get("transaction_id", "")
     save_transaction(
         txn, step="search", domain=domain, query=query, gps=gps, area_code=area_code,
