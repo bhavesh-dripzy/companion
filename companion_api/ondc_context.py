@@ -53,6 +53,8 @@ def new_context(
     ver = core_version or DEFAULT_CORE_VERSION
     context: dict[str, Any] = {
         "domain": domain,
+        "country": country,
+        "city": city,
         "location": {"country": {"code": country}, "city": {"code": city}},
         "action": action,
         # 1.2.x carries "core_version"; 2.x carries "version".
