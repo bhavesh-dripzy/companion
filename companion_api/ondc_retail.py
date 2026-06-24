@@ -83,7 +83,12 @@ def search_intent(
         "@ondc/org/buyer_app_finder_fee_type": "percent",
         "@ondc/org/buyer_app_finder_fee_amount": finder_fee_pct or DEFAULT_FINDER_FEE_PCT,
     }
-    intent["tags"] = _search_tags(search_type) or []
+    intent["tags"] = _search_tags(search_type) or [
+        {"code": "bap_terms", "list": [
+            {"code": "finder_fee_type", "value": "percent"},
+            {"code": "finder_fee_amount", "value": finder_fee_pct or DEFAULT_FINDER_FEE_PCT},
+        ]}
+    ]
     return {"intent": intent}
 
 
@@ -130,6 +135,7 @@ def select_message(
         "items": items,
         "fulfillments": [{"type": "Delivery", "end": _delivery_end(gps, area_code)}],
         "payment": {"type": "ON-ORDER", "collected_by": "BAP"},
+        "offers": [],
     }
     if location_ids:
         order["provider"]["locations"] = [{"id": loc} for loc in location_ids]
@@ -238,6 +244,7 @@ def confirm_message(on_init_order: dict[str, Any], *, created_at: str, order_id:
     for fulfillment in order.get("fulfillments") or []:
         if "tracking" not in fulfillment:
             fulfillment["tracking"] = True
+        fulfillment.setdefault("@ondc/org/TAT", "PT1H")
         end = fulfillment.setdefault("end", {})
         end.setdefault("person", {"name": TEST_BUYER_NAME})
         end.setdefault("contact", {"phone": TEST_BUYER_PHONE, "email": TEST_BUYER_EMAIL})
