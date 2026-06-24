@@ -12,7 +12,18 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
+
+
+def _now_iso() -> str:
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
+def _iso_ago(seconds: int) -> str:
+    t = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond // 1000:03d}Z"
 
 DEFAULT_FINDER_FEE_PCT = os.getenv("ONDC_FINDER_FEE_PCT", "3.0")
 
@@ -33,6 +44,20 @@ def _delivery_end(gps: str | None, area_code: str | None) -> dict[str, Any]:
     return {"location": location}
 
 
+def _search_tags(search_type: str | None) -> list[dict[str, Any]] | None:
+    """Catalog tags that mark a search as full (8A) / incremental pull (8B) / push (8C)."""
+    if search_type == "full":
+        return [{"code": "catalog_full", "list": [{"code": "payload_type", "value": "inline"}]}]
+    if search_type == "inc_pull":
+        return [{"code": "catalog_inc", "list": [
+            {"code": "start_time", "value": _iso_ago(3600)},
+            {"code": "end_time", "value": _now_iso()},
+        ]}]
+    if search_type == "inc_push":
+        return [{"code": "catalog_inc", "list": [{"code": "mode", "value": "start"}]}]
+    return None
+
+
 def search_intent(
     query: str = "",
     *,
@@ -40,8 +65,13 @@ def search_intent(
     area_code: str | None = None,
     category_id: str | None = None,
     finder_fee_pct: str | None = None,
+    search_type: str | None = None,
 ) -> dict[str, Any]:
-    """Build a RET search ``message`` — by item name and/or category, delivered."""
+    """Build a RET search ``message`` — by item name and/or category, delivered.
+
+    ``search_type`` adds catalog tags for the discovery flows: full (8A),
+    inc_pull (8B, start/end window), inc_push (8C, mode=start subscription).
+    """
     intent: dict[str, Any] = {}
     if query:
         intent["item"] = {"descriptor": {"name": query}}
@@ -52,7 +82,26 @@ def search_intent(
         "@ondc/org/buyer_app_finder_fee_type": "percent",
         "@ondc/org/buyer_app_finder_fee_amount": finder_fee_pct or DEFAULT_FINDER_FEE_PCT,
     }
+    tags = _search_tags(search_type)
+    if tags:
+        intent["tags"] = tags
     return {"intent": intent}
+
+
+def catalog_rejection_errors(
+    *,
+    provider_index: int = 0,
+    item_index: int = 0,
+    code: str = "30016",
+    message: str = "Mandatory catalog attribute missing for item",
+) -> list[dict[str, Any]]:
+    """Build the ``errors`` array for a catalog_rejection (Flow 9) — rejects one item by path."""
+    return [{
+        "code": code,
+        "type": "ITEM-ERROR",
+        "path": f"message.catalog.bpp/providers[{provider_index}].items[{item_index}]",
+        "message": message,
+    }]
 
 
 def select_message(

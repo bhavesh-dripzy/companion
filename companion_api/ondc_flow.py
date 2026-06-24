@@ -16,9 +16,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from companion_api.ondc_catalog import parse_catalog
-from companion_api.ondc_client import send_action
+from companion_api.ondc_client import send_action, send_catalog_rejection
 from companion_api.ondc_retail import (
     cancel_message,
+    catalog_rejection_errors,
     confirm_message,
     init_message,
     search_intent,
@@ -55,20 +56,26 @@ def start_order_flow(
     domain: str = DEFAULT_DOMAIN,
     category_id: str | None = None,
     terminal_step: str = "track",
+    flow_mode: str = "order",
+    search_type: str | None = None,
 ) -> dict[str, Any]:
     """Kick off a flow: send ``search`` to the gateway, persist state, return the ACK.
 
     ``terminal_step`` bounds the auto-chain (search->select->init->confirm->status->track);
     e.g. "confirm" stops after the order is placed so a follow-up action (cancel/update)
-    can be driven via ``send_flow_action`` instead of auto-completing the order.
+    can be driven via ``send_flow_action``. ``flow_mode`` controls what on_search does:
+    "order" (default, select->...), "search_only" (stop after on_search — Flows 8A/B/C),
+    "reject" (send catalog_rejection — Flow 9). ``search_type`` adds catalog tags
+    (full / inc_pull / inc_push) for the discovery flows.
     """
-    message = search_intent(query, gps=gps, area_code=area_code, category_id=category_id)
+    message = search_intent(query, gps=gps, area_code=area_code, category_id=category_id, search_type=search_type)
     result = send_action("search", message, domain=domain)
     txn = (result.get("context") or {}).get("transaction_id", "")
     save_transaction(
-        txn, step="search", domain=domain, query=query, gps=gps, area_code=area_code, terminal_step=terminal_step
+        txn, step="search", domain=domain, query=query, gps=gps, area_code=area_code,
+        terminal_step=terminal_step, flow_mode=flow_mode,
     )
-    logger.warning("ONDC flow started txn=%s query=%r terminal=%s ack=%s", txn, query, terminal_step, result.get("status_code"))
+    logger.warning("ONDC flow started txn=%s query=%r mode=%s terminal=%s ack=%s", txn, query, flow_mode, terminal_step, result.get("status_code"))
     return {"transaction_id": txn, "search": result}
 
 
@@ -108,6 +115,21 @@ def _bpp(state: dict[str, Any], body: dict[str, Any]) -> tuple[str | None, str |
 
 def _on_search(txn: str, state: dict[str, Any], body: dict[str, Any], domain: str) -> dict[str, Any] | None:
     parsed = parse_catalog(body)
+    bpp_id, bpp_uri = parsed.get("bpp_id"), parsed.get("bpp_uri")
+    target = os.getenv("ONDC_TARGET_BPP", "").strip()
+    if target and target not in (bpp_id or "") and target not in (bpp_uri or ""):
+        logger.info("ONDC flow on_search: skipping non-target bpp_id=%s bpp_uri=%s txn=%s", bpp_id, bpp_uri, txn)
+        return None
+    mode = state.get("flow_mode", "order")
+    if mode == "search_only":
+        save_transaction(txn, **{**state, "step": "done", "bpp_id": bpp_id, "bpp_uri": bpp_uri})
+        logger.warning("ONDC flow on_search: search_only done txn=%s", txn)
+        return None
+    if mode == "reject":
+        save_transaction(txn, **{**state, "step": "catalog_rejection", "bpp_id": bpp_id, "bpp_uri": bpp_uri})
+        return send_catalog_rejection(
+            catalog_rejection_errors(), domain=domain, bpp_id=bpp_id, bpp_uri=bpp_uri, transaction_id=txn
+        )
     provider = next((p for p in (parsed.get("providers") or []) if p.get("items")), None)
     if not provider:
         logger.warning("ONDC flow on_search: no provider with items txn=%s", txn)
@@ -117,11 +139,6 @@ def _on_search(txn: str, state: dict[str, Any], body: dict[str, Any], domain: st
     fulfillment_id = next((i.get("fulfillment_id") for i in items if i.get("fulfillment_id")), None)
     location_id = next((i.get("location_id") for i in items if i.get("location_id")), None)
     location_ids = [location_id] if location_id else None
-    bpp_id, bpp_uri = parsed.get("bpp_id"), parsed.get("bpp_uri")
-    target = os.getenv("ONDC_TARGET_BPP", "").strip()
-    if target and target not in (bpp_id or "") and target not in (bpp_uri or ""):
-        logger.info("ONDC flow on_search: skipping non-target bpp_id=%s bpp_uri=%s txn=%s", bpp_id, bpp_uri, txn)
-        return None
     save_transaction(
         txn,
         **{**state, "step": "select", "bpp_id": bpp_id, "bpp_uri": bpp_uri, "provider_id": provider["id"],
@@ -136,6 +153,10 @@ def _on_search(txn: str, state: dict[str, Any], body: dict[str, Any], domain: st
 
 def _on_select(txn: str, state: dict[str, Any], body: dict[str, Any], domain: str) -> dict[str, Any] | None:
     bpp_id, bpp_uri = _bpp(state, body)
+    if state.get("terminal_step") == "select":
+        save_transaction(txn, **{**state, "step": "done", "bpp_id": bpp_id, "bpp_uri": bpp_uri})
+        logger.warning("ONDC flow on_select: terminal=select (OOS/Flow 5), stopping txn=%s", txn)
+        return None
     created_at = _now_iso()
     save_transaction(txn, **{**state, "step": "init", "bpp_id": bpp_id, "bpp_uri": bpp_uri, "billing_created_at": created_at})
     message = init_message(

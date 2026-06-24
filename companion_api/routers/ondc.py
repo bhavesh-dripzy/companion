@@ -31,6 +31,7 @@ router = APIRouter()
 
 _CALLBACK_ACTIONS = {
     "on_search",
+    "on_search_inc",
     "on_select",
     "on_init",
     "on_confirm",
@@ -115,7 +116,8 @@ async def ondc_flow_start(payload: dict[str, Any], request: Request) -> dict[str
     if not _FLOW_TOKEN or request.headers.get("X-Flow-Token", "") != _FLOW_TOKEN:
         raise HTTPException(status_code=403, detail="flow trigger disabled")
     query = (payload or {}).get("query", "")
-    if not query:
+    search_type = payload.get("search_type")
+    if not query and not search_type:
         raise HTTPException(status_code=400, detail="query required")
     return start_order_flow(
         query,
@@ -124,6 +126,8 @@ async def ondc_flow_start(payload: dict[str, Any], request: Request) -> dict[str
         domain=payload.get("domain", "ONDC:RET10"),
         category_id=payload.get("category_id"),
         terminal_step=payload.get("terminal_step", "track"),
+        flow_mode=payload.get("flow_mode", "order"),
+        search_type=search_type,
     )
 
 
