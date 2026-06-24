@@ -143,6 +143,7 @@ class GroceryDomainHandler:
                 for r in resolved:
                     r["qty"] = int(requests[0].get("qty", 1))
             result = None
+            delta, meta = {}, {}
             if resolved:  # write the items that DID resolve — even if others are ambiguous/unknown
                 delta, meta = V.build_delta(state, resolved)
                 log.debug("CART %s strategy=%s delta=%s", pid, adapter.cart_strategy, short(delta))
@@ -197,7 +198,15 @@ class GroceryDomainHandler:
                 else "Woh item nahi mila."
             )
             return V.not_found(state, pid, miss)
-        return V.cart_result(state, pid, state.cart(pid), **V.addr_keys(state, [pid]))
+        # A clean cart write succeeded → hand the narrator the exact fact (item + qty) so it confirms
+        # what actually happened instead of echoing a previous turn (the tap-add / set_qty drift bug).
+        return V.cart_result(
+            state,
+            pid,
+            state.cart(pid),
+            note=S.action_note(action, meta, delta),
+            **V.addr_keys(state, [pid]),
+        )
 
     # ---------------- show cart / checkout / clear ----------------
     async def _show_cart(self, state, pid: str) -> dict[str, Any]:

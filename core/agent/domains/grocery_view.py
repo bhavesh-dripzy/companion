@@ -46,18 +46,16 @@ def cart_atts(pid, cart: Cart, state) -> list[dict[str, Any]]:
 
 
 def enrich(cart: Cart, state) -> Cart:
-    """Zepto carts omit name/price → fill from the catalog (price-enrichment, §5b)."""
+    """Zepto carts omit per-item name/price → fill them from the catalog for DISPLAY (price-
+    enrichment, §5b). Display-only: it never sets the cart TOTAL — that is owned solely by each
+    provider's parse_cart/price_cart (authoritative), so we never show a self-computed total."""
     by_id = {p.item_id: p for _r, p in state.catalog.entries.items()}
-    total = 0
     for it in cart.items:
         src = by_id.get(it.item_id)
         if src:
             it.name = it.name or src.name
             it.price_minor = it.price_minor or src.price_minor
             it.image_url = it.image_url or src.image_url
-        total += it.price_minor * it.qty
-    if not cart.total_minor:
-        cart.total_minor = total
     return cart
 
 

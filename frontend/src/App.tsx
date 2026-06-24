@@ -326,7 +326,6 @@ function App() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
-  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const [pendingLocationQuery, setPendingLocationQuery] = useState<string | null>(null);
 
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
@@ -1012,6 +1011,9 @@ const assistantMsg: Message = {
     const ensure = () => {
       if (!added) {
         added = true;
+        // The stream is now producing the actual message (with its own typing dots) → retire the
+        // pre-stream "thinking" indicator so the two don't show at once.
+        setIsThinking(false);
         setMessages((p) => [...p, { role: 'assistant', message_id: sid, content: '', segments: [], streaming: true } as Message]);
       }
     };
@@ -1037,6 +1039,7 @@ const assistantMsg: Message = {
     try {
       await streamPost('/api/agent/turn/stream', sendBody, (ev: any) => {
         switch (ev.type) {
+          case 'status': ensure(); patch({ working: { action: ev.action, provider: ev.provider } }); break;
           case 'say': ensure(); if ((ev.text || '').trim()) pushSeg({ kind: 'text', text: ev.text }); break;
           case 'cards': ensure(); sawCards = true; if (Array.isArray(ev.attachments) && ev.attachments.length) pushSeg({ kind: 'cards', attachments: ev.attachments, provider: ev.provider }); break;
           case 'done': ensure(); finalize(ev.result || {}); break;
@@ -1072,6 +1075,19 @@ const assistantMsg: Message = {
         ...prev,
         { role: 'user', content: `➕ ${p.name || 'item'}` } as Message,
       ]);
+    } else if (
+      (clientAction?.type === 'set_qty' || clientAction?.type === 'remove') &&
+      clientAction?.payload?.item_id
+    ) {
+      // A deterministic cart qty change / remove tap (the cart "+"/"−" controls) — clean bubble with
+      // just the item + new qty; the exact id rides in the payload, never shown.
+      const p = clientAction.payload;
+      const name = p.name || 'item';
+      const content =
+        clientAction.type === 'remove' || p.qty === 0
+          ? `🗑️ ${name}`
+          : `🔄 ${name} × ${p.qty}`;
+      setMessages((prev) => [...prev, { role: 'user', content } as Message]);
     }
     setIsThinking(true);
 
@@ -1084,13 +1100,10 @@ const assistantMsg: Message = {
             ...(currentAddressIds() ? { address_ids: currentAddressIds() } : {}),
           }
         : buildAgentBody(text, geoOverride ?? effectiveGeo);
-      if (isAction) {
-        // Card taps are deterministic + fast → plain endpoint (no streaming benefit).
-        const data = await runTurn(sendBody);
-        finalizeAssistant(data);
-      } else {
-        await streamSend(sendBody);  // live, typed turn
-      }
+      // Everything streams the SAME way — taps (add / qty change) and NL alike — so the response
+      // always types out and builds up live (opener → narration → cards), never appearing all at
+      // once. streamSend falls back to the plain endpoint internally if SSE is unavailable.
+      await streamSend(sendBody);
     } catch (err: any) {
       const errorMsg: Message = {
         role: 'assistant',
@@ -1099,7 +1112,6 @@ const assistantMsg: Message = {
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsThinking(false);
-      setThinkingStatus(null);
     }
   };
 
@@ -1574,7 +1586,6 @@ const assistantMsg: Message = {
             messages={messages}
             onSendMessage={handleSendMessage}
             isThinking={isThinking}
-            thinkingStatus={thinkingStatus}
             onSuggestionClick={(prompt) => {
               if (!isThinking) handleSendMessage(prompt);
             }}

@@ -13,7 +13,7 @@ from core.agent.contracts import fmt_minor
 from core.agent.debug import log, short
 from core.agent.domains.grocery import HANDLER as GROCERY
 from core.agent.errors import user_message
-from core.agent.events import Emit, noop, say
+from core.agent.events import Emit, noop, say, status
 from core.agent.llm import narrate, route
 from core.agent.state import STORE, ConversationState
 
@@ -57,6 +57,11 @@ async def run_turn(
             short(intent.get("item_refs")),
         )
 
+    # Tell the player WHAT we're about to do (action + provider) so the live "working" indicator can
+    # show relevant copy ("Updating quantity on Swiggy Instamart") instead of bare dots while it waits.
+    await emit(
+        status(intent.get("action", ""), intent.get("provider_hint") or state.active_provider)
+    )
     # The handler narrates its own progress (per-tool `say` + `cards`, in completion order) via emit.
     result = await _dispatch(state, intent, emit)
     log.debug(

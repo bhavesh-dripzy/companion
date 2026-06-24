@@ -23,6 +23,24 @@ _SORTS = {"cheapest", "costliest"}
 _LABEL = {"instamart": "Instamart", "zepto": "Zepto", "swiggy_food": "Swiggy", "zomato": "Zomato"}
 
 
+def action_note(action: str, meta: dict[str, dict], delta: dict[str, int]) -> str | None:
+    """A deterministic, factual one-liner stating exactly what a cart write just did (item + qty),
+    so the narrator grounds an add/qty-change/remove on FACT instead of guessing from history (which
+    is what made tap-adds and set_qty narrate the wrong/previous turn). `meta` carries each written
+    item's name (it works for both NL-resolved and deterministic taps); `delta` carries the qty."""
+    names = ", ".join(m["name"] for m in meta.values() if m.get("name"))
+    if not names:
+        return None
+    qty = next(iter(delta.values()), 1)
+    if (
+        action == "remove" or qty == 0
+    ):  # a cart minus down to 0 arrives as set_qty qty:0 = a removal
+        return f"{names} cart se hata diya."
+    if action == "set_qty":
+        return f"{names} ki quantity {qty} kar di."
+    return f"{names} cart mein add kar diya."
+
+
 # ---------------- search-result filtering (price / sort) ----------------
 def filter_from_intent(intent: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize the Router's optional `filters` block into minor-unit bounds + sort, or None.

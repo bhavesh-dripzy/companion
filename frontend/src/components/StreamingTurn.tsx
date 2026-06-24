@@ -15,7 +15,8 @@ import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import { AttachmentList } from '../ChatLog';
-import type { StreamSegment } from '../types';
+import type { StreamSegment, TurnStatus } from '../types';
+import { WorkingCard } from './WorkingCard';
 
 const CHARS_PER_TICK = 2;     // typing speed (chars revealed per tick)
 const TICK_MS = 16;
@@ -25,11 +26,13 @@ const PAUSE_AFTER_CARDS = 120;
 export function StreamingTurn({
   segments,
   streaming,
+  working,
   onQuickPrompt,
   quickPromptDisabled,
 }: {
   segments: StreamSegment[];
   streaming: boolean;
+  working?: TurnStatus | null;
   onQuickPrompt?: (prompt: string) => void;
   quickPromptDisabled?: boolean;
 }) {
@@ -88,13 +91,7 @@ export function StreamingTurn({
           />
         );
       })}
-      {streaming && caughtUp && (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 w-fit">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#ff8a1e]/70 animate-bounce [animation-delay:-0.2s]" />
-          <span className="w-1.5 h-1.5 rounded-full bg-[#e85d7a]/70 animate-bounce [animation-delay:-0.1s]" />
-          <span className="w-1.5 h-1.5 rounded-full bg-[#2b2f72]/60 animate-bounce" />
-        </div>
-      )}
+      {streaming && caughtUp && <WorkingCard status={working} />}
     </div>
   );
 }

@@ -34,3 +34,11 @@ def say(text: str) -> dict[str, Any]:
 def cards(attachments: list[dict[str, Any]], provider: str | None = None) -> dict[str, Any]:
     """A block of UI cards to build in when the player reaches this point in the stream."""
     return {"type": "cards", "attachments": attachments, "provider": provider}
+
+
+def status(action: str, provider: str | None = None) -> dict[str, Any]:
+    """A transient 'what I'm doing right now' hint for the live working indicator — the action verb
+    (search/add/set_qty/…) plus which provider it targets. NOT narration: the player shows it only
+    while waiting for the next content, then drops it once real `say`/`cards` arrive. Domain-agnostic
+    (the frontend maps action+provider to friendly copy), so the vocabulary stays tiny."""
+    return {"type": "status", "action": action, "provider": provider}

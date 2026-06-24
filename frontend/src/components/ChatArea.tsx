@@ -13,6 +13,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, Send, Sparkles, Car, Utensils, Calendar, Ticket, Search, X } from 'lucide-react';
 import { motion } from 'motion/react';
+import { ThinkingIndicator } from './ThinkingIndicator';
 import { ChatMessageItem } from './ChatMessageItem';
 import { AddressChip } from './AddressChip';
 import { VoiceInput } from '../VoiceInput';
@@ -23,8 +24,6 @@ interface ChatAreaProps {
   messages: Message[];
   onSendMessage: (text: string) => void;
   isThinking: boolean;
-  /** Rolling human status from the in-flight turn ("Searching Zomato…"). */
-  thinkingStatus?: string | null;
   onSuggestionClick: (text: string) => void;
   /** Drops the in-chat grocery category picker card into the conversation
    *  (issue #59) — fired by the Groceries chip + the grocery hero nudge. */
@@ -142,7 +141,6 @@ export function ChatArea({
   messages,
   onSendMessage,
   isThinking,
-  thinkingStatus,
   onSuggestionClick,
   onOpenGroceries,
   onOpenFood,
@@ -448,21 +446,7 @@ export function ChatArea({
                   });
                 })()}
 
-                {isThinking && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="flex items-center gap-3 pl-3"
-                  >
-                    <div className="w-8 h-8 brand-orb shrink-0" />
-                    <div className="bg-white/80 border border-[#ece3d6]/80 py-2.5 px-4 rounded-full flex items-center gap-2 shadow-xs backdrop-blur-xs">
-                      <span className="w-1.5 h-1.5 bg-[#ff8a1e] rounded-full animate-ping" />
-                      <span className="text-slate-500 font-medium text-xs italic">
-                        {thinkingStatus || 'Thinking…'}
-                      </span>
-                    </div>
-                  </motion.div>
-                )}
+                {isThinking && <ThinkingIndicator />}
               </div>
             )}
           </div>

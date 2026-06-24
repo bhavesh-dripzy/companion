@@ -178,6 +178,10 @@ const InstamartProductTile: React.FC<{
   const price = formatPriceFromInr(variant?.price_inr);
   const showImage = !!variant?.image_url && !imageBroken;
   const hasMoreVariants = item.variants.length > 1;
+  const discount =
+    variant?.mrp_inr && variant?.price_inr && variant.mrp_inr > variant.price_inr
+      ? Math.round((1 - variant.price_inr / variant.mrp_inr) * 100)
+      : 0;
 
   // Deterministic tap: add THIS exact variant by its spinId — no brand (the name already carries it,
   // which doubled up as "Vikram Vikram…"), no LLM, no re-search. Carries the item's identity so the
@@ -199,86 +203,97 @@ const InstamartProductTile: React.FC<{
     <>
       <div
         className={cn(
-          'flex flex-col w-[130px] shrink-0 snap-start bg-white rounded-xl border border-slate-200/80 overflow-hidden transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
+          'group flex flex-col w-[40vw] max-w-[148px] sm:w-[136px] shrink-0 snap-start',
           outOfStock && 'opacity-60',
         )}
       >
-        {/* Image + ADD button overlay */}
-        <div className="relative aspect-square bg-slate-50 overflow-hidden">
-          {showImage ? (
-            <img
-              src={variant.image_url ?? ''}
-              alt={item.name}
-              loading="lazy"
-              onError={() => setImageBroken(true)}
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div
-              className="w-full h-full flex items-center justify-center"
-              style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
+        {/* Image tile + discount badge + overlapping ADD circle */}
+        <div className="relative">
+          <div className="aspect-square rounded-2xl bg-slate-50/80 border border-slate-200/60 overflow-hidden flex items-center justify-center p-2.5">
+            {showImage ? (
+              <img
+                src={variant.image_url ?? ''}
+                alt={item.name}
+                loading="lazy"
+                onError={() => setImageBroken(true)}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-contain mix-blend-multiply"
+              />
+            ) : (
+              <div
+                className="w-full h-full flex items-center justify-center rounded-xl"
+                style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
+              >
+                <ShoppingCart size={24} style={{ color: theme.brandHex }} />
+              </div>
+            )}
+          </div>
+          {discount > 0 ? (
+            <span
+              className="absolute top-1.5 left-0 text-[8.5px] font-extrabold text-white px-1.5 py-0.5 rounded-r-md shadow-sm"
+              style={{ backgroundColor: theme.brandHex }}
             >
-              <ShoppingCart size={22} style={{ color: theme.brandHex }} />
-            </div>
+              {discount}% OFF
+            </span>
+          ) : (
+            item.is_promoted && (
+              <span className="absolute top-1.5 left-1.5 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-slate-900/65 text-white">
+                ★ Ad
+              </span>
+            )
           )}
-          {item.is_promoted && (
-            <span className="absolute top-1.5 left-1.5 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-slate-900/70 text-white">
-              ★ Ad
+          {outOfStock && (
+            <span className="absolute bottom-2 left-2 text-[8.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800/80 text-white">
+              Out of stock
             </span>
           )}
-          {/* ADD button — bottom right corner overlapping image */}
           <button
             type="button"
             onClick={() => !disabled && !outOfStock && (hasMoreVariants ? setSheetOpen(true) : handleAdd(variant))}
             disabled={disabled || outOfStock}
             className={cn(
-              'absolute bottom-1.5 right-1.5 w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md transition-all',
-              'hover:brightness-110 active:scale-90',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
+              'absolute -bottom-3 right-1.5 w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-md border-2 transition-all',
+              'hover:brightness-105 active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed',
             )}
-            style={{ backgroundColor: theme.brandHex }}
+            style={{ borderColor: theme.brandHex, color: theme.brandHex }}
             title={outOfStock ? 'Out of stock' : `Add ${item.name}`}
           >
-            <Plus size={16} strokeWidth={2.5} />
+            <Plus size={16} strokeWidth={3} />
           </button>
         </div>
 
-        {/* Info */}
-        <div className="flex flex-col px-2 pt-1.5 pb-2 gap-1">
-          <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[26px]">
+        {/* Info — name · pack · price (MRP strikethrough), no delivery time */}
+        <div className="flex flex-col pt-4 gap-0.5">
+          <p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[30px]">
             {item.name}
           </p>
-          {/* Variant pill(s) */}
-          <div className="flex items-center gap-1 flex-wrap">
+          {hasMoreVariants ? (
             <button
               type="button"
-              onClick={() => hasMoreVariants && setSheetOpen(true)}
-              className={cn(
-                'px-1.5 py-0.5 rounded-md border border-slate-300 text-[9.5px] font-semibold text-slate-600 bg-white leading-none',
-                hasMoreVariants && 'hover:border-slate-400 cursor-pointer',
-                !hasMoreVariants && 'cursor-default',
-              )}
+              onClick={() => setSheetOpen(true)}
+              className="self-start inline-flex items-center gap-1 rounded-full border px-2 py-[3px] text-[10px] font-semibold leading-none transition-all hover:brightness-95 active:scale-95"
+              style={{
+                color: theme.brandHex,
+                borderColor: `${theme.brandHex}40`,
+                backgroundColor: `${theme.brandHex}12`,
+              }}
+              title="Choose a pack size"
             >
-              {variant?.quantity_description || '—'}
+              <span>{variant?.quantity_description || '—'}</span>
+              <span className="opacity-40">|</span>
+              <span>+{item.variants.length - 1} more</span>
+              <ChevronDown size={11} strokeWidth={2.6} />
             </button>
-            {hasMoreVariants && (
-              <button
-                type="button"
-                onClick={() => setSheetOpen(true)}
-                className="px-1.5 py-0.5 rounded-md text-[9.5px] font-bold leading-none hover:opacity-80"
-                style={{ backgroundColor: `${theme.brandHex}18`, color: theme.brandHex, border: `1px solid ${theme.brandHex}40` }}
-              >
-                +{item.variants.length - 1}
-              </button>
-            )}
-          </div>
-          {/* Price */}
+          ) : (
+            <span className="self-start text-[10.5px] font-medium text-slate-400 leading-tight">
+              {variant?.quantity_description || '—'}
+            </span>
+          )}
           {price && (
             <div className="flex items-baseline gap-1.5 mt-0.5">
-              <span className="text-[12.5px] font-extrabold text-slate-900">{price}</span>
+              <span className="text-[13px] font-extrabold text-slate-900">{price}</span>
               {variant?.mrp_inr && variant.mrp_inr > (variant.price_inr ?? 0) && (
-                <span className="text-[10px] text-slate-400 line-through">
+                <span className="text-[10.5px] text-slate-400 line-through">
                   {formatPriceFromInr(variant.mrp_inr)}
                 </span>
               )}
@@ -466,23 +481,38 @@ export const InstamartProductCardGrid: React.FC<{
   return (
     <div className="mt-2 w-full max-w-full space-y-3">
       {Array.from(groups.entries()).map(([query, items], gIdx) => (
-        <div key={query || `group-${gIdx}`} className="w-full">
-          <div className="flex items-center gap-2 px-1 mb-2 min-w-0">
+        <div
+          key={query || `group-${gIdx}`}
+          className="w-full rounded-2xl border shadow-sm px-3 pt-3 pb-2.5"
+          style={{
+            // A faint Instamart-orange wash (top) fading to white — gives the block a subtle brand feel.
+            background: `linear-gradient(180deg, ${themeFor('instamart').brandHex}14 0%, ${themeFor('instamart').brandHex}05 38%, #ffffff 100%)`,
+            borderColor: `${themeFor('instamart').brandHex}26`,
+          }}
+        >
+          {/* Header — Instamart logo + "Results for {query}" (no timing, no view-all) */}
+          <div className="flex items-center gap-2.5 mb-3 min-w-0">
             <div
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-white text-[10px] font-bold tracking-wider uppercase shrink-0"
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
               style={{ backgroundColor: themeFor('instamart').brandHex }}
             >
-              <ShoppingCart size={11} />
-              <span>{themeFor('instamart').label}</span>
+              <ShoppingCart size={16} />
             </div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 truncate">
-              {query ? `"${query}"` : 'Grocery picks'}
-            </span>
-            <span className="text-[10px] text-slate-400 shrink-0">
-              {items.length} product{items.length === 1 ? '' : 's'}
-            </span>
+            <div className="text-[13.5px] font-bold text-slate-800 leading-tight truncate min-w-0">
+              <span style={{ color: themeFor('instamart').brandHex }}>
+                {themeFor('instamart').label}
+              </span>
+              {query ? (
+                <>
+                  {' '}
+                  Results for <span className="capitalize">{query}</span>
+                </>
+              ) : (
+                ' picks'
+              )}
+            </div>
           </div>
-          <div className="flex flex-row gap-2 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+          <div className="flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pt-1 pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
             {items.map((p, idx) => (
               <InstamartProductTile
                 key={p.product_id || `${p.name}-${idx}`}
@@ -524,12 +554,21 @@ const InstamartCartItemRow: React.FC<{
 
   const setQty = (newQty: number) => {
     if (!onQuickPrompt || disabled) return;
-    const name = item.name || 'this item';
-    if (newQty === 0) {
-      onQuickPrompt(`Remove ${name} from my Instamart cart.`);
-    } else {
-      onQuickPrompt(`Set the quantity of ${name} in my Instamart cart to ${newQty}.`);
-    }
+    // Deterministic, id-based qty change (same pattern as the product "+" button) — carries the exact
+    // spin_id so the backend never re-resolves by name (no "2 Pieces"-style mis-resolution). qty 0 =
+    // remove. The narrator is informed via the backend's action `note` ("… quantity N kar di / hata diya").
+    onQuickPrompt(
+      `@@A@@${JSON.stringify({
+        type: 'set_qty',
+        payload: {
+          provider: 'instamart',
+          item_id: item.spin_id,
+          secondary_id: '',
+          name: item.name || 'this item',
+          qty: Math.max(0, newQty),
+        },
+      })}`,
+    );
   };
 
   return (

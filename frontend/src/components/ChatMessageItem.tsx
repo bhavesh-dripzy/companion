@@ -98,10 +98,11 @@ export function ChatMessageItem({
       <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : isCardsOnly ? 'w-full flex-1' : 'max-w-[88%] flex-1'}`}>
         {/* A LIVE/streamed turn plays through the generic player (typed narration + cards build in,
             in arrival order). A normal/reloaded turn renders the static bubble + attachments below. */}
-        {msg.segments && msg.segments.length > 0 ? (
+        {msg.segments && (msg.segments.length > 0 || msg.streaming) ? (
           <StreamingTurn
             segments={msg.segments}
             streaming={!!msg.streaming}
+            working={msg.working}
             onQuickPrompt={onQuickPrompt}
             quickPromptDisabled={quickPromptDisabled}
           />
