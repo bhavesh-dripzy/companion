@@ -10,7 +10,8 @@ import { RemindersPopup } from './components/RemindersPopup';
 import { OrdersPopup } from './components/OrdersPopup';
 import { CartDock } from './components/CartDock';
 import { VoiceStage } from './components/VoiceStage';
-import { api, clearToken, clearRefreshToken, getToken } from './api';
+import { api, clearToken, clearRefreshToken, getToken, streamPost } from './api';
+import type { StreamSegment } from './types';
 import { lastKnownUser, prefetchHeroGreeting, rememberLastUser } from './heroGreeting';
 import { InstamartAddressProvider, type InstamartSavedAddress } from './InstamartAddressContext';
 import { ZeptoAddressProvider, type ZeptoSavedAddress } from './ZeptoAddressContext';
@@ -325,9 +326,7 @@ function App() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
-  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const [pendingLocationQuery, setPendingLocationQuery] = useState<string | null>(null);
-  const [pendingLocationProvider, setPendingLocationProvider] = useState<string | null>(null);
 
   const [toolProviders, setToolProviders] = useState<ToolProvider[]>([]);
   const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
@@ -444,8 +443,13 @@ function App() {
   const [chatId, setChatId] = useState<string | null>(
     () => chatIdFromPath() || localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || null,
   );
+  // The new agent backend (/api/agent/turn) keeps conversation history server-side and is
+  // SEPARATE from the old /api/chats persistence. Track its conversation id in a ref so it
+  // never feeds the chat-list/URL machinery — which, not finding it in /api/chats, would
+  // clear the chat (the root cause of the "chat disappeared" bug).
+  const agentChatIdRef = useRef<string | null>(null);
 
-  const { location: userLocation, ensureLocation } = useUserLocation();
+  const { location: userLocation } = useUserLocation();
   // Persists geo across turns once the user grants it (hook only auto-captures on mount).
   const [grantedGeo, setGrantedGeo] = useState<import('./types').GeoCoordinate | null>(null);
   const effectiveGeo = grantedGeo ?? userLocation;
@@ -810,6 +814,7 @@ function App() {
   const handleNewChat = () => {
     setIsAdminOpen(false);
     setMessages([]);
+    agentChatIdRef.current = null;   // fresh agent conversation
     setSessionState({});
     setSessionRestaurants([]);
     setSessionAddresses([]);
@@ -841,64 +846,29 @@ function App() {
     localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
   };
 
-  const buildAgentBody = (
-    content: string,
-    geo?: GeoCoordinate | null,
-    forceProviders?: string[] | null,
-    overrides?: { instamartAddressId?: string },
-  ) => {
-    const body: Record<string, any> = {
-      message: content,
-      address_id: selectedAddressId || '',
-      execute_tools: true,
-      history: messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-        ...(m.role === 'assistant' && m.provider ? { provider: m.provider } : {}),
-      })),
-    };
-    if (geo) {
-      body.geo = {
-        latitude: geo.latitude,
-        longitude: geo.longitude,
-        ...(geo.accuracyMeters !== undefined ? { accuracy_meters: geo.accuracyMeters } : {}),
-        captured_at: new Date().toISOString(),
-      };
-    }
-    if (Object.keys(sessionState).length > 0) body.session_state = sessionState;
-    if (sessionRestaurants.length > 0) body.session_restaurants = sessionRestaurants;
-    if (sessionAddresses.length > 0) body.session_addresses = sessionAddresses;
-    if (sessionMenu.length > 0) body.session_menu = sessionMenu;
-    if (sessionCart && sessionCart.cart_id) body.session_cart = sessionCart;
-    if (sessionMovies.length > 0) body.session_movies = sessionMovies;
-    if (sessionTheatres.length > 0) body.session_theatres = sessionTheatres;
-    if (sessionEvents.length > 0) body.session_events = sessionEvents;
-    if (sessionVenues.length > 0) body.session_venues = sessionVenues;
-    if (sessionArtists.length > 0) body.session_artists = sessionArtists;
-    if (sessionReservation && sessionReservation.booking_id) {
-      body.session_reservation = sessionReservation;
-    }
-    if (sessionZeptoProducts.length > 0) body.session_zepto_products = sessionZeptoProducts;
-    if (sessionZeptoAddresses.length > 0) body.session_zepto_addresses = sessionZeptoAddresses;
-    if (sessionZeptoCart) body.session_zepto_cart = sessionZeptoCart;
-    if (sessionInstamartProducts.length > 0) body.session_instamart_products = sessionInstamartProducts;
-    if (sessionInstamartAddresses.length > 0) body.session_instamart_addresses = sessionInstamartAddresses;
-    if (sessionInstamartCart) body.session_instamart_cart = sessionInstamartCart;
-    // A picker-driven address switch overrides the (stale) committed selection so
-    // the backend anchors this turn's search/cart to the newly chosen address.
-    const instamartAddressId = overrides?.instamartAddressId || selectedInstamartAddressId;
-    if (instamartAddressId) body.selected_instamart_address_id = instamartAddressId;
-    if (sessionKiteInstruments.length > 0) body.session_kite_instruments = sessionKiteInstruments;
-    if (sessionSerpFlights.length > 0) body.session_serp_flights = sessionSerpFlights;
-    if (sessionSerpProducts.length > 0) body.session_serp_products = sessionSerpProducts;
-    if (sessionSerpPlaces.length > 0) body.session_serp_places = sessionSerpPlaces;
-    if (sessionSerpHotels.length > 0) body.session_serp_hotels = sessionSerpHotels;
-    if (sessionKiteHoldings) body.session_kite_holdings = sessionKiteHoldings;
-    if (sessionKitePositions) body.session_kite_positions = sessionKitePositions;
-    if (sessionKiteOpenOrders.length > 0) body.session_kite_open_orders = sessionKiteOpenOrders;
-    if (sessionKiteOrderTicket) body.session_kite_order_ticket = sessionKiteOrderTicket;
-    if (chatId) body.chat_id = chatId;
-    if (forceProviders && forceProviders.length > 0) body.force_providers = forceProviders;
+  // The request payload was deliberately reduced to the essentials while the
+  // backend is rebuilt. The old turn shipped ~30 round-tripped `session_*`
+  // echoes (cart/restaurants/menu/zepto/instamart/kite/serp/...), plus
+  // `force_providers` and `selected_instamart_address_id`, so the legacy
+  // orchestrator could rehydrate context. The new backend will define its own
+  // context protocol — until then we send only the message + basic context.
+  // New agent backend (/api/agent/turn): backend owns history/cart/session state, so the
+  // frontend sends only message + mode + geo + chat_id. Taps go via `client_action` (below).
+  // The address the user has selected (sidebar / cart "Change") is authoritative — send it every
+  // turn so the agent operates on the right delivery context even when it changed outside the chat.
+  const currentAddressIds = (): Record<string, string> | undefined => {
+    const ids: Record<string, string> = {};
+    if (selectedInstamartAddressId) ids.instamart = selectedInstamartAddressId;
+    if (selectedZeptoAddressId) ids.zepto = selectedZeptoAddressId;
+    return Object.keys(ids).length ? ids : undefined;
+  };
+
+  const buildAgentBody = (content: string, geo?: GeoCoordinate | null) => {
+    const body: Record<string, any> = { message: content, mode: 'text' };
+    if (geo) body.geo = { lat: geo.latitude, lng: geo.longitude };
+    if (agentChatIdRef.current) body.chat_id = agentChatIdRef.current;
+    const addressIds = currentAddressIds();
+    if (addressIds) body.address_ids = addressIds;
     return body;
   };
 
@@ -907,34 +877,22 @@ function App() {
   // This helper makes that transparent: it polls the job, surfaces each
   // rolling progress line into the thinking bubble, and resolves with the
   // final envelope exactly as if the POST had returned it directly.
+  // Posts a turn and returns the response. The old async-job transport
+  // (status:'accepted' + job_id polling on /api/agent/jobs/) was removed with
+  // the legacy execution backend; the new backend will define its own.
   const runTurn = async (body: Record<string, any>): Promise<QueryResponse> => {
-    const first = await api.post('/api/agent/query/', body);
-    if (first?.status !== 'accepted' || !first?.job_id) return first as QueryResponse;
-    const lines: string[] = Array.isArray(first.progress) ? first.progress : [];
-    if (lines.length) setThinkingStatus(lines[lines.length - 1]);
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < 180_000) {
-      await new Promise((r) => setTimeout(r, 1400));
-      const job = await api.get(`/api/agent/jobs/${encodeURIComponent(first.job_id)}/`);
-      const progress: string[] = Array.isArray(job?.progress) ? job.progress : [];
-      if (progress.length) setThinkingStatus(progress[progress.length - 1]);
-      if (job?.status === 'done' && job.result) return job.result as QueryResponse;
-      if (job?.status === 'error') throw new Error(job.error || 'The request failed.');
-    }
-    throw new Error('This is taking longer than expected — please try again.');
+    return (await api.post('/api/agent/turn', body)) as QueryResponse;
   };
 
   const handleGrantLocation = async (geo: GeoCoordinate) => {
     const query = pendingLocationQuery;
-    const provider = pendingLocationProvider;
     if (!query) return;
     setPendingLocationQuery(null);
-    setPendingLocationProvider(null);
     setGrantedGeo(geo);
     setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, askLocation: false } : m));
     setIsThinking(true);
     try {
-      const data: QueryResponse = await runTurn(buildAgentBody(query, geo, provider ? [provider] : null));
+      const data: QueryResponse = await runTurn(buildAgentBody(query, geo));
 const assistantMsg: Message = {
         role: 'assistant',
         content: data.assistant_message,
@@ -956,147 +914,196 @@ const assistantMsg: Message = {
     }
   };
 
+  // Apply all session/sidebar state carried by a turn response (shared by streaming + non-streaming).
+  // Pure side-effects on React state; never touches the chat messages.
+  const applySessionState = (data: any) => {
+    if (data.session_state && typeof data.session_state === 'object') setSessionState(data.session_state);
+    if (Array.isArray(data.session_restaurants)) setSessionRestaurants(data.session_restaurants);
+    if (Array.isArray(data.session_addresses)) setSessionAddresses(data.session_addresses);
+    if (Array.isArray(data.session_menu)) setSessionMenu(data.session_menu);
+    if ('session_cart' in data) {
+      const c = (data as any).session_cart;
+      setSessionCart(c && typeof c === 'object' && c.cart_id ? c : null);
+      if (c && typeof c === 'object' && c.cart_id
+          && (data.routed_provider === 'zomato' || data.routed_provider === 'swiggy_food')) {
+        setFoodCartProvider(data.routed_provider);
+      }
+    }
+    if (Array.isArray(data.session_movies)) setSessionMovies(data.session_movies);
+    if (Array.isArray(data.session_theatres)) setSessionTheatres(data.session_theatres);
+    if (Array.isArray(data.session_events)) setSessionEvents(data.session_events);
+    if (Array.isArray(data.session_venues)) setSessionVenues(data.session_venues);
+    if (Array.isArray(data.session_artists)) setSessionArtists(data.session_artists);
+    if ('session_reservation' in data) {
+      const r = (data as any).session_reservation;
+      setSessionReservation(r && typeof r === 'object' && r.booking_id ? r : null);
+    }
+    if (Array.isArray(data.session_zepto_products)) setSessionZeptoProducts(data.session_zepto_products);
+    if (Array.isArray(data.session_zepto_addresses)) setSessionZeptoAddresses(data.session_zepto_addresses);
+    if ('session_zepto_cart' in data) {
+      const zc = (data as any).session_zepto_cart;
+      setSessionZeptoCart(zc && typeof zc === 'object' ? zc : null);
+    }
+    if (Array.isArray(data.session_instamart_products)) setSessionInstamartProducts(data.session_instamart_products);
+    if (Array.isArray(data.session_instamart_addresses)) setSessionInstamartAddresses(data.session_instamart_addresses);
+    if ('session_instamart_cart' in data) {
+      const ic = (data as any).session_instamart_cart;
+      setSessionInstamartCart(ic && typeof ic === 'object' ? ic : null);
+    }
+    if ('selected_instamart_address_id' in data) {
+      const sid = (data as any).selected_instamart_address_id;
+      setSelectedInstamartAddressId(typeof sid === 'string' && sid ? sid : null);
+    }
+    if (Array.isArray(data.session_zepto_addresses) && data.session_zepto_addresses.length) {
+      setZeptoSavedAddresses(
+        (data.session_zepto_addresses as any[]).map((r) => ({
+          address_id: String(r.address_id || ''),
+          location_name:
+            r.tag && r.line ? `${r.tag} — ${r.line}` : String(r.label || r.line || r.tag || r.address_id || ''),
+        })).filter((r) => r.address_id),
+      );
+    }
+    if ('selected_zepto_address_id' in data) {
+      const zid = (data as any).selected_zepto_address_id;
+      setSelectedZeptoAddressId(typeof zid === 'string' && zid ? zid : null);
+    }
+    if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
+    if (Array.isArray(data.session_serp_flights)) setSessionSerpFlights(data.session_serp_flights);
+    if (Array.isArray(data.session_serp_products)) setSessionSerpProducts(data.session_serp_products);
+    if (Array.isArray(data.session_serp_places)) setSessionSerpPlaces(data.session_serp_places);
+    if (Array.isArray(data.session_serp_hotels)) setSessionSerpHotels(data.session_serp_hotels);
+    if ('session_kite_holdings' in data) {
+      const kh = (data as any).session_kite_holdings;
+      setSessionKiteHoldings(kh && typeof kh === 'object' ? kh : null);
+    }
+    if ('session_kite_positions' in data) {
+      const kp = (data as any).session_kite_positions;
+      setSessionKitePositions(kp && typeof kp === 'object' ? kp : null);
+    }
+    if (Array.isArray(data.session_kite_open_orders)) setSessionKiteOpenOrders(data.session_kite_open_orders);
+    if ('session_kite_order_ticket' in data) {
+      const kt = (data as any).session_kite_order_ticket;
+      setSessionKiteOrderTicket(kt && typeof kt === 'object' ? kt : null);
+    }
+  };
+
+  // Build the assistant message from a full turn response + append it (non-streaming / tap path).
+  const finalizeAssistant = (data: any) => {
+    if ((data as any).chat_id) agentChatIdRef.current = (data as any).chat_id;
+    applySessionState(data);
+    setMessages((prev) => [...prev, {
+      role: 'assistant',
+      content: data.assistant_message,
+      attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
+      provider: typeof data.routed_provider === 'string' && data.routed_provider ? data.routed_provider : undefined,
+      agentCards: Array.isArray((data as any).cards) ? (data as any).cards : undefined,
+      pendingAction: (data as any).pending_action ?? null,
+    } as Message]);
+  };
+
+  // Stream a turn over SSE: one assistant message plays out as the backend narrates — text lines
+  // type in, each tool's cards build in (completion order). Falls back to the plain endpoint if the
+  // stream can't open (e.g. behind API Gateway). The FE imposes NO ordering — it renders as it arrives.
+  const streamSend = async (sendBody: Record<string, any>) => {
+    const sid = `sm-${Date.now()}`;
+    let added = false;
+    let sawCards = false;
+    const ensure = () => {
+      if (!added) {
+        added = true;
+        // The stream is now producing the actual message (with its own typing dots) → retire the
+        // pre-stream "thinking" indicator so the two don't show at once.
+        setIsThinking(false);
+        setMessages((p) => [...p, { role: 'assistant', message_id: sid, content: '', segments: [], streaming: true } as Message]);
+      }
+    };
+    const pushSeg = (seg: StreamSegment) =>
+      setMessages((p) => p.map((m) => (m.message_id === sid ? { ...m, segments: [...(m.segments || []), seg] } : m)));
+    const patch = (u: Partial<Message>) =>
+      setMessages((p) => p.map((m) => (m.message_id === sid ? { ...m, ...u } : m)));
+    const finalize = (data: any) => {
+      if ((data as any).chat_id) agentChatIdRef.current = (data as any).chat_id;
+      applySessionState(data);
+      // If the turn produced cards but never streamed a `cards` event (e.g. a cart op), show them now.
+      if (!sawCards && Array.isArray(data.attachments) && data.attachments.length) {
+        pushSeg({ kind: 'cards', attachments: data.attachments });
+      }
+      patch({
+        content: data.assistant_message || '',
+        attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
+        agentCards: Array.isArray((data as any).cards) ? (data as any).cards : undefined,
+        pendingAction: (data as any).pending_action ?? null,
+        streaming: false,
+      });
+    };
+    try {
+      await streamPost('/api/agent/turn/stream', sendBody, (ev: any) => {
+        switch (ev.type) {
+          case 'status': ensure(); patch({ working: { action: ev.action, provider: ev.provider } }); break;
+          case 'say': ensure(); if ((ev.text || '').trim()) pushSeg({ kind: 'text', text: ev.text }); break;
+          case 'cards': ensure(); sawCards = true; if (Array.isArray(ev.attachments) && ev.attachments.length) pushSeg({ kind: 'cards', attachments: ev.attachments, provider: ev.provider }); break;
+          case 'done': ensure(); finalize(ev.result || {}); break;
+          case 'error': ensure(); pushSeg({ kind: 'text', text: `Error: ${ev.message || 'kuch dikkat aa gayi'}` }); patch({ streaming: false }); break;
+        }
+      });
+    } catch {
+      // SSE unavailable → fall back to the plain endpoint (no live typing, same content).
+      const data = await runTurn(sendBody);
+      if (added) finalize(data);
+      else finalizeAssistant(data);
+    }
+  };
+
   const handleSendMessage = async (
     content: string,
     geoOverride?: import('./types').GeoCoordinate | null,
-    overrides?: { instamartAddressId?: string },
   ) => {
     const text = (content || '').trim();
     if (!text) return;
-    const userMsg: Message = { role: 'user', content: text };
-    setMessages((prev) => [...prev, userMsg]);
+    // Card taps arrive as "@@A@@<json>" → a deterministic client_action (no user bubble, no LLM).
+    const isAction = text.startsWith('@@A@@');
+    const clientAction = isAction
+      ? (() => { try { return JSON.parse(text.slice(5)); } catch { return null; } })()
+      : null;
+    if (!isAction) {
+      setMessages((prev) => [...prev, { role: 'user', content: text } as Message]);
+    } else if (clientAction?.type === 'add' && clientAction?.payload?.item_id) {
+      // A deterministic "add this card" tap — show a clean user bubble with just the item name
+      // (the exact id is carried in the tap payload, not shown to the user).
+      const p = clientAction.payload;
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', content: `➕ ${p.name || 'item'}` } as Message,
+      ]);
+    } else if (
+      (clientAction?.type === 'set_qty' || clientAction?.type === 'remove') &&
+      clientAction?.payload?.item_id
+    ) {
+      // A deterministic cart qty change / remove tap (the cart "+"/"−" controls) — clean bubble with
+      // just the item + new qty; the exact id rides in the payload, never shown.
+      const p = clientAction.payload;
+      const name = p.name || 'item';
+      const content =
+        clientAction.type === 'remove' || p.qty === 0
+          ? `🗑️ ${name}`
+          : `🔄 ${name} × ${p.qty}`;
+      setMessages((prev) => [...prev, { role: 'user', content } as Message]);
+    }
     setIsThinking(true);
 
     try {
-      let data: QueryResponse = await runTurn(buildAgentBody(text, geoOverride ?? effectiveGeo, null, overrides));
-
-      const errorCode = (data as any)?.tool_execution?.error_code;
-      if (errorCode === 'needs_location') {
-        try {
-          const fresh = await ensureLocation();
-          setGrantedGeo(fresh);
-          data = await runTurn(buildAgentBody(text, fresh, null, overrides));
-        } catch (geoErr: any) {
-          const reason = geoErr?.reason ?? 'unknown';
-          const friendly: Record<string, string> = {
-            permission_denied:
-              "I couldn't get your location — you blocked the request. Allow location access in your browser and try again.",
-            position_unavailable: 'Your location is currently unavailable. Try again with a better signal.',
-            timeout: 'Getting your location timed out — please try again.',
-            unsupported: 'This browser does not expose location services.',
-            unknown: 'I could not read your location.',
-          };
-          // If the first response had partial results (e.g. Instamart worked, Zepto needed location),
-          // show those results with a "Share location" button to retry Zepto.
-          if (data.assistant_message) {
-            setPendingLocationQuery(text);
-            setPendingLocationProvider((data as any).tool_execution?.location_needed_by ?? null);
-            // Flag the message so ChatMessageItem renders the grant-location button.
-            data = { ...data, _askLocation: true } as any;
-          } else {
-            setMessages((prev) => [
-              ...prev,
-              { role: 'assistant', content: friendly[reason] || friendly.unknown },
-            ]);
-            return;
+      const sendBody = isAction
+        ? {
+            mode: 'text',
+            client_action: clientAction,
+            ...(agentChatIdRef.current ? { chat_id: agentChatIdRef.current } : {}),
+            ...(currentAddressIds() ? { address_ids: currentAddressIds() } : {}),
           }
-        }
-      }
-
-      const assistantMsg: Message = {
-        role: 'assistant',
-        content: data.assistant_message,
-        meta: (Array.isArray(data.selected_tool_providers)
-          ? data.selected_tool_providers
-          : []) as string[],
-        toolsOk: data.tool_execution?.ok !== false,
-        toolsError: data.tool_execution?.ok === false ? data.tool_execution?.error : undefined,
-        trace: data.observable_trace,
-        attachments: Array.isArray(data.attachments) ? data.attachments : undefined,
-        provider:
-          typeof data.routed_provider === 'string' && data.routed_provider ? data.routed_provider : undefined,
-        askLocation: !!(data as any)._askLocation,
-      };
-
-      if (data.session_state && typeof data.session_state === 'object') setSessionState(data.session_state);
-      if (Array.isArray(data.session_restaurants)) setSessionRestaurants(data.session_restaurants);
-      if (Array.isArray(data.session_addresses)) setSessionAddresses(data.session_addresses);
-      if (Array.isArray(data.session_menu)) setSessionMenu(data.session_menu);
-      if ('session_cart' in data) {
-        const c = (data as any).session_cart;
-        setSessionCart(c && typeof c === 'object' && c.cart_id ? c : null);
-        if (c && typeof c === 'object' && c.cart_id
-            && (data.routed_provider === 'zomato' || data.routed_provider === 'swiggy_food')) {
-          setFoodCartProvider(data.routed_provider);
-        }
-      }
-      if (Array.isArray(data.session_movies)) setSessionMovies(data.session_movies);
-      if (Array.isArray(data.session_theatres)) setSessionTheatres(data.session_theatres);
-      if (Array.isArray(data.session_events)) setSessionEvents(data.session_events);
-      if (Array.isArray(data.session_venues)) setSessionVenues(data.session_venues);
-      if (Array.isArray(data.session_artists)) setSessionArtists(data.session_artists);
-      if ('session_reservation' in data) {
-        const r = (data as any).session_reservation;
-        setSessionReservation(r && typeof r === 'object' && r.booking_id ? r : null);
-      }
-      if (Array.isArray(data.session_zepto_products)) setSessionZeptoProducts(data.session_zepto_products);
-      if (Array.isArray(data.session_zepto_addresses)) setSessionZeptoAddresses(data.session_zepto_addresses);
-      if ('session_zepto_cart' in data) {
-        const zc = (data as any).session_zepto_cart;
-        setSessionZeptoCart(zc && typeof zc === 'object' ? zc : null);
-      }
-      if (Array.isArray(data.session_instamart_products)) setSessionInstamartProducts(data.session_instamart_products);
-      if (Array.isArray(data.session_instamart_addresses)) setSessionInstamartAddresses(data.session_instamart_addresses);
-      if ('session_instamart_cart' in data) {
-        const ic = (data as any).session_instamart_cart;
-        setSessionInstamartCart(ic && typeof ic === 'object' ? ic : null);
-      }
-      if ('selected_instamart_address_id' in data) {
-        const sid = (data as any).selected_instamart_address_id;
-        setSelectedInstamartAddressId(typeof sid === 'string' && sid ? sid : null);
-      }
-      if (Array.isArray(data.session_zepto_addresses) && data.session_zepto_addresses.length) {
-        // Backend rows are {address_id, label/tag, line}; map to the picker shape.
-        setZeptoSavedAddresses(
-          (data.session_zepto_addresses as any[]).map((r) => ({
-            address_id: String(r.address_id || ''),
-            location_name:
-              r.tag && r.line ? `${r.tag} — ${r.line}` : String(r.label || r.line || r.tag || r.address_id || ''),
-          })).filter((r) => r.address_id),
-        );
-      }
-      if ('selected_zepto_address_id' in data) {
-        const zid = (data as any).selected_zepto_address_id;
-        setSelectedZeptoAddressId(typeof zid === 'string' && zid ? zid : null);
-      }
-      if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
-      if (Array.isArray(data.session_serp_flights)) setSessionSerpFlights(data.session_serp_flights);
-      if (Array.isArray(data.session_serp_products)) setSessionSerpProducts(data.session_serp_products);
-      if (Array.isArray(data.session_serp_places)) setSessionSerpPlaces(data.session_serp_places);
-      if (Array.isArray(data.session_serp_hotels)) setSessionSerpHotels(data.session_serp_hotels);
-      if ('session_kite_holdings' in data) {
-        const kh = (data as any).session_kite_holdings;
-        setSessionKiteHoldings(kh && typeof kh === 'object' ? kh : null);
-      }
-      if ('session_kite_positions' in data) {
-        const kp = (data as any).session_kite_positions;
-        setSessionKitePositions(kp && typeof kp === 'object' ? kp : null);
-      }
-      if (Array.isArray(data.session_kite_open_orders)) setSessionKiteOpenOrders(data.session_kite_open_orders);
-      if ('session_kite_order_ticket' in data) {
-        const kt = (data as any).session_kite_order_ticket;
-        setSessionKiteOrderTicket(kt && typeof kt === 'object' ? kt : null);
-      }
-
-      if (typeof data.chat_id === 'string' && data.chat_id) {
-        if (data.chat_id !== chatId) {
-          setChatId(data.chat_id);
-          localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
-        }
-        refreshChatList();
-      }
-
-      setMessages((prev) => [...prev, assistantMsg]);
+        : buildAgentBody(text, geoOverride ?? effectiveGeo);
+      // Everything streams the SAME way — taps (add / qty change) and NL alike — so the response
+      // always types out and builds up live (opener → narration → cards), never appearing all at
+      // once. streamSend falls back to the plain endpoint internally if SSE is unavailable.
+      await streamSend(sendBody);
     } catch (err: any) {
       const errorMsg: Message = {
         role: 'assistant',
@@ -1105,7 +1112,6 @@ const assistantMsg: Message = {
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsThinking(false);
-      setThinkingStatus(null);
     }
   };
 
@@ -1533,11 +1539,11 @@ const assistantMsg: Message = {
         selectedId: selectedInstamartAddressId,
         onSwitch: (addressId, prompt) => {
           if (isThinking || !addressId) return;
-          // Commit optimistically so the bar reflects the switch immediately, and
-          // pass the id as an explicit override (React state is async, so the
-          // in-flight turn can't rely on the setState above landing first).
+          // Commit optimistically so the bar reflects the switch immediately.
+          // (The turn no longer round-trips the selected address to the backend;
+          // the new backend will define how address context is supplied.)
           setSelectedInstamartAddressId(addressId);
-          handleSendMessage(prompt, undefined, { instamartAddressId: addressId });
+          handleSendMessage(prompt);
         },
       }}
     >
@@ -1580,7 +1586,6 @@ const assistantMsg: Message = {
             messages={messages}
             onSendMessage={handleSendMessage}
             isThinking={isThinking}
-            thinkingStatus={thinkingStatus}
             onSuggestionClick={(prompt) => {
               if (!isThinking) handleSendMessage(prompt);
             }}

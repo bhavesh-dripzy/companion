@@ -42,6 +42,11 @@ CompanionStack(
     project_name=resource_prefix,
     domain_name=domain_name,
     enable_custom_domain=is_prod,
+    # Optional override for the us-east-1 CloudFront edge cert (fronting
+    # app.jatayulabs.com → the streaming Function URL). When unset, the stack
+    # provisions and DNS-validates its own us-east-1 cert for app.{domain}, so it
+    # always covers the CNAME. (The apex landing cert is NOT a wildcard.)
+    edge_certificate_arn=os.getenv("EDGE_CERTIFICATE_ARN") or None,
     profile_cache=graph_stack.profile_cache,
     turns_queue=graph_stack.turns_queue,
     lead_cache=graph_stack.lead_cache,

@@ -192,36 +192,20 @@ def _companion_agent_turn(
     payload: FoodQueryRequest | AgentQueryRequest,
     user: str,
 ) -> dict[str, Any]:
-    """Run a chat turn through the core pipeline.
+    """STUBBED during the backend rebuild.
 
-    Tool-heavy turns outlive API Gateway's 30s integration cap, so the default
-    path hands the turn to the async job worker (`agent_jobs`): fast turns
-    still return their final envelope inline; slow ones return an ``accepted``
-    ack that the frontend polls for rolling progress + the result. The sync
-    fallback (ASYNC_TURNS=false or dispatch failure) runs in-request."""
-    from companion_api.agent_jobs import async_turns_enabled, finalize_turn, start_async_turn
-    from companion_api.core_shadow import run_core_turn_sync
-
-    data = payload.model_dump() if hasattr(payload, "model_dump") else dict(payload)
-    if async_turns_enabled():
-        try:
-            return start_async_turn(data, user)
-        except Exception:
-            logger.exception("async turn dispatch failed; running sync")
-
-    envelope = run_core_turn_sync(payload, user)
-    return finalize_turn(envelope, data, user)
-
-
-@app.get("/api/agent/jobs/{job_id}/")
-def agent_job_status(job_id: str, user: str = Depends(get_current_user)) -> dict[str, Any]:
-    """Poll an async turn: status + rolling progress lines + the final envelope."""
-    from companion_api.agent_jobs import get_job
-
-    job = get_job(job_id, user)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Unknown job")
-    return job
+    The orchestrator + per-provider agents that powered this turn were removed
+    so the routing/tool-calling architecture can be rebuilt from scratch. The
+    OAuth/MCP layer is untouched. Until the new pipeline lands, this returns
+    HTTP 503 so the frontend shows a clean "temporarily unavailable" state
+    instead of erroring on a half-built backend."""
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "The assistant backend is being rebuilt and is temporarily "
+            "unavailable. OAuth/account connections are unaffected."
+        ),
+    )
 
 
 @app.get("/api/hero/greeting/")
@@ -328,6 +312,7 @@ app.post("/api/voice/log-turn/")(voice_log_turn_endpoint)
 app.post("/api/voice/romanize/")(voice_romanize_endpoint)
 
 # Routers extracted from this module (#29 — main.py decomposition).
+from companion_api.routers.agent import router as agent_router  # noqa: E402
 from companion_api.routers.auth import router as auth_router  # noqa: E402
 from companion_api.routers.calendar import router as calendar_router  # noqa: E402
 from companion_api.routers.chats import router as chats_router  # noqa: E402
@@ -348,6 +333,7 @@ app.include_router(calendar_router)
 app.include_router(tools_router)
 app.include_router(auth_router)
 app.include_router(mcp_router)
+app.include_router(agent_router)
 app.include_router(ondc_router)
 
 
@@ -369,18 +355,9 @@ _http_handler = Mangum(app, lifespan="off")
 
 
 def handler(event: Any, context: Any) -> Any:
-    """Lambda entry: routes self-invoked async-turn events to the worker,
-    everything else (API Gateway) through Mangum."""
-    if isinstance(event, dict) and event.get("companion_async"):
-        from companion_api.agent_jobs import run_async_turn_event
+    """Lambda entry: API Gateway requests through Mangum.
 
-        try:
-            return run_async_turn_event(event)
-        finally:
-            # The worker's asyncio.run() leaves MainThread with NO event loop
-            # (set_event_loop(None) on teardown); Mangum's get_event_loop()
-            # would then 500 every later HTTP request on this warm container.
-            import asyncio
-
-            asyncio.set_event_loop(asyncio.new_event_loop())
+    The old self-invoked async-turn worker was removed with the legacy
+    execution system; the new backend will reintroduce its own execution
+    transport here if it needs one."""
     return _http_handler(event, context)

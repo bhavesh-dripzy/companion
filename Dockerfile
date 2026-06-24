@@ -33,7 +33,26 @@ COPY companion_api ./companion_api
 # `import core...` fails at runtime (ModuleNotFoundError: No module named 'core').
 COPY core ./core
 
-ENV PYTHONUNBUFFERED=1 \
-    NODE_BINARY=/usr/local/bin/node
+# AWS Lambda Web Adapter — runs the app as a real ASGI server (uvicorn) inside
+# Lambda, exactly like local, instead of Mangum. Combined with a RESPONSE_STREAM
+# Function URL this lets SSE frames flush incrementally (true live streaming);
+# it also transparently serves ordinary API Gateway invokes (e.g. ondc.*).
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 
-CMD ["companion_api.main.handler"]
+# Bump BUILD_REV to force a fresh CDK Docker-asset hash → new ECR image → the
+# Lambda is re-pointed at it. Needed because deploy #1 rolled back (cert) and
+# left the function pinned to the pre-streaming image; same-frontend redeploys
+# reused the cached asset and never swapped it.
+ENV BUILD_REV=2026-06-24-streaming-cutover-1 \
+    PYTHONUNBUFFERED=1 \
+    NODE_BINARY=/usr/local/bin/node \
+    PYTHONPATH=${LAMBDA_TASK_ROOT} \
+    PORT=8000 \
+    AWS_LWA_INVOKE_MODE=response_stream \
+    AWS_LWA_READINESS_CHECK_PATH=/api/
+
+# Clear the base image's Lambda RIC entrypoint and run uvicorn as the main
+# process; the LWA extension bridges the Lambda Runtime API to it. One worker —
+# Lambda scales by concurrent execution environments, not in-process workers.
+ENTRYPOINT []
+CMD ["python", "-m", "uvicorn", "companion_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -1,10 +1,8 @@
-"""Unit tests for the core LLM layer (JSON parsing, env resolution, fn-call schema)."""
+"""Unit tests for the core LLM layer (JSON parsing, env resolution)."""
 
 import pytest
 
-from core.contracts.tool import Tool
 from core.llm import config as llm_config
-from core.llm.function_calling import tools_for_llm
 from core.llm.json_mode import parse_json_object
 
 pytestmark = pytest.mark.unit
@@ -67,7 +65,9 @@ def test_resolve_llm_force_missing_key_returns_reason(monkeypatch):
 
 
 def test_resolve_llm_autoselect_prefers_sarvam(monkeypatch):
-    _patch_env(monkeypatch, {"SARVAM_API_KEY": "sk", "GEMINI_API_KEY": "gk", "OPENAI_API_KEY": "ok"})
+    _patch_env(
+        monkeypatch, {"SARVAM_API_KEY": "sk", "GEMINI_API_KEY": "gk", "OPENAI_API_KEY": "ok"}
+    )
     llm, reason = llm_config.resolve_llm_from_env()
     assert reason is None
     assert llm.provider == "sarvam"
@@ -123,16 +123,3 @@ def test_openai_client_closed_within_call(monkeypatch):
     out = asyncio.run(_openai_compatible_call(llm=llm, system_prompt="s", user_message="u"))
     assert out == '{"message": "hi"}'
     assert closed["value"] is True
-
-
-def test_function_calling_formats():
-    tool = Tool(
-        name="make_phone_call", provider="twilio", description="Call", params={"type": "object"}
-    )
-    openai = tools_for_llm([tool], "openai")[0]
-    gemini = tools_for_llm([tool], "gemini")[0]
-    anthropic = tools_for_llm([tool], "anthropic")[0]
-    assert openai["type"] == "function"
-    assert openai["function"]["name"] == "make_phone_call"
-    assert gemini["name"] == "make_phone_call"
-    assert anthropic["input_schema"] == {"type": "object"}

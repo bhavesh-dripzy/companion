@@ -29,9 +29,7 @@ def test_devanagari_text_romanized(monkeypatch):
         return {"romanized": "main ghar ja raha hoon"}
 
     monkeypatch.setattr(transliterate, "complete_json_object", fake_complete)
-    monkeypatch.setattr(
-        transliterate, "resolve_llm_from_env", lambda *_: (object(), None)
-    )
+    monkeypatch.setattr(transliterate, "resolve_llm_from_env", lambda *_: (object(), None))
     out = asyncio.run(transliterate.romanize_hinglish("मैं घर जा रहा हूं"))
     assert out == "main ghar ja raha hoon"
 
@@ -41,9 +39,7 @@ def test_llm_failure_returns_original(monkeypatch):
         raise RuntimeError("provider down")
 
     monkeypatch.setattr(transliterate, "complete_json_object", fake_complete)
-    monkeypatch.setattr(
-        transliterate, "resolve_llm_from_env", lambda *_: (object(), None)
-    )
+    monkeypatch.setattr(transliterate, "resolve_llm_from_env", lambda *_: (object(), None))
     original = "मैं घर जा रहा हूं"
     assert asyncio.run(transliterate.romanize_hinglish(original)) == original
 
@@ -53,8 +49,6 @@ def test_empty_llm_payload_returns_original(monkeypatch):
         return {}
 
     monkeypatch.setattr(transliterate, "complete_json_object", fake_complete)
-    monkeypatch.setattr(
-        transliterate, "resolve_llm_from_env", lambda *_: (object(), None)
-    )
+    monkeypatch.setattr(transliterate, "resolve_llm_from_env", lambda *_: (object(), None))
     original = "मैं घर जा रहा हूं"
     assert asyncio.run(transliterate.romanize_hinglish(original)) == original

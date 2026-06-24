@@ -25,109 +25,19 @@ class UserGeoLocation(BaseModel):
     captured_at: str | None = None
 
 
+# NOTE: the per-turn `session_*` context protocol (cart/restaurants/menu/
+# addresses/zepto/instamart/kite/serp/movies/…), the committed `selected_*`
+# address selections, `pending_variant_choice`, and the old planner knobs
+# (`provider`, `execute_zomato`) were removed with the legacy orchestrator.
+# The new backend will define its own request/context contract from scratch.
+
+
 class FoodQueryRequest(BaseModel):
     message: str = Field(min_length=1)
     history: list[dict[str, str]] | None = None
     address_id: str = ""
-    provider: str | None = None
     execute_tools: bool | None = None
-    execute_zomato: bool | None = None
     geo: UserGeoLocation | None = None
-    # Opaque carry-forward IDs the executor learned on previous turns
-    # (cart_id, restaurant_id, order_id, ...). Frontends should echo back the
-    # ``session_state`` value the previous turn's response returned. Keys must
-    # look like ``__SOMETHING__``; non-conforming entries are silently dropped
-    # by the executor.
-    session_state: dict[str, str] | None = None
-    # Multi-restaurant memory: every (res_id, name) pair the user has been
-    # shown across this session. Lets the planner pick a known restaurant
-    # without a redundant — and Zomato-fuzzy — keyword search. Frontends
-    # should echo back the ``session_restaurants`` value the previous turn's
-    # response returned.
-    session_restaurants: list[dict[str, Any]] | None = None
-    # Saved delivery addresses the executor fetched from the provider on a
-    # previous turn (currently only Zomato). Frontends should echo back the
-    # ``session_addresses`` value the previous turn's response returned so the
-    # executor can skip the address-listing MCP call and let the user say
-    # "use my home address" without another round-trip.
-    session_addresses: list[dict[str, Any]] | None = None
-    session_movies: list[dict[str, Any]] | None = None
-    session_theatres: list[dict[str, Any]] | None = None
-    # District event-surface memory — same echo contract as session_movies /
-    # session_theatres. Carry-forward lists of (event_id, name), (venue_id,
-    # name), (artist_id, name) tuples shown this session so the planner can
-    # cite literal ids on follow-ups ("more about that comedy night") without
-    # re-running discovery. ``session_reservation`` is a single dict (not LRU)
-    # because District table bookings are 1-per-cart by design.
-    session_events: list[dict[str, Any]] | None = None
-    session_venues: list[dict[str, Any]] | None = None
-    session_artists: list[dict[str, Any]] | None = None
-    session_reservation: dict[str, Any] | None = None
-    # Multi-item menu memory (Zomato-only today): every (res_id, variant_id,
-    # item_name, addon_groups) tuple the user has been shown this session.
-    # Lets the planner produce a direct create_cart for "add chicken keto
-    # salad" without re-fetching the menu, and carries the addon/variant
-    # schema across turns so customization picks ("with buttermilk") can be
-    # resolved against the already-known leaf options. Same echo contract
-    # as ``session_restaurants`` — frontends round-trip whatever the prior
-    # response returned.
-    session_menu: list[dict[str, Any]] | None = None
-    # Current Zomato cart snapshot — ``{cart_id, res_id, restaurant_name,
-    # items: [{variant_id, item_name, quantity, price, add_ons[]}], item_total,
-    # final_amount}``. Replaced wholesale on the next successful ``create_cart``
-    # (Zomato carts are strictly single-restaurant). Frontends echo back what
-    # the prior response returned so the response LLM can report cart contents
-    # on follow-up turns without re-asking Zomato.
-    session_cart: dict[str, Any] | None = None
-    # Zepto-specific session indexes. ``session_zepto_products`` is an LRU
-    # of every product (name + pvid + spid + price/pack) the user has been
-    # shown; the planner copies literal ids out of it when the user picks
-    # a product by name (re-searching returns different ids and silently
-    # breaks the cart). ``session_zepto_addresses`` mirrors the global
-    # ``session_addresses`` field but holds Zepto's own ``addressId``
-    # values. ``session_zepto_cart`` is a single snapshot of the live
-    # Zepto cart kept in sync with ``view_cart`` / ``update_cart``.
-    session_zepto_products: list[dict[str, Any]] | None = None
-    session_zepto_addresses: list[dict[str, Any]] | None = None
-    session_zepto_cart: dict[str, Any] | None = None
-    # Instamart-specific session indexes. Same shape as Zepto's but keyed
-    # on Instamart's ``spin_id`` (per-variant cart key). ``session_instamart_
-    # products`` is an LRU of every variant the user has been shown so the
-    # planner can copy the spinId out of memory when the user picks an item
-    # by name. ``session_instamart_addresses`` mirrors the saved-address book
-    # for Instamart (Swiggy address ids). ``session_instamart_cart`` is the
-    # latest ``get_cart`` snapshot kept in sync with ``update_cart``.
-    session_instamart_products: list[dict[str, Any]] | None = None
-    session_instamart_addresses: list[dict[str, Any]] | None = None
-    session_instamart_cart: dict[str, Any] | None = None
-    # Committed grocery delivery selections (see AgentQueryRequest below).
-    selected_instamart_address_id: str | None = None
-    selected_swiggy_food_address_id: str | None = None
-    selected_zepto_address_id: str | None = None
-    selected_zepto_location: dict[str, Any] | None = None
-    # Kite (Zerodha) session indexes — REAL-MONEY trading surface.
-    # ``session_kite_instruments`` is an LRU of every instrument the user has
-    # seen (tradingsymbol / exchange / instrument_token + last_price +
-    # price_fetched_at); the planner copies the literal triple out of it
-    # instead of re-running ``search_instruments``, and uses price_fetched_at
-    # to decide if a cached quote is stale. ``session_kite_holdings`` and
-    # ``session_kite_positions`` are the latest portfolio snapshots.
-    # ``session_kite_open_orders`` is an LRU keyed on ``order_id`` (required
-    # for modify/cancel). ``session_kite_order_ticket`` is the pending,
-    # UNCONFIRMED order ticket the planner assembled — round-tripped until the
-    # user confirms (→ place_order), edits it, or backs out.
-    session_kite_instruments: list[dict[str, Any]] | None = None
-    session_kite_holdings: dict[str, Any] | None = None
-    session_kite_positions: dict[str, Any] | None = None
-    session_kite_open_orders: list[dict[str, Any]] | None = None
-    session_kite_order_ticket: dict[str, Any] | None = None
-    # Single-turn deferral state: when the Swiggy executor skipped a cart
-    # update because the menu item has a real variant choice (size 8"/10"/
-    # 12", crust hand-tossed vs thin), the response carries the variant
-    # menu under ``pending_variant_choice``. Frontends should echo it back
-    # on the very next turn so the planner can resolve the user's pick
-    # against literal variation ids instead of hallucinating placeholders.
-    pending_variant_choice: list[dict[str, Any]] | None = None
 
 
 class AgentQueryRequest(BaseModel):
@@ -136,9 +46,7 @@ class AgentQueryRequest(BaseModel):
     message: str = Field(min_length=1)
     history: list[dict[str, str]] | None = None
     address_id: str = ""
-    provider: str | None = None
     execute_tools: bool | None = None
-    execute_zomato: bool | None = None
     geo: UserGeoLocation | None = None
     # Multi-chat support: client echoes the chat_id it received on the
     # previous turn so all messages for this conversation land under the
@@ -147,57 +55,6 @@ class AgentQueryRequest(BaseModel):
     # ``message`` — and returns the new id in ``response.chat_id`` so the
     # client can pin it for subsequent turns.
     chat_id: str | None = None
-    # See FoodQueryRequest.session_state above.
-    session_state: dict[str, str] | None = None
-    # See FoodQueryRequest.session_restaurants above.
-    session_restaurants: list[dict[str, Any]] | None = None
-    # See FoodQueryRequest.session_addresses above.
-    session_addresses: list[dict[str, Any]] | None = None
-    session_movies: list[dict[str, Any]] | None = None
-    session_theatres: list[dict[str, Any]] | None = None
-    # See FoodQueryRequest.session_events / session_venues / session_artists /
-    # session_reservation above.
-    session_events: list[dict[str, Any]] | None = None
-    session_venues: list[dict[str, Any]] | None = None
-    session_artists: list[dict[str, Any]] | None = None
-    session_reservation: dict[str, Any] | None = None
-    # See FoodQueryRequest.session_menu above.
-    session_menu: list[dict[str, Any]] | None = None
-    # See FoodQueryRequest.session_cart above.
-    session_cart: dict[str, Any] | None = None
-    # See FoodQueryRequest.session_zepto_products / session_zepto_addresses
-    # / session_zepto_cart above.
-    session_zepto_products: list[dict[str, Any]] | None = None
-    session_zepto_addresses: list[dict[str, Any]] | None = None
-    session_zepto_cart: dict[str, Any] | None = None
-    # Instamart-specific session indexes. Same shape as Zepto's but keyed
-    # on Instamart's ``spin_id`` (per-variant cart key). ``session_instamart_
-    # products`` is an LRU of every variant the user has been shown so the
-    # planner can copy the spinId out of memory when the user picks an item
-    # by name. ``session_instamart_addresses`` mirrors the saved-address book
-    # for Instamart (Swiggy address ids). ``session_instamart_cart`` is the
-    # latest ``get_cart`` snapshot kept in sync with ``update_cart``.
-    session_instamart_products: list[dict[str, Any]] | None = None
-    session_instamart_addresses: list[dict[str, Any]] | None = None
-    session_instamart_cart: dict[str, Any] | None = None
-    # Committed grocery delivery selections round-tripped so a UI address switch
-    # persists turn-to-turn (the provider also seeds these; the saved default is
-    # the fallback). selected_zepto_location is the legacy GPS point.
-    selected_instamart_address_id: str | None = None
-    selected_swiggy_food_address_id: str | None = None
-    selected_zepto_address_id: str | None = None
-    selected_zepto_location: dict[str, Any] | None = None
-    # Kite (Zerodha) session indexes — REAL-MONEY trading surface. See
-    # FoodQueryRequest.session_kite_instruments / session_kite_holdings /
-    # session_kite_positions / session_kite_open_orders /
-    # session_kite_order_ticket above for the field semantics.
-    session_kite_instruments: list[dict[str, Any]] | None = None
-    session_kite_holdings: dict[str, Any] | None = None
-    session_kite_positions: dict[str, Any] | None = None
-    session_kite_open_orders: list[dict[str, Any]] | None = None
-    session_kite_order_ticket: dict[str, Any] | None = None
-    # See FoodQueryRequest.pending_variant_choice above.
-    pending_variant_choice: list[dict[str, Any]] | None = None
 
 
 class CustomMcpProviderRequest(BaseModel):

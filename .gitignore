@@ -86,3 +86,19 @@ scripts/probe_instamart_cart.py
 
 # Raw Swiggy POC dumps (contain real address/order data)
 swiggy_updated_outputs/
+
+# Local dev / POC artifacts — probes, logins, live e2e tests, data dumps, scratch notes.
+# These contain real account data (addresses, phone, tokens) and are never meant to be pushed.
+/instamart_poc_outputs/
+/.swiggy_food_prefs/
+scripts/*_poc*.py
+scripts/*_login.py
+scripts/*_test.py
+scripts/*_e2e.py
+scripts/run_local.sh
+# POC scratch docs / one-off architecture notes (often hold pasted real data)
+swiggy_bhavesh.md
+swiggy_food_poc.md
+zepto_poc.md
+district_poc.md
+ARCHITECTURE_*.md

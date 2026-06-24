@@ -256,11 +256,13 @@ jobs:
 
       - name: Smoke test
         run: |
+          # Hit the Lambda Function URL directly (the live API entry; CloudFront +
+          # custom domain DNS may still be propagating right after deploy).
           API_URL="$(aws cloudformation describe-stacks \
             --stack-name companion-serverless \
-            --query "Stacks[0].Outputs[?OutputKey=='HttpApiEndpoint'].OutputValue" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiFunctionUrl'].OutputValue" \
             --output text)"
-          curl -fsS "$API_URL/api/"
+          curl -fsS "${API_URL%/}/api/"
 
   # Detect whether this push touched anything the APK is built from, so the
   # (slow) Android build only runs when it would actually change.
