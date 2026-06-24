@@ -38,29 +38,6 @@ const formatPriceFromPaise = (paise: number | null | undefined): string | null =
   return formatPriceFromInr(paise / 100);
 };
 
-// Shared header for every Zepto card grid — brand pill + label + count.
-const ZeptoGridHeader: React.FC<{
-  icon: React.ReactNode;
-  title: string;
-  subtitle?: string;
-}> = ({ icon, title, subtitle }) => {
-  const theme = themeFor('zepto');
-  return (
-    <div className="flex items-center gap-2 px-1 mb-2">
-      <div
-        className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-white text-[10px] font-bold tracking-wider uppercase"
-        style={{ backgroundColor: theme.brandHex }}
-      >
-        {icon}
-        <span>{theme.label}</span>
-      </div>
-      <span className="text-xs font-bold uppercase tracking-wider text-slate-500 truncate">{title}</span>
-      {subtitle && (
-        <span className="text-[10px] text-slate-400 ml-1 truncate">{subtitle}</span>
-      )}
-    </div>
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Single product tile. Two-column layout: square image on the left, name +
@@ -84,77 +61,107 @@ const ZeptoProductTile: React.FC<{
   const showImage = !!item.image_url && !imageBroken;
   const outOfStock =
     typeof item.available_quantity === 'number' && item.available_quantity <= 0;
+  const discount =
+    item.mrp_inr && item.price_inr && item.mrp_inr > item.price_inr
+      ? Math.round((1 - item.price_inr / item.mrp_inr) * 100)
+      : 0;
 
+  // Deterministic tap: add THIS exact product by its variant id (+ store_product_id) — no LLM,
+  // no re-search, exact variant, works even if the session catalog was wiped. Same pattern as Instamart.
   const handleAdd = () => {
     if (!onQuickPrompt || disabled || outOfStock) return;
-    // Keep the brand word ("Zepto") in the prompt so the orchestrator's
-    // provider stickiness pins this follow-up to the zepto MCP even if
-    // the agent had drifted between turns.
-    onQuickPrompt(`Add 1 ${item.name} to my Zepto cart.`);
+    onQuickPrompt(
+      `@@A@@${JSON.stringify({
+        type: 'add',
+        payload: {
+          provider: 'zepto',
+          item_id: item.product_variant_id,
+          secondary_id: item.store_product_id || '',
+          name: item.name,
+          qty: 1,
+        },
+      })}`,
+    );
   };
 
   return (
     <div
       className={cn(
-        'flex flex-col w-[130px] shrink-0 snap-start bg-white rounded-xl border border-slate-200/80 overflow-hidden transition-all duration-200 hover:shadow-md hover:-translate-y-0.5',
+        'group flex flex-col w-[40vw] max-w-[148px] sm:w-[136px] shrink-0 snap-start',
         outOfStock && 'opacity-60',
       )}
     >
-      {/* Image + ADD button overlay */}
-      <div className="relative aspect-square bg-slate-50 overflow-hidden">
-        {showImage ? (
-          <img
-            src={item.image_url ?? ''}
-            alt={item.name}
-            loading="lazy"
-            onError={() => setImageBroken(true)}
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
+      {/* Image tile + discount badge + overlapping ADD circle */}
+      <div className="relative">
+        <div className="aspect-square rounded-2xl bg-slate-50/80 border border-slate-200/60 overflow-hidden flex items-center justify-center p-2.5">
+          {showImage ? (
+            <img
+              src={item.image_url ?? ''}
+              alt={item.name}
+              loading="lazy"
+              onError={() => setImageBroken(true)}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain mix-blend-multiply"
+            />
+          ) : (
+            <div
+              className="w-full h-full flex items-center justify-center rounded-xl"
+              style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
+            >
+              <ShoppingCart size={24} style={{ color: theme.brandHex }} />
+            </div>
+          )}
+        </div>
+        {discount > 0 ? (
+          <span
+            className="absolute top-1.5 left-0 text-[8.5px] font-extrabold text-white px-1.5 py-0.5 rounded-r-md shadow-sm"
+            style={{ backgroundColor: theme.brandHex }}
           >
-            <ShoppingCart size={22} style={{ color: theme.brandHex }} />
-          </div>
+            {discount}% OFF
+          </span>
+        ) : (
+          item.is_ad && (
+            <span className="absolute top-1.5 left-1.5 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-slate-900/65 text-white">
+              Ad
+            </span>
+          )
         )}
-        {item.is_ad && (
-          <span className="absolute top-1.5 left-1.5 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-slate-900/70 text-white">
-            Ad
+        {outOfStock && (
+          <span className="absolute bottom-2 left-2 text-[8.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800/80 text-white">
+            Out of stock
           </span>
         )}
-        {/* ADD button — bottom right corner overlapping image */}
         <button
           type="button"
           onClick={handleAdd}
           disabled={disabled || !onQuickPrompt || outOfStock}
           className={cn(
-            'absolute bottom-1.5 right-1.5 w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md transition-all',
-            'hover:brightness-110 active:scale-90',
-            'disabled:opacity-50 disabled:cursor-not-allowed',
+            'absolute -bottom-3 right-1.5 w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-md border-2 transition-all',
+            'hover:brightness-105 active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed',
           )}
-          style={{ backgroundColor: theme.brandHex }}
+          style={{ borderColor: theme.brandHex, color: theme.brandHex }}
           title={outOfStock ? 'Out of stock' : `Add ${item.name}`}
         >
-          <Plus size={16} strokeWidth={2.5} />
+          <Plus size={16} strokeWidth={3} />
         </button>
       </div>
 
-      {/* Info */}
-      <div className="flex flex-col px-2 pt-1.5 pb-2 gap-1">
-        <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[26px]">
+      {/* Info — name · pack · price (MRP strikethrough) */}
+      <div className="flex flex-col pt-4 gap-0.5">
+        <p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[30px]">
           {item.name}
         </p>
         {item.pack_size && (
-          <p className="text-[9.5px] text-slate-400 truncate">{item.pack_size}</p>
+          <span className="self-start text-[10.5px] font-medium text-slate-400 leading-tight truncate max-w-full">
+            {item.pack_size}
+          </span>
         )}
         <div className="flex items-baseline gap-1.5 mt-0.5">
           {price && (
-            <span className="text-[12.5px] font-extrabold text-slate-900">{price}</span>
+            <span className="text-[13px] font-extrabold text-slate-900">{price}</span>
           )}
           {showStrike && (
-            <span className="text-[10px] text-slate-400 line-through">{mrp}</span>
+            <span className="text-[10.5px] text-slate-400 line-through">{mrp}</span>
           )}
         </div>
       </div>
@@ -326,13 +333,36 @@ export const ZeptoProductCardGrid: React.FC<{
   return (
     <div className="mt-2 w-full max-w-full space-y-3">
       {Array.from(groups.entries()).map(([query, items], gIdx) => (
-        <div key={query || `group-${gIdx}`} className="w-full">
-          <ZeptoGridHeader
-            icon={<Sparkles size={11} />}
-            title={query ? `Results for "${query}"` : 'Grocery picks'}
-            subtitle={`${items.length} item${items.length === 1 ? '' : 's'}`}
-          />
-          <div className="flex flex-row gap-2.5 overflow-x-auto snap-x snap-mandatory pb-2 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+        <div
+          key={query || `group-${gIdx}`}
+          className="w-full rounded-2xl border shadow-sm px-3 pt-3 pb-2.5"
+          style={{
+            // Faint Zepto-purple wash (top) fading to white — subtle brand feel.
+            background: `linear-gradient(180deg, ${themeFor('zepto').brandHex}14 0%, ${themeFor('zepto').brandHex}05 38%, #ffffff 100%)`,
+            borderColor: `${themeFor('zepto').brandHex}26`,
+          }}
+        >
+          {/* Header — Zepto logo + "Results for {query}" (no timing, no view-all) */}
+          <div className="flex items-center gap-2.5 mb-3 min-w-0">
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
+              style={{ backgroundColor: themeFor('zepto').brandHex }}
+            >
+              <Sparkles size={15} />
+            </div>
+            <div className="text-[13.5px] font-bold text-slate-800 leading-tight truncate min-w-0">
+              <span style={{ color: themeFor('zepto').brandHex }}>{themeFor('zepto').label}</span>
+              {query ? (
+                <>
+                  {' '}
+                  Results for <span className="capitalize">{query}</span>
+                </>
+              ) : (
+                ' picks'
+              )}
+            </div>
+          </div>
+          <div className="flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pt-1 pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
             {items.map((p, idx) => (
               <ZeptoProductTile
                 key={p.product_variant_id || `${p.name}-${idx}`}
@@ -380,16 +410,21 @@ const ZeptoCartItemRow: React.FC<{
 
   const setQty = (newQty: number) => {
     if (!onQuickPrompt || disabled) return;
-    const name = item.name || 'this item';
-    const ids =
-      item.product_variant_id && item.store_product_id
-        ? ` [pvid:${item.product_variant_id}, spid:${item.store_product_id}]`
-        : '';
-    if (newQty === 0) {
-      onQuickPrompt(`Remove ${name}${ids} from my Zepto cart.`);
-    } else {
-      onQuickPrompt(`Set quantity of ${name}${ids} to ${newQty} in my Zepto cart.`);
-    }
+    // Deterministic, id-based qty change (same pattern as the product "+" button) — carries the exact
+    // product_variant_id (+ store_product_id) so the backend never re-resolves by name. qty 0 = remove.
+    // The narrator is informed via the backend's action `note` ("… quantity N kar di / hata diya").
+    onQuickPrompt(
+      `@@A@@${JSON.stringify({
+        type: 'set_qty',
+        payload: {
+          provider: 'zepto',
+          item_id: item.product_variant_id,
+          secondary_id: item.store_product_id || '',
+          name: item.name || 'this item',
+          qty: Math.max(0, newQty),
+        },
+      })}`,
+    );
   };
 
   return (
@@ -612,7 +647,9 @@ export const ZeptoCartCard: React.FC<{
                   </span>
                 </div>
               )}
-              {handleCheckout && (
+              {/* Place order ONLY when the store is actually serviceable — when unavailable the
+                  order can't be placed, so we hide the button (not just disable it). */}
+              {handleCheckout && !cart.unavailable && (
                 <button
                   type="button"
                   onClick={handleCheckout}

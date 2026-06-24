@@ -9,11 +9,36 @@ operate on the normalized Product contract, so every grocery provider uses them 
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
+from core.agent.context import CONTEXT
 from core.agent.contracts import fmt_minor
+from core.agent.debug import log, short
+from core.agent.events import Emit, cards, noop, say
+from core.agent.legacy_cards import products_attachment
+from core.agent.registry import REGISTRY
 
 _SORTS = {"cheapest", "costliest"}
+_LABEL = {"instamart": "Instamart", "zepto": "Zepto", "swiggy_food": "Swiggy", "zomato": "Zomato"}
+
+
+def action_note(action: str, meta: dict[str, dict], delta: dict[str, int]) -> str | None:
+    """A deterministic, factual one-liner stating exactly what a cart write just did (item + qty),
+    so the narrator grounds an add/qty-change/remove on FACT instead of guessing from history (which
+    is what made tap-adds and set_qty narrate the wrong/previous turn). `meta` carries each written
+    item's name (it works for both NL-resolved and deterministic taps); `delta` carries the qty."""
+    names = ", ".join(m["name"] for m in meta.values() if m.get("name"))
+    if not names:
+        return None
+    qty = next(iter(delta.values()), 1)
+    if (
+        action == "remove" or qty == 0
+    ):  # a cart minus down to 0 arrives as set_qty qty:0 = a removal
+        return f"{names} cart se hata diya."
+    if action == "set_qty":
+        return f"{names} ki quantity {qty} kar di."
+    return f"{names} cart mein add kar diya."
 
 
 # ---------------- search-result filtering (price / sort) ----------------
@@ -112,4 +137,58 @@ def product_card(pid, query, products, flt=None) -> dict[str, Any]:
             }
             for p in products
         ],
+    }
+
+
+# ---------------- concurrent fan-out search (streams narration + cards per completion) ----------------
+async def _search_one(state, pid: str, phrases, flt, emit: Emit):
+    """Search ONE provider, store the shown set, then emit its narration + cards the MOMENT it
+    finishes — so whichever app completes first narrates first (no hard-coded order). Independent
+    failures surface as a per-provider error card without sinking the others. Returns (cards, atts)."""
+    adapter = REGISTRY.provider(pid)
+    pcards: list[dict[str, Any]] = []
+    patts: list[dict[str, Any]] = []
+    try:
+        async with adapter.open_session(state.user_id) as s:
+            ctx = await CONTEXT.exec_ctx(adapter, s, state)
+            await adapter.ensure_context(s, ctx)
+            for q in [p for p in phrases if p]:
+                products = await adapter.search(s, q, ctx)
+                shown = shown_for(pid, apply_filter(products, flt))
+                state.catalog.append(shown)  # sync between awaits → safe under concurrency
+                log.debug("SEARCH %s q=%r → %d raw, %d shown", pid, q, len(products), len(shown))
+                pcards.append(product_card(pid, q, shown, flt))
+                if att := products_attachment(pid, q, shown):
+                    patts.append(att)
+    except Exception as e:
+        pcards.append({"type": "error", "provider": pid, "message": f"{type(e).__name__}: {e}"})
+    label = _LABEL.get(pid, pid.capitalize())
+    await emit(
+        say(f"{label} pe ye options mile:" if patts else f"{label} pe kuch khaas nahi mila.")
+    )
+    await emit(cards(patts, provider=pid))
+    return pcards, patts
+
+
+async def fan_out(state, intent, chosen: list[str], emit: Emit = noop) -> dict[str, Any]:
+    """Search every chosen provider CONCURRENTLY; each narrates + streams its own cards as it
+    finishes (completion order). Aggregates into one result for the final/non-streaming payload."""
+    from core.agent.domains import grocery_view as V  # deferred: grocery_view re-exports from here
+
+    phrases = [r.get("phrase", "") for r in intent.get("item_refs", [])] or [
+        intent.get("raw_query", "")
+    ]
+    flt = filter_from_intent(intent)
+    qtext = ", ".join(p for p in phrases if p) or "items"
+    await emit(say(f"Theek hai, {qtext} dhoondta hoon…"))
+    parts = await asyncio.gather(*(_search_one(state, pid, phrases, flt, emit) for pid in chosen))
+    log.debug("FAN-OUT %s → %d cards total", short(chosen), sum(len(pc) for pc, _ in parts))
+    return {
+        "domain": "grocery",
+        "status": "ok",
+        "cards": [c for pc, _ in parts for c in pc],
+        "attachments": [a for _, pa in parts for a in pa],
+        "error": None,
+        "context_header": V.header(state),
+        **V.addr_keys(state, chosen),
     }

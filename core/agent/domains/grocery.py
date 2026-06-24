@@ -17,16 +17,45 @@ from core.agent.contracts import Cart, fmt_minor
 from core.agent.debug import log, short
 from core.agent.domains import grocery_address as A
 from core.agent.domains import grocery_resolve as R
+from core.agent.domains import grocery_search as S
 from core.agent.domains import grocery_view as V
-from core.agent.legacy_cards import products_attachment
+from core.agent.events import Emit, noop, say
 from core.agent.registry import REGISTRY
-from core.agent.state import ConversationState
 
 DOMAIN = "grocery"
 
+# Fixed per-action openers (no item involved). add/remove/search fold in the item separately below.
+_OPENER = {
+    "set_qty": "Theek hai, quantity update karta hoon…",
+    "clear": "Theek hai, cart khaali kar raha hoon…",
+    "show_cart": "Aapka cart dikhata hoon…",
+    "checkout": "Theek hai, checkout shuru karta hoon…",
+    "switch_context": "Address change kar raha hoon…",
+}
+
+
+def _opener(action: str, intent: dict[str, Any]) -> str | None:
+    """An instant 'I'm on it' line, emitted the moment an action starts (before the slow MCP work),
+    so the assistant acknowledges in real time. add/remove fold in the item the user named; search
+    has its own item-aware opener in fan_out (so it returns None here)."""
+    named = (
+        ""
+        if intent.get("from_tap")
+        else ", ".join(r.get("phrase", "") for r in intent.get("item_refs", []) if r.get("phrase"))
+    )
+    if action == "add":
+        return (
+            f"Theek hai, {named} cart mein add karta hoon…"
+            if named
+            else "Theek hai, add karta hoon…"
+        )
+    if action == "remove":
+        return f"Ok, {named} cart se hata raha hoon…" if named else "Ok, cart se hata raha hoon…"
+    return _OPENER.get(action)
+
 
 class GroceryDomainHandler:
-    async def handle(self, state: ConversationState, intent: dict[str, Any]) -> dict[str, Any]:
+    async def handle(self, state, intent: dict[str, Any], emit: Emit = noop) -> dict[str, Any]:
         action = intent["action"]
         providers = REGISTRY.providers_for(DOMAIN)
 
@@ -37,9 +66,14 @@ class GroceryDomainHandler:
         log.debug(
             "GROCERY action=%s → providers=%s (active=%s)", action, chosen, state.active_provider
         )
+        # Acknowledge instantly (streams as the first typed line); search self-narrates in fan_out.
+        if opener := _opener(action, intent):
+            await emit(say(opener))
 
-        if action == "search":
-            return await self._search(state, intent, chosen)
+        if (
+            action == "search"
+        ):  # concurrent fan-out; narrates + streams each app's cards as it finishes
+            return await S.fan_out(state, intent, chosen, emit)
         if action == "show_cart":
             return await self._show_cart(state, chosen[0])
         if action == "checkout":
@@ -49,7 +83,7 @@ class GroceryDomainHandler:
         if action == "switch_context":
             return await A.switch_context(state, intent, chosen[0])
         if action in ("add", "set_qty", "remove"):
-            return await self._cart_op(state, intent, chosen[0])
+            return await self._cart_op(state, intent, chosen[0], emit)
         return {
             "domain": DOMAIN,
             "status": "ok",
@@ -58,55 +92,8 @@ class GroceryDomainHandler:
             "note": f"'{action}' abhi grocery mein available nahi hai.",
         }
 
-    # ---------------- search (fan-out) ----------------
-    async def _search(self, state, intent, chosen: list[str]) -> dict[str, Any]:
-        phrases = [r.get("phrase", "") for r in intent.get("item_refs", [])] or [
-            intent.get("raw_query", "")
-        ]
-        flt = V.filter_from_intent(intent)  # price ceiling / sort, if the user asked
-        cards: list[dict[str, Any]] = []
-        attachments: list[dict[str, Any]] = []
-        for pid in chosen:
-            adapter = REGISTRY.provider(pid)
-            try:
-                async with adapter.open_session(state.user_id) as s:
-                    ctx = await CONTEXT.exec_ctx(adapter, s, state)
-                    await adapter.ensure_context(s, ctx)
-                    for q in [p for p in phrases if p]:
-                        products = await adapter.search(s, q, ctx)
-                        # Store ONLY what we render (Instamart: 8 products' variants, Zepto: 12).
-                        # The user can only add what they saw, so this is the right candidate set.
-                        shown = V.shown_for(pid, V.apply_filter(products, flt))
-                        state.catalog.append(shown)
-                        log.debug(
-                            "SEARCH %s q=%r → %d raw, %d shown/stored %s (top=%s)",
-                            pid,
-                            q,
-                            len(products),
-                            len(shown),
-                            flt or "-",
-                            short([p.name for p in shown[:3]]),
-                        )
-                        cards.append(V.product_card(pid, q, shown, flt))
-                        att = products_attachment(pid, q, shown)
-                        if att:
-                            attachments.append(att)
-            except Exception as e:
-                cards.append(
-                    {"type": "error", "provider": pid, "message": f"{type(e).__name__}: {e}"}
-                )
-        return {
-            "domain": DOMAIN,
-            "status": "ok",
-            "cards": cards,
-            "attachments": attachments,
-            "error": None,
-            "context_header": V.header(state),
-            **V.addr_keys(state, chosen),
-        }
-
     # ---------------- add / set_qty / remove ----------------
-    async def _cart_op(self, state, intent, pid: str) -> dict[str, Any]:
+    async def _cart_op(self, state, intent, pid: str, emit: Emit = noop) -> dict[str, Any]:
         action = intent["action"]
         adapter = REGISTRY.provider(pid)
         strat = strategy_for(adapter.cart_strategy)
@@ -124,12 +111,20 @@ class GroceryDomainHandler:
                     state, pid, state.cart(pid), status="error", error="EMPTY_CART", message=""
                 )
 
-            if intent.get("from_tap"):  # a UI tap carries the exact ref → no LLM resolution
+            if intent.get(
+                "from_tap"
+            ):  # a UI tap carries the exact item identity → no LLM resolution
                 refs = {
                     "resolved": [
-                        {"ref": r["phrase"], "qty": int(r.get("qty", 1))}
+                        {
+                            "ref": r.get("phrase"),
+                            "qty": int(r.get("qty", 1)),
+                            "item_id": r.get("item_id"),
+                            "secondary_id": r.get("secondary_id"),
+                            "name": r.get("name"),
+                        }
                         for r in requests
-                        if r.get("phrase")
+                        if r.get("phrase") or r.get("item_id")
                     ],
                     "ambiguous": [],
                     "unresolved": [],
@@ -140,20 +135,17 @@ class GroceryDomainHandler:
                     state, adapter, s, ctx, pid, requests, cart_only=action in ("set_qty", "remove")
                 )
             resolved = refs.get("resolved", [])
-            result = None
-            if resolved:  # write the items that DID resolve — even if others are ambiguous/unknown
-                delta: dict[str, int] = {}
-                meta: dict[str, dict] = {}
+            # The quantity is the user's explicit number (from the router) — NEVER the resolver LLM's
+            # guess. The resolver only picks WHICH item; forcing the qty here stops "set to 2" silently
+            # resolving to 1 (the LLM gets confused by sizes like "2 Pieces" in the name). Single-item
+            # op only (the norm for set_qty/remove/add); multi-item keeps each request's own qty.
+            if len(requests) == 1 and resolved:
                 for r in resolved:
-                    prod = state.catalog.by_ref(r.get("ref"))
-                    if not prod:
-                        continue
-                    delta[prod.item_id] = int(r.get("qty", 1))
-                    meta[prod.item_id] = {
-                        "name": prod.name,
-                        "secondary_id": prod.secondary_id,
-                        "price_minor": prod.price_minor,
-                    }
+                    r["qty"] = int(requests[0].get("qty", 1))
+            result = None
+            delta, meta = {}, {}
+            if resolved:  # write the items that DID resolve — even if others are ambiguous/unknown
+                delta, meta = V.build_delta(state, resolved)
                 log.debug("CART %s strategy=%s delta=%s", pid, adapter.cart_strategy, short(delta))
                 result = await strat.set_items(adapter, s, state.cart(pid), delta, meta, ctx)
                 log.debug(
@@ -190,7 +182,7 @@ class GroceryDomainHandler:
         # user picks from a real product deck with images/sizes), not a fabricated ambiguity picker.
         if action == "add" and unresolved:
             sub = {**intent, "item_refs": [{"phrase": p, "qty": 1} for p in unresolved]}
-            res = await self._search(state, sub, [pid])
+            res = await S.fan_out(state, sub, [pid], emit)
             res["note"] = V.find_note(added, unresolved)  # "X add kiya. Y ye rahe — kaunsa?"
             return res
         # ASK: a genuine tie among ALREADY-SHOWN items → the disambiguation picker (partial-ambiguity).
@@ -206,7 +198,15 @@ class GroceryDomainHandler:
                 else "Woh item nahi mila."
             )
             return V.not_found(state, pid, miss)
-        return V.cart_result(state, pid, state.cart(pid), **V.addr_keys(state, [pid]))
+        # A clean cart write succeeded → hand the narrator the exact fact (item + qty) so it confirms
+        # what actually happened instead of echoing a previous turn (the tap-add / set_qty drift bug).
+        return V.cart_result(
+            state,
+            pid,
+            state.cart(pid),
+            note=S.action_note(action, meta, delta),
+            **V.addr_keys(state, [pid]),
+        )
 
     # ---------------- show cart / checkout / clear ----------------
     async def _show_cart(self, state, pid: str) -> dict[str, Any]:

@@ -13,6 +13,7 @@ from core.agent.contracts import fmt_minor
 from core.agent.debug import log, short
 from core.agent.domains.grocery import HANDLER as GROCERY
 from core.agent.errors import user_message
+from core.agent.events import Emit, noop, say, status
 from core.agent.llm import narrate, route
 from core.agent.state import STORE, ConversationState
 
@@ -27,7 +28,9 @@ async def run_turn(
     mode: str = "text",
     client_action: dict[str, Any] | None = None,
     address_ids: dict[str, str] | None = None,
+    emit: Emit | None = None,
 ) -> dict[str, Any]:
+    emit = emit or noop  # streaming endpoint passes a real sink; plain endpoint runs identically
     state = STORE.load(user_id, chat_id)
     _apply_address_ids(state, address_ids)  # FE-selected address (e.g. sidebar) is authoritative
     log.debug(
@@ -54,7 +57,13 @@ async def run_turn(
             short(intent.get("item_refs")),
         )
 
-    result = await _dispatch(state, intent)
+    # Tell the player WHAT we're about to do (action + provider) so the live "working" indicator can
+    # show relevant copy ("Updating quantity on Swiggy Instamart") instead of bare dots while it waits.
+    await emit(
+        status(intent.get("action", ""), intent.get("provider_hint") or state.active_provider)
+    )
+    # The handler narrates its own progress (per-tool `say` + `cards`, in completion order) via emit.
+    result = await _dispatch(state, intent, emit)
     log.debug(
         "RESULT status=%s error=%s cards=%d attachments=%d pending=%s",
         result.get("status"),
@@ -69,6 +78,7 @@ async def run_turn(
     if intent["domain"] in ("grocery", "food"):
         state.active_domain = intent["domain"]
     STORE.save(state)
+    await emit(say(assistant))  # the closing line types out last (after any cards have landed)
     return _response(state, chat_id, assistant, intent, result)
 
 
@@ -87,10 +97,12 @@ def _apply_address_ids(state: ConversationState, address_ids: dict[str, str] | N
             log.debug("ADDRESS override %s → %s (from FE)", pid, aid)
 
 
-async def _dispatch(state: ConversationState, intent: dict[str, Any]) -> dict[str, Any]:
+async def _dispatch(
+    state: ConversationState, intent: dict[str, Any], emit: Emit = noop
+) -> dict[str, Any]:
     domain = intent["domain"]
     if domain == "grocery":
-        return await GROCERY.handle(state, intent)
+        return await GROCERY.handle(state, intent, emit)
     if domain == "chitchat":
         return {"domain": "chitchat", "status": "ok", "cards": [], "error": None}
     return {
@@ -111,8 +123,18 @@ def _intent_from_action(action: dict[str, Any], state: ConversationState) -> dic
         "domain": payload.get("domain", "grocery"),
         "action": mapping.get(t, t or "show_cart"),
         "provider_hint": payload.get("provider"),
+        # Carry the tapped item's full identity (id + secondary_id + name) so the add/qty change is
+        # deterministic and catalog-independent — it targets the exact variant even after a restart.
         "item_refs": (
-            [{"phrase": payload.get("ref") or payload.get("item_id"), "qty": payload.get("qty", 1)}]
+            [
+                {
+                    "phrase": payload.get("ref") or payload.get("item_id"),
+                    "qty": payload.get("qty", 1),
+                    "item_id": payload.get("item_id"),
+                    "secondary_id": payload.get("secondary_id"),
+                    "name": payload.get("name"),
+                }
+            ]
             if payload.get("ref") or payload.get("item_id")
             else []
         ),

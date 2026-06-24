@@ -162,14 +162,16 @@ class ZeptoProvider(ProviderAdapter):
         return CartResult.success(self.parse_cart(raw))
 
     async def price_cart(self, session, ctx: ExecCtx, cart: Cart) -> None:
-        # Zepto's view_cart has no fees; the FINAL total lives in get_payment_methods (read-only,
-        # pre-order). It needs the store OPEN — on STORE_CLOSED / not-serviceable we flag the cart
-        # so the UI can prompt an address change. POC: scripts/zepto_price_poc.py.
+        # Zepto's view_cart has no fees/total; the ONLY authoritative total is get_payment_methods
+        # (read-only, pre-order) and it needs the store OPEN/serviceable. We deliberately do NOT
+        # self-compute a subtotal — that was misleading (e.g. it dropped a just-added item whose
+        # price hadn't been enriched yet). So: show a total ONLY when the payment flow gives one;
+        # on STORE_CLOSED / not-serviceable, flag the cart and leave NO total/bill (the UI hides it
+        # and prompts an address change). POC: scripts/zepto_price_poc.py.
+        cart.total_minor = 0
+        cart.bill = []
         if cart.is_empty:
             return
-        subtotal = sum(i.price_minor * i.qty for i in cart.items)
-        cart.total_minor = cart.total_minor or subtotal
-        cart.bill = [{"label": "Item Total", "minor": subtotal}]
         raw = await self._call(session, "get_payment_methods", {})
         if raw.get("is_error"):
             cart.unavailable = (
@@ -180,12 +182,9 @@ class ZeptoProvider(ProviderAdapter):
         m = re.search(r"Order Total:\s*₹\s*([\d,]+)", raw.get("text", ""))
         if not m:
             return
-        total = int(m.group(1).replace(",", "")) * 100
-        cart.total_minor = total
-        cart.bill = [
-            {"label": "Item Total", "minor": subtotal},
-            {"label": "Delivery & charges", "minor": max(0, total - subtotal)},
-        ]
+        # Only the authoritative payable total — the UI renders it as the bold "Total" row. No
+        # self-computed Item Total / breakdown (we don't have authoritative fees anyway).
+        cart.total_minor = int(m.group(1).replace(",", "")) * 100
 
     def parse_cart(self, raw: dict[str, Any]) -> Cart:
         sc = raw.get("structured") or {}

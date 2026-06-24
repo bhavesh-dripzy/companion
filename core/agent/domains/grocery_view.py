@@ -46,18 +46,16 @@ def cart_atts(pid, cart: Cart, state) -> list[dict[str, Any]]:
 
 
 def enrich(cart: Cart, state) -> Cart:
-    """Zepto carts omit name/price → fill from the catalog (price-enrichment, §5b)."""
+    """Zepto carts omit per-item name/price → fill them from the catalog for DISPLAY (price-
+    enrichment, §5b). Display-only: it never sets the cart TOTAL — that is owned solely by each
+    provider's parse_cart/price_cart (authoritative), so we never show a self-computed total."""
     by_id = {p.item_id: p for _r, p in state.catalog.entries.items()}
-    total = 0
     for it in cart.items:
         src = by_id.get(it.item_id)
         if src:
             it.name = it.name or src.name
             it.price_minor = it.price_minor or src.price_minor
             it.image_url = it.image_url or src.image_url
-        total += it.price_minor * it.qty
-    if not cart.total_minor:
-        cart.total_minor = total
     return cart
 
 
@@ -112,11 +110,58 @@ def header(state, pid: str | None = None) -> dict[str, Any]:
     }
 
 
+def _register_cart_items(state, pid: str, cart: Cart) -> None:
+    """Make every LIVE cart line catalog-addressable. The real provider cart persists across sessions
+    but the session catalog does not, so a line added in a past session is otherwise invisible to
+    set_qty/remove resolution (it isn't in the catalog → not in the candidate set → 'not found').
+    Registering the cart's own items (they carry name/id/secondary_id) fixes both the candidate set
+    and the write-path `by_ref` lookup."""
+    from core.agent.contracts import Product
+
+    known = {p.item_id for _r, p in state.catalog.entries.items() if p.provider == pid}
+    new = [
+        Product(
+            provider=pid,
+            item_id=i.item_id,
+            name=i.name,
+            price_minor=i.price_minor,
+            secondary_id=i.secondary_id,
+            image_url=i.image_url,
+        )
+        for i in cart.items
+        if i.item_id and i.name and i.item_id not in known
+    ]
+    if new:
+        state.catalog.append(new)
+
+
+def build_delta(state, resolved: list[dict[str, Any]]) -> tuple[dict[str, int], dict[str, dict]]:
+    """Resolved refs → (delta, meta) for the cart write. An NL-resolved ref reads its identity from
+    the catalog product; a DETERMINISTIC TAP carries its own identity (item_id/secondary_id/name),
+    so 'add this exact card' works even when the item isn't in the session catalog (restart/cold
+    start) — no LLM, no re-search, no wrong variant."""
+    delta: dict[str, int] = {}
+    meta: dict[str, dict] = {}
+    for r in resolved:
+        prod = state.catalog.by_ref(r.get("ref"))
+        if prod:
+            iid, sid, name, price = prod.item_id, prod.secondary_id, prod.name, prod.price_minor
+        elif r.get("item_id"):
+            iid = r["item_id"]
+            sid, name, price = r.get("secondary_id") or "", r.get("name") or iid, 0
+        else:
+            continue
+        delta[iid] = int(r.get("qty", 1))
+        meta[iid] = {"name": name, "secondary_id": sid, "price_minor": price}
+    return delta, meta
+
+
 def refresh_cart(state, pid: str, read) -> None:
     """Server is the source of truth — overwrite the in-memory cache with the live cart (enriched
     from the catalog). No-op on a failed read so we never wipe the cache on a transient error."""
     if read.ok and read.cart is not None:
         state.carts[pid] = enrich(read.cart, state)
+        _register_cart_items(state, pid, state.carts[pid])
 
 
 async def read_into_cache(state, pid: str) -> None:

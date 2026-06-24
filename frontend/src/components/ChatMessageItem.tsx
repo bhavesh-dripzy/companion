@@ -16,6 +16,7 @@ import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { AddressChoices, AttachmentList, looksLikeAddressPrompt } from '../ChatLog';
 import { AgentCards } from './AgentCards';
 import { LocationPicker } from './LocationPicker';
+import { StreamingTurn } from './StreamingTurn';
 import type { GeoCoordinate, Message, SessionAddress } from '../types';
 
 interface ChatMessageItemProps {
@@ -95,6 +96,18 @@ export function ChatMessageItem({
       {/* Bubble body + cards + chips. Cards-only turns (voice tool results
           flushed without narration) skip the empty bubble shell. */}
       <div className={`flex flex-col min-w-0 ${isUser ? 'max-w-[75%] items-end' : isCardsOnly ? 'w-full flex-1' : 'max-w-[88%] flex-1'}`}>
+        {/* A LIVE/streamed turn plays through the generic player (typed narration + cards build in,
+            in arrival order). A normal/reloaded turn renders the static bubble + attachments below. */}
+        {msg.segments && (msg.segments.length > 0 || msg.streaming) ? (
+          <StreamingTurn
+            segments={msg.segments}
+            streaming={!!msg.streaming}
+            working={msg.working}
+            onQuickPrompt={onQuickPrompt}
+            quickPromptDisabled={quickPromptDisabled}
+          />
+        ) : (
+          <>
         {(msg.content || '').trim() && (
         <div
           className={`animate-fade-in px-4 rounded-[16px] leading-snug transition-all duration-200 max-w-full ${
@@ -127,6 +140,8 @@ export function ChatMessageItem({
             onQuickPrompt={onQuickPrompt}
             quickPromptDisabled={quickPromptDisabled}
           />
+        )}
+          </>
         )}
 
         {/* New agent backend renders products/cart via the EXISTING attachment

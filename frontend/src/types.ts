@@ -804,6 +804,24 @@ export interface Message {
   // New agent backend: typed cards + a pending action (disambiguate / pick-provider / …).
   agentCards?: AgentCard[];
   pendingAction?: AgentPendingAction | null;
+  // Live SSE turn (POST /api/agent/turn/stream): the ordered narration/cards the player types out
+  // and builds in. While `streaming` is true, this message renders as the player; on `done` it
+  // settles (the segments stay as the visible "story", `content`/`attachments` back history/reload).
+  segments?: StreamSegment[];
+  streaming?: boolean;
+  // Transient "what I'm doing right now" hint (action + provider) for the live working indicator.
+  working?: TurnStatus | null;
+}
+
+// One step in a streamed turn — a line to type, or a block of cards to build in.
+export type StreamSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'cards'; attachments: Attachment[]; provider?: string };
+
+// What the backend is doing this turn — drives the live working-card copy. Domain-agnostic.
+export interface TurnStatus {
+  action: string;
+  provider?: string | null;
 }
 
 export interface SessionRestaurant {
