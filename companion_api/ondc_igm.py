@@ -151,7 +151,7 @@ def send_issue(order_txn: str, state: dict[str, Any], params: dict[str, Any]) ->
             level=params.get("level", "ISSUE"), action_code=params.get("action_code", "OPEN"),
         )
     ctx = _igm_context("issue", bap_id=bap_id, bap_uri=bap_uri, bpp_id=bpp_id, bpp_uri=bpp_uri,
-                       transaction_id=params.get("igm_txn") or str(uuid.uuid4()))
+                       transaction_id=params.get("igm_txn") or order_txn)
     url = f"{bpp_uri.rstrip('/')}/issue"
     result = post_signed({"context": ctx, "message": message}, url)
     logger.warning("ONDC IGM issue -> sent %s status=%s issue_id=%s", url, result.get("status_code"), issue_id)
