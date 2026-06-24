@@ -33,6 +33,8 @@ TEST_BUYER_PHONE = os.getenv("ONDC_TEST_BUYER_PHONE", "9876543210")
 TEST_BUYER_EMAIL = os.getenv("ONDC_TEST_BUYER_EMAIL", "buyer@jatayulabs.com")
 TEST_GPS = os.getenv("ONDC_TEST_GPS", "12.9719,77.5937")
 TEST_AREA_CODE = os.getenv("ONDC_TEST_AREA_CODE", "560001")
+# 15-char GSTIN (state 29 = Karnataka) for the BAP's bap_terms tax_number.
+BAP_GST = os.getenv("ONDC_BAP_GST", "29AAACB2230M1ZX")
 
 
 def _delivery_end(gps: str | None, area_code: str | None) -> dict[str, Any]:
@@ -110,6 +112,7 @@ def select_message(
     *,
     location_ids: list[str] | None = None,
     fulfillment_id: str | None = None,
+    location_id: str | None = None,
     gps: str | None = None,
     area_code: str | None = None,
     quantities: dict[str, int] | None = None,
@@ -120,6 +123,7 @@ def select_message(
         {
             "id": item_id,
             "quantity": {"count": quantities.get(item_id, 1)},
+            **({"location_id": location_id} if location_id else {}),
             **({"fulfillment_id": fulfillment_id} if fulfillment_id else {}),
         }
         for item_id in item_ids
@@ -161,7 +165,8 @@ def billing(*, created_at: str, area_code: str | None = None) -> dict[str, Any]:
 def _fulfillment_end(gps: str | None, area_code: str | None) -> dict[str, Any]:
     return {
         "location": {"gps": gps or TEST_GPS, "address": _address(area_code)},
-        "contact": {"phone": TEST_BUYER_PHONE},
+        "contact": {"phone": TEST_BUYER_PHONE, "email": TEST_BUYER_EMAIL},
+        "person": {"name": TEST_BUYER_NAME},
     }
 
 
@@ -172,6 +177,7 @@ def init_message(
     created_at: str,
     location_ids: list[str] | None = None,
     fulfillment_id: str | None = None,
+    location_id: str | None = None,
     gps: str | None = None,
     area_code: str | None = None,
     quantities: dict[str, int] | None = None,
@@ -182,6 +188,7 @@ def init_message(
         {
             "id": item_id,
             "quantity": {"count": quantities.get(item_id, 1)},
+            **({"location_id": location_id} if location_id else {}),
             **({"fulfillment_id": fulfillment_id} if fulfillment_id else {}),
         }
         for item_id in item_ids
@@ -229,10 +236,16 @@ def confirm_message(on_init_order: dict[str, Any], *, created_at: str, order_id:
         currency=price.get("currency", "INR"),
         ref=order["id"],
     )
+    for fulfillment in order.get("fulfillments") or []:
+        if "tracking" not in fulfillment:
+            fulfillment["tracking"] = True
+        end = fulfillment.setdefault("end", {})
+        end.setdefault("person", {"name": TEST_BUYER_NAME})
+        end.setdefault("contact", {"phone": TEST_BUYER_PHONE, "email": TEST_BUYER_EMAIL})
     tags = order.get("tags") or []
     tags = tags if isinstance(tags, list) else [tags]
     tags = [t for t in tags if not (isinstance(t, dict) and t.get("code") == "bap_terms")]
-    tags.append({"code": "bap_terms", "list": [{"code": "accept_bpp_terms", "value": "Y"}]})
+    tags.append({"code": "bap_terms", "list": [{"code": "tax_number", "value": BAP_GST}]})
     order["tags"] = tags
     order["created_at"] = created_at
     order["updated_at"] = created_at

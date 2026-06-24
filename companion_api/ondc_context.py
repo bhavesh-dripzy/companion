@@ -46,6 +46,7 @@ def new_context(
     bpp_uri: str | None = None,
     core_version: str | None = None,
     ttl: str = "PT30S",
+    timestamp: str | None = None,
 ) -> dict[str, Any]:
     """Build a Beckn context. ``transaction_id`` is reused across a transaction;
     ``message_id`` is fresh per request. bpp_id/bpp_uri are set for directed
@@ -62,7 +63,7 @@ def new_context(
         "bap_uri": bap_uri,
         "transaction_id": transaction_id or str(uuid.uuid4()),
         "message_id": message_id or str(uuid.uuid4()),
-        "timestamp": _now_iso(),
+        "timestamp": timestamp or _now_iso(),
         "ttl": ttl,
     }
     if bpp_id:

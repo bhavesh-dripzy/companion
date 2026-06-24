@@ -144,10 +144,10 @@ def _on_search(txn: str, state: dict[str, Any], body: dict[str, Any], domain: st
     save_transaction(
         txn,
         **{**state, "step": "select", "bpp_id": bpp_id, "bpp_uri": bpp_uri, "provider_id": provider["id"],
-           "item_ids": item_ids, "fulfillment_id": fulfillment_id, "location_ids": location_ids},
+           "item_ids": item_ids, "fulfillment_id": fulfillment_id, "location_id": location_id, "location_ids": location_ids},
     )
     message = select_message(
-        provider["id"], item_ids, fulfillment_id=fulfillment_id, location_ids=location_ids,
+        provider["id"], item_ids, fulfillment_id=fulfillment_id, location_ids=location_ids, location_id=location_id,
         gps=state.get("gps"), area_code=state.get("area_code"),
     )
     return send_action("select", message, domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri)
@@ -159,11 +159,18 @@ def _on_select(txn: str, state: dict[str, Any], body: dict[str, Any], domain: st
         save_transaction(txn, **{**state, "step": "done", "bpp_id": bpp_id, "bpp_uri": bpp_uri})
         logger.warning("ONDC flow on_select: terminal=select (OOS/Flow 5), stopping txn=%s", txn)
         return None
+    on_select_order = (body.get("message") or {}).get("order") or {}
+    sel_ff = ((on_select_order.get("fulfillments") or [{}])[0]).get("id") or state.get("fulfillment_id")
     created_at = _now_iso()
-    save_transaction(txn, **{**state, "step": "init", "bpp_id": bpp_id, "bpp_uri": bpp_uri, "billing_created_at": created_at})
+    save_transaction(
+        txn,
+        **{**state, "step": "init", "bpp_id": bpp_id, "bpp_uri": bpp_uri,
+           "fulfillment_id": sel_ff, "billing_created_at": created_at},
+    )
     message = init_message(
         state["provider_id"], state["item_ids"], created_at=created_at, location_ids=state.get("location_ids"),
-        fulfillment_id=state.get("fulfillment_id"), gps=state.get("gps"), area_code=state.get("area_code"),
+        fulfillment_id=sel_ff, location_id=state.get("location_id"),
+        gps=state.get("gps"), area_code=state.get("area_code"),
     )
     return send_action("init", message, domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri)
 
@@ -171,11 +178,14 @@ def _on_select(txn: str, state: dict[str, Any], body: dict[str, Any], domain: st
 def _on_init(txn: str, state: dict[str, Any], body: dict[str, Any], domain: str) -> dict[str, Any] | None:
     bpp_id, bpp_uri = _bpp(state, body)
     on_init_order = (body.get("message") or {}).get("order") or {}
-    created_at = state.get("billing_created_at") or _now_iso()
-    message = confirm_message(on_init_order, created_at=created_at)
+    confirm_ts = _now_iso()
+    message = confirm_message(on_init_order, created_at=confirm_ts)
     order_id = message["order"]["id"]
     save_transaction(txn, **{**state, "step": "confirm", "bpp_id": bpp_id, "bpp_uri": bpp_uri, "order_id": order_id})
-    return send_action("confirm", message, domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri)
+    return send_action(
+        "confirm", message, domain=domain, transaction_id=txn, bpp_id=bpp_id, bpp_uri=bpp_uri,
+        context_overrides={"timestamp": confirm_ts},
+    )
 
 
 def _on_confirm(txn: str, state: dict[str, Any], body: dict[str, Any], domain: str) -> dict[str, Any] | None:
