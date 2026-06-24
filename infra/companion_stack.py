@@ -480,16 +480,22 @@ class CompanionStack(Stack):
 
             # app.{domain} is fronted by CloudFront → the streaming Function URL,
             # because HTTP API Gateway cannot stream the response. CloudFront's
-            # cert MUST live in us-east-1, supplied out-of-band by ARN (same as
-            # LandingStack). The Function URL itself stays the single origin.
-            if not edge_certificate_arn:
-                raise ValueError(
-                    "edge_certificate_arn (a us-east-1 ACM cert covering "
-                    f"app.{domain_name}) is required when enable_custom_domain=True"
+            # cert MUST live in us-east-1. By default we provision (and DNS-
+            # validate via our own Route53 zone) a dedicated cert there for
+            # app.{domain} — self-contained, guaranteed to cover the CNAME. An
+            # existing us-east-1 cert ARN may be supplied to override.
+            if edge_certificate_arn:
+                edge_cert = acm.Certificate.from_certificate_arn(
+                    self, "AppEdgeCertificate", edge_certificate_arn
                 )
-            edge_cert = acm.Certificate.from_certificate_arn(
-                self, "AppEdgeCertificate", edge_certificate_arn
-            )
+            else:
+                edge_cert = acm.DnsValidatedCertificate(
+                    self,
+                    "AppEdgeCertificate",
+                    domain_name=f"app.{domain_name}",
+                    hosted_zone=zone,
+                    region="us-east-1",
+                )
             # One shared origin (the streaming Function URL). Forward every viewer
             # header EXCEPT Host (the Function URL validates its own Host); never
             # cache the API. Content-hashed /assets/* are immutable → edge-cached.

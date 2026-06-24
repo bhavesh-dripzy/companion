@@ -42,17 +42,11 @@ CompanionStack(
     project_name=resource_prefix,
     domain_name=domain_name,
     enable_custom_domain=is_prod,
-    # us-east-1 ACM cert for the CloudFront edge that fronts app.jatayulabs.com →
-    # the streaming Function URL. Must cover app.{domain} (a *.jatayulabs.com
-    # wildcard cert does). Only needed for prod; overridable via EDGE_CERTIFICATE_ARN.
-    edge_certificate_arn=(
-        (
-            os.getenv("EDGE_CERTIFICATE_ARN")
-            or "arn:aws:acm:us-east-1:616551057455:certificate/489a052c-a6a5-437a-9763-2b50a684a394"
-        )
-        if is_prod
-        else None
-    ),
+    # Optional override for the us-east-1 CloudFront edge cert (fronting
+    # app.jatayulabs.com → the streaming Function URL). When unset, the stack
+    # provisions and DNS-validates its own us-east-1 cert for app.{domain}, so it
+    # always covers the CNAME. (The apex landing cert is NOT a wildcard.)
+    edge_certificate_arn=os.getenv("EDGE_CERTIFICATE_ARN") or None,
     profile_cache=graph_stack.profile_cache,
     turns_queue=graph_stack.turns_queue,
     lead_cache=graph_stack.lead_cache,
