@@ -55,13 +55,13 @@ def _rsf_context(
     }
 
 
-def _settlement(order_id: str) -> dict[str, Any]:
+def _settlement(order_id: str, amount: str = "1000.00") -> dict[str, Any]:
     return {
         "id": "SETTLE-1",
         "payment_id": f"PAY-{order_id}",
         "status": "PENDING",
         "settlement_ref_no": f"SREF-{order_id}",
-        "amount": _money("950.00"),
+        "amount": _money(amount),
         "commission": _money("30.00"),
         "withholding_amount": _money("10.00"),
         "tcs": _money("5.00"),
@@ -71,8 +71,8 @@ def _settlement(order_id: str) -> dict[str, Any]:
 
 
 def recon_message(order_id: str, *, value: str = "1000.00") -> dict[str, Any]:
-    """Build a ``recon`` message — one order with a single settlement record."""
-    return {"orders": [{"id": order_id, "amount": _money(value), "settlements": [_settlement(order_id)]}]}
+    """Build a ``recon`` message — one order whose settlement amount sums to the order amount."""
+    return {"orders": [{"id": order_id, "amount": _money(value), "settlements": [_settlement(order_id, value)]}]}
 
 
 def on_recon_message(inbound: dict[str, Any], *, accord: bool = True) -> dict[str, Any]:

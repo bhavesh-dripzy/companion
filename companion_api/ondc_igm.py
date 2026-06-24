@@ -58,15 +58,18 @@ def _igm_context(
     }
 
 
-def _actors(bap_id: str, bpp_id: str) -> list[dict[str, Any]]:
+def _actors(bap_id: str, bpp_id: str, domain: str = IGM_DOMAIN) -> list[dict[str, Any]]:
+    bap = bap_id or "ondc.jatayulabs.com"
+    bap_org = f"{bap}::{domain}"
+    seller_host = (bpp_id or "seller.ondc.org").split("/")[0]
     return [
         {"id": "CONSUMER-1", "type": "CONSUMER",
-         "info": {"org": {"name": bap_id}, "person": {"name": "ONDC Test Buyer"},
+         "info": {"org": {"name": bap_org}, "person": {"name": "ONDC Test Buyer"},
                   "contact": {"phone": _BUYER_PHONE, "email": _BUYER_EMAIL}}},
         {"id": "INP-1", "type": "INTERFACING_NP",
-         "info": {"org": {"name": bap_id}, "contact": {"phone": _GRO_PHONE, "email": _GRO_EMAIL}}},
+         "info": {"org": {"name": bap_org}, "contact": {"phone": _GRO_PHONE, "email": _GRO_EMAIL}}},
         {"id": "CNP-1", "type": "COUNTERPARTY_NP",
-         "info": {"org": {"name": bpp_id}, "contact": {"phone": "9111111111", "email": f"support@{bpp_id or 'seller'}"}}},
+         "info": {"org": {"name": f"{bpp_id}::{domain}"}, "contact": {"phone": "9111111111", "email": f"support@{seller_host}"}}},
     ]
 
 
