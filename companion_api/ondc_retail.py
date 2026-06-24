@@ -262,8 +262,9 @@ def track_message(order_id: str) -> dict[str, Any]:
     return {"order_id": order_id}
 
 
-def cancel_message(order_id: str, reason_id: str = "001") -> dict[str, Any]:
-    """Build a ``cancel`` message. reason_id default 001 = delivery delayed/not possible."""
+def cancel_message(order_id: str, reason_id: str = "051") -> dict[str, Any]:
+    """Build a ``cancel`` message. Default 051 = buyer-initiated (valid buyerCancellationRid;
+    ONDC buyer-cancel codes are 051/052/053/999/010 — 001 is a seller code)."""
     return {"order_id": order_id, "cancellation_reason_id": reason_id}
 
 

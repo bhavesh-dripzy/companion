@@ -215,7 +215,7 @@ def _on_status(txn: str, state: dict[str, Any], body: dict[str, Any], domain: st
 
 
 _ACTION_MESSAGE = {
-    "cancel": lambda state, params: cancel_message(state.get("order_id", ""), params.get("reason_id", "001")),
+    "cancel": lambda state, params: cancel_message(state.get("order_id", ""), params.get("reason_id", "051")),
     "status": lambda state, params: status_message(state.get("order_id", "")),
     "track": lambda state, params: track_message(state.get("order_id", "")),
     "update": lambda state, params: update_return_message(
