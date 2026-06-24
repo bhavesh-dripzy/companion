@@ -36,7 +36,7 @@ def test_search_intent_tags_full_and_incremental():
     assert push["code"] == "catalog_inc"
     assert push["list"] == [{"code": "mode", "value": "start"}]
 
-    assert "tags" not in search_intent("milk")["intent"]
+    assert search_intent("milk")["intent"]["tags"][0]["code"] == "bap_terms"
 
 
 def test_catalog_rejection_errors_shape():
