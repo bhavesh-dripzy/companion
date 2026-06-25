@@ -127,7 +127,7 @@ export const ActivityTrail: React.FC<ActivityTrailProps> = ({ meta, trace, tools
 
   const label = providers.length > 1
     ? providers.map((p) => PROVIDER_INFO[p].label).join(' + ')
-    : primary?.label || 'Companion';
+    : primary?.label || 'omi';
 
   return (
     <div className="mt-2 w-full">

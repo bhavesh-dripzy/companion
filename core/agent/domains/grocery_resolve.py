@@ -34,26 +34,43 @@ _STOP = {
     "hata",
     "remove",
 }
-_CHEAP = ("sasta", "saste", "cheapest", "cheap", "lowest")
-_COSTLY = ("mehnga", "mehenga", "mahanga", "costliest", "premium", "expensive", "highest")
+# Fallback only — the Router's per-item `pick` is the source of truth. These catch a superlative the
+# Router left in the phrase (incl. Hindi gender forms: sasti/mehngi), so word-matching is never relied on.
+_CHEAP = ("sasta", "saste", "sasti", "cheapest", "cheap", "lowest")
+_COSTLY = (
+    "mehnga",
+    "mehenga",
+    "mahanga",
+    "mehngi",
+    "mehengi",
+    "costliest",
+    "premium",
+    "expensive",
+    "highest",
+)
 
 
-def superlative_ref(compact: list[dict[str, Any]], phrase: str) -> str | None:
-    """'sabse sasta X' / 'cheapest X' → lowest-priced; 'sabse mehnga' → highest. Deterministic
-    (the LLM is unreliable on superlatives). Scopes to the name-matched items, else all shown."""
+def _pick_from_phrase(phrase: str) -> str | None:
     low = phrase.lower()
-    kind = (
-        "low"
-        if any(w in low for w in _CHEAP)
-        else ("high" if any(w in low for w in _COSTLY) else None)
-    )
+    if any(w in low for w in _CHEAP):
+        return "cheapest"
+    return "costliest" if any(w in low for w in _COSTLY) else None
+
+
+def superlative_ref(
+    compact: list[dict[str, Any]], phrase: str, pick: str | None = None
+) -> str | None:
+    """The cheapest/costliest match, picked DETERMINISTICALLY. `pick` is the Router's explicit per-item
+    indicator ("cheapest"/"costliest") — the source of truth; when absent we derive it from the phrase
+    as a fallback (handles "sasta"/"sasti"/"mehnga"/…). Scopes to the name-matched items, else all."""
+    kind = pick if pick in ("cheapest", "costliest") else _pick_from_phrase(phrase)
     if not kind:
         return None
     cands = set(name_candidates(compact, phrase)) or {c["ref"] for c in compact}
     priced = [(c["price"], c["ref"]) for c in compact if c["ref"] in cands and c.get("price")]
     if not priced:
         return None
-    return (min if kind == "low" else max)(priced)[1]
+    return (min if kind == "cheapest" else max)(priced)[1]
 
 
 async def resolve_super(
@@ -62,7 +79,7 @@ async def resolve_super(
     """LLM resolve, but pick price superlatives deterministically (they bypass the LLM)."""
     sup, normal = [], []
     for r in requests:
-        ref = superlative_ref(compact, r.get("phrase", ""))
+        ref = superlative_ref(compact, r.get("phrase", ""), r.get("pick"))
         (sup if ref else normal).append({"ref": ref, "qty": r.get("qty", 1)} if ref else r)
     refs = (
         await resolve(compact, normal)
@@ -75,10 +92,9 @@ async def resolve_super(
 
 def _net(refs: dict[str, Any], compact: list[dict[str, Any]], requests: list[dict[str, Any]]):
     """Deterministic safety net over the LLM result. Re-classifies ONLY the phrases the LLM left
-    `unresolved` (and a fully-empty LLM reply) via name overlap against the SAME candidate set, so:
-    an in-context item the LLM missed still becomes resolved/ambiguous, and a phrase with NO catalog
-    match stays `unresolved` — a trustworthy 'not in context' signal (the handler turns add-misses
-    into a fresh search). Pure: it never does I/O."""
+    `unresolved` (and a fully-empty reply) via name overlap against the SAME candidate set: an
+    in-context item the LLM missed becomes resolved/ambiguous; a phrase with NO catalog match stays
+    `unresolved` (a trustworthy 'not in context' signal). Pure: no I/O."""
     if not (refs["resolved"] or refs["ambiguous"] or refs["unresolved"]):
         return fallback(compact, requests)
     if not refs.get("unresolved"):
@@ -115,75 +131,24 @@ async def resolve_refs(state, adapter, s, ctx, pid, requests, cart_only=False) -
     return refs
 
 
-async def resolve_combined(state, providers, requests, cart_only) -> dict[str, Any]:
-    """Resolve over the COMBINED catalog/carts of several providers. Refs are global, so the
-    resolved product's provider can be read back from the catalog (§6b provider inference)."""
-    compact: list[dict[str, Any]] = []
-    for pid in providers:
-        compact += (
-            state.catalog.compact_cart(pid, state.cart(pid))
-            if cart_only
-            else state.catalog.compact(pid, state.cart(pid))
-        )
-    refs = await resolve_super(compact, requests)
-    if not (refs["resolved"] or refs["ambiguous"] or refs["unresolved"]):
-        refs = fallback(compact, requests)
-    return refs
+def plan_intents(intent: dict[str, Any], ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """Deterministic provider fan-out → {provider_id: [item_refs]}, the turn's execution plan.
 
-
-async def infer_provider(state, providers, intent) -> str | None:
-    """Pick the provider that owns the referenced item, by resolving across all catalogs.
-    Returns a single provider id, or None when the item resolves to 0 / >1 providers (→ ask)."""
-    cart_only = intent["action"] in ("set_qty", "remove")
-    refs = await resolve_combined(state, providers, intent.get("item_refs", []), cart_only)
-    provs = {
-        p.provider
-        for r in refs.get("resolved", [])
-        if (p := state.catalog.by_ref(r.get("ref"))) is not None
-    }
-    log.debug(
-        "INFER provider for %s → candidates=%s resolved_providers=%s",
-        short([r.get("phrase") for r in intent.get("item_refs", [])]),
-        providers,
-        provs,
-    )
-    return provs.pop() if len(provs) == 1 else None
-
-
-async def choose_providers(state, intent, providers) -> tuple[list[str], dict[str, Any] | None]:
-    """§6b provider selection → (chosen_ids, ask_result|None).
-    Priority: explicit hint > fan-out(search) > sticky active > single provider >
-    resolved-item provider (cart ops) > ask. active_provider := the single app, or "both" on a
-    fan-out — and "both" isn't in `ids`, so it skips sticky and lets the next cart op infer."""
-    ids = {p.id for p in providers}
-    action, hint = intent["action"], intent.get("provider_hint")
-    chosen: list[str] | None = None
-    if hint == "both":
-        chosen = [p.id for p in providers]
-    elif hint in ids:
-        chosen = [hint]
-    elif action == "search":
-        chosen = [p.id for p in providers]  # fan-out
-    elif state.active_provider in ids:
-        chosen = [state.active_provider]  # sticky
-    elif len(providers) == 1:
-        chosen = [providers[0].id]
-    elif action in ("add", "set_qty", "remove"):
-        pid = await infer_provider(state, sorted(ids), intent)  # infer from the referenced item
-        chosen = [pid] if pid else None
-    if not chosen:
-        return [], {
-            "domain": "grocery",
-            "status": "need_provider",
-            "error": None,
-            "cards": [],
-            "pending_action": {"type": "pick_provider", "options": sorted(ids)},
-            "note": f"Kaunse app mein — {' ya '.join(p.capitalize() for p in sorted(ids))}?",
-        }
-    # A single chosen app becomes sticky; a fan-out (both apps) marks the context "both" — that's
-    # not a single app, so the next cart op skips sticky and infers the item's app from the catalog.
-    state.active_provider = chosen[0] if len(chosen) == 1 else "both"
-    return chosen, None
+    Each item runs on its OWN app(s), so multi-app requests fall out for free: an item tagged with
+    `provider` goes to THAT app; an UNTAGGED item goes to EVERY app (no app named = both stores). A
+    whole-message `provider_hint` of one app scopes untagged items to it; "both"/null → all apps.
+    Item-less actions (clear/show_cart) plan the same base apps with empty lists. Order preserved."""
+    hint = intent.get("provider_hint")
+    base = [hint] if hint in ids else list(ids)  # single named app, else both ("both"/null)
+    refs = intent.get("item_refs", [])
+    if not refs:
+        return {pid: [] for pid in base}
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for r in refs:
+        tag = r.get("provider")
+        for pid in [tag] if tag in ids else base:
+            buckets.setdefault(pid, []).append(r)
+    return buckets
 
 
 def name_candidates(compact: list[dict[str, Any]], phrase: str) -> list[str]:

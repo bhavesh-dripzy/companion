@@ -85,21 +85,6 @@ function greetingWithAccent(text: string, username?: string): React.ReactNode {
   return text;
 }
 
-const GROCERY_QUICK_ITEMS = [
-  { label: 'Milk',         term: 'milk 1l',             img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/87.png' },
-  { label: 'Bread',        term: 'bread',               img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/85.png' },
-  { label: 'Chicken',      term: 'chicken',             img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/118.png' },
-  { label: 'Fish',         term: 'fish seafood',        img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/119.png' },
-  { label: 'Cooking Oil',  term: 'cooking oil ghee',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/19.png' },
-  { label: 'Soft Drinks',  term: 'soft drinks soda',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/f9127a14-d833-4898-9af5-0504b1118273.png' },
-  { label: 'Tea',          term: 'tea',                 img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/9ebc0e20-2f4a-4703-ac92-8912059869bd.png' },
-  { label: 'Chips',        term: 'chips crisps',        img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/106.png' },
-  { label: 'Chocolates',   term: 'chocolates',          img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/280c6a4a-3b1d-40e1-bf16-f3809b19a379.png' },
-  { label: 'Ice Cream',    term: 'ice cream',           img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/10ecdb73-588b-439a-b371-ed74be943608.png' },
-  { label: 'Biscuits',     term: 'biscuits cookies',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/181.png' },
-  { label: 'Masala',       term: 'masala spices',       img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/45.png' },
-];
-
 // Prompt ribbon — same wording as the new UI; clicking a chip fires a
 // real `/api/agent/query/` turn through the parent's onSuggestionClick.
 const PROMPT_OPTIONS = [
@@ -469,31 +454,8 @@ export function ChatArea({
               const isGroceryMode = messages.some(
                 (m) => m.attachments?.some((a) => a.kind === 'grocery_categories'),
               );
-              if (isGroceryMode) {
-                return (
-                  <div className="w-full mb-1">
-                  <div className="w-full flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar scroll-smooth">
-                    {GROCERY_QUICK_ITEMS.map((item) => (
-                      <button
-                        key={item.label}
-                        type="button"
-                        disabled={isThinking}
-                        onClick={() => onQuickPrompt?.(`Search ${item.term} on Swiggy Instamart and Zepto`)}
-                        className="shrink-0 flex items-center gap-1.5 bg-white/70 border border-slate-200/70 hover:border-[#1a9d6b]/40 hover:bg-[#f0faf6] px-3 py-2 sm:px-3.5 sm:py-2 rounded-full text-[12px] sm:text-[13px] font-semibold text-[#221b2e] transition-all duration-150 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <img
-                          src={item.img}
-                          alt={item.label}
-                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full object-contain bg-slate-50"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                  </div>
-                );
-              }
+              // No quick-item chips while shopping (removed per request) — keep the composer clean.
+              if (isGroceryMode) return null;
               return (
                 <div className="w-full flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 mb-1 no-scrollbar scroll-smooth">
                   {PROMPT_OPTIONS.map((option) => {
@@ -531,7 +493,7 @@ export function ChatArea({
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Companion anything…"
+                placeholder="Ask omi anything…"
                 disabled={isThinking}
                 rows={1}
                 className="flex-1 bg-transparent border-none outline-none text-[14px] text-[#1a1530] placeholder-slate-400 focus:ring-0 min-w-0 resize-none overflow-hidden self-center"

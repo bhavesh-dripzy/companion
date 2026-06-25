@@ -57,8 +57,6 @@ import {
   ShopProductCardGrid,
   VideoCardGrid,
 } from './components/SerpCards';
-import { SwipeDeckTray } from './components/SwipeDeck';
-import { deckForAttachment } from './components/deckTiles';
 import {
   ExternalLink,
   MapPin,
@@ -1897,26 +1895,10 @@ export const AttachmentList: React.FC<{
       );
   };
 
-  // Deck-first presentation: any multi-result attachment renders as a
-  // swipeable one-card-at-a-time deck, with the classic grid one toggle
-  // away. Single-snapshot kinds fall through to their bespoke cards.
+  // Each attachment renders as its bespoke grid/cards.
   const cards = attachments
     .filter((att): att is Attachment => !!att && typeof att === 'object')
-    .map((att, idx) => {
-      const classic = renderClassic(att, idx);
-      if (!classic) return null;
-      const deck = deckForAttachment(att);
-      if (!deck) return classic;
-      return (
-        <SwipeDeckTray
-          key={`deck-${idx}`}
-          group={deck}
-          classic={classic}
-          onQuickPrompt={onQuickPrompt}
-          disabled={quickPromptDisabled}
-        />
-      );
-    })
+    .map((att, idx) => renderClassic(att, idx))
     .filter(Boolean);
 
   if (cards.length === 0 && compareColumns.length === 0) return null;
@@ -1999,7 +1981,7 @@ export const ChatLog: React.FC<ChatLogProps> = ({
               {!isUser && (
                 <div
                   className="w-8 h-8 rounded-full bg-slate-950 text-white flex items-center justify-center font-bold relative shrink-0 text-[10px] shadow"
-                  title="Companion"
+                  title="omi"
                 >
                   C
                   <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white" />

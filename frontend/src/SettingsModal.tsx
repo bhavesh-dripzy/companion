@@ -828,7 +828,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <p className="text-xs text-slate-500 italic px-1 leading-relaxed">
-                  Companion automatically routes requests to the best available model. You can override this setting to force a specific provider.
+                  omi automatically routes requests to the best available model. You can override this setting to force a specific provider.
                 </p>
               </div>
             )}

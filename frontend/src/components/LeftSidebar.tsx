@@ -322,7 +322,7 @@ export function LeftSidebar({
             <span className="text-white font-bold text-[15px] leading-none select-none">C</span>
           </div>
           <span className="text-slate-900 font-semibold text-[15px] font-sans tracking-tight leading-none">
-            Companion
+            omi
           </span>
         </div>
 
@@ -495,7 +495,7 @@ export function LeftSidebar({
             {(username || 'C').charAt(0).toUpperCase()}
           </div>
           <span className="text-[13px] font-medium text-slate-700 truncate capitalize">
-            {username || 'Companion'}
+            {username || 'omi'}
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">

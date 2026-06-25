@@ -57,33 +57,33 @@ def _opener(action: str, intent: dict[str, Any]) -> str | None:
 class GroceryDomainHandler:
     async def handle(self, state, intent: dict[str, Any], emit: Emit = noop) -> dict[str, Any]:
         action = intent["action"]
-        providers = REGISTRY.providers_for(DOMAIN)
+        ids = [p.id for p in REGISTRY.providers_for(DOMAIN)]
 
-        # ---- provider selection (§6b: hint > fan-out > sticky > inferred item > ask) ----
-        chosen, ask = await R.choose_providers(state, intent, providers)
-        if ask is not None:
-            return ask
-        log.debug(
-            "GROCERY action=%s → providers=%s (active=%s)", action, chosen, state.active_provider
-        )
-        # Acknowledge instantly (streams as the first typed line); search self-narrates in fan_out.
-        if opener := _opener(action, intent):
+        # Plan the turn: one intent → {provider: its items}. Untagged items fan out to EVERY app;
+        # tagged ("X instamart pe, Y zepto pe") route per app. >1 app → concurrent; 1 app → below.
+        buckets = R.plan_intents(intent, ids)
+        chosen = list(buckets)
+        state.active_provider = chosen[0] if len(chosen) == 1 else "both"
+        log.debug("GROCERY action=%s → plan=%s", action, {p: len(i) for p, i in buckets.items()})
+        if opener := _opener(action, intent):  # instant ack; search self-narrates in fan_out
             await emit(say(opener))
 
-        if (
-            action == "search"
-        ):  # concurrent fan-out; narrates + streams each app's cards as it finishes
-            return await S.fan_out(state, intent, chosen, emit)
+        if action == "search":  # concurrent fan-out; each app streams its cards as it finishes
+            return await S.fan_out(state, intent, buckets, emit)
+        if len(chosen) > 1 and action in ("add", "set_qty", "remove", "clear", "show_cart"):
+            return await S.cart_fan_out(self, state, intent, action, buckets, emit)
+        pid = chosen[0]
+        sub = {**intent, "provider_hint": pid, "item_refs": buckets[pid]}
         if action == "show_cart":
-            return await self._show_cart(state, chosen[0])
+            return await self._show_cart(state, pid)
         if action == "checkout":
-            return await self._checkout(state, chosen[0])
+            return await self._checkout(state, pid)
         if action == "clear":
-            return await self._clear(state, chosen[0])
+            return await self._clear(state, pid)
         if action == "switch_context":
-            return await A.switch_context(state, intent, chosen[0])
+            return await A.switch_context(state, sub, pid)
         if action in ("add", "set_qty", "remove"):
-            return await self._cart_op(state, intent, chosen[0], emit)
+            return await self._cart_op(state, sub, pid, emit)
         return {
             "domain": DOMAIN,
             "status": "ok",
@@ -182,7 +182,7 @@ class GroceryDomainHandler:
         # user picks from a real product deck with images/sizes), not a fabricated ambiguity picker.
         if action == "add" and unresolved:
             sub = {**intent, "item_refs": [{"phrase": p, "qty": 1} for p in unresolved]}
-            res = await S.fan_out(state, sub, [pid], emit)
+            res = await S.fan_out(state, sub, {pid: sub["item_refs"]}, emit)
             res["note"] = V.find_note(added, unresolved)  # "X add kiya. Y ye rahe — kaunsa?"
             return res
         # ASK: a genuine tie among ALREADY-SHOWN items → the disambiguation picker (partial-ambiguity).
