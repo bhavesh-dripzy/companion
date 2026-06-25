@@ -135,7 +135,6 @@ def select_message(
         "items": items,
         "fulfillments": [{"type": "Delivery", "end": _delivery_end(gps, area_code)}],
         "payment": {"type": "ON-ORDER", "collected_by": "BAP"},
-        "offers": [],
     }
     if location_ids:
         order["provider"]["locations"] = [{"id": loc} for loc in location_ids]
