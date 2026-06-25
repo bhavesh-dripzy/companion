@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Menu, Send, Sparkles, Car, Utensils, Calendar, Ticket, Search, X } from 'lucide-react';
+import { Menu, Send, Sparkles, ShoppingCart, Plane, Search, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ChatMessageItem } from './ChatMessageItem';
@@ -90,35 +90,19 @@ function greetingWithAccent(text: string, username?: string): React.ReactNode {
 const PROMPT_OPTIONS = [
   {
     id: 'groceries',
-    label: 'Groceries',
+    label: 'Order Groceries',
     prompt: 'Search milk and brown bread on Swiggy Instamart',
-    icon: Calendar,
+    icon: ShoppingCart,
     color:
       'bg-[#1a9d6b]/8 border-[#1a9d6b]/16 hover:border-[#1a9d6b]/45 text-[#147a53] hover:bg-[#1a9d6b]/12',
   },
   {
-    id: 'cab',
-    label: 'Book a Cab',
-    prompt: 'Book a cab from my location to the office',
-    icon: Car,
-    color:
-      'bg-[#2b2f72]/8 border-[#2b2f72]/15 hover:border-[#2b2f72]/45 text-[#2b2f72] hover:bg-[#2b2f72]/12',
-  },
-  {
-    id: 'food',
-    label: 'Order Food',
-    prompt: 'Find good pizza near my saved address on Zomato',
-    icon: Utensils,
-    color:
-      'bg-[#ff8a1e]/10 border-[#ff8a1e]/18 hover:border-[#ff8a1e]/50 text-[#c2630f] hover:bg-[#ff8a1e]/16',
-  },
-  {
-    id: 'movie',
-    label: 'Movies & Events',
-    prompt: 'Find live music events near me on District',
-    icon: Ticket,
-    color:
-      'bg-[#e85d7a]/8 border-[#e85d7a]/16 hover:border-[#e85d7a]/45 text-[#c23e5b] hover:bg-[#e85d7a]/12',
+    id: 'trip',
+    label: 'Plan a Trip',
+    prompt: '',
+    comingSoon: true,
+    icon: Plane,
+    color: 'bg-[#2b2f72]/8 border-[#2b2f72]/15 text-[#2b2f72]',
   },
 ];
 
@@ -460,18 +444,25 @@ export function ChatArea({
                 <div className="w-full flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 mb-1 no-scrollbar scroll-smooth">
                   {PROMPT_OPTIONS.map((option) => {
                     const IconComponent = option.icon;
+                    const soon = 'comingSoon' in option && option.comingSoon;
                     return (
                       <button
                         key={option.id}
                         type="button"
-                        onClick={() => handleQuickAction(option)}
+                        onClick={() => !soon && handleQuickAction(option)}
                         disabled={isThinking}
-                        className={`shrink-0 flex items-center gap-1 sm:gap-1.5 border px-3 py-1.5 rounded-[11px] sm:rounded-[12px] text-[11px] sm:text-[12px] font-semibold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] hover:shadow-sm ${option.color}`}
+                        title={soon ? 'Coming soon' : undefined}
+                        className={`shrink-0 flex items-center gap-1 sm:gap-1.5 border px-3 py-1.5 rounded-[11px] sm:rounded-[12px] text-[11px] sm:text-[12px] font-semibold transition-all duration-200 ${soon ? 'cursor-default' : 'active:scale-95 cursor-pointer hover:shadow-sm'} disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] ${option.color}`}
                       >
                         <div className="p-0.5 rounded-md shrink-0">
                           <IconComponent className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                         </div>
                         <span>{option.label}</span>
+                        {soon && (
+                          <span className="ml-0.5 text-[8px] font-bold uppercase tracking-wide px-1.5 py-[2px] rounded-full bg-white/80 border border-slate-300/50 text-slate-500 leading-none">
+                            Soon
+                          </span>
+                        )}
                       </button>
                     );
                   })}
