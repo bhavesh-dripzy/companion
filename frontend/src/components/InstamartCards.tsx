@@ -7,7 +7,7 @@
 // that the planner resolves to the correct spinId via session context.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Minus, Trash2, ShoppingCart, X, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
+import { Plus, Minus, Trash2, ShoppingCart, Gift, X, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
 import type {
   Attachment,
   InstamartCart,
@@ -515,24 +515,36 @@ export const InstamartProductCardGrid: React.FC<{
         className="w-full rounded-2xl border shadow-sm bg-white"
         style={{ borderColor: `${theme.brandHex}26` }}
       >
-        {/* Provider header — logo + name (no timing, no view-all) */}
+        {/* Header + address on a soft brand wash: logo + NAME + delivery ETA with a faint gift
+            watermark, then the single delivery-address bar. */}
         <div
-          className="flex items-center gap-2.5 px-3.5 pt-3 pb-2.5 rounded-t-2xl"
-          style={{ background: `linear-gradient(180deg, ${theme.brandHex}14 0%, ${theme.brandHex}06 100%)` }}
+          className="relative overflow-hidden rounded-t-2xl px-3 pt-3 pb-3 space-y-2.5"
+          style={{ background: `linear-gradient(180deg, ${theme.brandHex}16 0%, ${theme.brandHex}07 100%)` }}
         >
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm"
-            style={{ backgroundColor: theme.brandHex }}
-          >
-            <ShoppingCart size={15} />
+          <Gift
+            className="absolute right-2 -top-2 w-16 h-16 pointer-events-none"
+            style={{ color: theme.brandHex, opacity: 0.07 }}
+          />
+          <div className="relative flex items-center gap-2.5">
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
+              style={{ backgroundColor: theme.brandHex }}
+            >
+              <ShoppingCart size={16} />
+            </div>
+            <span
+              className="text-[14px] font-extrabold uppercase tracking-wide"
+              style={{ color: theme.brandHex }}
+            >
+              {theme.label}
+            </span>
+            <span
+              className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+              style={{ backgroundColor: `${theme.brandHex}1f`, color: theme.brandHex }}
+            >
+              Delivery in 10–20 mins
+            </span>
           </div>
-          <span className="text-[14px] font-extrabold tracking-tight" style={{ color: theme.brandHex }}>
-            {theme.label}
-          </span>
-        </div>
-
-        {/* Single delivery-address bar at the top of the block */}
-        <div className="px-3 pt-2">
           <DeliveryAddressBar
             addressId={deliveryAddressId}
             addresses={deliveryAddresses}
