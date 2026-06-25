@@ -54,7 +54,7 @@ def send_action(
         signing_private_key_b64=keys["signing_private_key"],
     )
 
-    if action in _DIRECTED_TO_BPP:
+    if action in _DIRECTED_TO_BPP or (action == "search" and bpp_uri):
         if not bpp_uri:
             raise ValueError(f"{action} must be directed to a bpp_uri")
         target = bpp_uri

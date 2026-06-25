@@ -77,8 +77,13 @@ def start_order_flow(
     (full / inc_pull / inc_push) for the discovery flows.
     """
     message = search_intent(query, gps=gps, area_code=area_code, category_id=category_id, search_type=search_type)
-    overrides = {"city": "*"} if search_type == "inc_push" else None
-    result = send_action("search", message, domain=domain, context_overrides=overrides)
+    # inc_push (8C) is DIRECTED to the mock seller: a city='*' gateway broadcast only reaches
+    # live BPPs, never the mock, so no on_search_inc push fires. Target the mock's bpp_uri instead.
+    inc_bpp_id = inc_bpp_uri = None
+    if search_type == "inc_push":
+        inc_bpp_id = os.getenv("ONDC_MOCK_BPP_ID", "pramaan.ondc.org/beta/preprod/mock/seller")
+        inc_bpp_uri = os.getenv("ONDC_MOCK_BPP_URI", "https://pramaan.ondc.org/beta/preprod/mock/seller")
+    result = send_action("search", message, domain=domain, bpp_id=inc_bpp_id, bpp_uri=inc_bpp_uri)
     txn = (result.get("context") or {}).get("transaction_id", "")
     save_transaction(
         txn, step="search", domain=domain, query=query, gps=gps, area_code=area_code,
