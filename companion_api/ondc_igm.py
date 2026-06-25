@@ -1,6 +1,6 @@
 """ONDC IGM 2.0 (Issue & Grievance Management) — Flows 6A-6F.
 
-Rides on the retail domain ``ONDC:RET10`` but with ``core_version 2.0.0`` and the
+Rides on the retail domain ``ONDC:RET10`` (``core_version 1.2.0``) with the
 IGM 2.0 issue model (refs/actors/actions/resolutions). We send ``issue`` and
 receive ``on_issue`` (ACK + record). 6A opens an issue; 6B-6E are distinguished by
 the seller's on_issue resolution (we may accept it); 6F escalates to GRIEVANCE.
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 IGM_DOMAIN = "ONDC:RET10"
 IGM_VERSION = "2.0.0"
+IGM_CORE_VERSION = "1.2.0"
 _BUYER_PHONE = "9876543210"
 _BUYER_EMAIL = "buyer@jatayulabs.com"
 _GRO_PHONE = "9000000000"
@@ -40,14 +41,14 @@ def _igm_context(
     action: str, *, bap_id: str, bap_uri: str, bpp_id: str, bpp_uri: str,
     transaction_id: str | None = None, message_id: str | None = None, city: str = "std:080",
 ) -> dict[str, Any]:
-    """IGM 2.0 context on RET: the AJV schema's RET branch requires top-level ``core_version``
-    + ``city`` (NOT ``version``/nested-only ``location``); we carry both forms to satisfy the
-    strict schema and the loose validator."""
+    """IGM 2.0 context on RET: the bench validates ``core_version`` against the RET transaction
+    API version (``1.2.0``), while the IGM message model itself is ``version 2.0.0``; we carry
+    top-level country/city + nested location to satisfy both the strict schema and loose validator."""
     return {
         "domain": IGM_DOMAIN,
         "country": "IND",
         "city": city,
-        "core_version": IGM_VERSION,
+        "core_version": IGM_CORE_VERSION,
         "version": IGM_VERSION,
         "location": {"country": {"code": "IND"}, "city": {"code": city}},
         "action": action,
@@ -133,7 +134,7 @@ def build_issue(
             "updated_at": now, "action_by": "INP-1", "actor_details": {"name": bap_id},
         }],
     }
-    return {"issue": issue, "update_target": "issue"}
+    return {"issue": issue, "update_target": [{"path": "issue.actions", "action": "APPENDED"}]}
 
 
 def build_issue_close(state: dict[str, Any], order_txn: str, *, issue_id: str, rating: str = "THUMBS-UP", level: str = "ISSUE") -> dict[str, Any]:
