@@ -40,13 +40,12 @@ def _igm_context(
     action: str, *, bap_id: str, bap_uri: str, bpp_id: str, bpp_uri: str,
     transaction_id: str | None = None, message_id: str | None = None, city: str = "std:080",
 ) -> dict[str, Any]:
-    """IGM 2.0 context on RET: core_version 2.0.0 + top-level country/city."""
+    """IGM 2.0 context on RET: location + version 2.0.0 (RSF-style modern context)."""
     return {
         "domain": IGM_DOMAIN,
-        "country": "IND",
-        "city": city,
+        "location": {"country": {"code": "IND"}, "city": {"code": city}},
+        "version": IGM_VERSION,
         "action": action,
-        "core_version": IGM_VERSION,
         "bap_id": bap_id,
         "bap_uri": bap_uri,
         "bpp_id": bpp_id,
@@ -67,9 +66,11 @@ def _actors(bap_id: str, bpp_id: str, domain: str = IGM_DOMAIN) -> list[dict[str
          "info": {"org": {"name": bap_org}, "person": {"name": "ONDC Test Buyer"},
                   "contact": {"phone": _BUYER_PHONE, "email": _BUYER_EMAIL}}},
         {"id": "INP-1", "type": "INTERFACING_NP",
-         "info": {"org": {"name": bap_org}, "contact": {"phone": _GRO_PHONE, "email": _GRO_EMAIL}}},
+         "info": {"org": {"name": bap_org}, "person": {"name": "Grievance Officer"},
+                  "contact": {"phone": _GRO_PHONE, "email": _GRO_EMAIL}}},
         {"id": "CNP-1", "type": "COUNTERPARTY_NP",
-         "info": {"org": {"name": f"{bpp_id}::{domain}"}, "contact": {"phone": "9111111111", "email": f"support@{seller_host}"}}},
+         "info": {"org": {"name": f"{bpp_id}::{domain}"}, "person": {"name": "Seller Support"},
+                  "contact": {"phone": "9111111111", "email": f"support@{seller_host}"}}},
     ]
 
 
@@ -81,7 +82,6 @@ def _refs(*, order_id: str, provider_id: str, fulfillment_id: str | None, item_i
         {"ref_id": item_id, "ref_type": "ITEM",
          "tags": [{"descriptor": {"code": "message.order.items"},
                    "list": [{"descriptor": {"code": "quantity.selected.count"}, "value": "1"}]}]},
-        {"ref_id": order_txn, "ref_type": "TRANSACTION"},
     ]
 
 
@@ -116,14 +116,19 @@ def build_issue(
         "actors": _actors(bap_id, bpp_id),
         "source_id": "CONSUMER-1",
         "complainant_id": "INP-1",
-        "descriptor": {"code": sub_category, "short_desc": short_desc, "long_desc": long_desc},
+        "respondent_ids": ["CNP-1"],
+        "descriptor": {
+            "code": sub_category, "short_desc": short_desc, "long_desc": long_desc,
+            "additional_desc": {"url": "https://jatayulabs.com/igm/desc.txt", "content_type": "text/plain"},
+            "images": ["https://jatayulabs.com/igm/issue.png"],
+        },
         "last_action_id": action_id,
         "actions": [{
             "id": action_id, "descriptor": {"code": action_code, "short_desc": short_desc},
             "updated_at": now, "action_by": "INP-1", "actor_details": {"name": bap_id},
         }],
     }
-    return {"issue": issue}
+    return {"issue": issue, "update_target": "issue"}
 
 
 def build_issue_close(state: dict[str, Any], order_txn: str, *, issue_id: str, rating: str = "THUMBS-UP") -> dict[str, Any]:
