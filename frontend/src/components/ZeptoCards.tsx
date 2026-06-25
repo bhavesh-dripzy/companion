@@ -15,7 +15,7 @@
 // District purple in the chat scroll.
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Plus, Minus, Trash2, ShoppingCart, Sparkles, Gift, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
+import { Plus, Minus, Trash2, ShoppingCart, Gift, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
 import type {
   Attachment,
   ZeptoCart,
@@ -374,12 +374,12 @@ export const ZeptoProductCardGrid: React.FC<{
             style={{ color: theme.brandHex, opacity: 0.07 }}
           />
           <div className="relative flex items-center gap-2 sm:gap-2.5">
-            <div
-              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
-              style={{ backgroundColor: theme.brandHex }}
-            >
-              <Sparkles size={14} />
-            </div>
+            <img
+              src="/zepto-logo.webp"
+              alt="Zepto"
+              draggable={false}
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl shrink-0 object-cover shadow-sm select-none"
+            />
             <span
               className="text-[12px] sm:text-[14px] font-extrabold uppercase tracking-wide"
               style={{ color: theme.brandHex }}
