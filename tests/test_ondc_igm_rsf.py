@@ -19,7 +19,8 @@ def test_igm_open_issue_invariants():
     assert issue["complainant_id"] == "INP-1"
     assert issue["last_action_id"] == issue["actions"][-1]["id"]
     ref_types = {r["ref_type"] for r in issue["refs"]}
-    assert {"ORDER", "PROVIDER", "FULFILLMENT", "ITEM", "TRANSACTION"} <= ref_types
+    # no TRANSACTION ref — the Pramaan bench rejects it as invalid for an IGM 2.0 issue
+    assert {"ORDER", "PROVIDER", "FULFILLMENT", "ITEM"} <= ref_types
     actor_types = {a["type"] for a in issue["actors"]}
     assert {"CONSUMER", "INTERFACING_NP", "COUNTERPARTY_NP"} <= actor_types
 
@@ -31,7 +32,8 @@ def test_igm_escalation_and_close():
 
     close = build_issue_close(_ORDER_STATE, "T1", issue_id="ISSUE-1")["issue"]
     assert close["status"] == "CLOSED"
-    assert close["actions"][-1]["descriptor"]["code"] == "CLOSED"
+    # action code is CLOSE (not CLOSED) — only CLOSE triggers the bench's mandatory-tags rule
+    assert close["actions"][-1]["descriptor"]["code"] == "CLOSE"
     assert close["actions"][-1]["tags"]
 
 
