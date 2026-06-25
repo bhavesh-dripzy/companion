@@ -226,6 +226,22 @@ def send_issue_info(order_txn: str, state: dict[str, Any], issue_id: str, *, lev
     return {"context": ctx, "issue_id": issue_id, **result}
 
 
+def send_issue_escalate(order_txn: str, state: dict[str, Any], issue_id: str) -> dict[str, Any]:
+    """Flow 6F: send the 'Issue Escalate' (ESCALATED) leg — re-send the issue at level GRIEVANCE.
+    The bench's 6F sequence expects this buyer call between Select-Resolution and Issue Close."""
+    bap_id, bap_uri = bap_identity(load_ondc_keys())
+    bpp_id, bpp_uri = state.get("bpp_id", ""), state.get("bpp_uri", "")
+    message = build_issue(
+        state, order_txn, issue_id=issue_id, action_code="ESCALATED", status="PROCESSING",
+        level="GRIEVANCE", short_desc="Escalating the issue as it remains unresolved",
+    )
+    ctx = _igm_context("issue", bap_id=bap_id, bap_uri=bap_uri, bpp_id=bpp_id, bpp_uri=bpp_uri, transaction_id=order_txn)
+    url = f"{bpp_uri.rstrip('/')}/issue"
+    result = post_signed({"context": ctx, "message": message}, url)
+    logger.warning("ONDC IGM issue_escalate -> sent %s status=%s issue_id=%s", url, result.get("status_code"), issue_id)
+    return {"context": ctx, "issue_id": issue_id, **result}
+
+
 def send_issue_resolve(order_txn: str, state: dict[str, Any], issue_id: str, resolution_code: str = "REFUND", *, level: str = "ISSUE") -> dict[str, Any]:
     """Flow 6B-6F: send the 'Select Resolution Options' (RESOLUTION_ACCEPTED) leg; descriptor.code selects the sub-flow."""
     bap_id, bap_uri = bap_identity(load_ondc_keys())
