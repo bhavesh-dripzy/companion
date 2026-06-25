@@ -386,12 +386,6 @@ export const ZeptoProductCardGrid: React.FC<{
             >
               {theme.label}
             </span>
-            <span
-              className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
-              style={{ backgroundColor: `${theme.brandHex}1f`, color: theme.brandHex }}
-            >
-              Delivery in 8–12 mins
-            </span>
           </div>
           <ZeptoDeliveryAddressBar
             addressId={deliveryAddressId}
