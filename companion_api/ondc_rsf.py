@@ -98,16 +98,16 @@ def send_recon(*, bpp_id: str, bpp_uri: str, order_id: str, transaction_id: str 
 def respond_on_recon(inbound: dict[str, Any]) -> dict[str, Any] | None:
     """Flow 11B: answer an inbound ``recon`` with ``on_recon`` to the collector's bap_uri."""
     ctx_in = inbound.get("context") or {}
-    bap_uri = ctx_in.get("bap_uri")
-    if not bap_uri:
-        logger.warning("ONDC RSF on_recon: inbound recon missing bap_uri")
+    bpp_uri = ctx_in.get("bpp_uri")
+    if not bpp_uri:
+        logger.warning("ONDC RSF on_recon: inbound recon missing bpp_uri (collector target)")
         return None
     ctx = _rsf_context(
-        "on_recon", bap_id=ctx_in.get("bap_id", ""), bap_uri=bap_uri,
-        bpp_id=ctx_in.get("bpp_id", ""), bpp_uri=ctx_in.get("bpp_uri", ""),
+        "on_recon", bap_id=ctx_in.get("bap_id", ""), bap_uri=ctx_in.get("bap_uri", ""),
+        bpp_id=ctx_in.get("bpp_id", ""), bpp_uri=bpp_uri,
         transaction_id=ctx_in.get("transaction_id"), message_id=ctx_in.get("message_id"),
     )
-    url = f"{bap_uri.rstrip('/')}/on_recon"
+    url = f"{bpp_uri.rstrip('/')}/on_recon"
     result = post_signed({"context": ctx, "message": on_recon_message(inbound)}, url)
     logger.warning("ONDC RSF on_recon -> sent %s status=%s", url, result.get("status_code"))
     return result
