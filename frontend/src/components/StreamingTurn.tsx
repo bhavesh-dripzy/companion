@@ -155,9 +155,10 @@ export function StreamingTurn({
         );
         const bubbleCls =
           'animate-fade-in px-4 py-3 rounded-[18px] rounded-tl-md bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs text-[14.5px] leading-snug select-text w-fit max-w-full space-y-1';
-        // The reply that FOLLOWS the results gets its own Omi avatar so it reads as omi's response,
-        // not an orphaned line below the full-width grid.
-        if (responseAvatar && group === lastGroup) {
+        // Every narration bubble in a grid turn carries its own Omi avatar (the message-level avatar
+        // is hidden so the grid spans full width) — so the opener, the per-app "ye options mile"
+        // lines, and the closing reply all read as omi speaking, not orphaned lines.
+        if (responseAvatar) {
           return (
             <div key={group.items[0].i} className="flex items-start gap-2.5">
               <OmiAvatar />
