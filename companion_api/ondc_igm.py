@@ -141,6 +141,33 @@ def build_issue_close(state: dict[str, Any], order_txn: str, *, issue_id: str, r
     return msg
 
 
+def build_issue_resolve(state: dict[str, Any], order_txn: str, *, issue_id: str, resolution_code: str = "REFUND") -> dict[str, Any]:
+    """Build a 6B-6F ``issue`` carrying a resolution + the buyer's RESOLUTION_ACCEPTED. The mock never
+    proposes, so we self-include resolutions[]; the sub-flow is classified by resolution_code
+    (REFUND / REPLACEMENT / CANCEL / NO_ACTION)."""
+    msg = build_issue(state, order_txn, issue_id=issue_id, status="RESOLVED")
+    bap_id, _ = bap_identity(load_ondc_keys())
+    bpp_id = state.get("bpp_id", "")
+    item = (state.get("item_ids") or ["I1"])[0]
+    now = _now_iso()
+    msg["issue"]["resolutions"] = [{
+        "id": "R1",
+        "proposed_by": bpp_id or "seller.ondc.org",
+        "updated_at": now,
+        "descriptor": {"code": resolution_code, "short_desc": f"{resolution_code} for the item"},
+        "tags": [{"descriptor": {"code": "RESOLUTION_DETAILS"},
+                  "list": [{"descriptor": {"code": "REFUND_AMOUNT"}, "value": "100.00"},
+                           {"descriptor": {"code": "ITEM"}, "value": item}]}],
+    }]
+    msg["issue"]["actions"].append({
+        "id": "ACTION-RA", "descriptor": {"code": "RESOLUTION_ACCEPTED", "short_desc": "Accepting the resolution"},
+        "ref_id": "R1", "ref_type": "RESOLUTIONS",
+        "updated_at": now, "action_by": "INP-1", "actor_details": {"name": bap_id},
+    })
+    msg["issue"]["last_action_id"] = "ACTION-RA"
+    return msg
+
+
 def send_issue(order_txn: str, state: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
     """Flow 6A/6F: send an ``issue`` to the seller (bpp). ``params`` may set
     category/sub_category/level/action_code/short_desc/long_desc/close/rating."""
@@ -173,4 +200,16 @@ def send_issue_status(order_txn: str, state: dict[str, Any], issue_id: str) -> d
     url = f"{bpp_uri.rstrip('/')}/issue_status"
     result = post_signed({"context": ctx, "message": {"issue_id": issue_id}}, url)
     logger.warning("ONDC IGM issue_status -> sent %s status=%s issue_id=%s", url, result.get("status_code"), issue_id)
+    return {"context": ctx, "issue_id": issue_id, **result}
+
+
+def send_issue_resolve(order_txn: str, state: dict[str, Any], issue_id: str, resolution_code: str = "REFUND") -> dict[str, Any]:
+    """Flow 6B-6F: send an ``issue`` accepting a resolution (descriptor.code selects the sub-flow)."""
+    bap_id, bap_uri = bap_identity(load_ondc_keys())
+    bpp_id, bpp_uri = state.get("bpp_id", ""), state.get("bpp_uri", "")
+    message = build_issue_resolve(state, order_txn, issue_id=issue_id, resolution_code=resolution_code)
+    ctx = _igm_context("issue", bap_id=bap_id, bap_uri=bap_uri, bpp_id=bpp_id, bpp_uri=bpp_uri, transaction_id=order_txn)
+    url = f"{bpp_uri.rstrip('/')}/issue"
+    result = post_signed({"context": ctx, "message": message}, url)
+    logger.warning("ONDC IGM issue_resolve -> sent %s status=%s code=%s", url, result.get("status_code"), resolution_code)
     return {"context": ctx, "issue_id": issue_id, **result}

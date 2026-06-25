@@ -28,7 +28,7 @@ from companion_api.ondc_retail import (
     track_message,
     update_return_message,
 )
-from companion_api.ondc_igm import send_issue, send_issue_status
+from companion_api.ondc_igm import send_issue, send_issue_status, send_issue_resolve
 from companion_api.ondc_rsf import send_recon
 from companion_api.ondc_store import get_transaction, save_transaction
 
@@ -240,6 +240,13 @@ def send_flow_action(txn: str, action: str, params: dict[str, Any]) -> dict[str,
         return {"transaction_id": txn, "action": action, "result": result}
     if action == "issue_status":
         result = send_issue_status(txn, state, state.get("igm_issue_id") or params.get("issue_id", ""))
+        save_transaction(txn, **{**state, "step": action})
+        return {"transaction_id": txn, "action": action, "result": result}
+    if action == "issue_resolve":
+        result = send_issue_resolve(
+            txn, state, state.get("igm_issue_id") or params.get("issue_id", ""),
+            params.get("resolution_code", "REFUND"),
+        )
         save_transaction(txn, **{**state, "step": action})
         return {"transaction_id": txn, "action": action, "result": result}
     if action in ("issue", "issue_close"):
