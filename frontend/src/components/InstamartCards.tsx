@@ -209,7 +209,7 @@ const InstamartProductTile: React.FC<{
         )}
       >
         {/* Image tile + discount badge + ADD pill (Blinkit/Zepto style) */}
-        <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl flex items-center justify-center p-3">
+        <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl flex items-center justify-center p-2">
           {showImage ? (
             <img
               src={variant.image_url ?? ''}
@@ -217,7 +217,7 @@ const InstamartProductTile: React.FC<{
               loading="lazy"
               onError={() => setImageBroken(true)}
               referrerPolicy="no-referrer"
-              className="w-full h-full object-contain mix-blend-multiply"
+              className="w-full h-full object-cover rounded-xl"
             />
           ) : (
             <div
