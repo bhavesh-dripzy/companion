@@ -38,7 +38,8 @@ def test_confirm_echoes_on_init_and_accepts_terms():
     codes = {t["code"] for t in order["tags"]}
     assert codes == {"bpp_terms", "bap_terms"}
     bap = next(t for t in order["tags"] if t["code"] == "bap_terms")
-    assert {"code": "accept_bpp_terms", "value": "Y"} in bap["list"]
+    tax = next(i for i in bap["list"] if i["code"] == "tax_number")
+    assert len(tax["value"]) == 15  # valid GSTIN length
 
 
 def test_status_and_cancel():

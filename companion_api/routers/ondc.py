@@ -10,6 +10,7 @@ against the sender's registry key, persisted, and ACK'd per the Beckn contract.
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import os
@@ -17,9 +18,11 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
+from starlette.concurrency import run_in_threadpool
 
 from companion_api.ondc_crypto import decrypt_challenge, load_ondc_keys, sign_request_id
-from companion_api.ondc_flow import advance, start_order_flow
+from companion_api.ondc_flow import advance, send_flow_action, start_order_flow
+from companion_api.ondc_rsf import respond_on_recon
 from companion_api.ondc_registry import lookup_signing_key
 from companion_api.ondc_signing import key_id_parts, verify_authorization
 from companion_api.ondc_store import record_callback
@@ -30,6 +33,7 @@ router = APIRouter()
 
 _CALLBACK_ACTIONS = {
     "on_search",
+    "on_search_inc",
     "on_select",
     "on_init",
     "on_confirm",
@@ -39,21 +43,29 @@ _CALLBACK_ACTIONS = {
     "on_update",
     "on_rating",
     "on_support",
+    "recon",
+    "on_recon",
+    "on_issue",
+    "on_issue_status",
+    "issue",
 }
 _STRICT_CALLBACKS = os.getenv("ONDC_STRICT_CALLBACKS", "false").lower() == "true"
 # Shared secret gating the test-flow trigger (unset => trigger disabled).
 _FLOW_TOKEN = os.getenv("ONDC_FLOW_TOKEN", "")
 
 
-def _ack() -> dict[str, Any]:
-    return {"message": {"ack": {"status": "ACK"}}}
+def _ack(context: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Sync ACK. ONDC validates the sync response's context, so echo the request's."""
+    resp: dict[str, Any] = {"message": {"ack": {"status": "ACK"}}}
+    return {"context": context, **resp} if context else resp
 
 
-def _nack(code: str, message: str) -> dict[str, Any]:
-    return {
+def _nack(code: str, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+    resp: dict[str, Any] = {
         "message": {"ack": {"status": "NACK"}},
         "error": {"type": "CONTEXT-ERROR", "code": code, "message": message},
     }
+    return {"context": context, **resp} if context else resp
 
 _SITE_VERIFICATION_HTML = """<html>
     <head>
@@ -114,7 +126,8 @@ async def ondc_flow_start(payload: dict[str, Any], request: Request) -> dict[str
     if not _FLOW_TOKEN or request.headers.get("X-Flow-Token", "") != _FLOW_TOKEN:
         raise HTTPException(status_code=403, detail="flow trigger disabled")
     query = (payload or {}).get("query", "")
-    if not query:
+    search_type = payload.get("search_type")
+    if not query and not search_type:
         raise HTTPException(status_code=400, detail="query required")
     return start_order_flow(
         query,
@@ -122,7 +135,22 @@ async def ondc_flow_start(payload: dict[str, Any], request: Request) -> dict[str
         area_code=payload.get("area_code"),
         domain=payload.get("domain", "ONDC:RET10"),
         category_id=payload.get("category_id"),
+        terminal_step=payload.get("terminal_step", "track"),
+        flow_mode=payload.get("flow_mode", "order"),
+        search_type=search_type,
     )
+
+
+@router.post("/ondc/flow/action")
+async def ondc_flow_action(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Send a follow-up buyer action (cancel/status/track) for an existing txn. Gated by X-Flow-Token."""
+    if not _FLOW_TOKEN or request.headers.get("X-Flow-Token", "") != _FLOW_TOKEN:
+        raise HTTPException(status_code=403, detail="flow trigger disabled")
+    txn = (payload or {}).get("transaction_id", "")
+    action = (payload or {}).get("action", "")
+    if not txn or not action:
+        raise HTTPException(status_code=400, detail="transaction_id and action required")
+    return send_flow_action(txn, action, payload)
 
 
 @router.post("/ondc/{action}")
@@ -135,16 +163,32 @@ async def ondc_callback(action: str, request: Request, background_tasks: Backgro
     """
     if action not in _CALLBACK_ACTIONS:
         raise HTTPException(status_code=404, detail="unknown ONDC action")
-    raw = (await request.body()).decode("utf-8")
+    raw_bytes = await request.body()
+    if raw_bytes[:2] == b"\x1f\x8b":
+        try:
+            raw_bytes = gzip.decompress(raw_bytes)
+        except OSError:
+            return _nack("10001", "invalid gzip body")
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return _nack("10001", "invalid body encoding")
     try:
         body = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
         return _nack("10001", "invalid JSON body")
 
+    ctx = body.get("context")
     verified = _verify_callback(request.headers.get("Authorization", ""), raw)
     if _STRICT_CALLBACKS and not verified:
-        return _nack("20001", "signature verification failed")
+        return _nack("20001", "signature verification failed", ctx)
     record_callback(action, body, verified=verified)
-    if action.startswith("on_"):
-        background_tasks.add_task(advance, action, body)
-    return _ack()
+    # Advance synchronously (in a threadpool) BEFORE the ACK: on the streaming
+    # stack (Lambda Web Adapter) the env freezes after the response, so a
+    # FastAPI background task never runs the next action. run_in_threadpool keeps
+    # the event loop free while the outbound action completes within the invocation.
+    if action == "recon":
+        await run_in_threadpool(respond_on_recon, body)
+    elif action.startswith("on_"):
+        await run_in_threadpool(advance, action, body)
+    return _ack(ctx)

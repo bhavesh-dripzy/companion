@@ -71,3 +71,40 @@ def send_action(
     except Exception:
         ack = resp.text
     return {"context": context, "url": url, "status_code": resp.status_code, "ack": ack}
+
+
+def post_signed(body: dict[str, Any], url: str, timeout: float = 20.0) -> dict[str, Any]:
+    """Sign and POST an arbitrary Beckn body (already containing its own context). For
+    payloads that aren't the standard {context, message} shape (e.g. catalog_rejection's
+    {context, errors})."""
+    keys = load_ondc_keys()
+    raw = minify(body)
+    auth = build_authorization(
+        raw,
+        subscriber_id=keys["subscriber_id"],
+        unique_key_id=keys["unique_key_id"],
+        signing_private_key_b64=keys["signing_private_key"],
+    )
+    resp = requests.post(
+        url, data=raw, headers={"Content-Type": "application/json", "Authorization": auth}, timeout=timeout
+    )
+    try:
+        ack = resp.json()
+    except Exception:
+        ack = resp.text
+    return {"url": url, "status_code": resp.status_code, "ack": ack}
+
+
+def send_catalog_rejection(
+    errors: list[dict[str, Any]], *, domain: str, bpp_id: str, bpp_uri: str, transaction_id: str | None = None
+) -> dict[str, Any]:
+    """Send a ``catalog_rejection`` ({context, errors}) to a BPP (Flow 9)."""
+    keys = load_ondc_keys()
+    bap_id, bap_uri = bap_identity(keys)
+    context = new_context(
+        "catalog_rejection", domain=domain, bap_id=bap_id, bap_uri=bap_uri,
+        transaction_id=transaction_id, bpp_id=bpp_id, bpp_uri=bpp_uri,
+    )
+    url = f"{bpp_uri.rstrip('/')}/catalog_rejection"
+    result = post_signed({"context": context, "errors": errors}, url)
+    return {"context": context, **result}

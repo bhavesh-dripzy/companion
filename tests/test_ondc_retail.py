@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from companion_api.ondc_catalog import parse_catalog
-from companion_api.ondc_retail import search_intent, select_message
+from companion_api.ondc_retail import (
+    catalog_rejection_errors,
+    search_intent,
+    select_message,
+    update_return_message,
+)
 
 
 def test_search_intent_by_name_with_delivery_and_finder_fee():
@@ -15,6 +20,44 @@ def test_search_intent_by_name_with_delivery_and_finder_fee():
     assert intent["fulfillment"]["end"]["location"]["address"]["area_code"] == "560001"
     assert intent["payment"]["@ondc/org/buyer_app_finder_fee_amount"] == "2.5"
     assert intent["payment"]["@ondc/org/buyer_app_finder_fee_type"] == "percent"
+
+
+def test_search_intent_tags_full_and_incremental():
+    full = search_intent(search_type="full")["intent"]["tags"]
+    assert full[0]["code"] == "catalog_full"
+    assert {"code": "payload_type", "value": "inline"} in full[0]["list"]
+
+    pull = search_intent(search_type="inc_pull")["intent"]["tags"][0]
+    assert pull["code"] == "catalog_inc"
+    codes = {x["code"] for x in pull["list"]}
+    assert codes == {"start_time", "end_time"}
+
+    push = search_intent(search_type="inc_push")["intent"]["tags"][0]
+    assert push["code"] == "catalog_inc"
+    assert push["list"] == [{"code": "mode", "value": "start"}]
+
+    assert search_intent("milk")["intent"]["tags"][0]["code"] == "bap_terms"
+
+
+def test_catalog_rejection_errors_shape():
+    errs = catalog_rejection_errors(provider_index=1, item_index=2, code="30018")
+    assert errs[0]["type"] == "ITEM-ERROR"
+    assert errs[0]["code"] == "30018"
+    assert errs[0]["path"] == "message.catalog.bpp/providers[1].items[2]"
+    assert errs[0]["message"]
+
+
+def test_update_return_message_shape():
+    msg = update_return_message("ORDER-1", ["ITEM-9"], reason_id="002", quantity="3")
+    assert msg["update_target"] == "item"
+    assert msg["order"]["id"] == "ORDER-1"
+    fulfillment = msg["order"]["fulfillments"][0]
+    assert fulfillment["type"] == "Return"
+    rr = next(t for t in fulfillment["tags"] if t["code"] == "return_request")
+    listed = {x["code"]: x["value"] for x in rr["list"]}
+    assert listed["item_id"] == "ITEM-9"
+    assert listed["item_quantity"] == "3"
+    assert listed["reason_id"] == "002"
 
 
 def _on_search(provider_key: str) -> dict:

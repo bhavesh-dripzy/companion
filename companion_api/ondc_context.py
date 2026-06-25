@@ -46,6 +46,7 @@ def new_context(
     bpp_uri: str | None = None,
     core_version: str | None = None,
     ttl: str = "PT30S",
+    timestamp: str | None = None,
 ) -> dict[str, Any]:
     """Build a Beckn context. ``transaction_id`` is reused across a transaction;
     ``message_id`` is fresh per request. bpp_id/bpp_uri are set for directed
@@ -53,7 +54,8 @@ def new_context(
     ver = core_version or DEFAULT_CORE_VERSION
     context: dict[str, Any] = {
         "domain": domain,
-        "location": {"country": {"code": country}, "city": {"code": city}},
+        "country": country,
+        "city": city,
         "action": action,
         # 1.2.x carries "core_version"; 2.x carries "version".
         ("core_version" if ver.startswith("1.") else "version"): ver,
@@ -61,7 +63,7 @@ def new_context(
         "bap_uri": bap_uri,
         "transaction_id": transaction_id or str(uuid.uuid4()),
         "message_id": message_id or str(uuid.uuid4()),
-        "timestamp": _now_iso(),
+        "timestamp": timestamp or _now_iso(),
         "ttl": ttl,
     }
     if bpp_id:
