@@ -40,11 +40,16 @@ def _igm_context(
     action: str, *, bap_id: str, bap_uri: str, bpp_id: str, bpp_uri: str,
     transaction_id: str | None = None, message_id: str | None = None, city: str = "std:080",
 ) -> dict[str, Any]:
-    """IGM 2.0 context on RET: location + version 2.0.0 (RSF-style modern context)."""
+    """IGM 2.0 context on RET: the AJV schema's RET branch requires top-level ``core_version``
+    + ``city`` (NOT ``version``/nested-only ``location``); we carry both forms to satisfy the
+    strict schema and the loose validator."""
     return {
         "domain": IGM_DOMAIN,
-        "location": {"country": {"code": "IND"}, "city": {"code": city}},
+        "country": "IND",
+        "city": city,
+        "core_version": IGM_VERSION,
         "version": IGM_VERSION,
+        "location": {"country": {"code": "IND"}, "city": {"code": city}},
         "action": action,
         "bap_id": bap_id,
         "bap_uri": bap_uri,
@@ -131,22 +136,32 @@ def build_issue(
     return {"issue": issue, "update_target": "issue"}
 
 
-def build_issue_close(state: dict[str, Any], order_txn: str, *, issue_id: str, rating: str = "THUMBS-UP") -> dict[str, Any]:
-    """Build a CLOSE ``issue`` (IGM 2.0): status CLOSED + a CLOSE action with mandatory tags (rating)."""
-    msg = build_issue(state, order_txn, issue_id=issue_id, action_code="CLOSED", status="CLOSED",
-                      short_desc="Issue closed by buyer")
+def build_issue_close(state: dict[str, Any], order_txn: str, *, issue_id: str, rating: str = "THUMBS-UP", level: str = "ISSUE") -> dict[str, Any]:
+    """Build a CLOSE ``issue`` (IGM 2.0): status CLOSED + a ``CLOSE`` action (the code that
+    triggers the mandatory non-empty tags rule) with a rating tag."""
+    msg = build_issue(state, order_txn, issue_id=issue_id, action_code="CLOSE", status="CLOSED",
+                      short_desc="Issue closed by buyer", level=level)
     msg["issue"]["actions"][-1]["tags"] = [
         {"descriptor": {"code": "rating"}, "list": [{"descriptor": {"code": "value"}, "value": rating}]}
     ]
     return msg
 
 
-def build_issue_resolve(state: dict[str, Any], order_txn: str, *, issue_id: str, resolution_code: str = "REFUND") -> dict[str, Any]:
-    """Build a 6B-6F ``issue`` carrying a resolution + the buyer's RESOLUTION_ACCEPTED. The mock never
-    proposes, so we self-include resolutions[]; the sub-flow is classified by resolution_code
-    (REFUND / REPLACEMENT / CANCEL / NO_ACTION)."""
-    msg = build_issue(state, order_txn, issue_id=issue_id, status="RESOLVED")
-    bap_id, _ = bap_identity(load_ondc_keys())
+def build_issue_info(state: dict[str, Any], order_txn: str, *, issue_id: str, level: str = "ISSUE",
+                     info: str = "Sharing the requested photos and order details.") -> dict[str, Any]:
+    """Build the 'Provide More Information' leg (IGM 2.0): an ``INFO_PROVIDED`` action, status PROCESSING.
+    The bench's FLOW_1 sequence expects this buyer call between OPEN and RESOLUTION_ACCEPTED."""
+    return build_issue(state, order_txn, issue_id=issue_id, action_code="INFO_PROVIDED",
+                       status="PROCESSING", short_desc=info, level=level)
+
+
+def build_issue_resolve(state: dict[str, Any], order_txn: str, *, issue_id: str,
+                        resolution_code: str = "REFUND", level: str = "ISSUE") -> dict[str, Any]:
+    """Build the 'Select Resolution Options' leg: a ``RESOLUTION_ACCEPTED`` action + a non-empty
+    ``resolutions[]`` (the validator requires resolutions for this action), status PROCESSING.
+    The mock never proposes, so we self-include the resolution; sub-flow = resolution_code."""
+    msg = build_issue(state, order_txn, issue_id=issue_id, action_code="RESOLUTION_ACCEPTED",
+                      status="PROCESSING", short_desc="Accepting the proposed resolution", level=level)
     bpp_id = state.get("bpp_id", "")
     item = (state.get("item_ids") or ["I1"])[0]
     now = _now_iso()
@@ -159,12 +174,6 @@ def build_issue_resolve(state: dict[str, Any], order_txn: str, *, issue_id: str,
                   "list": [{"descriptor": {"code": "REFUND_AMOUNT"}, "value": "100.00"},
                            {"descriptor": {"code": "ITEM"}, "value": item}]}],
     }]
-    msg["issue"]["actions"].append({
-        "id": "ACTION-RA", "descriptor": {"code": "RESOLUTION_ACCEPTED", "short_desc": "Accepting the resolution"},
-        "ref_id": "R1", "ref_type": "RESOLUTIONS",
-        "updated_at": now, "action_by": "INP-1", "actor_details": {"name": bap_id},
-    })
-    msg["issue"]["last_action_id"] = "ACTION-RA"
     return msg
 
 
@@ -175,7 +184,8 @@ def send_issue(order_txn: str, state: dict[str, Any], params: dict[str, Any]) ->
     bpp_id, bpp_uri = state.get("bpp_id", ""), state.get("bpp_uri", "")
     issue_id = params.get("issue_id") or str(uuid.uuid4())
     if params.get("close"):
-        message = build_issue_close(state, order_txn, issue_id=issue_id, rating=params.get("rating", "THUMBS-UP"))
+        message = build_issue_close(state, order_txn, issue_id=issue_id, rating=params.get("rating", "THUMBS-UP"),
+                                    level=params.get("level", "ISSUE"))
     else:
         message = build_issue(
             state, order_txn, issue_id=issue_id,
@@ -203,11 +213,23 @@ def send_issue_status(order_txn: str, state: dict[str, Any], issue_id: str) -> d
     return {"context": ctx, "issue_id": issue_id, **result}
 
 
-def send_issue_resolve(order_txn: str, state: dict[str, Any], issue_id: str, resolution_code: str = "REFUND") -> dict[str, Any]:
-    """Flow 6B-6F: send an ``issue`` accepting a resolution (descriptor.code selects the sub-flow)."""
+def send_issue_info(order_txn: str, state: dict[str, Any], issue_id: str, *, level: str = "ISSUE") -> dict[str, Any]:
+    """Flow 6B-6F: send the 'Provide More Information' (INFO_PROVIDED) leg of the issue."""
     bap_id, bap_uri = bap_identity(load_ondc_keys())
     bpp_id, bpp_uri = state.get("bpp_id", ""), state.get("bpp_uri", "")
-    message = build_issue_resolve(state, order_txn, issue_id=issue_id, resolution_code=resolution_code)
+    message = build_issue_info(state, order_txn, issue_id=issue_id, level=level)
+    ctx = _igm_context("issue", bap_id=bap_id, bap_uri=bap_uri, bpp_id=bpp_id, bpp_uri=bpp_uri, transaction_id=order_txn)
+    url = f"{bpp_uri.rstrip('/')}/issue"
+    result = post_signed({"context": ctx, "message": message}, url)
+    logger.warning("ONDC IGM issue_info -> sent %s status=%s issue_id=%s", url, result.get("status_code"), issue_id)
+    return {"context": ctx, "issue_id": issue_id, **result}
+
+
+def send_issue_resolve(order_txn: str, state: dict[str, Any], issue_id: str, resolution_code: str = "REFUND", *, level: str = "ISSUE") -> dict[str, Any]:
+    """Flow 6B-6F: send the 'Select Resolution Options' (RESOLUTION_ACCEPTED) leg; descriptor.code selects the sub-flow."""
+    bap_id, bap_uri = bap_identity(load_ondc_keys())
+    bpp_id, bpp_uri = state.get("bpp_id", ""), state.get("bpp_uri", "")
+    message = build_issue_resolve(state, order_txn, issue_id=issue_id, resolution_code=resolution_code, level=level)
     ctx = _igm_context("issue", bap_id=bap_id, bap_uri=bap_uri, bpp_id=bpp_id, bpp_uri=bpp_uri, transaction_id=order_txn)
     url = f"{bpp_uri.rstrip('/')}/issue"
     result = post_signed({"context": ctx, "message": message}, url)

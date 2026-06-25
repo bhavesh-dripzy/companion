@@ -28,7 +28,7 @@ from companion_api.ondc_retail import (
     track_message,
     update_return_message,
 )
-from companion_api.ondc_igm import send_issue, send_issue_status, send_issue_resolve
+from companion_api.ondc_igm import send_issue, send_issue_status, send_issue_resolve, send_issue_info
 from companion_api.ondc_rsf import send_recon
 from companion_api.ondc_store import get_transaction, save_transaction
 
@@ -242,10 +242,17 @@ def send_flow_action(txn: str, action: str, params: dict[str, Any]) -> dict[str,
         result = send_issue_status(txn, state, state.get("igm_issue_id") or params.get("issue_id", ""))
         save_transaction(txn, **{**state, "step": action})
         return {"transaction_id": txn, "action": action, "result": result}
+    if action == "issue_info":
+        result = send_issue_info(
+            txn, state, state.get("igm_issue_id") or params.get("issue_id", ""),
+            level=params.get("level", "ISSUE"),
+        )
+        save_transaction(txn, **{**state, "step": action})
+        return {"transaction_id": txn, "action": action, "result": result}
     if action == "issue_resolve":
         result = send_issue_resolve(
             txn, state, state.get("igm_issue_id") or params.get("issue_id", ""),
-            params.get("resolution_code", "REFUND"),
+            params.get("resolution_code", "REFUND"), level=params.get("level", "ISSUE"),
         )
         save_transaction(txn, **{**state, "step": action})
         return {"transaction_id": txn, "action": action, "result": result}
