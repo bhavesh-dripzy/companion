@@ -156,3 +156,16 @@ def send_issue(order_txn: str, state: dict[str, Any], params: dict[str, Any]) ->
     result = post_signed({"context": ctx, "message": message}, url)
     logger.warning("ONDC IGM issue -> sent %s status=%s issue_id=%s", url, result.get("status_code"), issue_id)
     return {"context": ctx, "issue_id": issue_id, **result}
+
+
+def send_issue_status(order_txn: str, state: dict[str, Any], issue_id: str) -> dict[str, Any]:
+    """Flow 6: poll an open issue's status — /issue_status {issue_id} -> on_issue_status."""
+    bap_id, bap_uri = bap_identity(load_ondc_keys())
+    bpp_id, bpp_uri = state.get("bpp_id", ""), state.get("bpp_uri", "")
+    ctx = _igm_context(
+        "issue_status", bap_id=bap_id, bap_uri=bap_uri, bpp_id=bpp_id, bpp_uri=bpp_uri, transaction_id=order_txn
+    )
+    url = f"{bpp_uri.rstrip('/')}/issue_status"
+    result = post_signed({"context": ctx, "message": {"issue_id": issue_id}}, url)
+    logger.warning("ONDC IGM issue_status -> sent %s status=%s issue_id=%s", url, result.get("status_code"), issue_id)
+    return {"context": ctx, "issue_id": issue_id, **result}

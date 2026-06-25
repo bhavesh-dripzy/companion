@@ -28,7 +28,7 @@ from companion_api.ondc_retail import (
     track_message,
     update_return_message,
 )
-from companion_api.ondc_igm import send_issue
+from companion_api.ondc_igm import send_issue, send_issue_status
 from companion_api.ondc_rsf import send_recon
 from companion_api.ondc_store import get_transaction, save_transaction
 
@@ -71,7 +71,8 @@ def start_order_flow(
     (full / inc_pull / inc_push) for the discovery flows.
     """
     message = search_intent(query, gps=gps, area_code=area_code, category_id=category_id, search_type=search_type)
-    result = send_action("search", message, domain=domain)
+    overrides = {"city": "*"} if search_type == "inc_push" else None
+    result = send_action("search", message, domain=domain, context_overrides=overrides)
     txn = (result.get("context") or {}).get("transaction_id", "")
     save_transaction(
         txn, step="search", domain=domain, query=query, gps=gps, area_code=area_code,
@@ -237,9 +238,17 @@ def send_flow_action(txn: str, action: str, params: dict[str, Any]) -> dict[str,
         )
         save_transaction(txn, **{**state, "step": "recon"})
         return {"transaction_id": txn, "action": action, "result": result}
-    if action in ("issue", "issue_close"):
-        result = send_issue(txn, state, {**params, "close": action == "issue_close" or params.get("close", False)})
+    if action == "issue_status":
+        result = send_issue_status(txn, state, state.get("igm_issue_id") or params.get("issue_id", ""))
         save_transaction(txn, **{**state, "step": action})
+        return {"transaction_id": txn, "action": action, "result": result}
+    if action in ("issue", "issue_close"):
+        saved_id = state.get("igm_issue_id")
+        p = {**params, "close": action == "issue_close" or params.get("close", False)}
+        if saved_id and not p.get("issue_id"):
+            p["issue_id"] = saved_id
+        result = send_issue(txn, state, p)
+        save_transaction(txn, **{**state, "step": action, "igm_issue_id": saved_id or result.get("issue_id")})
         return {"transaction_id": txn, "action": action, "result": result}
     builder = _ACTION_MESSAGE.get(action)
     if not builder:
