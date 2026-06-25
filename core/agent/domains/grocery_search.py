@@ -162,6 +162,10 @@ async def _search_one(state, pid: str, phrases, flt, emit: Emit):
                     patts.append(att)
     except Exception as e:
         pcards.append({"type": "error", "provider": pid, "message": f"{type(e).__name__}: {e}"})
+    # Merge per-query attachments → ONE provider block (header + address bar once), a section per query.
+    if len(patts) > 1:
+        merged = [p for a in patts for p in a.get("products", [])]
+        patts = [{"kind": patts[0]["kind"], "products": merged}]
     label = _LABEL.get(pid, pid.capitalize())
     await emit(
         say(f"{label} pe ye options mile:" if patts else f"{label} pe kuch khaas nahi mila.")
@@ -170,19 +174,30 @@ async def _search_one(state, pid: str, phrases, flt, emit: Emit):
     return pcards, patts
 
 
-async def fan_out(state, intent, chosen: list[str], emit: Emit = noop) -> dict[str, Any]:
-    """Search every chosen provider CONCURRENTLY; each narrates + streams its own cards as it
-    finishes (completion order). Aggregates into one result for the final/non-streaming payload."""
+async def fan_out(state, intent, buckets: dict[str, list], emit: Emit = noop) -> dict[str, Any]:
+    """Search each provider in the plan CONCURRENTLY with ITS OWN phrases — so "bread instamart pe
+    aur sooji zepto pe" searches bread on Instamart and sooji on Zepto, while a plain "bread" (no
+    app) searches bread on both. Each narrates + streams its cards as it finishes (completion order).
+    Aggregates into one result for the final/non-streaming payload."""
     from core.agent.domains import grocery_view as V  # deferred: grocery_view re-exports from here
 
-    phrases = [r.get("phrase", "") for r in intent.get("item_refs", [])] or [
-        intent.get("raw_query", "")
-    ]
     flt = filter_from_intent(intent)
-    qtext = ", ".join(p for p in phrases if p) or "items"
-    await emit(say(f"Theek hai, {qtext} dhoondta hoon…"))
-    parts = await asyncio.gather(*(_search_one(state, pid, phrases, flt, emit) for pid in chosen))
-    log.debug("FAN-OUT %s → %d cards total", short(chosen), sum(len(pc) for pc, _ in parts))
+    raw = intent.get("raw_query", "")
+    allq = [r.get("phrase", "") for items in buckets.values() for r in items if r.get("phrase")]
+    await emit(say(f"Theek hai, {', '.join(dict.fromkeys(allq)) or 'items'} dhoondta hoon…"))
+    parts = await asyncio.gather(
+        *(
+            _search_one(
+                state,
+                pid,
+                [r.get("phrase", "") for r in items if r.get("phrase")] or [raw],
+                flt,
+                emit,
+            )
+            for pid, items in buckets.items()
+        )
+    )
+    log.debug("FAN-OUT %s → %d cards total", short(list(buckets)), sum(len(pc) for pc, _ in parts))
     return {
         "domain": "grocery",
         "status": "ok",
@@ -190,5 +205,46 @@ async def fan_out(state, intent, chosen: list[str], emit: Emit = noop) -> dict[s
         "attachments": [a for _, pa in parts for a in pa],
         "error": None,
         "context_header": V.header(state),
-        **V.addr_keys(state, chosen),
+        **V.addr_keys(state, list(buckets)),
     }
+
+
+async def cart_fan_out(
+    handler, state, intent, action, buckets, emit: Emit = noop
+) -> dict[str, Any]:
+    """A cart op (add/set_qty/remove/clear/show_cart) fanned out across MULTIPLE apps concurrently
+    — e.g. "dono carts pe add karo", or "X instamart pe aur Y zepto pe". Each app gets ITS OWN items
+    (from the plan `buckets`), resolves against its OWN catalog, writes its OWN cart, and streams its
+    note + cart card the moment it finishes (completion order). Aggregated. Scales to N providers."""
+
+    async def one(pid):
+        if action == "show_cart":
+            res = await handler._show_cart(state, pid)
+        elif action == "clear":
+            res = await handler._clear(state, pid)
+        else:  # add / set_qty / remove — each app gets only ITS items; fan-out streams the note+card
+            sub = {**intent, "provider_hint": pid, "item_refs": buckets[pid]}
+            res = await handler._cart_op(state, sub, pid, noop)
+        label = _LABEL.get(pid, pid.capitalize())
+        await emit(say(f"{label} — {res['note']}" if res.get("note") else f"{label}:"))
+        await emit(cards(res.get("attachments", []), provider=pid))
+        return pid, res
+
+    parts = await asyncio.gather(*(one(pid) for pid in buckets))
+    state.active_provider = "both"  # multi-app context (per-app _cart_op overwrote it; reset here)
+    pending = next((r["pending_action"] for _, r in parts if r.get("pending_action")), None)
+    out = {
+        "domain": "grocery",
+        "status": "ambiguous" if pending else "ok",
+        "error": None,
+        "cards": [c for _, r in parts for c in r.get("cards", [])],
+        "attachments": [a for _, r in parts for a in r.get("attachments", [])],
+        "note": " ".join(
+            f"{_LABEL.get(pid, pid.capitalize())} pe {r['note']}"
+            for pid, r in parts
+            if r.get("note")
+        ),
+    }
+    if pending:
+        out["pending_action"] = pending
+    return out

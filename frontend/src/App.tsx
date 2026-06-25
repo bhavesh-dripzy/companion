@@ -953,6 +953,17 @@ const assistantMsg: Message = {
     if ('selected_instamart_address_id' in data) {
       const sid = (data as any).selected_instamart_address_id;
       setSelectedInstamartAddressId(typeof sid === 'string' && sid ? sid : null);
+      // Seed the selected address (with the backend-resolved label) into the saved-address list so
+      // the "Delivering to" bar shows the real address at first paint, before the full list loads.
+      // The async list fetch replaces this with the complete set when it arrives.
+      const label = (data as any).selected_instamart_address_label;
+      if (sid && typeof label === 'string' && label) {
+        setInstamartSavedAddresses((prev) =>
+          prev.some((a) => a.address_id === sid)
+            ? prev
+            : [{ address_id: sid, location_name: label.replace(' · ', ' — ') }, ...prev],
+        );
+      }
     }
     if (Array.isArray(data.session_zepto_addresses) && data.session_zepto_addresses.length) {
       setZeptoSavedAddresses(
@@ -966,6 +977,15 @@ const assistantMsg: Message = {
     if ('selected_zepto_address_id' in data) {
       const zid = (data as any).selected_zepto_address_id;
       setSelectedZeptoAddressId(typeof zid === 'string' && zid ? zid : null);
+      // Seed the selected Zepto address (+ backend label) so the bar shows it at first paint.
+      const zlabel = (data as any).selected_zepto_address_label;
+      if (zid && typeof zlabel === 'string' && zlabel) {
+        setZeptoSavedAddresses((prev) =>
+          prev.some((a) => a.address_id === zid)
+            ? prev
+            : [{ address_id: zid, location_name: zlabel.replace(' · ', ' — ') }, ...prev],
+        );
+      }
     }
     if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
     if (Array.isArray(data.session_serp_flights)) setSessionSerpFlights(data.session_serp_flights);

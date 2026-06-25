@@ -154,7 +154,7 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
               <Sparkles size={13} className="text-amber-300" />
             </div>
             <span className="text-sm font-extrabold tracking-tight text-slate-900 truncate">
-              Companion
+              omi
             </span>
           </div>
         </div>

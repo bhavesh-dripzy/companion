@@ -88,7 +88,7 @@ export function RemindersPopup({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-extrabold text-slate-900 tracking-tight font-sans">
-                  Companion Reminders Hub
+                  omi Reminders Hub
                 </h3>
                 <span className="bg-purple-100/70 text-purple-700/90 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                   <Sparkles className="w-2.5 h-2.5" /> Core Applet

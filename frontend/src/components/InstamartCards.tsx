@@ -6,7 +6,7 @@
 // user picks a pack size; the ADD button fires a natural-language prompt
 // that the planner resolves to the correct spinId via session context.
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Minus, Trash2, ShoppingCart, X, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
 import type {
   Attachment,
@@ -203,102 +203,110 @@ const InstamartProductTile: React.FC<{
     <>
       <div
         className={cn(
-          'group flex flex-col w-[40vw] max-w-[148px] sm:w-[136px] shrink-0 snap-start',
+          'group flex flex-col w-[40vw] max-w-[144px] sm:w-[146px] shrink-0 snap-start',
+          'rounded-2xl border border-slate-200/70 bg-white shadow-sm hover:shadow-md hover:border-slate-300/80 transition-all duration-200',
           outOfStock && 'opacity-60',
         )}
       >
-        {/* Image tile + discount badge + overlapping ADD circle */}
-        <div className="relative">
-          <div className="aspect-square rounded-2xl bg-slate-50/80 border border-slate-200/60 overflow-hidden flex items-center justify-center p-2.5">
-            {showImage ? (
-              <img
-                src={variant.image_url ?? ''}
-                alt={item.name}
-                loading="lazy"
-                onError={() => setImageBroken(true)}
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-contain mix-blend-multiply"
-              />
-            ) : (
-              <div
-                className="w-full h-full flex items-center justify-center rounded-xl"
-                style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
-              >
-                <ShoppingCart size={24} style={{ color: theme.brandHex }} />
-              </div>
-            )}
-          </div>
+        {/* Image tile + discount badge + ADD pill (Blinkit/Zepto style) */}
+        <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl flex items-center justify-center p-3">
+          {showImage ? (
+            <img
+              src={variant.image_url ?? ''}
+              alt={item.name}
+              loading="lazy"
+              onError={() => setImageBroken(true)}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain mix-blend-multiply"
+            />
+          ) : (
+            <div
+              className="w-full h-full flex items-center justify-center rounded-xl"
+              style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
+            >
+              <ShoppingCart size={24} style={{ color: theme.brandHex }} />
+            </div>
+          )}
           {discount > 0 ? (
             <span
-              className="absolute top-1.5 left-0 text-[8.5px] font-extrabold text-white px-1.5 py-0.5 rounded-r-md shadow-sm"
+              className="absolute top-2 left-0 text-[8.5px] font-extrabold text-white px-1.5 py-0.5 rounded-r-md shadow-sm"
               style={{ backgroundColor: theme.brandHex }}
             >
               {discount}% OFF
             </span>
           ) : (
             item.is_promoted && (
-              <span className="absolute top-1.5 left-1.5 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-slate-900/65 text-white">
+              <span className="absolute top-2 left-2 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-slate-900/65 text-white">
                 ★ Ad
               </span>
             )
           )}
-          {outOfStock && (
+          {outOfStock ? (
             <span className="absolute bottom-2 left-2 text-[8.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800/80 text-white">
               Out of stock
             </span>
+          ) : (
+            /* Pack / variant chip ON the image (bottom-left). Tappable to pick a size when >1. The
+               ADD button now lives beside the price below, so the image stays uncluttered. */
+            variant?.quantity_description &&
+            (hasMoreVariants ? (
+              <button
+                type="button"
+                onClick={() => !disabled && setSheetOpen(true)}
+                className="absolute bottom-2 left-2 inline-flex max-w-[85%] items-center gap-1 rounded-md bg-white/95 backdrop-blur-sm px-1.5 py-0.5 text-[9.5px] font-bold shadow-sm border-[1.5px] transition-all hover:brightness-95 active:scale-95"
+                style={{ borderColor: `${theme.brandHex}b3` }}
+                title="Choose a pack size"
+              >
+                <span className="truncate" style={{ color: theme.brandHex }}>
+                  {variant.quantity_description}
+                </span>
+                <span className="shrink-0 text-slate-300">|</span>
+                <span className="shrink-0 font-semibold text-slate-400">
+                  +{item.variants.length - 1}
+                </span>
+                <ChevronDown size={10} strokeWidth={2.6} className="shrink-0 text-slate-400" />
+              </button>
+            ) : (
+              <span className="absolute bottom-2 left-2 max-w-[78%] truncate rounded-md bg-white/90 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-500 shadow-sm border border-slate-200/70">
+                {variant.quantity_description}
+              </span>
+            ))
           )}
-          <button
-            type="button"
-            onClick={() => !disabled && !outOfStock && (hasMoreVariants ? setSheetOpen(true) : handleAdd(variant))}
-            disabled={disabled || outOfStock}
-            className={cn(
-              'absolute -bottom-3 right-1.5 w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-md border-2 transition-all',
-              'hover:brightness-105 active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed',
-            )}
-            style={{ borderColor: theme.brandHex, color: theme.brandHex }}
-            title={outOfStock ? 'Out of stock' : `Add ${item.name}`}
-          >
-            <Plus size={16} strokeWidth={3} />
-          </button>
         </div>
 
-        {/* Info — name · pack · price (MRP strikethrough), no delivery time */}
-        <div className="flex flex-col pt-4 gap-0.5">
-          <p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2 min-h-[30px]">
+        {/* Info — name + price ONLY (pack/variant lives on the image now), so every card is the
+            same height and the prices line up across the row. Name is a fixed 2-line block. */}
+        <div className="flex flex-1 flex-col gap-1 px-2.5 pt-3 pb-2.5">
+          <p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[34px]">
             {item.name}
           </p>
-          {hasMoreVariants ? (
-            <button
-              type="button"
-              onClick={() => setSheetOpen(true)}
-              className="self-start inline-flex items-center gap-1 rounded-full border px-2 py-[3px] text-[10px] font-semibold leading-none transition-all hover:brightness-95 active:scale-95"
-              style={{
-                color: theme.brandHex,
-                borderColor: `${theme.brandHex}40`,
-                backgroundColor: `${theme.brandHex}12`,
-              }}
-              title="Choose a pack size"
-            >
-              <span>{variant?.quantity_description || '—'}</span>
-              <span className="opacity-40">|</span>
-              <span>+{item.variants.length - 1} more</span>
-              <ChevronDown size={11} strokeWidth={2.6} />
-            </button>
-          ) : (
-            <span className="self-start text-[10.5px] font-medium text-slate-400 leading-tight">
-              {variant?.quantity_description || '—'}
-            </span>
-          )}
-          {price && (
-            <div className="flex items-baseline gap-1.5 mt-0.5">
-              <span className="text-[13px] font-extrabold text-slate-900">{price}</span>
+          {/* Price (left) + ADD (right) on one baseline row — moved off the image so it isn't crowded. */}
+          <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+            <div className="flex items-baseline gap-1.5 min-w-0">
+              {price && <span className="text-[13px] font-extrabold text-slate-900">{price}</span>}
               {variant?.mrp_inr && variant.mrp_inr > (variant.price_inr ?? 0) && (
                 <span className="text-[10.5px] text-slate-400 line-through">
                   {formatPriceFromInr(variant.mrp_inr)}
                 </span>
               )}
             </div>
-          )}
+            {!outOfStock && (
+              <button
+                type="button"
+                onClick={() => !disabled && (hasMoreVariants ? setSheetOpen(true) : handleAdd(variant))}
+                disabled={disabled}
+                className={cn(
+                  'shrink-0 inline-flex items-center gap-0.5 rounded-lg bg-white px-2 py-1 text-[10.5px] font-extrabold uppercase tracking-wide shadow-sm border transition-all',
+                  'hover:brightness-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed',
+                )}
+                style={{ borderColor: theme.brandHex, color: theme.brandHex }}
+                title={`Add ${item.name}`}
+              >
+                <Plus size={11} strokeWidth={3} />
+                ADD
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -334,11 +342,28 @@ const DeliveryAddressBar: React.FC<{
       The cart passes a cart-refresh prompt so changing the address keeps the user
       on the cart instead of dropping them into search results. */
   promptForAddress?: (addr: DeliveryAddr) => string;
-}> = ({ addressId, addresses, query, onQuickPrompt, disabled, promptForAddress }) => {
+  /** Outer wrapper classes — defaults to the standalone spacing; the search grid passes
+      flush classes so the bar sits inside the provider block with no extra top margin. */
+  wrapClassName?: string;
+  /** Open the address menu UPWARD (default, for a bar at the bottom of a block) or DOWNWARD
+      (search grid, where the bar sits at the top so the menu must drop into the content). */
+  dropUp?: boolean;
+}> = ({ addressId, addresses, query, onQuickPrompt, disabled, promptForAddress, wrapClassName, dropUp = true }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const theme = themeFor('instamart');
   const ctx = useInstamartAddresses();
+
+  // Close the address menu on any tap/click outside it. onMouseLeave alone never
+  // fires on touch devices, so without this the menu was un-dismissable on mobile.
+  useEffect(() => {
+    if (!open) return;
+    const handlePointer = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointer);
+    return () => document.removeEventListener('pointerdown', handlePointer);
+  }, [open]);
 
   // The product-card attachment usually carries only the selected address id
   // (no list), so fall back to the Swiggy saved-address list fetched at the App
@@ -381,19 +406,19 @@ const DeliveryAddressBar: React.FC<{
   };
 
   return (
-    <div className="relative mt-2 px-1" ref={ref}>
-      <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+    <div className={wrapClassName ?? 'relative mt-2 px-1'} ref={ref}>
+      <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
         <span
-          className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center"
+          className="shrink-0 w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center"
           style={{ backgroundColor: `${theme.brandHex}1a` }}
         >
-          <MapPin size={14} style={{ color: theme.brandHex }} />
+          <MapPin size={13} style={{ color: theme.brandHex }} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400 leading-none">
+          <p className="text-[9px] sm:text-[10px] font-medium uppercase tracking-wider text-slate-400 leading-none">
             Delivering to
           </p>
-          <p className="text-[12.5px] font-bold text-slate-800 leading-snug truncate mt-0.5">
+          <p className="text-[11.5px] sm:text-[12.5px] font-bold text-slate-800 leading-snug truncate mt-0.5">
             {displayTag}
             {displayLine && displayLine !== displayTag && (
               <span className="font-normal text-slate-400"> · {displayLine}</span>
@@ -404,7 +429,7 @@ const DeliveryAddressBar: React.FC<{
           <button
             type="button"
             onClick={() => setOpen(v => !v)}
-            className="shrink-0 flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
+            className="shrink-0 flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 sm:px-2.5 sm:py-1.5 text-[10.5px] sm:text-[11px] font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
           >
             Change
             <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -414,7 +439,7 @@ const DeliveryAddressBar: React.FC<{
 
       {open && canChange && (
         <div
-          className="absolute right-1 bottom-full mb-1 z-30 bg-white rounded-xl border border-slate-200 shadow-lg min-w-[260px] max-w-[340px] overflow-hidden"
+          className={`absolute right-1 z-30 bg-white rounded-xl border border-slate-200 shadow-lg min-w-[240px] max-w-[min(340px,90vw)] overflow-hidden ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}
           onMouseLeave={() => setOpen(false)}
         >
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-3 pt-2.5 pb-1">
@@ -477,60 +502,68 @@ export const InstamartProductCardGrid: React.FC<{
   // The address is the same for every group in this attachment; use the first
   // group's query for the change-address re-search prompt.
   const primaryQuery = Array.from(groups.keys())[0] || '';
+  const theme = themeFor('instamart');
 
+  // ONE provider block, full width: brand header + single delivery-address bar at the top, then a
+  // section per searched product (category name only) — the tiles are unchanged.
   return (
-    <div className="mt-2 w-full max-w-full space-y-3">
-      {Array.from(groups.entries()).map(([query, items], gIdx) => (
+    <div className="mt-2 w-full">
+      <div
+        className="w-full rounded-2xl border shadow-sm bg-white"
+        style={{ borderColor: `${theme.brandHex}26` }}
+      >
+        {/* Provider header — logo + name (no timing, no view-all) */}
         <div
-          key={query || `group-${gIdx}`}
-          className="w-full rounded-2xl border shadow-sm px-3 pt-3 pb-2.5"
-          style={{
-            // A faint Instamart-orange wash (top) fading to white — gives the block a subtle brand feel.
-            background: `linear-gradient(180deg, ${themeFor('instamart').brandHex}14 0%, ${themeFor('instamart').brandHex}05 38%, #ffffff 100%)`,
-            borderColor: `${themeFor('instamart').brandHex}26`,
-          }}
+          className="flex items-center gap-2.5 px-3.5 pt-3 pb-2.5 rounded-t-2xl"
+          style={{ background: `linear-gradient(180deg, ${theme.brandHex}14 0%, ${theme.brandHex}06 100%)` }}
         >
-          {/* Header — Instamart logo + "Results for {query}" (no timing, no view-all) */}
-          <div className="flex items-center gap-2.5 mb-3 min-w-0">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
-              style={{ backgroundColor: themeFor('instamart').brandHex }}
-            >
-              <ShoppingCart size={16} />
-            </div>
-            <div className="text-[13.5px] font-bold text-slate-800 leading-tight truncate min-w-0">
-              <span style={{ color: themeFor('instamart').brandHex }}>
-                {themeFor('instamart').label}
-              </span>
-              {query ? (
-                <>
-                  {' '}
-                  Results for <span className="capitalize">{query}</span>
-                </>
-              ) : (
-                ' picks'
-              )}
-            </div>
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm"
+            style={{ backgroundColor: theme.brandHex }}
+          >
+            <ShoppingCart size={15} />
           </div>
-          <div className="flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pt-1 pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
-            {items.map((p, idx) => (
-              <InstamartProductTile
-                key={p.product_id || `${p.name}-${idx}`}
-                item={p}
-                onQuickPrompt={onQuickPrompt}
-                disabled={disabled}
-              />
-            ))}
-          </div>
+          <span className="text-[14px] font-extrabold tracking-tight" style={{ color: theme.brandHex }}>
+            {theme.label}
+          </span>
         </div>
-      ))}
-      <DeliveryAddressBar
-        addressId={deliveryAddressId}
-        addresses={deliveryAddresses}
-        query={primaryQuery}
-        onQuickPrompt={onQuickPrompt}
-        disabled={disabled}
-      />
+
+        {/* Single delivery-address bar at the top of the block */}
+        <div className="px-3 pt-2">
+          <DeliveryAddressBar
+            addressId={deliveryAddressId}
+            addresses={deliveryAddresses}
+            query={primaryQuery}
+            onQuickPrompt={onQuickPrompt}
+            disabled={disabled}
+            wrapClassName="relative px-0"
+            dropUp={false}
+          />
+        </div>
+
+        {/* One section per searched product (category name only) */}
+        <div className="px-3 pb-3 pt-2.5 space-y-3.5">
+          {Array.from(groups.entries()).map(([query, items], gIdx) => (
+            <div key={query || `group-${gIdx}`}>
+              {query && (
+                <p className="text-[12px] font-bold uppercase tracking-wide text-slate-500 mb-1.5 px-0.5">
+                  {query}
+                </p>
+              )}
+              <div className="flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+                {items.map((p, idx) => (
+                  <InstamartProductTile
+                    key={p.product_id || `${p.name}-${idx}`}
+                    item={p}
+                    onQuickPrompt={onQuickPrompt}
+                    disabled={disabled}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };

@@ -35,7 +35,12 @@ export function ThinkingIndicator() {
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="flex items-center gap-3 pl-3"
     >
-      <div className="w-8 h-8 brand-orb shrink-0" />
+      <img
+        src="/omi-logo.png"
+        alt="Omi"
+        draggable={false}
+        className="w-8 h-8 rounded-full object-cover bg-white shadow-sm ring-1 ring-[#ece3d6]/80 shrink-0 select-none"
+      />
       <div className="flex items-center gap-2.5 rounded-full border border-[#ece3d6]/80 bg-white/80 py-2.5 pl-3.5 pr-4 shadow-xs backdrop-blur-xs">
         {/* Minimalist animated icon — three brand dots breathing in a gentle wave. */}
         <span className="flex items-center gap-1">

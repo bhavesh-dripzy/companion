@@ -196,8 +196,14 @@ def _response(state, chat_id, assistant, intent, result) -> dict[str, Any]:
             else None
         ),
     }
-    # Selected delivery address ids the existing FE address bar consumes.
-    for k in ("selected_instamart_address_id", "selected_zepto_address_id"):
+    # Selected delivery address id + resolved label the FE address bar consumes (label lets the bar
+    # show the real address immediately instead of waiting on its own saved-address fetch).
+    for k in (
+        "selected_instamart_address_id",
+        "selected_zepto_address_id",
+        "selected_instamart_address_label",
+        "selected_zepto_address_label",
+    ):
         if k in result:
             out[k] = result[k]
     return out

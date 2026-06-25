@@ -6,6 +6,8 @@ serviceability-validated DefaultContext + in-chat change flow plug in here next 
 
 from __future__ import annotations
 
+import contextlib
+
 from core.agent.providers.base import ExecCtx
 from core.agent.state import ConversationState
 
@@ -15,6 +17,21 @@ class ContextService:
         ps = state.provider_session.setdefault(adapter.id, {})
         if not ps.get("address_id"):
             ps.update(await adapter.default_context(session, state.user_id) or {})
+        # Resolve a human label for the active address ONCE (cached in provider_session until the
+        # address changes — _apply_address_ids only drops it on a real change). This lets the FE
+        # address bar show the real address at first paint instead of waiting on its own list fetch.
+        if ps.get("address_id") and not ps.get("label"):
+            with contextlib.suppress(Exception):
+                match = next(
+                    (
+                        a
+                        for a in await adapter.list_addresses(session)
+                        if a.get("id") == ps["address_id"]
+                    ),
+                    None,
+                )
+                if match and match.get("label"):
+                    ps["label"] = match["label"]
         # mirror a human label into selected_context for the card header
         for d in adapter.domains:
             state.selected_context.setdefault(

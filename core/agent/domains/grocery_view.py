@@ -36,8 +36,14 @@ def provider_addr(state, pid: str) -> str | None:
 
 
 def addr_keys(state, chosen: list[str]) -> dict[str, Any]:
-    # Each provider's OWN address id (so the FE round-trips them independently, never crossed).
-    return {f"selected_{pid}_address_id": provider_addr(state, pid) for pid in chosen}
+    # Each provider's OWN address id + resolved label (FE bar shows the real address at first paint).
+    out: dict[str, Any] = {}
+    for pid in chosen:
+        ps = state.provider_session.get(pid) or {}
+        out[f"selected_{pid}_address_id"] = ps.get("address_id")
+        if ps.get("label"):
+            out[f"selected_{pid}_address_label"] = ps["label"]
+    return out
 
 
 def cart_atts(pid, cart: Cart, state) -> list[dict[str, Any]]:
