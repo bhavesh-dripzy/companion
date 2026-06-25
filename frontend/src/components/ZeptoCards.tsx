@@ -355,9 +355,10 @@ export const ZeptoProductCardGrid: React.FC<{
   const theme = themeFor('zepto');
 
   // ONE provider block, full width: brand header + single delivery-address bar at the top, then a
-  // section per searched product (category name only) — the tiles are unchanged.
+  // section per searched product (category name only) — the tiles are unchanged. No top margin: the
+  // parent (StreamingTurn gap / static column) owns spacing so gaps between turn elements stay even.
   return (
-    <div className="mt-2 w-full">
+    <div className="w-full">
       <div
         className="w-full rounded-2xl border shadow-sm bg-white"
         style={{ borderColor: `${theme.brandHex}26` }}

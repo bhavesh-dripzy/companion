@@ -111,13 +111,16 @@ export function StreamingTurn({
         if (group.kind === 'cards') {
           // not revealed yet, or empty — skip
           if (group.i > cursor || !group.seg.attachments?.length) return null;
+          // -mt-1 cancels AttachmentList's own mt-1 so the ONLY spacing here is the flex gap-2.5 —
+          // keeps the gap before a card block equal to the gap after it (and between bubbles).
           return (
-            <AttachmentList
-              key={group.i}
-              attachments={group.seg.attachments}
-              onQuickPrompt={onQuickPrompt}
-              quickPromptDisabled={quickPromptDisabled}
-            />
+            <div key={group.i} className="-mt-1">
+              <AttachmentList
+                attachments={group.seg.attachments}
+                onQuickPrompt={onQuickPrompt}
+                quickPromptDisabled={quickPromptDisabled}
+              />
+            </div>
           );
         }
 
