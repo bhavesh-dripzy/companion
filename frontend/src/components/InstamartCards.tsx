@@ -208,8 +208,10 @@ const InstamartProductTile: React.FC<{
           outOfStock && 'opacity-60',
         )}
       >
-        {/* Image tile + discount badge + ADD pill (Blinkit/Zepto style) */}
-        <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl flex items-center justify-center p-2">
+        {/* Image tile + discount badge + ADD pill (Blinkit/Zepto style). object-cover + a slight
+            zoom-crop fills the tile uniformly and eats into the white margins some source photos
+            bake in, so products read closer to the same size. */}
+        <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl overflow-hidden flex items-center justify-center">
           {showImage ? (
             <img
               src={variant.image_url ?? ''}
@@ -217,7 +219,7 @@ const InstamartProductTile: React.FC<{
               loading="lazy"
               onError={() => setImageBroken(true)}
               referrerPolicy="no-referrer"
-              className="w-full h-full object-cover rounded-xl"
+              className="w-full h-full object-cover scale-[1.18]"
             />
           ) : (
             <div

@@ -93,7 +93,7 @@ const ZeptoProductTile: React.FC<{
       )}
     >
       {/* Image tile + discount badge + ADD pill (Blinkit/Zepto style) */}
-      <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl flex items-center justify-center p-2">
+      <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl overflow-hidden flex items-center justify-center">
         {showImage ? (
           <img
             src={item.image_url ?? ''}
@@ -101,7 +101,7 @@ const ZeptoProductTile: React.FC<{
             loading="lazy"
             onError={() => setImageBroken(true)}
             referrerPolicy="no-referrer"
-            className="w-full h-full object-cover rounded-xl"
+            className="w-full h-full object-cover scale-[1.18]"
           />
         ) : (
           <div
