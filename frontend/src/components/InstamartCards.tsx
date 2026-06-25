@@ -527,7 +527,7 @@ export const InstamartProductCardGrid: React.FC<{
           />
           <div className="relative flex items-center gap-2 sm:gap-2.5">
             <img
-              src="/instamart-logo.png"
+              src="/swiggy-logo.webp"
               alt="Instamart"
               draggable={false}
               className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl shrink-0 object-cover shadow-sm select-none"
