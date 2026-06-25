@@ -46,6 +46,7 @@ _CALLBACK_ACTIONS = {
     "recon",
     "on_recon",
     "on_issue",
+    "on_issue_status",
     "issue",
 }
 _STRICT_CALLBACKS = os.getenv("ONDC_STRICT_CALLBACKS", "false").lower() == "true"
