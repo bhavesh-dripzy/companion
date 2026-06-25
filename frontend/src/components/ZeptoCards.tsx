@@ -87,7 +87,7 @@ const ZeptoProductTile: React.FC<{
   return (
     <div
       className={cn(
-        'group flex flex-col w-[40vw] max-w-[144px] sm:w-[146px] shrink-0 snap-start',
+        'group flex flex-col w-[35vw] max-w-[128px] sm:w-[146px] shrink-0 snap-start',
         'rounded-2xl border border-slate-200/70 bg-white shadow-sm hover:shadow-md hover:border-slate-300/80 transition-all duration-200',
         outOfStock && 'opacity-60',
       )}
@@ -400,7 +400,7 @@ export const ZeptoProductCardGrid: React.FC<{
                   {query}
                 </p>
               )}
-              <div className="flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+              <div className="flex flex-row gap-2 sm:gap-3 overflow-x-auto snap-x snap-mandatory pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
                 {items.map((p, idx) => (
                   <ZeptoProductTile
                     key={p.product_variant_id || `${p.name}-${idx}`}
