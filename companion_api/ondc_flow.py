@@ -77,11 +77,11 @@ def start_order_flow(
     (full / inc_pull / inc_push) for the discovery flows.
     """
     message = search_intent(query, gps=gps, area_code=area_code, category_id=category_id, search_type=search_type)
-    # inc_push (8C) goes via the gateway with the NORMAL city, like every order search — that
-    # reaches the pramaan mock AND stays gateway-visible (the bench's txn dropdown is populated
-    # from gateway-observed searches). The old city='*' broadcast only drew live BPPs, never the
-    # mock, so 8C never completed.
-    result = send_action("search", message, domain=domain)
+    # inc_push (8C): the bench asserts context.city == '*' on the Mode-Start search
+    # ("'context.city' should be *"). The seller response is irrelevant — the bench validates
+    # the buyer's request — so city='*' is correct even though only live BPPs answer it.
+    overrides = {"city": "*"} if search_type == "inc_push" else None
+    result = send_action("search", message, domain=domain, context_overrides=overrides)
     txn = (result.get("context") or {}).get("transaction_id", "")
     save_transaction(
         txn, step="search", domain=domain, query=query, gps=gps, area_code=area_code,
