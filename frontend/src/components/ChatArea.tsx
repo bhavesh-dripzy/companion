@@ -373,12 +373,12 @@ export function ChatArea({
                   className="relative z-10 my-auto flex flex-col items-center"
                 >
                   {/* Brand logo mark */}
-                  <div
-                    className="w-14 h-14 rounded-2xl mb-5 flex items-center justify-center shadow-md"
-                    style={{ background: 'linear-gradient(135deg, #2b2f72 0%, #6c4fbd 100%)' }}
-                  >
-                    <span className="text-white font-bold text-2xl leading-none select-none">C</span>
-                  </div>
+                  <img
+                    src="/omi-logo.png"
+                    alt="omi"
+                    draggable={false}
+                    className="w-14 h-14 rounded-2xl mb-5 object-cover shadow-md select-none"
+                  />
 
                   {/* Headline — AI-generated personalized greeting (name, time of
                       day, local weather, interests); the user's name renders in

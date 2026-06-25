@@ -317,10 +317,12 @@ export function LeftSidebar({
       <div className="pt-[calc(var(--safe-top)+0.875rem)] pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-[#E9EEF5]">
         <div className="flex items-center gap-2.5">
           {/* Logo mark */}
-          <div className="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #2b2f72 0%, #6c4fbd 100%)' }}>
-            <span className="text-white font-bold text-[15px] leading-none select-none">C</span>
-          </div>
+          <img
+            src="/omi-logo.png"
+            alt="omi"
+            draggable={false}
+            className="w-8 h-8 rounded-xl shrink-0 object-cover select-none"
+          />
           <span className="text-slate-900 font-semibold text-[15px] font-sans tracking-tight leading-none">
             omi
           </span>
