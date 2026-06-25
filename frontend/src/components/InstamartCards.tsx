@@ -278,12 +278,12 @@ const InstamartProductTile: React.FC<{
 
         {/* Info — name + price ONLY (pack/variant lives on the image now), so every card is the
             same height and the prices line up across the row. Name is a fixed 2-line block. */}
-        <div className="flex flex-1 flex-col gap-1 px-2.5 pt-3 pb-2.5">
-          <p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[34px]">
+        <div className="flex flex-1 flex-col gap-0.5 px-2.5 pt-2 pb-2">
+          <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[29px]">
             {item.name}
           </p>
           {/* Price (left) + ADD (right) on one baseline row — moved off the image so it isn't crowded. */}
-          <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+          <div className="mt-auto flex items-center justify-between gap-2 pt-0.5">
             <div className="flex items-baseline gap-1.5 min-w-0">
               {price && <span className="text-[13px] font-extrabold text-slate-900">{price}</span>}
               {variant?.mrp_inr && variant.mrp_inr > (variant.price_inr ?? 0) && (

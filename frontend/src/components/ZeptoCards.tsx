@@ -141,11 +141,11 @@ const ZeptoProductTile: React.FC<{
 
       {/* Info — name + price + ADD. Name is a fixed 2-line block and the price/ADD row is pinned to
           the bottom (mt-auto), so every card is the same height and the prices line up. */}
-      <div className="flex flex-1 flex-col gap-1 px-2.5 pt-3 pb-2.5">
-        <p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[34px]">
+      <div className="flex flex-1 flex-col gap-0.5 px-2.5 pt-2 pb-2">
+        <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[29px]">
           {item.name}
         </p>
-        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+        <div className="mt-auto flex items-center justify-between gap-2 pt-0.5">
           <div className="flex items-baseline gap-1.5 min-w-0">
             {price && (
               <span className="text-[13px] font-extrabold text-slate-900">{price}</span>
