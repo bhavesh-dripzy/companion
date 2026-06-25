@@ -128,7 +128,7 @@ def build_issue(
             "updated_at": now, "action_by": "INP-1", "actor_details": {"name": bap_id},
         }],
     }
-    return {"issue": issue, "update_target": "issue"}
+    return {"issue": issue, "update_target": [{"path": "issue.actions", "action": "APPENDED"}]}
 
 
 def build_issue_close(state: dict[str, Any], order_txn: str, *, issue_id: str, rating: str = "THUMBS-UP") -> dict[str, Any]:
