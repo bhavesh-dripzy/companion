@@ -373,15 +373,15 @@ export const ZeptoProductCardGrid: React.FC<{
             className="absolute right-2 -top-2 w-16 h-16 pointer-events-none"
             style={{ color: theme.brandHex, opacity: 0.07 }}
           />
-          <div className="relative flex items-center gap-2.5">
+          <div className="relative flex items-center gap-2 sm:gap-2.5">
             <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
               style={{ backgroundColor: theme.brandHex }}
             >
-              <Sparkles size={15} />
+              <Sparkles size={14} />
             </div>
             <span
-              className="text-[14px] font-extrabold uppercase tracking-wide"
+              className="text-[12px] sm:text-[14px] font-extrabold uppercase tracking-wide"
               style={{ color: theme.brandHex }}
             >
               {theme.label}
