@@ -1583,7 +1583,7 @@ export const AttachmentList: React.FC<{
       }
       if (kind === 'grocery_intro') {
         return (
-          <div key={`grocery-intro-${idx}`} className="mt-1 w-full max-w-full md:max-w-2xl animate-fade-in">
+          <div key={`grocery-intro-${idx}`} className="w-full max-w-full md:max-w-2xl animate-fade-in">
             <div className="bg-white rounded-[18px] border border-[#e4ede4] shadow-[0_8px_24px_-16px_rgba(26,157,107,0.18)] overflow-hidden">
               <div className="h-[3px] w-full" style={{ background: 'linear-gradient(90deg, #1a9d6b 0%, #43c59e 50%, #7B2CFA 100%)' }} />
               <div className="flex items-center gap-2.5 sm:gap-3 px-3 py-3 sm:px-4 sm:py-4">

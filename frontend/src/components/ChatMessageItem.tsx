@@ -178,11 +178,16 @@ export function ChatMessageItem({
             previous behaviour (provider theming, quick-prompt popovers,
             "Order now" CTA) is preserved. */}
         {msg.attachments && msg.attachments.length > 0 && (
-          <AttachmentList
-            attachments={msg.attachments}
-            onQuickPrompt={onQuickPrompt}
-            quickPromptDisabled={quickPromptDisabled}
-          />
+          // For a content-LESS card message (e.g. the grocery category picker), cancel
+          // AttachmentList's own mt-1 so the inter-message gap matches a plain text turn. Messages
+          // WITH narration keep the mt-1 as the separator between the bubble and the cards.
+          <div className={(msg.content || '').trim() ? '' : '-mt-1'}>
+            <AttachmentList
+              attachments={msg.attachments}
+              onQuickPrompt={onQuickPrompt}
+              quickPromptDisabled={quickPromptDisabled}
+            />
+          </div>
         )}
           </>
         )}
@@ -213,10 +218,11 @@ export function ChatMessageItem({
           <LocationPicker onConfirm={onGrantLocation} />
         )}
 
-        {/* Timestamp + like buttons (assistant only) */}
+        {/* Timestamp + like buttons (assistant only). Grid turns indent past the inline avatar
+            (w-9 + gap-2.5 ≈ 46px) so the timestamp lines up under the narration bubble, not the logo. */}
         <div
           className={`text-[10px] text-slate-400 font-sans font-medium mt-1.5 px-1.5 select-none flex items-center gap-3 ${
-            isUser ? 'self-end mr-1' : 'self-start ml-1'
+            isUser ? 'self-end mr-1' : hasProductGrid ? 'self-start ml-[46px]' : 'self-start ml-1'
           }`}
         >
           <span>{formatBubbleTimestamp(msg.created_at)}</span>

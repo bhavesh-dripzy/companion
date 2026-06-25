@@ -111,13 +111,16 @@ export function StreamingTurn({
         if (group.kind === 'cards') {
           // not revealed yet, or empty — skip
           if (group.i > cursor || !group.seg.attachments?.length) return null;
+          // -mt-1 cancels AttachmentList's own mt-1 so the ONLY spacing here is the flex gap-2.5 —
+          // keeps the gap before a card block equal to the gap after it (and between bubbles).
           return (
-            <AttachmentList
-              key={group.i}
-              attachments={group.seg.attachments}
-              onQuickPrompt={onQuickPrompt}
-              quickPromptDisabled={quickPromptDisabled}
-            />
+            <div key={group.i} className="-mt-1">
+              <AttachmentList
+                attachments={group.seg.attachments}
+                onQuickPrompt={onQuickPrompt}
+                quickPromptDisabled={quickPromptDisabled}
+              />
+            </div>
           );
         }
 
@@ -155,9 +158,10 @@ export function StreamingTurn({
         );
         const bubbleCls =
           'animate-fade-in px-4 py-3 rounded-[18px] rounded-tl-md bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs text-[14.5px] leading-snug select-text w-fit max-w-full space-y-1';
-        // The reply that FOLLOWS the results gets its own Omi avatar so it reads as omi's response,
-        // not an orphaned line below the full-width grid.
-        if (responseAvatar && group === lastGroup) {
+        // Every narration bubble in a grid turn carries its own Omi avatar (the message-level avatar
+        // is hidden so the grid spans full width) — so the opener, the per-app "ye options mile"
+        // lines, and the closing reply all read as omi speaking, not orphaned lines.
+        if (responseAvatar) {
           return (
             <div key={group.items[0].i} className="flex items-start gap-2.5">
               <OmiAvatar />

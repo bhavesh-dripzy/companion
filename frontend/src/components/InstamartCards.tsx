@@ -7,7 +7,7 @@
 // that the planner resolves to the correct spinId via session context.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Minus, Trash2, ShoppingCart, X, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
+import { Plus, Minus, Trash2, ShoppingCart, Gift, X, Receipt, Tag, MapPin, ChevronDown } from 'lucide-react';
 import type {
   Attachment,
   InstamartCart,
@@ -203,13 +203,15 @@ const InstamartProductTile: React.FC<{
     <>
       <div
         className={cn(
-          'group flex flex-col w-[40vw] max-w-[144px] sm:w-[146px] shrink-0 snap-start',
+          'group flex flex-col w-[35vw] max-w-[128px] sm:w-[146px] shrink-0 snap-start',
           'rounded-2xl border border-slate-200/70 bg-white shadow-sm hover:shadow-md hover:border-slate-300/80 transition-all duration-200',
           outOfStock && 'opacity-60',
         )}
       >
-        {/* Image tile + discount badge + ADD pill (Blinkit/Zepto style) */}
-        <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl flex items-center justify-center p-3">
+        {/* Image tile + discount badge + ADD pill (Blinkit/Zepto style). object-cover + a slight
+            zoom-crop fills the tile uniformly and eats into the white margins some source photos
+            bake in, so products read closer to the same size. */}
+        <div className="relative aspect-square bg-slate-50/60 rounded-t-2xl overflow-hidden flex items-center justify-center">
           {showImage ? (
             <img
               src={variant.image_url ?? ''}
@@ -217,7 +219,7 @@ const InstamartProductTile: React.FC<{
               loading="lazy"
               onError={() => setImageBroken(true)}
               referrerPolicy="no-referrer"
-              className="w-full h-full object-contain mix-blend-multiply"
+              className="w-full h-full object-cover scale-[1.18]"
             />
           ) : (
             <div
@@ -276,12 +278,12 @@ const InstamartProductTile: React.FC<{
 
         {/* Info — name + price ONLY (pack/variant lives on the image now), so every card is the
             same height and the prices line up across the row. Name is a fixed 2-line block. */}
-        <div className="flex flex-1 flex-col gap-1 px-2.5 pt-3 pb-2.5">
-          <p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[34px]">
+        <div className="flex flex-1 flex-col gap-0.5 px-2.5 pt-2 pb-2">
+          <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[29px]">
             {item.name}
           </p>
           {/* Price (left) + ADD (right) on one baseline row — moved off the image so it isn't crowded. */}
-          <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+          <div className="mt-auto flex items-center justify-between gap-2 pt-0.5">
             <div className="flex items-baseline gap-1.5 min-w-0">
               {price && <span className="text-[13px] font-extrabold text-slate-900">{price}</span>}
               {variant?.mrp_inr && variant.mrp_inr > (variant.price_inr ?? 0) && (
@@ -505,31 +507,38 @@ export const InstamartProductCardGrid: React.FC<{
   const theme = themeFor('instamart');
 
   // ONE provider block, full width: brand header + single delivery-address bar at the top, then a
-  // section per searched product (category name only) — the tiles are unchanged.
+  // section per searched product (category name only) — the tiles are unchanged. No top margin: the
+  // parent (StreamingTurn gap / static column) owns spacing so gaps between turn elements stay even.
   return (
-    <div className="mt-2 w-full">
+    <div className="w-full">
       <div
         className="w-full rounded-2xl border shadow-sm bg-white"
         style={{ borderColor: `${theme.brandHex}26` }}
       >
-        {/* Provider header — logo + name (no timing, no view-all) */}
+        {/* Header + address on a soft brand wash: logo + NAME + delivery ETA with a faint gift
+            watermark, then the single delivery-address bar. */}
         <div
-          className="flex items-center gap-2.5 px-3.5 pt-3 pb-2.5 rounded-t-2xl"
-          style={{ background: `linear-gradient(180deg, ${theme.brandHex}14 0%, ${theme.brandHex}06 100%)` }}
+          className="relative overflow-hidden rounded-t-2xl px-3 pt-3 pb-3 space-y-2.5"
+          style={{ background: `linear-gradient(180deg, ${theme.brandHex}16 0%, ${theme.brandHex}07 100%)` }}
         >
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm"
-            style={{ backgroundColor: theme.brandHex }}
-          >
-            <ShoppingCart size={15} />
+          <Gift
+            className="absolute right-2 -top-2 w-16 h-16 pointer-events-none"
+            style={{ color: theme.brandHex, opacity: 0.07 }}
+          />
+          <div className="relative flex items-center gap-2 sm:gap-2.5">
+            <img
+              src="/swiggy-logo.webp"
+              alt="Instamart"
+              draggable={false}
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl shrink-0 object-cover shadow-sm select-none"
+            />
+            <span
+              className="text-[12px] sm:text-[14px] font-extrabold uppercase tracking-wide"
+              style={{ color: theme.brandHex }}
+            >
+              {theme.label}
+            </span>
           </div>
-          <span className="text-[14px] font-extrabold tracking-tight" style={{ color: theme.brandHex }}>
-            {theme.label}
-          </span>
-        </div>
-
-        {/* Single delivery-address bar at the top of the block */}
-        <div className="px-3 pt-2">
           <DeliveryAddressBar
             addressId={deliveryAddressId}
             addresses={deliveryAddresses}
@@ -550,7 +559,7 @@ export const InstamartProductCardGrid: React.FC<{
                   {query}
                 </p>
               )}
-              <div className="flex flex-row gap-3 overflow-x-auto snap-x snap-mandatory pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+              <div className="flex flex-row gap-2 sm:gap-3 overflow-x-auto snap-x snap-mandatory pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
                 {items.map((p, idx) => (
                   <InstamartProductTile
                     key={p.product_id || `${p.name}-${idx}`}
