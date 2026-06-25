@@ -213,10 +213,11 @@ export function ChatMessageItem({
           <LocationPicker onConfirm={onGrantLocation} />
         )}
 
-        {/* Timestamp + like buttons (assistant only) */}
+        {/* Timestamp + like buttons (assistant only). Grid turns indent past the inline avatar
+            (w-9 + gap-2.5 ≈ 46px) so the timestamp lines up under the narration bubble, not the logo. */}
         <div
           className={`text-[10px] text-slate-400 font-sans font-medium mt-1.5 px-1.5 select-none flex items-center gap-3 ${
-            isUser ? 'self-end mr-1' : 'self-start ml-1'
+            isUser ? 'self-end mr-1' : hasProductGrid ? 'self-start ml-[46px]' : 'self-start ml-1'
           }`}
         >
           <span>{formatBubbleTimestamp(msg.created_at)}</span>
