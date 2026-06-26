@@ -1569,6 +1569,7 @@ const assistantMsg: Message = {
             onOpenGroceries={handleOpenGroceries}
             onOpenFood={handleOpenFood}
             onOpenDistrict={handleOpenDistrict}
+            onOpenApps={() => setShowApps(true)}
             onToggleLeft={() => setIsSidebarCollapsed((v) => !v)}
             isSidebarCollapsed={isSidebarCollapsed}
             connectedCount={
