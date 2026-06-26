@@ -44,7 +44,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 pt-[calc(2rem+var(--safe-top))] pb-[calc(2rem+var(--safe-bottom))] relative overflow-hidden bg-gradient-to-b from-[#f3eefc] via-[#f6f1fc] to-[#efe7fb]">
+    <div className="h-[100dvh] overflow-y-auto overflow-x-hidden flex flex-col items-center justify-center px-6 pt-[calc(2rem+var(--safe-top))] pb-[calc(2rem+var(--safe-bottom))] relative bg-gradient-to-b from-[#f3eefc] via-[#f6f1fc] to-[#efe7fb]">
       {/* Soft lavender glow blobs */}
       <div className="absolute -top-24 -left-16 w-72 h-72 rounded-full bg-[#caa8f5]/30 blur-3xl pointer-events-none" aria-hidden />
       <div className="absolute -bottom-24 -right-16 w-72 h-72 rounded-full bg-[#f0a8d8]/25 blur-3xl pointer-events-none" aria-hidden />
