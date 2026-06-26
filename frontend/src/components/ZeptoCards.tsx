@@ -87,7 +87,7 @@ const ZeptoProductTile: React.FC<{
   return (
     <div
       className={cn(
-        'group flex flex-col w-[35vw] max-w-[128px] sm:w-[146px] shrink-0 snap-start',
+        'group flex flex-col w-[28vw] max-w-[110px] sm:w-[132px] shrink-0 snap-start',
         'rounded-2xl border border-slate-200/70 bg-white shadow-sm hover:shadow-md hover:border-slate-300/80 transition-all duration-200',
         outOfStock && 'opacity-60',
       )}
@@ -108,7 +108,7 @@ const ZeptoProductTile: React.FC<{
             className="w-full h-full flex items-center justify-center rounded-xl"
             style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
           >
-            <ShoppingCart size={24} style={{ color: theme.brandHex }} />
+            <ShoppingCart size={20} style={{ color: theme.brandHex }} />
           </div>
         )}
         {discount > 0 ? (
@@ -126,13 +126,13 @@ const ZeptoProductTile: React.FC<{
           )
         )}
         {outOfStock ? (
-          <span className="absolute bottom-2 left-2 text-[8.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800/80 text-white">
+          <span className="absolute bottom-1.5 left-1.5 text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800/80 text-white">
             Out of stock
           </span>
         ) : (
           /* Pack chip ON the image (bottom-left). ADD now lives beside the price below. */
           item.pack_size && (
-            <span className="absolute bottom-2 left-2 max-w-[78%] truncate rounded-md bg-white/90 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-500 shadow-sm border border-slate-200/70">
+            <span className="absolute bottom-1.5 left-1.5 max-w-[78%] truncate rounded-md bg-white/90 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 shadow-sm border border-slate-200/70">
               {item.pack_size}
             </span>
           )
@@ -141,17 +141,17 @@ const ZeptoProductTile: React.FC<{
 
       {/* Info — name + price + ADD. Name is a fixed 2-line block and the price/ADD row is pinned to
           the bottom (mt-auto), so every card is the same height and the prices line up. */}
-      <div className="flex flex-1 flex-col gap-0.5 px-2.5 pt-2 pb-2">
-        <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[29px]">
+      <div className="flex flex-1 flex-col gap-0.5 px-2 pt-1.5 pb-2">
+        <p className="text-[10px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[26px]">
           {item.name}
         </p>
         <div className="mt-auto flex items-center justify-between gap-2 pt-0.5">
           <div className="flex items-baseline gap-1.5 min-w-0">
             {price && (
-              <span className="text-[13px] font-extrabold text-slate-900">{price}</span>
+              <span className="text-[12px] font-extrabold text-slate-900">{price}</span>
             )}
             {showStrike && (
-              <span className="text-[10.5px] text-slate-400 line-through">{mrp}</span>
+              <span className="text-[9.5px] text-slate-400 line-through">{mrp}</span>
             )}
           </div>
           {!outOfStock && (
@@ -160,13 +160,13 @@ const ZeptoProductTile: React.FC<{
               onClick={handleAdd}
               disabled={disabled || !onQuickPrompt}
               className={cn(
-                'shrink-0 inline-flex items-center gap-0.5 rounded-lg bg-white px-2 py-1 text-[10.5px] font-extrabold uppercase tracking-wide shadow-sm border transition-all',
+                'shrink-0 inline-flex items-center gap-0.5 rounded-lg bg-white px-1.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide shadow-sm border transition-all',
                 'hover:brightness-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed',
               )}
               style={{ borderColor: theme.brandHex, color: theme.brandHex }}
               title={`Add ${item.name}`}
             >
-              <Plus size={11} strokeWidth={3} />
+              <Plus size={10} strokeWidth={3} />
               ADD
             </button>
           )}
@@ -407,7 +407,7 @@ export const ZeptoProductCardGrid: React.FC<{
                   {query}
                 </p>
               )}
-              <div className="flex flex-row gap-2 sm:gap-3 overflow-x-auto snap-x snap-mandatory pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+              <div className="flex flex-row gap-2 sm:gap-3 overflow-x-auto snap-x snap-mandatory pb-1 -mx-1 px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {items.map((p, idx) => (
                   <ZeptoProductTile
                     key={p.product_variant_id || `${p.name}-${idx}`}
