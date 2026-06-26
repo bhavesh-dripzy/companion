@@ -352,11 +352,16 @@ export function ChatArea({
                   );
                   return visibleMessages.map((msg, i) => {
                   const index = messages.indexOf(msg);
+                  // Show the timestamp/footer only on the LAST message of a consecutive same-role
+                  // run, so a multi-message turn (e.g. grocery intro + category card) stamps once.
+                  const next = visibleMessages[i + 1];
+                  const isGroupTail = !next || next.role !== msg.role;
                   return (
                     <div key={msg.message_id || `${msg.role}-${index}-${msg.content.slice(0, 20)}`} ref={i === lastUserIdx ? lastMessageRef : undefined}>
                       <ChatMessageItem
                         msg={msg}
                         isLatestAssistant={index === lastAssistantIdx}
+                        isGroupTail={isGroupTail}
                         isThinking={isThinking}
                         sessionAddresses={sessionAddresses}
                         onSelectAddress={onSelectAddress}

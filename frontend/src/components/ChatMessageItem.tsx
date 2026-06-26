@@ -24,6 +24,9 @@ interface ChatMessageItemProps {
   /** Is this the most recent assistant message? Controls whether the
    *  address-choice chips are eligible to surface. */
   isLatestAssistant?: boolean;
+  /** Is this the LAST message of a consecutive same-role run? Only the tail shows the
+   *  timestamp/footer, so a multi-message turn (grocery intro + category card) stamps once. */
+  isGroupTail?: boolean;
   /** Hide the address chips while the next turn is in flight so the
    *  user doesn't fire two address-switch requests on top of each
    *  other. */
@@ -53,6 +56,7 @@ const formatBubbleTimestamp = (iso?: string): string => {
 export function ChatMessageItem({
   msg,
   isLatestAssistant = false,
+  isGroupTail = true,
   isThinking = false,
   sessionAddresses = [],
   onSelectAddress,
@@ -218,8 +222,11 @@ export function ChatMessageItem({
           <LocationPicker onConfirm={onGrantLocation} />
         )}
 
-        {/* Timestamp + like buttons (assistant only). Grid turns indent past the inline avatar
-            (w-9 + gap-2.5 ≈ 46px) so the timestamp lines up under the narration bubble, not the logo. */}
+        {/* Timestamp + like buttons (assistant only). Only the tail of a consecutive same-role run shows
+            it, so a multi-message turn (grocery intro + category card) stamps once, under the last message.
+            Grid turns indent past the inline avatar (w-9 + gap-2.5 ≈ 46px) so the timestamp lines up under
+            the narration bubble, not the logo. */}
+        {isGroupTail && (
         <div
           className={`text-[10px] text-slate-400 font-sans font-medium mt-1.5 px-1.5 select-none flex items-center gap-3 ${
             isUser ? 'self-end mr-1' : hasProductGrid ? 'self-start ml-[46px]' : 'self-start ml-1'
@@ -249,6 +256,7 @@ export function ChatMessageItem({
             </div>
           )}
         </div>
+        )}
       </div>
     </motion.div>
   );
