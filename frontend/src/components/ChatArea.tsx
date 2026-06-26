@@ -289,11 +289,12 @@ export function ChatArea({
           <button
             type="button"
             onClick={() => onOpenApps?.()}
-            className="w-9 h-9 rounded-[10px] border border-[#ece3d6]/80 text-[#7a7388] bg-white/60 hover:text-[#221b2e] hover:bg-white flex items-center justify-center transition-all cursor-pointer"
+            className="h-9 px-3 rounded-[10px] border border-[#ece3d6]/80 text-[#7a7388] bg-white/60 hover:text-[#221b2e] hover:bg-white flex items-center gap-1.5 text-[13px] font-semibold transition-all cursor-pointer"
             title="Apps"
             aria-label="Connected apps"
           >
             <LayoutGrid className="w-4 h-4 stroke-[2.2]" />
+            <span>Apps</span>
           </button>
 
         </div>
