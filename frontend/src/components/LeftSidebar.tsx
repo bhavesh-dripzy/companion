@@ -52,10 +52,6 @@ interface LeftSidebarProps {
   mcpStatuses: Record<string, McpStatus>;
   onSelectProvider: (id: string) => void;
 
-  // Reminders popup (local-only)
-  remindersBadge?: number;
-  onShowReminders: () => void;
-
   // Apps onboarding (Swiggy)
   onOpenApps?: () => void;
 
@@ -147,8 +143,6 @@ export function LeftSidebar({
   toolProviders,
   mcpStatuses,
   onSelectProvider,
-  remindersBadge,
-  onShowReminders,
   onOpenApps,
   isCollapsed,
   onToggleCollapse,
@@ -199,21 +193,24 @@ export function LeftSidebar({
     bg: string;
     badge?: number;
     onClick?: () => void;
+    // Visible placeholder for a not-yet-built feature: rendered, but a click is a no-op
+    // (no action, no active highlight) until we wire it up.
+    inert?: boolean;
   };
   const navigationPages: NavPage[] = [
     {
       id: 'reminders',
       label: 'Reminders',
       icon: Bell,
-      badge: remindersBadge,
       bg: 'bg-purple-50 text-purple-600 border-purple-100',
-      onClick: onShowReminders,
+      inert: true,
     },
     {
       id: 'health',
       label: 'Health',
       icon: Heart,
       bg: 'bg-rose-50 text-rose-500 border-rose-100',
+      inert: true,
     },
     {
       id: 'apps',
@@ -227,6 +224,7 @@ export function LeftSidebar({
       label: 'Daily Tasks',
       icon: CheckSquare,
       bg: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+      inert: true,
     },
   ];
 
@@ -370,6 +368,7 @@ export function LeftSidebar({
               <button
                 key={page.id}
                 onClick={() => {
+                  if (page.inert) return; // placeholder option — no-op until the feature ships
                   setActiveTab(page.id);
                   page.onClick?.();
                 }}

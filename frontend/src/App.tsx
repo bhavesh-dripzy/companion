@@ -6,7 +6,6 @@ import { AppsModal } from './components/AppsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { LeftSidebar } from './components/LeftSidebar';
 import { ChatArea } from './components/ChatArea';
-import { RemindersPopup } from './components/RemindersPopup';
 import { OrdersPopup } from './components/OrdersPopup';
 import { CartDock } from './components/CartDock';
 import { VoiceStage } from './components/VoiceStage';
@@ -293,19 +292,6 @@ const clearAllChatSessions = () => {
   }
 };
 
-// Cosmetic, local-only stub for the Reminders popup that ships with
-// the new UI shell. There's no backend route for reminders today, so
-// these live entirely in component state. Pre-populated so the screen
-// has something to render the first time the user opens it.
-const INITIAL_REMINDERS = [
-  { id: 'rem-d1', category: 'daily', text: 'Take daily vitamins & morning supplements', time: '09:00 AM', completed: false },
-  { id: 'rem-d2', category: 'daily', text: 'Postural posture stretch & hydration check', time: 'Every 2 hrs', completed: false },
-  { id: 'rem-d3', category: 'daily', text: 'Review evening workout session and wellness log', time: '06:30 PM', completed: true },
-  { id: 'rem-t1', category: 'today', text: 'Confirm meeting with financial advisor', time: '02:00 PM', completed: false },
-  { id: 'rem-t2', category: 'today', text: 'Track grocery restock through Blinkit/Zepto', time: '04:00 PM', completed: false },
-  { id: 'rem-t3', category: 'today', text: 'Submit car registration insurance renewals', time: 'Today', completed: false },
-];
-
 // Same disclaimer as INITIAL_REMINDERS — there's no /api/orders route,
 // these are visual stubs only. The real orders flow happens through
 // the chat (Zomato/Swiggy carts) and the cart_card attachment.
@@ -361,10 +347,8 @@ function App() {
   // Cosmetic popups (no backend wiring) — kept local-only as confirmed
   // up-front. Users can toggle items / add / delete entries and the
   // state lives for the session.
-  const [showRemindersPopup, setShowRemindersPopup] = useState(false);
   const [showApps, setShowApps] = useState(false);
   const [showOrdersPopup, setShowOrdersPopup] = useState(false);
-  const [reminders, setReminders] = useState(INITIAL_REMINDERS);
   const [orders, setOrders] = useState(INITIAL_ORDERS);
 
   // Carry-forward state from the backend across turns. See the inline
@@ -1486,28 +1470,7 @@ const assistantMsg: Message = {
     };
   }, [isAuthenticated, zeptoConnected]);
 
-  // Cosmetic reminders/orders handlers — unchanged from the new UI's
-  // reference App.tsx, just lifted into local state because there's no
-  // backend wiring for them yet.
-  const handleToggleReminder = (id: string) =>
-    setReminders((prev) => prev.map((r) => (r.id === id ? { ...r, completed: !r.completed } : r)));
-  const handleAddReminder = (text: string, category: 'daily' | 'today') => {
-    setReminders((prev) => [
-      ...prev,
-      {
-        id: `rem-${Date.now()}`,
-        category,
-        text,
-        time: category === 'daily' ? '08:30 AM' : 'Just now',
-        completed: false,
-      },
-    ]);
-  };
-  const handleDeleteReminder = (id: string) =>
-    setReminders((prev) => prev.filter((r) => r.id !== id));
-  const handleClearCompletedReminders = () =>
-    setReminders((prev) => prev.filter((r) => !r.completed));
-
+  // Cosmetic orders handlers — local-only state (no backend wiring yet).
   const handleCancelOrder = (id: string) =>
     setOrders((prev) =>
       prev.map((o) =>
@@ -1533,10 +1496,6 @@ const assistantMsg: Message = {
   const handleDeleteOrder = (id: string) =>
     setOrders((prev) => prev.filter((o) => o.id !== id));
 
-  const remindersBadge = useMemo(
-    () => reminders.filter((r) => !r.completed).length,
-    [reminders],
-  );
 
   const isAdmin = ADMIN_USERNAMES.has(username);
 
@@ -1591,8 +1550,6 @@ const assistantMsg: Message = {
         toolProviders={toolProviders}
         mcpStatuses={mcpStatuses}
         onSelectProvider={(id) => openSettings('mcp', id)}
-        remindersBadge={remindersBadge || undefined}
-        onShowReminders={() => setShowRemindersPopup(true)}
         onOpenApps={() => setShowApps(true)}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
@@ -1704,17 +1661,6 @@ const assistantMsg: Message = {
       />
 
       <AnimatePresence>
-        {showRemindersPopup && (
-          <RemindersPopup
-            isOpen={showRemindersPopup}
-            onClose={() => setShowRemindersPopup(false)}
-            reminders={reminders}
-            onToggleReminder={handleToggleReminder}
-            onAddReminder={handleAddReminder}
-            onDeleteReminder={handleDeleteReminder}
-            onClearCompleted={handleClearCompletedReminders}
-          />
-        )}
       </AnimatePresence>
 
       <AnimatePresence>
