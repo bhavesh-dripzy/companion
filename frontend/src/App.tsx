@@ -1551,6 +1551,7 @@ const assistantMsg: Message = {
         mcpStatuses={mcpStatuses}
         onSelectProvider={(id) => openSettings('mcp', id)}
         onOpenApps={() => setShowApps(true)}
+        appsOpen={showApps}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
       />

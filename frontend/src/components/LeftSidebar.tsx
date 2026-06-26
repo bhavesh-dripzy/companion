@@ -54,6 +54,8 @@ interface LeftSidebarProps {
 
   // Apps onboarding (Swiggy)
   onOpenApps?: () => void;
+  /** Whether the Apps modal is open — drives the nav highlight so it clears when the modal closes. */
+  appsOpen?: boolean;
 
   // Layout
   isCollapsed: boolean;
@@ -144,10 +146,10 @@ export function LeftSidebar({
   mcpStatuses,
   onSelectProvider,
   onOpenApps,
+  appsOpen,
   isCollapsed,
   onToggleCollapse,
 }: LeftSidebarProps) {
-  const [activeTab, setActiveTab] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   // Auto-clear the delete confirm overlay after a few seconds so a
@@ -363,13 +365,12 @@ export function LeftSidebar({
         <nav className="space-y-0.5 py-1">
           {navigationPages.map((page) => {
             const IconComponent = page.icon;
-            const isTabActive = activeTab === page.id;
+            const isTabActive = page.id === 'apps' && !!appsOpen;
             return (
               <button
                 key={page.id}
                 onClick={() => {
                   if (page.inert) return; // placeholder option — no-op until the feature ships
-                  setActiveTab(page.id);
                   page.onClick?.();
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all duration-150 text-[13px] font-sans text-left cursor-pointer group ${
