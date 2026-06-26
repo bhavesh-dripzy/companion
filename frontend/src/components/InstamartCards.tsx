@@ -203,7 +203,7 @@ const InstamartProductTile: React.FC<{
     <>
       <div
         className={cn(
-          'group flex flex-col w-[35vw] max-w-[128px] sm:w-[146px] shrink-0 snap-start',
+          'group flex flex-col w-[28vw] max-w-[110px] sm:w-[132px] shrink-0 snap-start',
           'rounded-2xl border border-slate-200/70 bg-white shadow-sm hover:shadow-md hover:border-slate-300/80 transition-all duration-200',
           outOfStock && 'opacity-60',
         )}
@@ -226,7 +226,7 @@ const InstamartProductTile: React.FC<{
               className="w-full h-full flex items-center justify-center rounded-xl"
               style={{ background: `linear-gradient(135deg, ${theme.brandHex}1a, transparent)` }}
             >
-              <ShoppingCart size={24} style={{ color: theme.brandHex }} />
+              <ShoppingCart size={20} style={{ color: theme.brandHex }} />
             </div>
           )}
           {discount > 0 ? (
@@ -255,7 +255,7 @@ const InstamartProductTile: React.FC<{
               <button
                 type="button"
                 onClick={() => !disabled && setSheetOpen(true)}
-                className="absolute bottom-2 left-2 inline-flex max-w-[85%] items-center gap-1 rounded-md bg-white/95 backdrop-blur-sm px-1.5 py-0.5 text-[9.5px] font-bold shadow-sm border-[1.5px] transition-all hover:brightness-95 active:scale-95"
+                className="absolute bottom-1.5 left-1.5 inline-flex max-w-[85%] items-center gap-1 rounded-md bg-white/95 backdrop-blur-sm px-1.5 py-0.5 text-[9px] font-bold shadow-sm border-[1.5px] transition-all hover:brightness-95 active:scale-95"
                 style={{ borderColor: `${theme.brandHex}b3` }}
                 title="Choose a pack size"
               >
@@ -266,10 +266,10 @@ const InstamartProductTile: React.FC<{
                 <span className="shrink-0 font-semibold text-slate-400">
                   +{item.variants.length - 1}
                 </span>
-                <ChevronDown size={10} strokeWidth={2.6} className="shrink-0 text-slate-400" />
+                <ChevronDown size={9} strokeWidth={2.6} className="shrink-0 text-slate-400" />
               </button>
             ) : (
-              <span className="absolute bottom-2 left-2 max-w-[78%] truncate rounded-md bg-white/90 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-500 shadow-sm border border-slate-200/70">
+              <span className="absolute bottom-1.5 left-1.5 max-w-[78%] truncate rounded-md bg-white/90 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 shadow-sm border border-slate-200/70">
                 {variant.quantity_description}
               </span>
             ))
@@ -278,16 +278,16 @@ const InstamartProductTile: React.FC<{
 
         {/* Info — name + price ONLY (pack/variant lives on the image now), so every card is the
             same height and the prices line up across the row. Name is a fixed 2-line block. */}
-        <div className="flex flex-1 flex-col gap-0.5 px-2.5 pt-2 pb-2">
-          <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[29px]">
+        <div className="flex flex-1 flex-col gap-0.5 px-2 pt-1.5 pb-2">
+          <p className="text-[10px] font-semibold text-slate-800 leading-snug line-clamp-2 h-[26px]">
             {item.name}
           </p>
           {/* Price (left) + ADD (right) on one baseline row — moved off the image so it isn't crowded. */}
           <div className="mt-auto flex items-center justify-between gap-2 pt-0.5">
             <div className="flex items-baseline gap-1.5 min-w-0">
-              {price && <span className="text-[13px] font-extrabold text-slate-900">{price}</span>}
+              {price && <span className="text-[12px] font-extrabold text-slate-900">{price}</span>}
               {variant?.mrp_inr && variant.mrp_inr > (variant.price_inr ?? 0) && (
-                <span className="text-[10.5px] text-slate-400 line-through">
+                <span className="text-[9.5px] text-slate-400 line-through">
                   {formatPriceFromInr(variant.mrp_inr)}
                 </span>
               )}
@@ -298,13 +298,13 @@ const InstamartProductTile: React.FC<{
                 onClick={() => !disabled && (hasMoreVariants ? setSheetOpen(true) : handleAdd(variant))}
                 disabled={disabled}
                 className={cn(
-                  'shrink-0 inline-flex items-center gap-0.5 rounded-lg bg-white px-2 py-1 text-[10.5px] font-extrabold uppercase tracking-wide shadow-sm border transition-all',
+                  'shrink-0 inline-flex items-center gap-0.5 rounded-lg bg-white px-1.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide shadow-sm border transition-all',
                   'hover:brightness-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed',
                 )}
                 style={{ borderColor: theme.brandHex, color: theme.brandHex }}
                 title={`Add ${item.name}`}
               >
-                <Plus size={11} strokeWidth={3} />
+                <Plus size={10} strokeWidth={3} />
                 ADD
               </button>
             )}
@@ -559,7 +559,7 @@ export const InstamartProductCardGrid: React.FC<{
                   {query}
                 </p>
               )}
-              <div className="flex flex-row gap-2 sm:gap-3 overflow-x-auto snap-x snap-mandatory pb-1.5 -mx-1 px-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+              <div className="flex flex-row gap-2 sm:gap-3 overflow-x-auto snap-x snap-mandatory pb-1 -mx-1 px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {items.map((p, idx) => (
                   <InstamartProductTile
                     key={p.product_id || `${p.name}-${idx}`}

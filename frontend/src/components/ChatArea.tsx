@@ -10,8 +10,8 @@
  * (the chat already surfaces tool activity via meta chips + cards).
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Menu, Send, Sparkles, ShoppingCart, Plane, Search, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Menu, Send, Sparkles, ShoppingCart, Plane, LayoutGrid } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ChatMessageItem } from './ChatMessageItem';
@@ -32,6 +32,8 @@ interface ChatAreaProps {
   /** Drops the in-chat District discovery picker (movies / events / dining /
    *  theatres) into the conversation — fired by the Movies & Events chip. */
   onOpenDistrict?: () => void;
+  /** Opens the connect-providers (Apps) modal — fired by the header Apps button. */
+  onOpenApps?: () => void;
   onToggleLeft?: () => void;
   connectedCount?: number;
   isSidebarCollapsed?: boolean;
@@ -114,6 +116,7 @@ export function ChatArea({
   onOpenGroceries,
   onOpenFood,
   onOpenDistrict,
+  onOpenApps,
   onToggleLeft,
   connectedCount: _connectedCount = 0,
   isSidebarCollapsed = false,
@@ -135,13 +138,6 @@ export function ChatArea({
   onGrantLocation,
 }: ChatAreaProps) {
   const [inputValue, setInputValue] = useState('');
-  // In-chat message search — preserved from the prior skin so users can
-  // still scroll back through a long conversation by keyword. Toggled
-  // from the header search icon; filters `messages` to those whose
-  // markdown body contains the query (case-insensitive). Empty query =
-  // show everything.
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   // Ribbon / nudge dispatcher: the Groceries chip (issue #59) drops an
   // in-chat category picker card into the conversation instead of firing a
   // fixed prompt; every other chip fires its prompt immediately, as before.
@@ -217,11 +213,7 @@ export function ChatArea({
     }
   };
 
-  const visibleMessages = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return messages;
-    return messages.filter((m) => (m.content || '').toLowerCase().includes(q));
-  }, [messages, searchQuery]);
+  const visibleMessages = messages;
 
   // Latest-assistant index — the only message eligible to surface the
   // address-choice chips. Computed against the FULL message list, not
@@ -293,53 +285,20 @@ export function ChatArea({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Search button — opens an inline search pill that filters
-              the visible messages by text (preserved from the prior
-              skin so users can still grep a long thread). */}
+          {/* Apps — opens the connect-providers modal (replaces the old search icon). */}
           <button
             type="button"
-            onClick={() => {
-              setSearchOpen((v) => {
-                if (v) setSearchQuery('');
-                return !v;
-              });
-            }}
-            className={`w-9 h-9 rounded-[10px] border border-[#ece3d6]/80 text-[#7a7388] bg-white/60 hover:text-[#221b2e] hover:bg-white flex items-center justify-center transition-all cursor-pointer ${
-              searchOpen ? 'bg-white text-[#221b2e]' : ''
-            }`}
-            title={searchOpen ? 'Close search' : 'Search this conversation'}
-            aria-label="Search conversation"
+            onClick={() => onOpenApps?.()}
+            className="h-9 px-3 rounded-[10px] border border-[#ece3d6]/80 text-[#7a7388] bg-white/60 hover:text-[#221b2e] hover:bg-white flex items-center gap-1.5 text-[13px] font-semibold transition-all cursor-pointer"
+            title="Apps"
+            aria-label="Connected apps"
           >
-            <Search className="w-4 h-4 stroke-[2.2]" />
+            <LayoutGrid className="w-4 h-4 stroke-[2.2]" />
+            <span>Apps</span>
           </button>
 
         </div>
       </header>
-
-      {searchOpen && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-full shadow-lg shadow-slate-900/10 pl-3 pr-1 py-1 max-w-[92vw]">
-          <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-          <input
-            autoFocus
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search this conversation…"
-            className="bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-48 md:w-64"
-          />
-          <button
-            onClick={() => {
-              setSearchOpen(false);
-              setSearchQuery('');
-            }}
-            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
-            title="Close search"
-            aria-label="Close search"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
       {/* Body */}
       <div className="flex-1 overflow-hidden relative z-10 flex flex-col">
@@ -384,11 +343,6 @@ export function ChatArea({
               </div>
             ) : (
               <div className="w-full space-y-2 pb-6">
-                {searchQuery.trim() && visibleMessages.length === 0 && (
-                  <div className="text-center text-xs text-slate-500 italic">
-                    No messages match “{searchQuery}”.
-                  </div>
-                )}
                 {(() => {
                   // Always scroll to the last user message so the question sits at
                   // the top and the answer scrolls into view naturally below it.
@@ -398,11 +352,16 @@ export function ChatArea({
                   );
                   return visibleMessages.map((msg, i) => {
                   const index = messages.indexOf(msg);
+                  // Show the timestamp/footer only on the LAST message of a consecutive same-role
+                  // run, so a multi-message turn (e.g. grocery intro + category card) stamps once.
+                  const next = visibleMessages[i + 1];
+                  const isGroupTail = !next || next.role !== msg.role;
                   return (
                     <div key={msg.message_id || `${msg.role}-${index}-${msg.content.slice(0, 20)}`} ref={i === lastUserIdx ? lastMessageRef : undefined}>
                       <ChatMessageItem
                         msg={msg}
                         isLatestAssistant={index === lastAssistantIdx}
+                        isGroupTail={isGroupTail}
                         isThinking={isThinking}
                         sessionAddresses={sessionAddresses}
                         onSelectAddress={onSelectAddress}

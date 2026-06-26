@@ -7,8 +7,9 @@ import {
   ExternalLink,
   Loader2,
   MapPin,
-  ShoppingBag,
   ChevronLeft,
+  ChevronRight,
+  Sparkles,
   Plug,
   Unplug,
   ShieldCheck,
@@ -72,15 +73,6 @@ const APPS: AppConfig[] = [
     defaultAddressEndpoint: '/api/mcp/instamart/default-address/',
   },
   {
-    key: 'swiggy_food',
-    label: 'Swiggy Food',
-    short: 'SF',
-    brand: '#fc8019',
-    category: 'Food delivery',
-    source: 'address',
-    defaultAddressEndpoint: '/api/mcp/swiggy-food/default-address/',
-  },
-  {
     key: 'zepto',
     label: 'Zepto',
     short: 'Z',
@@ -89,15 +81,6 @@ const APPS: AppConfig[] = [
     source: 'address',
     defaultAddressEndpoint: '/api/mcp/zepto/default-address/',
     checkServiceable: true,
-  },
-  {
-    key: 'district',
-    label: 'District',
-    short: 'D',
-    brand: '#e85d7a',
-    category: 'Events & dining',
-    source: 'location',
-    defaultLocationEndpoint: '/api/mcp/district/default-location/',
   },
 ];
 
@@ -143,9 +126,10 @@ const StatusPill: React.FC<{ status?: McpStatus | null }> = ({ status }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Grid landing frame: a tile per app showing its logo + connection status.
+// Landing frame: one full-width row per app — logo, name + category, and either a
+// "Connected" line + chevron (paired) or a "Connect" pill (not yet paired).
 // ---------------------------------------------------------------------------
-const AppTile: React.FC<{
+const AppRow: React.FC<{
   cfg: AppConfig;
   status?: McpStatus | null;
   loading: boolean;
@@ -155,30 +139,33 @@ const AppTile: React.FC<{
   return (
     <button
       onClick={onClick}
-      className="group flex flex-col items-center gap-1.5 p-3 md:p-4 bg-white border border-slate-200 rounded-2xl hover:border-slate-300 hover:shadow-md transition-all text-center"
+      className="group w-full flex items-center gap-3.5 p-3.5 md:p-4 bg-white border border-slate-200/90 rounded-2xl hover:border-slate-300 hover:shadow-sm transition-all text-left"
     >
-      <AppLogo cfg={cfg} size={48} />
-      <span className="font-sans text-[12px] md:text-sm font-bold text-slate-900 leading-tight line-clamp-2 w-full">
-        {cfg.label}
-      </span>
+      <AppLogo cfg={cfg} size={50} />
+      <div className="flex-1 min-w-0">
+        <div className="font-sans text-[15px] font-bold text-slate-900 leading-tight truncate">
+          {cfg.label}
+        </div>
+        <div className="font-sans text-[13px] text-slate-400 leading-tight mt-0.5 truncate">
+          {cfg.category}
+        </div>
+        {connected && (
+          <div className="mt-1.5 text-[12.5px] font-semibold text-emerald-500 flex items-center gap-1">
+            <CheckCircle2 size={14} /> Connected
+          </div>
+        )}
+      </div>
       {loading ? (
-        <span className="mt-0.5 flex items-center justify-center text-slate-400">
-          <Loader2 size={14} className="animate-spin" />
-        </span>
+        <Loader2 size={18} className="animate-spin text-slate-300 shrink-0" />
       ) : connected ? (
-        <span className="mt-0.5 text-[11px] font-bold text-emerald-600 flex items-center gap-1">
-          <CheckCircle2 size={13} /> Connected
-        </span>
+        <ChevronRight size={20} className="text-slate-300 group-hover:text-slate-400 shrink-0 transition-colors" />
       ) : (
-        <>
-          <span className="text-[11px] text-slate-400 leading-tight line-clamp-1 w-full">{cfg.category}</span>
-          <span
-            className="mt-1 w-full text-center text-[12px] font-bold rounded-xl border py-1.5 transition-colors group-hover:bg-slate-50"
-            style={{ color: cfg.brand, borderColor: `${cfg.brand}59` }}
-          >
-            Connect
-          </span>
-        </>
+        <span
+          className="shrink-0 font-sans text-[13px] font-bold rounded-full border px-5 py-2 transition-colors group-hover:bg-slate-50"
+          style={{ color: cfg.brand, borderColor: `${cfg.brand}66` }}
+        >
+          Connect
+        </span>
       )}
     </button>
   );
@@ -424,7 +411,7 @@ const AppDetail: React.FC<{
       <div className="flex items-start gap-3 p-4 md:p-5 bg-white border border-slate-200 rounded-2xl">
         <AppLogo cfg={cfg} />
         <div className="flex-1 min-w-0">
-          <h3 className="font-sans font-bold text-slate-900 truncate">{cfg.label}</h3>
+          <div className="font-sans font-bold text-slate-900 truncate">{cfg.label}</div>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] font-black uppercase text-slate-500">Status:</span>
             <StatusPill status={status} />
@@ -510,7 +497,7 @@ const AppDetail: React.FC<{
         <div className="p-4 md:p-5 bg-white border border-slate-200 rounded-2xl space-y-3">
           <div className="flex items-center gap-2">
             <MapPin size={16} style={{ color: cfg.brand }} className="shrink-0" />
-            <h3 className="font-sans font-bold text-sm text-slate-900">Default delivery address</h3>
+            <div className="font-sans font-bold text-sm text-slate-900">Default delivery address</div>
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">
             We'll deliver every {cfg.label} order to this saved address. You can change it anytime.
@@ -579,7 +566,7 @@ const AppDetail: React.FC<{
         <div className="p-4 md:p-5 bg-white border border-slate-200 rounded-2xl space-y-3">
           <div className="flex items-center gap-2">
             <MapPin size={16} style={{ color: cfg.brand }} className="shrink-0" />
-            <h3 className="font-sans font-bold text-sm text-slate-900">Discovery location</h3>
+            <div className="font-sans font-bold text-sm text-slate-900">Discovery location</div>
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">
             {cfg.label} shows movies, events and dining near you. We save your location once and reuse
@@ -665,14 +652,14 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
-  // Split providers by connection status for the grid's two sections. While the
+  // Split providers by connection status for the two list sections. While the
   // initial status sweep is in flight we don't yet know which is which, so we
-  // show every tile in one neutral block (each with its own spinner).
+  // show every row in one neutral block (each with its own spinner).
   const connectedApps = APPS.filter((cfg) => isConnected(statuses[cfg.key]));
   const otherApps = APPS.filter((cfg) => !isConnected(statuses[cfg.key]));
 
-  const renderTile = (cfg: AppConfig) => (
-    <AppTile
+  const renderRow = (cfg: AppConfig) => (
+    <AppRow
       key={cfg.key}
       cfg={cfg}
       status={statuses[cfg.key]}
@@ -681,33 +668,45 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
     />
   );
 
-  const renderSection = (title: string, apps: AppConfig[]) =>
+  const renderSection = (title: string, apps: AppConfig[], badge: React.ReactNode) =>
     apps.length === 0 ? null : (
       <div className="space-y-3">
-        <h3 className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">{title}</h3>
-        <div className="grid grid-cols-3 gap-2.5 md:gap-3">{apps.map(renderTile)}</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-sans text-[17px] font-bold text-slate-900">{title}</div>
+          {badge}
+        </div>
+        <div className="flex flex-col gap-3">{apps.map(renderRow)}</div>
       </div>
     );
+
+  const connectedBadge = (
+    <span className="font-sans text-[12px] font-semibold text-emerald-600 bg-emerald-50 rounded-full px-3 py-1 flex items-center gap-1.5 shrink-0">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> {connectedApps.length} Connected
+    </span>
+  );
+  const discoverBadge = (
+    <span className="font-sans text-[12px] font-semibold text-violet-600 bg-violet-50 rounded-full px-3 py-1 flex items-center gap-1 shrink-0">
+      <Sparkles size={12} /> Discover more
+    </span>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 pt-[max(0.5rem,var(--safe-top))] pb-[max(0.5rem,var(--safe-bottom))] bg-slate-950/40 backdrop-blur-md">
       <div className="w-full max-w-lg bg-white/95 border border-slate-200 rounded-2xl md:rounded-3xl shadow-2xl shadow-slate-900/20 flex flex-col max-h-[95vh] md:max-h-[90vh] overflow-hidden">
         <div className="px-4 md:px-7 py-4 md:py-5 border-b border-slate-200">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-sans text-base md:text-lg font-bold flex items-center gap-2 text-slate-900 min-w-0">
-              {selected ? (
+            <div className="font-sans text-xl md:text-[22px] font-bold flex items-center gap-1.5 text-slate-900 min-w-0">
+              {selected && (
                 <button
                   onClick={() => setSelectedKey(null)}
                   className="p-1.5 -ml-1.5 hover:bg-slate-100 rounded-full transition-colors text-slate-500 hover:text-slate-900 shrink-0"
                   title="Back to apps"
                 >
-                  <ChevronLeft size={18} />
+                  <ChevronLeft size={20} />
                 </button>
-              ) : (
-                <ShoppingBag size={18} className="text-[#fc8019] shrink-0" />
               )}
               <span className="truncate">{selected ? selected.label : 'Apps & Connections'}</span>
-            </h2>
+            </div>
             <button
               onClick={onClose}
               className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 hover:text-slate-900 shrink-0"
@@ -726,11 +725,11 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
           {selected ? (
             <AppDetail cfg={selected} initialStatus={statuses[selected.key]} onStatus={handleStatus} />
           ) : gridLoading && connectedApps.length === 0 ? (
-            <div className="grid grid-cols-3 gap-2.5 md:gap-3">{APPS.map(renderTile)}</div>
+            <div className="flex flex-col gap-3">{APPS.map(renderRow)}</div>
           ) : (
-            <div className="space-y-6">
-              {renderSection('Connected apps', connectedApps)}
-              {renderSection('Explore more apps', otherApps)}
+            <div className="space-y-7">
+              {renderSection('Connected apps', connectedApps, connectedBadge)}
+              {renderSection('Explore more apps', otherApps, discoverBadge)}
             </div>
           )}
         </div>
