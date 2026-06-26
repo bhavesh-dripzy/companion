@@ -38,13 +38,19 @@ from companion_api.voice_routes import (
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Companion API", version="2.0.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: in prod the Lambda Function URL adds the CORS headers at the edge (see infra
+# FunctionUrlCorsOptions). Adding them here too would emit DUPLICATE Access-Control-Allow-Origin
+# headers — which browsers/WebViews reject (the native APK login failed with "Failed to fetch").
+# So enable the app-level middleware ONLY for local dev (uvicorn ↔ vite is cross-origin with no
+# Function URL in front); in Lambda, AWS_LAMBDA_FUNCTION_NAME is set and the Function URL owns CORS.
+if not os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.get("/api/")
