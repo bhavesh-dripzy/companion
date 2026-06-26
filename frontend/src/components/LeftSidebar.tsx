@@ -328,7 +328,7 @@ export function LeftSidebar({
             className="w-8 h-8 rounded-xl shrink-0 object-cover select-none"
           />
           <span className="text-slate-900 font-semibold text-[15px] font-sans tracking-tight leading-none">
-            omi
+            Omi
           </span>
         </div>
 
