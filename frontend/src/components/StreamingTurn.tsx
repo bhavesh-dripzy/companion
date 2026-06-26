@@ -25,14 +25,14 @@ const PAUSE_AFTER_CARDS = 120;
 
 function OmiAvatar() {
   return (
-    <div className="w-9 h-9 shrink-0 relative select-none">
+    <div className="w-8 h-8 shrink-0 relative select-none">
       <img
         src="/omi-logo.png"
         alt="Omi"
         draggable={false}
-        className="w-9 h-9 rounded-full object-cover bg-white shadow-sm ring-1 ring-[#ece3d6]/80"
+        className="w-8 h-8 rounded-full object-cover bg-white shadow-sm ring-1 ring-[#ece3d6]/80"
       />
-      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#1a9d6b] border-2 border-white" />
+      <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-[#1a9d6b] border-2 border-white" />
     </div>
   );
 }
@@ -106,7 +106,7 @@ export function StreamingTurn({
   const inlineLoading = streaming && caughtUp && lastIsText;
 
   return (
-    <div className="flex flex-col gap-2.5 w-full">
+    <div className="flex flex-col gap-2 w-full">
       {groups.map((group) => {
         if (group.kind === 'cards') {
           // not revealed yet, or empty — skip
@@ -139,7 +139,7 @@ export function StreamingTurn({
               return (
                 <div
                   key={i}
-                  className="prose prose-sm max-w-none prose-p:my-0.5 prose-p:text-[14.5px] prose-slate prose-strong:text-[#221b2e]"
+                  className="prose prose-sm max-w-none prose-p:my-0.5 prose-p:text-[13.5px] prose-slate prose-strong:text-[#221b2e]"
                 >
                   <ReactMarkdown remarkPlugins={[remarkBreaks]}>{shown}</ReactMarkdown>
                   {typing && <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-[#ff8a1e] animate-pulse rounded-sm" />}
@@ -157,7 +157,7 @@ export function StreamingTurn({
           </>
         );
         const bubbleCls =
-          'animate-fade-in px-4 py-3 rounded-[18px] rounded-tl-md bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs text-[14.5px] leading-snug select-text w-fit max-w-full space-y-1';
+          'animate-fade-in px-3.5 py-2.5 rounded-[16px] rounded-tl-md bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs text-[13.5px] leading-snug select-text w-fit max-w-full space-y-1';
         // Every narration bubble in a grid turn carries its own Omi avatar (the message-level avatar
         // is hidden so the grid spans full width) — so the opener, the per-app "ye options mile"
         // lines, and the closing reply all read as omi speaking, not orphaned lines.

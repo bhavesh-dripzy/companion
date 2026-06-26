@@ -106,20 +106,20 @@ export function ChatMessageItem({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: 'easeOut' }}
-      className={`flex ${isUser ? 'justify-end' : isCardsOnly || hasProductGrid ? 'justify-start' : 'justify-start gap-3.5'} items-start w-full group`}
+      className={`flex ${isUser ? 'justify-end' : isCardsOnly || hasProductGrid ? 'justify-start' : 'justify-start gap-2.5'} items-start w-full group`}
     >
       {/* Assistant avatar (Omi) — inline beside the bubble for normal turns. Product-grid turns hide
           it here (so the grid spans full width) and instead attach an avatar to the narrator reply
           itself (StreamingTurn / the static narration block below). Cards-only turns: no avatar. */}
       {!isUser && !isCardsOnly && !hasProductGrid && (
-        <div className="w-9 h-9 shrink-0 select-none relative transform hover:scale-105 transition-all">
+        <div className="w-8 h-8 shrink-0 select-none relative transform hover:scale-105 transition-all">
           <img
             src="/omi-logo.png"
             alt="Omi"
             draggable={false}
-            className="w-9 h-9 rounded-full object-cover bg-white shadow-sm ring-1 ring-[#ece3d6]/80"
+            className="w-8 h-8 rounded-full object-cover bg-white shadow-sm ring-1 ring-[#ece3d6]/80"
           />
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#1a9d6b] border-2 border-white z-10" />
+          <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-[#1a9d6b] border-2 border-white z-10" />
         </div>
       )}
 
@@ -143,7 +143,7 @@ export function ChatMessageItem({
         <div className={gridWithNarration ? 'flex items-start gap-2.5' : ''}>
           {/* Grid turns: the narrator reply carries its own Omi avatar (the grid above is full-width). */}
           {gridWithNarration && (
-            <div className="w-9 h-9 shrink-0 select-none relative">
+            <div className="w-8 h-8 shrink-0 select-none relative">
               <img
                 src="/omi-logo.png"
                 alt="Omi"
@@ -154,12 +154,12 @@ export function ChatMessageItem({
             </div>
           )}
           <div
-            className={`animate-fade-in px-4 rounded-[16px] leading-snug transition-all duration-200 max-w-full ${
+            className={`animate-fade-in px-3.5 rounded-[15px] leading-snug transition-all duration-200 max-w-full ${
               gridWithNarration ? 'w-fit' : ''
             } ${
               isUser
-                ? 'text-[14.5px] py-3 bg-gradient-to-br from-[#2b2f72]/10 via-[#e85d7a]/8 to-[#ff8a1e]/10 border border-[#2b2f72]/15 text-[#221b2e] shadow-sm font-medium rounded-tr-md'
-                : 'text-[14.5px] py-3 bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs font-normal rounded-tl-md select-text'
+                ? 'text-[13.5px] py-2.5 bg-gradient-to-br from-[#2b2f72]/10 via-[#e85d7a]/8 to-[#ff8a1e]/10 border border-[#2b2f72]/15 text-[#221b2e] shadow-sm font-medium rounded-tr-md'
+                : 'text-[13.5px] py-2.5 bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs font-normal rounded-tl-md select-text'
             }`}
           >
             <div
@@ -167,8 +167,8 @@ export function ChatMessageItem({
                 isUser
                   // [&_p]:my-0 removes the paragraph margin that was inflating the
                   // bubble height vertically.
-                  ? '[&_p]:my-0 prose-p:text-[14.5px] prose-li:text-[14.5px] prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f]'
-                  : 'prose-p:my-1 prose-p:text-[14.5px] prose-li:text-[14.5px] prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
+                  ? '[&_p]:my-0 prose-p:text-[13.5px] prose-li:text-[13.5px] prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f]'
+                  : 'prose-p:my-1 prose-p:text-[13.5px] prose-li:text-[13.5px] prose-slate prose-strong:text-[#221b2e] prose-a:text-[#2b2f72] prose-code:text-[#c2630f] prose-pre:bg-slate-900 prose-pre:text-slate-100'
               }`}
             >
               <ReactMarkdown remarkPlugins={[remarkBreaks]}>{msg.content}</ReactMarkdown>
@@ -224,12 +224,12 @@ export function ChatMessageItem({
 
         {/* Timestamp + like buttons (assistant only). Only the tail of a consecutive same-role run shows
             it, so a multi-message turn (grocery intro + category card) stamps once, under the last message.
-            Grid turns indent past the inline avatar (w-9 + gap-2.5 ≈ 46px) so the timestamp lines up under
+            Grid turns indent past the inline avatar (w-8 + gap-2.5 ≈ 42px) so the timestamp lines up under
             the narration bubble, not the logo. */}
         {isGroupTail && (
         <div
-          className={`text-[10px] text-slate-400 font-sans font-medium mt-1.5 px-1.5 select-none flex items-center gap-3 ${
-            isUser ? 'self-end mr-1' : hasProductGrid ? 'self-start ml-[46px]' : 'self-start ml-1'
+          className={`text-[9px] text-slate-400 font-sans font-medium mt-1 px-1.5 select-none flex items-center gap-3 ${
+            isUser ? 'self-end mr-1' : hasProductGrid ? 'self-start ml-[42px]' : 'self-start ml-1'
           }`}
         >
           <span>{formatBubbleTimestamp(msg.created_at)}</span>
@@ -242,7 +242,7 @@ export function ChatMessageItem({
                 }`}
                 title="Rate helpful"
               >
-                <ThumbsUp size={11} />
+                <ThumbsUp size={10} />
               </button>
               <button
                 onClick={() => setLiked((prev) => (prev === 'down' ? null : 'down'))}
@@ -251,7 +251,7 @@ export function ChatMessageItem({
                 }`}
                 title="Rate unhelpful"
               >
-                <ThumbsDown size={11} />
+                <ThumbsDown size={10} />
               </button>
             </div>
           )}
