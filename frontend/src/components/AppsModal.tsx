@@ -72,15 +72,6 @@ const APPS: AppConfig[] = [
     defaultAddressEndpoint: '/api/mcp/instamart/default-address/',
   },
   {
-    key: 'swiggy_food',
-    label: 'Swiggy Food',
-    short: 'SF',
-    brand: '#fc8019',
-    category: 'Food delivery',
-    source: 'address',
-    defaultAddressEndpoint: '/api/mcp/swiggy-food/default-address/',
-  },
-  {
     key: 'zepto',
     label: 'Zepto',
     short: 'Z',
@@ -89,15 +80,6 @@ const APPS: AppConfig[] = [
     source: 'address',
     defaultAddressEndpoint: '/api/mcp/zepto/default-address/',
     checkServiceable: true,
-  },
-  {
-    key: 'district',
-    label: 'District',
-    short: 'D',
-    brand: '#e85d7a',
-    category: 'Events & dining',
-    source: 'location',
-    defaultLocationEndpoint: '/api/mcp/district/default-location/',
   },
 ];
 

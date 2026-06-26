@@ -85,6 +85,9 @@ const PROVIDER_THEME: Record<string, { bg: string; fg: string }> = {
 
 const NEUTRAL_THEME = { bg: 'bg-slate-700', fg: 'text-white' };
 
+// Only these providers (the grocery apps we actually use) appear in the Apps/connection grid.
+const APPS_ALLOWLIST = new Set(['swiggy_instamart', 'instamart', 'zepto']);
+
 const themeForProvider = (id: string) => PROVIDER_THEME[id?.toLowerCase()] || NEUTRAL_THEME;
 
 const providerLetter = (label: string, id: string): string =>
@@ -160,8 +163,9 @@ export function LeftSidebar({
     return () => clearTimeout(t);
   }, [pendingDelete]);
 
+  // Only the providers we actually use today (Instamart + Zepto) show in the Apps/connection grid.
   const availableProviders = useMemo(
-    () => toolProviders.filter((p) => p && p.available !== false),
+    () => toolProviders.filter((p) => p && p.available !== false && APPS_ALLOWLIST.has(p.id)),
     [toolProviders],
   );
 
