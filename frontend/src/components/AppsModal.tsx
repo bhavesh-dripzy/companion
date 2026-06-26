@@ -411,7 +411,7 @@ const AppDetail: React.FC<{
       <div className="flex items-start gap-3 p-4 md:p-5 bg-white border border-slate-200 rounded-2xl">
         <AppLogo cfg={cfg} />
         <div className="flex-1 min-w-0">
-          <h3 className="font-sans font-bold text-slate-900 truncate">{cfg.label}</h3>
+          <div className="font-sans font-bold text-slate-900 truncate">{cfg.label}</div>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] font-black uppercase text-slate-500">Status:</span>
             <StatusPill status={status} />
@@ -497,7 +497,7 @@ const AppDetail: React.FC<{
         <div className="p-4 md:p-5 bg-white border border-slate-200 rounded-2xl space-y-3">
           <div className="flex items-center gap-2">
             <MapPin size={16} style={{ color: cfg.brand }} className="shrink-0" />
-            <h3 className="font-sans font-bold text-sm text-slate-900">Default delivery address</h3>
+            <div className="font-sans font-bold text-sm text-slate-900">Default delivery address</div>
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">
             We'll deliver every {cfg.label} order to this saved address. You can change it anytime.
@@ -566,7 +566,7 @@ const AppDetail: React.FC<{
         <div className="p-4 md:p-5 bg-white border border-slate-200 rounded-2xl space-y-3">
           <div className="flex items-center gap-2">
             <MapPin size={16} style={{ color: cfg.brand }} className="shrink-0" />
-            <h3 className="font-sans font-bold text-sm text-slate-900">Discovery location</h3>
+            <div className="font-sans font-bold text-sm text-slate-900">Discovery location</div>
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">
             {cfg.label} shows movies, events and dining near you. We save your location once and reuse
@@ -672,7 +672,7 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
     apps.length === 0 ? null : (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="font-sans text-[17px] font-bold text-slate-900">{title}</h3>
+          <div className="font-sans text-[17px] font-bold text-slate-900">{title}</div>
           {badge}
         </div>
         <div className="flex flex-col gap-3">{apps.map(renderRow)}</div>
@@ -695,7 +695,7 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
       <div className="w-full max-w-lg bg-white/95 border border-slate-200 rounded-2xl md:rounded-3xl shadow-2xl shadow-slate-900/20 flex flex-col max-h-[95vh] md:max-h-[90vh] overflow-hidden">
         <div className="px-4 md:px-7 py-4 md:py-5 border-b border-slate-200">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-sans text-xl md:text-[22px] font-extrabold flex items-center gap-1.5 text-slate-900 min-w-0 tracking-tight">
+            <div className="font-sans text-xl md:text-[22px] font-bold flex items-center gap-1.5 text-slate-900 min-w-0">
               {selected && (
                 <button
                   onClick={() => setSelectedKey(null)}
@@ -706,7 +706,7 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
                 </button>
               )}
               <span className="truncate">{selected ? selected.label : 'Apps & Connections'}</span>
-            </h2>
+            </div>
             <button
               onClick={onClose}
               className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 hover:text-slate-900 shrink-0"
