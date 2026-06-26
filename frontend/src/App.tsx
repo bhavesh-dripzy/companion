@@ -13,6 +13,7 @@ import { api, clearToken, clearRefreshToken, getToken, streamPost } from './api'
 import type { StreamSegment } from './types';
 import { lastKnownUser, prefetchHeroGreeting, rememberLastUser } from './heroGreeting';
 import { InstamartAddressProvider, type InstamartSavedAddress } from './InstamartAddressContext';
+import { McpProviderProvider } from './McpProviderContext';
 import { ZeptoAddressProvider, type ZeptoSavedAddress } from './ZeptoAddressContext';
 import type {
   Attachment,
@@ -348,6 +349,9 @@ function App() {
   // up-front. Users can toggle items / add / delete entries and the
   // state lives for the session.
   const [showApps, setShowApps] = useState(false);
+  // When set, the Apps modal opens straight to this provider's auth/connect view
+  // (fired by tapping a not-connected "Search in" chip in the grocery picker).
+  const [appsInitialProvider, setAppsInitialProvider] = useState<string | null>(null);
   const [showOrdersPopup, setShowOrdersPopup] = useState(false);
   const [orders, setOrders] = useState(INITIAL_ORDERS);
 
@@ -1527,6 +1531,19 @@ const assistantMsg: Message = {
       }}
     >
     <ZeptoAddressProvider value={{ addresses: zeptoSavedAddresses, selectedId: selectedZeptoAddressId }}>
+    <McpProviderProvider
+      value={{
+        statuses: mcpStatuses,
+        isConnected: (pid) => {
+          const st = (mcpStatuses[pid] as any)?.status;
+          return st === 'ready' || st === 'ready_pending';
+        },
+        connect: (pid) => {
+          setAppsInitialProvider(pid);
+          setShowApps(true);
+        },
+      }}
+    >
     <div className="flex h-[100dvh] w-screen overflow-hidden font-sans select-none relative pt-[var(--safe-top)] box-border">
       <LeftSidebar
         username={username}
@@ -1644,7 +1661,17 @@ const assistantMsg: Message = {
         )}
       </div>
 
-      <AppsModal isOpen={showApps} onClose={() => setShowApps(false)} />
+      <AppsModal
+        isOpen={showApps}
+        initialProvider={appsInitialProvider}
+        onClose={() => {
+          setShowApps(false);
+          setAppsInitialProvider(null);
+          // A connect/disconnect may have happened inside — refresh so the
+          // grocery "Search in" chips reflect the new status immediately.
+          refreshAllMcpStatuses();
+        }}
+      />
 
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -1678,6 +1705,7 @@ const assistantMsg: Message = {
         )}
       </AnimatePresence>
     </div>
+    </McpProviderProvider>
     </ZeptoAddressProvider>
     </InstamartAddressProvider>
   );

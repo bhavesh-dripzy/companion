@@ -609,9 +609,12 @@ const AppDetail: React.FC<{
 interface AppsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** When set, open straight to this provider's connect/auth detail view instead
+   *  of the grid landing (fired by a not-connected "Search in" chip). */
+  initialProvider?: string | null;
 }
 
-export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
+export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose, initialProvider }) => {
   // null = grid landing frame; otherwise the selected provider key.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<Record<string, McpStatus | null>>({});
@@ -641,10 +644,12 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     if (!isOpen) return;
-    setSelectedKey(null);
+    // Open straight to a provider's connect view when asked (e.g. tapping a
+    // not-connected chip), else the grid landing.
+    setSelectedKey(initialProvider && APPS.some((a) => a.key === initialProvider) ? initialProvider : null);
     loadAllStatuses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, initialProvider]);
 
   const handleStatus = (key: string, status: McpStatus | null) => {
     setStatuses((prev) => ({ ...prev, [key]: status }));
