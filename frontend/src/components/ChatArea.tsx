@@ -269,35 +269,36 @@ export function ChatArea({
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden relative font-sans select-none">
       {/* Header */}
-      <header className="shrink-0 bg-white/46 border-b border-[#ece3d6]/60 px-3 sm:px-5 py-2.5 sm:py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-30 select-none">
-        <div className="flex items-center gap-2.5">
+      <header className="relative shrink-0 bg-white/46 border-b border-[#ece3d6]/60 px-3 sm:px-5 py-2.5 sm:py-3.5 flex items-center justify-between backdrop-blur-md sticky top-0 z-30 select-none">
+        <div className="flex items-center gap-3">
           {isSidebarCollapsed && (
-            <>
-              <button
-                type="button"
-                onClick={onToggleLeft}
-                className="p-2 rounded-xl text-[#2b2f72] bg-[#2b2f72]/8 border border-[#2b2f72]/20 hover:bg-[#2b2f72]/12 hover:border-[#2b2f72]/35 shadow-sm transition-all duration-300 active:scale-95 cursor-pointer"
-                title="Expand sidebar"
-              >
-                <Menu className="w-5 h-5 stroke-[2.2]" />
-              </button>
-              {/* Brand mark beside the expand button — only while the sidebar (which carries its own
-                  logo) is collapsed, so the branding stays visible on mobile without doubling up. */}
-              <div className="flex items-center gap-1.5">
-                <img
-                  src="/omi-logo.png"
-                  alt="Omi"
-                  draggable={false}
-                  className="w-7 h-7 rounded-lg object-cover shadow-sm select-none"
-                />
-                <span className="text-[15px] font-semibold tracking-tight leading-none text-[#221b2e]">
-                  Omi
-                </span>
-              </div>
-            </>
+            <button
+              type="button"
+              onClick={onToggleLeft}
+              className="p-2 rounded-xl text-[#2b2f72] bg-[#2b2f72]/8 border border-[#2b2f72]/20 hover:bg-[#2b2f72]/12 hover:border-[#2b2f72]/35 shadow-sm transition-all duration-300 active:scale-95 cursor-pointer"
+              title="Expand sidebar"
+            >
+              <Menu className="w-5 h-5 stroke-[2.2]" />
+            </button>
           )}
 
         </div>
+
+        {/* Brand mark, centered in the bar — only while the sidebar (which carries its own logo) is
+            collapsed, so the branding stays visible on mobile without doubling up. */}
+        {isSidebarCollapsed && (
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 pointer-events-none">
+            <img
+              src="/omi-logo.png"
+              alt="Omi"
+              draggable={false}
+              className="w-7 h-7 rounded-lg object-cover shadow-sm select-none"
+            />
+            <span className="text-[15px] font-semibold tracking-tight leading-none text-[#221b2e]">
+              Omi
+            </span>
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           {/* Apps — opens the connect-providers modal (replaces the old search icon). */}
