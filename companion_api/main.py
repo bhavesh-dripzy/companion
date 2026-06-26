@@ -354,6 +354,17 @@ def spa_fallback(full_path: str):
     """
     if full_path == "api" or full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found")
+    # A real root-level build asset (favicon, manifest, brand logos Vite copies from public/ to the
+    # dist root) must be served as the FILE, not the HTML shell. Without this, <img src="/omi-logo.png">
+    # got index.html back (200 text/html) and rendered broken on prod. Guard against path traversal.
+    if full_path:
+        candidate = (_FRONTEND_DIST / full_path).resolve()
+        try:
+            candidate.relative_to(_FRONTEND_DIST.resolve())
+            if candidate.is_file():
+                return FileResponse(str(candidate))
+        except ValueError:
+            pass
     return food_ui()
 
 
