@@ -440,6 +440,12 @@ def mcp_disconnect(
                 except OSError:
                     logger.exception("Failed to delete MCP token file %s", path)
 
+    # Drop any cached "connected" so the agent's next turn re-checks (the merge hook only
+    # fires when a secret file existed; a local-only disconnect must invalidate too).
+    from core.providers.mcp.connection_cache import invalidate as _invalidate_conn
+
+    _invalidate_conn(user, mcp_url)
+
     return {
         "status": "disconnected",
         "provider": tool_provider.name,
