@@ -10,8 +10,8 @@
  * (the chat already surfaces tool activity via meta chips + cards).
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Menu, Send, Sparkles, Car, Utensils, Calendar, Ticket, Search, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Menu, Send, Sparkles, ShoppingCart, Plane, LayoutGrid } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ChatMessageItem } from './ChatMessageItem';
@@ -32,6 +32,8 @@ interface ChatAreaProps {
   /** Drops the in-chat District discovery picker (movies / events / dining /
    *  theatres) into the conversation — fired by the Movies & Events chip. */
   onOpenDistrict?: () => void;
+  /** Opens the connect-providers (Apps) modal — fired by the header Apps button. */
+  onOpenApps?: () => void;
   onToggleLeft?: () => void;
   connectedCount?: number;
   isSidebarCollapsed?: boolean;
@@ -85,55 +87,24 @@ function greetingWithAccent(text: string, username?: string): React.ReactNode {
   return text;
 }
 
-const GROCERY_QUICK_ITEMS = [
-  { label: 'Milk',         term: 'milk 1l',             img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/87.png' },
-  { label: 'Bread',        term: 'bread',               img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/85.png' },
-  { label: 'Chicken',      term: 'chicken',             img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/118.png' },
-  { label: 'Fish',         term: 'fish seafood',        img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/119.png' },
-  { label: 'Cooking Oil',  term: 'cooking oil ghee',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/19.png' },
-  { label: 'Soft Drinks',  term: 'soft drinks soda',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/f9127a14-d833-4898-9af5-0504b1118273.png' },
-  { label: 'Tea',          term: 'tea',                 img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/9ebc0e20-2f4a-4703-ac92-8912059869bd.png' },
-  { label: 'Chips',        term: 'chips crisps',        img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/106.png' },
-  { label: 'Chocolates',   term: 'chocolates',          img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/280c6a4a-3b1d-40e1-bf16-f3809b19a379.png' },
-  { label: 'Ice Cream',    term: 'ice cream',           img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/10ecdb73-588b-439a-b371-ed74be943608.png' },
-  { label: 'Biscuits',     term: 'biscuits cookies',    img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-120,pr-true,f-auto,q-auto/cms/sub_category/181.png' },
-  { label: 'Masala',       term: 'masala spices',       img: 'https://cdn.zeptonow.com/production/tr:w-120,ar-120-121,pr-true,f-auto,q-auto/cms/sub_category/45.png' },
-];
-
 // Prompt ribbon — same wording as the new UI; clicking a chip fires a
 // real `/api/agent/query/` turn through the parent's onSuggestionClick.
 const PROMPT_OPTIONS = [
   {
     id: 'groceries',
-    label: 'Groceries',
+    label: 'Order Groceries',
     prompt: 'Search milk and brown bread on Swiggy Instamart',
-    icon: Calendar,
+    icon: ShoppingCart,
     color:
       'bg-[#1a9d6b]/8 border-[#1a9d6b]/16 hover:border-[#1a9d6b]/45 text-[#147a53] hover:bg-[#1a9d6b]/12',
   },
   {
-    id: 'cab',
-    label: 'Book a Cab',
-    prompt: 'Book a cab from my location to the office',
-    icon: Car,
-    color:
-      'bg-[#2b2f72]/8 border-[#2b2f72]/15 hover:border-[#2b2f72]/45 text-[#2b2f72] hover:bg-[#2b2f72]/12',
-  },
-  {
-    id: 'food',
-    label: 'Order Food',
-    prompt: 'Find good pizza near my saved address on Zomato',
-    icon: Utensils,
-    color:
-      'bg-[#ff8a1e]/10 border-[#ff8a1e]/18 hover:border-[#ff8a1e]/50 text-[#c2630f] hover:bg-[#ff8a1e]/16',
-  },
-  {
-    id: 'movie',
-    label: 'Movies & Events',
-    prompt: 'Find live music events near me on District',
-    icon: Ticket,
-    color:
-      'bg-[#e85d7a]/8 border-[#e85d7a]/16 hover:border-[#e85d7a]/45 text-[#c23e5b] hover:bg-[#e85d7a]/12',
+    id: 'trip',
+    label: 'Plan a Trip',
+    prompt: '',
+    comingSoon: true,
+    icon: Plane,
+    color: 'bg-[#2b2f72]/8 border-[#2b2f72]/15 text-[#2b2f72]',
   },
 ];
 
@@ -145,6 +116,7 @@ export function ChatArea({
   onOpenGroceries,
   onOpenFood,
   onOpenDistrict,
+  onOpenApps,
   onToggleLeft,
   connectedCount: _connectedCount = 0,
   isSidebarCollapsed = false,
@@ -166,13 +138,6 @@ export function ChatArea({
   onGrantLocation,
 }: ChatAreaProps) {
   const [inputValue, setInputValue] = useState('');
-  // In-chat message search — preserved from the prior skin so users can
-  // still scroll back through a long conversation by keyword. Toggled
-  // from the header search icon; filters `messages` to those whose
-  // markdown body contains the query (case-insensitive). Empty query =
-  // show everything.
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   // Ribbon / nudge dispatcher: the Groceries chip (issue #59) drops an
   // in-chat category picker card into the conversation instead of firing a
   // fixed prompt; every other chip fires its prompt immediately, as before.
@@ -248,11 +213,7 @@ export function ChatArea({
     }
   };
 
-  const visibleMessages = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return messages;
-    return messages.filter((m) => (m.content || '').toLowerCase().includes(q));
-  }, [messages, searchQuery]);
+  const visibleMessages = messages;
 
   // Latest-assistant index — the only message eligible to surface the
   // address-choice chips. Computed against the FULL message list, not
@@ -324,53 +285,20 @@ export function ChatArea({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Search button — opens an inline search pill that filters
-              the visible messages by text (preserved from the prior
-              skin so users can still grep a long thread). */}
+          {/* Apps — opens the connect-providers modal (replaces the old search icon). */}
           <button
             type="button"
-            onClick={() => {
-              setSearchOpen((v) => {
-                if (v) setSearchQuery('');
-                return !v;
-              });
-            }}
-            className={`w-9 h-9 rounded-[10px] border border-[#ece3d6]/80 text-[#7a7388] bg-white/60 hover:text-[#221b2e] hover:bg-white flex items-center justify-center transition-all cursor-pointer ${
-              searchOpen ? 'bg-white text-[#221b2e]' : ''
-            }`}
-            title={searchOpen ? 'Close search' : 'Search this conversation'}
-            aria-label="Search conversation"
+            onClick={() => onOpenApps?.()}
+            className="h-9 px-3 rounded-[10px] border border-[#ece3d6]/80 text-[#7a7388] bg-white/60 hover:text-[#221b2e] hover:bg-white flex items-center gap-1.5 text-[13px] font-semibold transition-all cursor-pointer"
+            title="Apps"
+            aria-label="Connected apps"
           >
-            <Search className="w-4 h-4 stroke-[2.2]" />
+            <LayoutGrid className="w-4 h-4 stroke-[2.2]" />
+            <span>Apps</span>
           </button>
 
         </div>
       </header>
-
-      {searchOpen && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-full shadow-lg shadow-slate-900/10 pl-3 pr-1 py-1 max-w-[92vw]">
-          <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-          <input
-            autoFocus
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search this conversation…"
-            className="bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none w-48 md:w-64"
-          />
-          <button
-            onClick={() => {
-              setSearchOpen(false);
-              setSearchQuery('');
-            }}
-            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors shrink-0"
-            title="Close search"
-            aria-label="Close search"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
       {/* Body */}
       <div className="flex-1 overflow-hidden relative z-10 flex flex-col">
@@ -388,12 +316,12 @@ export function ChatArea({
                   className="relative z-10 my-auto flex flex-col items-center"
                 >
                   {/* Brand logo mark */}
-                  <div
-                    className="w-14 h-14 rounded-2xl mb-5 flex items-center justify-center shadow-md"
-                    style={{ background: 'linear-gradient(135deg, #2b2f72 0%, #6c4fbd 100%)' }}
-                  >
-                    <span className="text-white font-bold text-2xl leading-none select-none">C</span>
-                  </div>
+                  <img
+                    src="/omi-logo.png"
+                    alt="omi"
+                    draggable={false}
+                    className="w-14 h-14 rounded-2xl mb-5 object-cover shadow-md select-none"
+                  />
 
                   {/* Headline — AI-generated personalized greeting (name, time of
                       day, local weather, interests); the user's name renders in
@@ -415,11 +343,6 @@ export function ChatArea({
               </div>
             ) : (
               <div className="w-full space-y-2 pb-6">
-                {searchQuery.trim() && visibleMessages.length === 0 && (
-                  <div className="text-center text-xs text-slate-500 italic">
-                    No messages match “{searchQuery}”.
-                  </div>
-                )}
                 {(() => {
                   // Always scroll to the last user message so the question sits at
                   // the top and the answer scrolls into view naturally below it.
@@ -429,11 +352,16 @@ export function ChatArea({
                   );
                   return visibleMessages.map((msg, i) => {
                   const index = messages.indexOf(msg);
+                  // Show the timestamp/footer only on the LAST message of a consecutive same-role
+                  // run, so a multi-message turn (e.g. grocery intro + category card) stamps once.
+                  const next = visibleMessages[i + 1];
+                  const isGroupTail = !next || next.role !== msg.role;
                   return (
                     <div key={msg.message_id || `${msg.role}-${index}-${msg.content.slice(0, 20)}`} ref={i === lastUserIdx ? lastMessageRef : undefined}>
                       <ChatMessageItem
                         msg={msg}
                         isLatestAssistant={index === lastAssistantIdx}
+                        isGroupTail={isGroupTail}
                         isThinking={isThinking}
                         sessionAddresses={sessionAddresses}
                         onSelectAddress={onSelectAddress}
@@ -469,47 +397,31 @@ export function ChatArea({
               const isGroceryMode = messages.some(
                 (m) => m.attachments?.some((a) => a.kind === 'grocery_categories'),
               );
-              if (isGroceryMode) {
-                return (
-                  <div className="w-full mb-1">
-                  <div className="w-full flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar scroll-smooth">
-                    {GROCERY_QUICK_ITEMS.map((item) => (
-                      <button
-                        key={item.label}
-                        type="button"
-                        disabled={isThinking}
-                        onClick={() => onQuickPrompt?.(`Search ${item.term} on Swiggy Instamart and Zepto`)}
-                        className="shrink-0 flex items-center gap-1.5 bg-white/70 border border-slate-200/70 hover:border-[#1a9d6b]/40 hover:bg-[#f0faf6] px-3 py-2 sm:px-3.5 sm:py-2 rounded-full text-[12px] sm:text-[13px] font-semibold text-[#221b2e] transition-all duration-150 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <img
-                          src={item.img}
-                          alt={item.label}
-                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full object-contain bg-slate-50"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                  </div>
-                );
-              }
+              // No quick-item chips while shopping (removed per request) — keep the composer clean.
+              if (isGroceryMode) return null;
               return (
                 <div className="w-full flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 mb-1 no-scrollbar scroll-smooth">
                   {PROMPT_OPTIONS.map((option) => {
                     const IconComponent = option.icon;
+                    const soon = 'comingSoon' in option && option.comingSoon;
                     return (
                       <button
                         key={option.id}
                         type="button"
-                        onClick={() => handleQuickAction(option)}
+                        onClick={() => !soon && handleQuickAction(option)}
                         disabled={isThinking}
-                        className={`shrink-0 flex items-center gap-1 sm:gap-1.5 border px-3 py-1.5 rounded-[11px] sm:rounded-[12px] text-[11px] sm:text-[12px] font-semibold transition-all duration-200 active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] hover:shadow-sm ${option.color}`}
+                        title={soon ? 'Coming soon' : undefined}
+                        className={`shrink-0 flex items-center gap-1 sm:gap-1.5 border px-3 py-1.5 rounded-[11px] sm:rounded-[12px] text-[11px] sm:text-[12px] font-semibold transition-all duration-200 ${soon ? 'cursor-default' : 'active:scale-95 cursor-pointer hover:shadow-sm'} disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] ${option.color}`}
                       >
                         <div className="p-0.5 rounded-md shrink-0">
                           <IconComponent className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                         </div>
                         <span>{option.label}</span>
+                        {soon && (
+                          <span className="ml-0.5 text-[8px] font-bold uppercase tracking-wide px-1.5 py-[2px] rounded-full bg-white/80 border border-slate-300/50 text-slate-500 leading-none">
+                            Soon
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -531,7 +443,7 @@ export function ChatArea({
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Companion anything…"
+                placeholder="Ask omi anything…"
                 disabled={isThinking}
                 rows={1}
                 className="flex-1 bg-transparent border-none outline-none text-[14px] text-[#1a1530] placeholder-slate-400 focus:ring-0 min-w-0 resize-none overflow-hidden self-center"

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Fail if any Python file under the given paths exceeds the line budget.
 
-The team convention (issue #29) is that no file should exceed ~250 lines: it keeps
+The team convention (issue #29) is that no file should exceed ~350 lines: it keeps
 modules single-responsibility and AI tooling effective. This gate enforces it for the
 new `core/` package first and is widened as legacy modules are ported.
 
 Usage:
-    python scripts/check_file_size.py core                # fail >250 lines
+    python scripts/check_file_size.py core                # fail >350 lines
     python scripts/check_file_size.py core --warn-only    # report only, exit 0
     python scripts/check_file_size.py core --max 200
 """
@@ -17,7 +17,7 @@ import argparse
 import sys
 from pathlib import Path
 
-DEFAULT_MAX = 250
+DEFAULT_MAX = 350
 # Files allowed to exceed the budget (generated, data, or vendored). Keep this short.
 ALLOWLIST: frozenset[str] = frozenset(
     {

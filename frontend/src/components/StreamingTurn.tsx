@@ -23,18 +23,37 @@ const TICK_MS = 16;
 const PAUSE_AFTER_TEXT = 160; // beat after a line finishes before the next segment
 const PAUSE_AFTER_CARDS = 120;
 
+function OmiAvatar() {
+  return (
+    <div className="w-8 h-8 shrink-0 relative select-none">
+      <img
+        src="/omi-logo.png"
+        alt="Omi"
+        draggable={false}
+        className="w-8 h-8 rounded-full object-cover bg-white shadow-sm ring-1 ring-[#ece3d6]/80"
+      />
+      <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-[#1a9d6b] border-2 border-white" />
+    </div>
+  );
+}
+
 export function StreamingTurn({
   segments,
   streaming,
   working,
   onQuickPrompt,
   quickPromptDisabled,
+  responseAvatar = false,
 }: {
   segments: StreamSegment[];
   streaming: boolean;
   working?: TurnStatus | null;
   onQuickPrompt?: (prompt: string) => void;
   quickPromptDisabled?: boolean;
+  /** Product-grid turns hide the message-level avatar so the grid spans full width; when true, the
+   *  FINAL narration bubble (the reply that follows the results) gets its own inline Omi avatar so
+   *  it reads as omi's response rather than an orphaned line. */
+  responseAvatar?: boolean;
 }) {
   // Playback cursor: index of the segment currently being revealed + chars typed within it.
   const [cursor, setCursor] = useState(0);
@@ -60,38 +79,104 @@ export function StreamingTurn({
 
   const caughtUp = cursor >= segments.length;
 
+  // Group consecutive text segments so a run of short narration lines renders as
+  // ONE bubble (tighter, less fragmented) instead of a stack of floating bubbles.
+  // Card segments stay standalone. Order is preserved, so text→cards→text still
+  // alternates correctly.
+  type TextSeg = Extract<StreamSegment, { kind: 'text' }>;
+  type CardSeg = Extract<StreamSegment, { kind: 'cards' }>;
+  type Group =
+    | { kind: 'text'; items: { seg: TextSeg; i: number }[] }
+    | { kind: 'cards'; seg: CardSeg; i: number };
+  const groups: Group[] = [];
+  segments.forEach((seg, i) => {
+    if (seg.kind === 'text') {
+      const last = groups[groups.length - 1];
+      if (last && last.kind === 'text') last.items.push({ seg, i });
+      else groups.push({ kind: 'text', items: [{ seg, i }] });
+    } else {
+      groups.push({ kind: 'cards', seg, i });
+    }
+  });
+
+  // While still working and caught up: if the last thing on screen is a narration bubble, the loader
+  // lives INSIDE that same capsule (no second card); otherwise fall back to a standalone working card.
+  const lastGroup = groups[groups.length - 1];
+  const lastIsText = lastGroup?.kind === 'text';
+  const inlineLoading = streaming && caughtUp && lastIsText;
+
   return (
     <div className="flex flex-col gap-2 w-full">
-      {segments.map((seg, i) => {
-        if (i > cursor) return null; // not revealed yet — strictly sequential
-        if (seg.kind === 'text') {
-          const shown = i < cursor ? seg.text : seg.text.slice(0, typed);
-          if (!shown) return null;
-          const typing = i === cursor && typed < seg.text.length;
+      {groups.map((group) => {
+        if (group.kind === 'cards') {
+          // not revealed yet, or empty — skip
+          if (group.i > cursor || !group.seg.attachments?.length) return null;
+          // -mt-1 cancels AttachmentList's own mt-1 so the ONLY spacing here is the flex gap-2.5 —
+          // keeps the gap before a card block equal to the gap after it (and between bubbles).
           return (
-            <div
-              key={i}
-              className="animate-fade-in px-4 py-3 rounded-[16px] rounded-tl-md bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs text-[14.5px] leading-snug select-text w-fit max-w-full"
-            >
-              <div className="prose prose-sm max-w-none prose-p:my-1 prose-p:text-[14.5px] prose-slate prose-strong:text-[#221b2e]">
-                <ReactMarkdown remarkPlugins={[remarkBreaks]}>{shown}</ReactMarkdown>
-              </div>
-              {typing && <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-[#ff8a1e] animate-pulse rounded-sm" />}
+            <div key={group.i} className="-mt-1">
+              <AttachmentList
+                attachments={group.seg.attachments}
+                onQuickPrompt={onQuickPrompt}
+                quickPromptDisabled={quickPromptDisabled}
+              />
             </div>
           );
         }
-        // cards block — reuse the existing renderer (provider theming, quick-prompt popovers, etc.)
-        if (!seg.attachments?.length) return null;
+
+        // text group — one bubble, each revealed line stacked inside it
+        const revealed = group.items.filter(
+          ({ i }) => i < cursor || (i === cursor && typed > 0),
+        );
+        if (revealed.length === 0) return null;
+        const lines = (
+          <>
+            {group.items.map(({ seg, i }) => {
+              if (i > cursor) return null;
+              const shown = i < cursor ? seg.text : seg.text.slice(0, typed);
+              if (!shown) return null;
+              const typing = i === cursor && typed < seg.text.length;
+              return (
+                <div
+                  key={i}
+                  className="prose prose-sm max-w-none prose-p:my-0.5 prose-p:text-[13.5px] prose-slate prose-strong:text-[#221b2e]"
+                >
+                  <ReactMarkdown remarkPlugins={[remarkBreaks]}>{shown}</ReactMarkdown>
+                  {typing && <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-[#ff8a1e] animate-pulse rounded-sm" />}
+                </div>
+              );
+            })}
+            {/* Loader lives in the SAME capsule as the narration while the turn finishes working. */}
+            {inlineLoading && group === lastGroup && (
+              <div className="flex items-center gap-1 pt-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#ff8a1e] animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#ff8a1e] animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#ff8a1e] animate-bounce" />
+              </div>
+            )}
+          </>
+        );
+        const bubbleCls =
+          'animate-fade-in px-3.5 py-2.5 rounded-[16px] rounded-tl-md bg-white/[0.82] backdrop-blur-sm border border-[#ece3d6]/80 text-[#221b2e] shadow-2xs text-[13.5px] leading-snug select-text w-fit max-w-full space-y-1';
+        // Every narration bubble in a grid turn carries its own Omi avatar (the message-level avatar
+        // is hidden so the grid spans full width) — so the opener, the per-app "ye options mile"
+        // lines, and the closing reply all read as omi speaking, not orphaned lines.
+        if (responseAvatar) {
+          return (
+            <div key={group.items[0].i} className="flex items-start gap-2.5">
+              <OmiAvatar />
+              <div className={bubbleCls}>{lines}</div>
+            </div>
+          );
+        }
         return (
-          <AttachmentList
-            key={i}
-            attachments={seg.attachments}
-            onQuickPrompt={onQuickPrompt}
-            quickPromptDisabled={quickPromptDisabled}
-          />
+          <div key={group.items[0].i} className={bubbleCls}>
+            {lines}
+          </div>
         );
       })}
-      {streaming && caughtUp && <WorkingCard status={working} />}
+      {/* Standalone working card only when there's no narration bubble to host the loader. */}
+      {streaming && caughtUp && !lastIsText && <WorkingCard status={working} />}
     </div>
   );
 }

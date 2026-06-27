@@ -1,10 +1,6 @@
-"""GroceryDomainHandler — products → cart, across multiple providers (Instamart, Zepto).
-
-Owns: provider selection (§6b), fan-out search, LLM resolution (+ validation gate + re-search
-on miss), and the per-provider CartStrategy. Returns a structured result (cards + error +
-context_header) that the Narrator/endpoint render. Adding a grocery provider needs no changes here.
-Stateless rendering/resolution helpers live in grocery_view.py (file-size budget).
-"""
+"""GroceryDomainHandler — products → cart across providers (Instamart, Zepto): provider selection,
+fan-out search, LLM resolution (+validation/re-search), per-provider CartStrategy. Returns a structured
+result (cards + error) the Narrator renders. Stateless helpers live in grocery_view.py (size budget)."""
 
 from __future__ import annotations
 
@@ -24,6 +20,11 @@ from core.agent.registry import REGISTRY
 
 DOMAIN = "grocery"
 
+# Returned when the user has no connected grocery app — so we never fan out to (and auth-prompt) one.
+_NO_APP = (
+    "Abhi koi grocery app connected nahi hai. Instamart ya Zepto connect karke dobara try karo."
+)
+
 # Fixed per-action openers (no item involved). add/remove/search fold in the item separately below.
 _OPENER = {
     "set_qty": "Theek hai, quantity update karta hoon…",
@@ -35,9 +36,8 @@ _OPENER = {
 
 
 def _opener(action: str, intent: dict[str, Any]) -> str | None:
-    """An instant 'I'm on it' line, emitted the moment an action starts (before the slow MCP work),
-    so the assistant acknowledges in real time. add/remove fold in the item the user named; search
-    has its own item-aware opener in fan_out (so it returns None here)."""
+    """An instant 'I'm on it' line emitted the moment an action starts (before the slow MCP work).
+    add/remove fold in the named item; search self-narrates in fan_out (returns None here)."""
     named = (
         ""
         if intent.get("from_tap")
@@ -56,34 +56,49 @@ def _opener(action: str, intent: dict[str, Any]) -> str | None:
 
 class GroceryDomainHandler:
     async def handle(self, state, intent: dict[str, Any], emit: Emit = noop) -> dict[str, Any]:
-        action = intent["action"]
-        providers = REGISTRY.providers_for(DOMAIN)
+        # The router only picked the DOMAIN. Every conversational (text) turn goes to the grounded
+        # grocery brain — it decides the action, resolves the items, and writes the reply. Card TAPS
+        # stay on the deterministic path below (they carry the exact item_id — no LLM needed).
+        if not intent.get("from_tap"):
+            from core.agent.domains import grocery_agent
 
-        # ---- provider selection (§6b: hint > fan-out > sticky > inferred item > ask) ----
-        chosen, ask = await R.choose_providers(state, intent, providers)
-        if ask is not None:
-            return ask
-        log.debug(
-            "GROCERY action=%s → providers=%s (active=%s)", action, chosen, state.active_provider
-        )
-        # Acknowledge instantly (streams as the first typed line); search self-narrates in fan_out.
-        if opener := _opener(action, intent):
+            return await grocery_agent.handle(state, intent, emit)
+        action = intent["action"]
+        # Fan out ONLY to apps this user has connected — a disconnected app is skipped, never
+        # auth-prompted (no OAuth browser mid-search). Non-interactive token check.
+        ids = [p.id for p in REGISTRY.providers_for(DOMAIN) if p.is_connected(state.user_id)]
+        if not ids:
+            return {
+                "domain": DOMAIN,
+                "status": "unsupported",
+                "cards": [],
+                "error": None,
+                "note": _NO_APP,
+            }
+        # Plan: one intent → {provider: items}. Untagged items fan to every (connected) app; tagged per app.
+        buckets = R.plan_intents(intent, ids)
+        chosen = list(buckets)
+        state.active_provider = chosen[0] if len(chosen) == 1 else "both"
+        log.debug("GROCERY action=%s → plan=%s", action, {p: len(i) for p, i in buckets.items()})
+        if opener := _opener(action, intent):  # instant ack; search self-narrates in fan_out
             await emit(say(opener))
 
-        if (
-            action == "search"
-        ):  # concurrent fan-out; narrates + streams each app's cards as it finishes
-            return await S.fan_out(state, intent, chosen, emit)
+        if action == "search":  # concurrent fan-out; each app streams its cards as it finishes
+            return await S.fan_out(state, intent, buckets, emit)
+        if len(chosen) > 1 and action in ("add", "set_qty", "remove", "clear", "show_cart"):
+            return await S.cart_fan_out(self, state, intent, action, buckets, emit)
+        pid = chosen[0]
+        sub = {**intent, "provider_hint": pid, "item_refs": buckets[pid]}
         if action == "show_cart":
-            return await self._show_cart(state, chosen[0])
+            return await self._show_cart(state, pid)
         if action == "checkout":
-            return await self._checkout(state, chosen[0])
+            return await self._checkout(state, pid)
         if action == "clear":
-            return await self._clear(state, chosen[0])
+            return await self._clear(state, pid)
         if action == "switch_context":
-            return await A.switch_context(state, intent, chosen[0])
+            return await A.switch_context(state, sub, pid)
         if action in ("add", "set_qty", "remove"):
-            return await self._cart_op(state, intent, chosen[0], emit)
+            return await self._cart_op(state, sub, pid, emit)
         return {
             "domain": DOMAIN,
             "status": "ok",
@@ -101,8 +116,7 @@ class GroceryDomainHandler:
         async with adapter.open_session(state.user_id) as s:
             ctx = await CONTEXT.exec_ctx(adapter, s, state)
             await adapter.ensure_context(s, ctx)
-            # Server is the source of truth: refresh the cache before resolving/writing so a stale
-            # or restarted memory cart can never clobber the real cart (replace-all safety).
+            # Server is source of truth: refresh cache before resolving/writing (replace-all safety).
             V.refresh_cart(state, pid, await adapter.read_cart(s, ctx))
 
             # set_qty/remove on an empty cart → clean "cart is empty" (after the live read)
@@ -111,9 +125,8 @@ class GroceryDomainHandler:
                     state, pid, state.cart(pid), status="error", error="EMPTY_CART", message=""
                 )
 
-            if intent.get(
-                "from_tap"
-            ):  # a UI tap carries the exact item identity → no LLM resolution
+            # a UI tap carries the exact item identity → no LLM resolution
+            if intent.get("from_tap"):
                 refs = {
                     "resolved": [
                         {
@@ -135,10 +148,8 @@ class GroceryDomainHandler:
                     state, adapter, s, ctx, pid, requests, cart_only=action in ("set_qty", "remove")
                 )
             resolved = refs.get("resolved", [])
-            # The quantity is the user's explicit number (from the router) — NEVER the resolver LLM's
-            # guess. The resolver only picks WHICH item; forcing the qty here stops "set to 2" silently
-            # resolving to 1 (the LLM gets confused by sizes like "2 Pieces" in the name). Single-item
-            # op only (the norm for set_qty/remove/add); multi-item keeps each request's own qty.
+            # Force the user's explicit router qty (resolver only picks WHICH item) so "set to 2" never
+            # silently resolves to 1 via a "2 Pieces"-style name. Single-item op only; multi keeps own qty.
             if len(requests) == 1 and resolved:
                 for r in resolved:
                     r["qty"] = int(requests[0].get("qty", 1))
@@ -178,11 +189,10 @@ class GroceryDomainHandler:
         # ---- route the leftovers (resolved items are already in the cart) ----
         added = [p.name for r in resolved if (p := state.catalog.by_ref(r.get("ref")))]
         ambiguous, unresolved = refs.get("ambiguous", []), refs.get("unresolved", [])
-        # FIND: an ADD for something NOT in context → discover it via the normal search path (so the
-        # user picks from a real product deck with images/sizes), not a fabricated ambiguity picker.
+        # FIND: an ADD for something NOT in context → discover it via the normal search path (real deck).
         if action == "add" and unresolved:
             sub = {**intent, "item_refs": [{"phrase": p, "qty": 1} for p in unresolved]}
-            res = await S.fan_out(state, sub, [pid], emit)
+            res = await S.fan_out(state, sub, {pid: sub["item_refs"]}, emit)
             res["note"] = V.find_note(added, unresolved)  # "X add kiya. Y ye rahe — kaunsa?"
             return res
         # ASK: a genuine tie among ALREADY-SHOWN items → the disambiguation picker (partial-ambiguity).
@@ -198,8 +208,7 @@ class GroceryDomainHandler:
                 else "Woh item nahi mila."
             )
             return V.not_found(state, pid, miss)
-        # A clean cart write succeeded → hand the narrator the exact fact (item + qty) so it confirms
-        # what actually happened instead of echoing a previous turn (the tap-add / set_qty drift bug).
+        # Clean cart write → hand the narrator the exact fact (item + qty) so it can't echo a prior turn.
         return V.cart_result(
             state,
             pid,

@@ -167,6 +167,14 @@ class CompanionStack(Stack):
             f"{project_name}-members",
             partition_key="member_id",
         )
+        # Per-user MCP connection version stamp — bumped on every connect/disconnect so every
+        # Lambda container can cheaply tell when its cached "is this app connected?" answer is
+        # stale (see core/providers/mcp/connection_cache.py). One tiny item per user.
+        mcp_conn = self._table(
+            "McpConnTable",
+            f"{project_name}-mcp-conn",
+            partition_key="user_id",
+        )
         members.add_global_secondary_index(
             index_name="phone-number-index",
             partition_key=dynamodb.Attribute(
@@ -293,8 +301,9 @@ class CompanionStack(Stack):
                 ),
             },
         )
-        for table in (families, members, messages, reminders):
+        for table in (families, members, messages, reminders, mcp_conn):
             table.grant_read_write_data(api_function)
+        api_function.add_environment("MCP_CONN_TABLE", mcp_conn.table_name)
         if profile_cache:
             profile_cache.grant_read_write_data(api_function)
             api_function.add_environment("PROFILE_CACHE_TABLE", profile_cache.table_name)

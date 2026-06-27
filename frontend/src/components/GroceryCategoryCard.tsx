@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { Check } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Check, AlertCircle } from 'lucide-react';
 import {
   GROCERY_CATEGORY_GROUPS,
   type GroceryCategory,
 } from '../data/groceryCategories';
+import { useMcpProviders } from '../McpProviderContext';
 
 interface GroceryCategoryCardProps {
   onQuickPrompt?: (prompt: string) => void;
@@ -37,18 +38,27 @@ const TILE_GRADIENTS: Record<string, string> = {
 const ProviderChip: React.FC<{
   label: string;
   selected: boolean;
-  onToggle: () => void;
-}> = ({ label, selected, onToggle }) => (
+  connected: boolean;
+  onClick: () => void;
+}> = ({ label, selected, connected, onClick }) => (
   <button
     type="button"
-    onClick={onToggle}
+    onClick={onClick}
+    title={connected ? undefined : `${label} is not connected — tap to connect`}
     className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-[5px] rounded-full text-[10px] sm:text-[11px] font-semibold border transition-all duration-150 shrink-0 ${
-      selected
-        ? 'bg-[#eaf6f1] border-[#1a9d6b] text-[#1a9d6b]'
-        : 'bg-white border-slate-200 text-slate-400'
+      !connected
+        ? 'bg-amber-50 border-amber-300 text-amber-600'
+        : selected
+          ? 'bg-[#eaf6f1] border-[#1a9d6b] text-[#1a9d6b]'
+          : 'bg-white border-slate-200 text-slate-400'
     }`}
   >
-    {selected && <Check className="w-3 h-3 stroke-[2.5]" />}
+    {!connected ? (
+      // Yellow warning = app not connected; tapping opens its auth flow.
+      <AlertCircle className="w-3 h-3 stroke-[2.5]" />
+    ) : selected ? (
+      <Check className="w-3 h-3 stroke-[2.5]" />
+    ) : null}
     {label}
   </button>
 );
@@ -98,24 +108,54 @@ export const GroceryCategoryCard: React.FC<GroceryCategoryCardProps> = ({
   onQuickPrompt,
   disabled,
 }) => {
-  const [instamart, setInstamart] = useState(true);
-  const [zepto, setZepto] = useState(true);
+  const { isConnected, connect } = useMcpProviders();
+  const instaConnected = isConnected('swiggy_instamart');
+  const zeptoConnected = isConnected('zepto');
+
+  // A provider starts selected only if it's actually connected (a logged-out app
+  // is never selected by default).
+  const [instamart, setInstamart] = useState(instaConnected);
+  const [zepto, setZepto] = useState(zeptoConnected);
   const [expanded, setExpanded] = useState(false);
 
+  // Keep selection in sync with connection: auto-select a provider the moment it
+  // connects (e.g. the user just authed Zepto from its chip), and drop it if it
+  // disconnects. prev-tracking leaves a user's manual deselect of a still-connected
+  // provider untouched.
+  const prevInsta = useRef(instaConnected);
+  const prevZepto = useRef(zeptoConnected);
+  useEffect(() => {
+    if (instaConnected && !prevInsta.current) setInstamart(true);
+    else if (!instaConnected) setInstamart(false);
+    prevInsta.current = instaConnected;
+  }, [instaConnected]);
+  useEffect(() => {
+    if (zeptoConnected && !prevZepto.current) setZepto(true);
+    else if (!zeptoConnected) setZepto(false);
+    prevZepto.current = zeptoConnected;
+  }, [zeptoConnected]);
+
+  // Effective selection = user-selected AND connected (a disconnected app is never searched).
+  const effInsta = instamart && instaConnected;
+  const effZepto = zepto && zeptoConnected;
+
   const toggleInstamart = () => {
-    if (instamart && !zepto) return;
+    if (!instaConnected) return connect('swiggy_instamart'); // not connected → open auth
+    if (effInsta && !effZepto) return; // keep at least one provider active
     setInstamart((v) => !v);
   };
 
   const toggleZepto = () => {
-    if (zepto && !instamart) return;
+    if (!zeptoConnected) return connect('zepto'); // not connected → open auth
+    if (effZepto && !effInsta) return;
     setZepto((v) => !v);
   };
 
-  const buildPrompt = (cat: GroceryCategory) => {
+  const buildPrompt = (cat: GroceryCategory): string | null => {
     const providers: string[] = [];
-    if (instamart) providers.push('Swiggy Instamart');
-    if (zepto) providers.push('Zepto');
+    if (effInsta) providers.push('Swiggy Instamart');
+    if (effZepto) providers.push('Zepto');
+    if (!providers.length) return null; // nothing connected+selected → don't search
     return `Search ${cat.term} on ${providers.join(' and ')}`;
   };
 
@@ -129,8 +169,8 @@ export const GroceryCategoryCard: React.FC<GroceryCategoryCardProps> = ({
           <p className="text-[12px] sm:text-[13px] font-semibold text-[#221b2e] shrink-0">Popular Categories</p>
           <div className="flex items-center gap-1 sm:gap-1.5 ml-auto">
             <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium shrink-0">Search in</span>
-            <ProviderChip label="Instamart" selected={instamart} onToggle={toggleInstamart} />
-            <ProviderChip label="Zepto" selected={zepto} onToggle={toggleZepto} />
+            <ProviderChip label="Instamart" selected={effInsta} connected={instaConnected} onClick={toggleInstamart} />
+            <ProviderChip label="Zepto" selected={effZepto} connected={zeptoConnected} onClick={toggleZepto} />
           </div>
         </div>
 
@@ -139,8 +179,11 @@ export const GroceryCategoryCard: React.FC<GroceryCategoryCardProps> = ({
             <CategoryTile
               key={cat.id}
               category={cat}
-              disabled={disabled}
-              onClick={() => onQuickPrompt?.(buildPrompt(cat))}
+              disabled={disabled || (!effInsta && !effZepto)}
+              onClick={() => {
+                const prompt = buildPrompt(cat);
+                if (prompt) onQuickPrompt?.(prompt);
+              }}
             />
           ))}
         </div>

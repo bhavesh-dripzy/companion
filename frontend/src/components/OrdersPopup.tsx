@@ -134,7 +134,7 @@ export function OrdersPopup({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-extrabold text-slate-900 tracking-tight font-sans">
-                  Companion Orders Monitor
+                  omi Orders Monitor
                 </h3>
                 <span className="bg-amber-100/70 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                   <Smartphone className="w-3.5 h-3.5" /> Dispatch Stream

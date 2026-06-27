@@ -83,7 +83,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Companion anything…  Hindi, English, ya Hinglish — sab chalega"
+            placeholder="Ask omi anything…  Hindi, English, ya Hinglish — sab chalega"
             rows={1}
             disabled={disabled}
             className="flex-1 bg-transparent text-[#221b2e] placeholder:text-[#a89f95] px-3 py-2 focus:outline-none resize-none min-h-[40px] max-h-40 text-sm font-medium leading-relaxed"

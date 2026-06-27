@@ -6,7 +6,6 @@ import { AppsModal } from './components/AppsModal';
 import { AdminDashboard } from './AdminDashboard';
 import { LeftSidebar } from './components/LeftSidebar';
 import { ChatArea } from './components/ChatArea';
-import { RemindersPopup } from './components/RemindersPopup';
 import { OrdersPopup } from './components/OrdersPopup';
 import { CartDock } from './components/CartDock';
 import { VoiceStage } from './components/VoiceStage';
@@ -14,6 +13,7 @@ import { api, clearToken, clearRefreshToken, getToken, streamPost } from './api'
 import type { StreamSegment } from './types';
 import { lastKnownUser, prefetchHeroGreeting, rememberLastUser } from './heroGreeting';
 import { InstamartAddressProvider, type InstamartSavedAddress } from './InstamartAddressContext';
+import { McpProviderProvider } from './McpProviderContext';
 import { ZeptoAddressProvider, type ZeptoSavedAddress } from './ZeptoAddressContext';
 import type {
   Attachment,
@@ -293,19 +293,6 @@ const clearAllChatSessions = () => {
   }
 };
 
-// Cosmetic, local-only stub for the Reminders popup that ships with
-// the new UI shell. There's no backend route for reminders today, so
-// these live entirely in component state. Pre-populated so the screen
-// has something to render the first time the user opens it.
-const INITIAL_REMINDERS = [
-  { id: 'rem-d1', category: 'daily', text: 'Take daily vitamins & morning supplements', time: '09:00 AM', completed: false },
-  { id: 'rem-d2', category: 'daily', text: 'Postural posture stretch & hydration check', time: 'Every 2 hrs', completed: false },
-  { id: 'rem-d3', category: 'daily', text: 'Review evening workout session and wellness log', time: '06:30 PM', completed: true },
-  { id: 'rem-t1', category: 'today', text: 'Confirm meeting with financial advisor', time: '02:00 PM', completed: false },
-  { id: 'rem-t2', category: 'today', text: 'Track grocery restock through Blinkit/Zepto', time: '04:00 PM', completed: false },
-  { id: 'rem-t3', category: 'today', text: 'Submit car registration insurance renewals', time: 'Today', completed: false },
-];
-
 // Same disclaimer as INITIAL_REMINDERS — there's no /api/orders route,
 // these are visual stubs only. The real orders flow happens through
 // the chat (Zomato/Swiggy carts) and the cart_card attachment.
@@ -361,10 +348,11 @@ function App() {
   // Cosmetic popups (no backend wiring) — kept local-only as confirmed
   // up-front. Users can toggle items / add / delete entries and the
   // state lives for the session.
-  const [showRemindersPopup, setShowRemindersPopup] = useState(false);
   const [showApps, setShowApps] = useState(false);
+  // When set, the Apps modal opens straight to this provider's auth/connect view
+  // (fired by tapping a not-connected "Search in" chip in the grocery picker).
+  const [appsInitialProvider, setAppsInitialProvider] = useState<string | null>(null);
   const [showOrdersPopup, setShowOrdersPopup] = useState(false);
-  const [reminders, setReminders] = useState(INITIAL_REMINDERS);
   const [orders, setOrders] = useState(INITIAL_ORDERS);
 
   // Carry-forward state from the backend across turns. See the inline
@@ -953,6 +941,17 @@ const assistantMsg: Message = {
     if ('selected_instamart_address_id' in data) {
       const sid = (data as any).selected_instamart_address_id;
       setSelectedInstamartAddressId(typeof sid === 'string' && sid ? sid : null);
+      // Seed the selected address (with the backend-resolved label) into the saved-address list so
+      // the "Delivering to" bar shows the real address at first paint, before the full list loads.
+      // The async list fetch replaces this with the complete set when it arrives.
+      const label = (data as any).selected_instamart_address_label;
+      if (sid && typeof label === 'string' && label) {
+        setInstamartSavedAddresses((prev) =>
+          prev.some((a) => a.address_id === sid)
+            ? prev
+            : [{ address_id: sid, location_name: label.replace(' · ', ' — ') }, ...prev],
+        );
+      }
     }
     if (Array.isArray(data.session_zepto_addresses) && data.session_zepto_addresses.length) {
       setZeptoSavedAddresses(
@@ -966,6 +965,15 @@ const assistantMsg: Message = {
     if ('selected_zepto_address_id' in data) {
       const zid = (data as any).selected_zepto_address_id;
       setSelectedZeptoAddressId(typeof zid === 'string' && zid ? zid : null);
+      // Seed the selected Zepto address (+ backend label) so the bar shows it at first paint.
+      const zlabel = (data as any).selected_zepto_address_label;
+      if (zid && typeof zlabel === 'string' && zlabel) {
+        setZeptoSavedAddresses((prev) =>
+          prev.some((a) => a.address_id === zid)
+            ? prev
+            : [{ address_id: zid, location_name: zlabel.replace(' · ', ' — ') }, ...prev],
+        );
+      }
     }
     if (Array.isArray(data.session_kite_instruments)) setSessionKiteInstruments(data.session_kite_instruments);
     if (Array.isArray(data.session_serp_flights)) setSessionSerpFlights(data.session_serp_flights);
@@ -1466,28 +1474,7 @@ const assistantMsg: Message = {
     };
   }, [isAuthenticated, zeptoConnected]);
 
-  // Cosmetic reminders/orders handlers — unchanged from the new UI's
-  // reference App.tsx, just lifted into local state because there's no
-  // backend wiring for them yet.
-  const handleToggleReminder = (id: string) =>
-    setReminders((prev) => prev.map((r) => (r.id === id ? { ...r, completed: !r.completed } : r)));
-  const handleAddReminder = (text: string, category: 'daily' | 'today') => {
-    setReminders((prev) => [
-      ...prev,
-      {
-        id: `rem-${Date.now()}`,
-        category,
-        text,
-        time: category === 'daily' ? '08:30 AM' : 'Just now',
-        completed: false,
-      },
-    ]);
-  };
-  const handleDeleteReminder = (id: string) =>
-    setReminders((prev) => prev.filter((r) => r.id !== id));
-  const handleClearCompletedReminders = () =>
-    setReminders((prev) => prev.filter((r) => !r.completed));
-
+  // Cosmetic orders handlers — local-only state (no backend wiring yet).
   const handleCancelOrder = (id: string) =>
     setOrders((prev) =>
       prev.map((o) =>
@@ -1513,10 +1500,6 @@ const assistantMsg: Message = {
   const handleDeleteOrder = (id: string) =>
     setOrders((prev) => prev.filter((o) => o.id !== id));
 
-  const remindersBadge = useMemo(
-    () => reminders.filter((r) => !r.completed).length,
-    [reminders],
-  );
 
   const isAdmin = ADMIN_USERNAMES.has(username);
 
@@ -1548,7 +1531,20 @@ const assistantMsg: Message = {
       }}
     >
     <ZeptoAddressProvider value={{ addresses: zeptoSavedAddresses, selectedId: selectedZeptoAddressId }}>
-    <div className="flex h-[100dvh] w-screen overflow-hidden font-sans select-none relative pt-[var(--safe-top)] box-border">
+    <McpProviderProvider
+      value={{
+        statuses: mcpStatuses,
+        isConnected: (pid) => {
+          const st = (mcpStatuses[pid] as any)?.status;
+          return st === 'ready' || st === 'ready_pending';
+        },
+        connect: (pid) => {
+          setAppsInitialProvider(pid);
+          setShowApps(true);
+        },
+      }}
+    >
+    <div className="flex h-[var(--app-height)] w-screen overflow-hidden font-sans select-none relative pt-[var(--safe-top)] box-border">
       <LeftSidebar
         username={username}
         isAdmin={isAdmin}
@@ -1571,9 +1567,8 @@ const assistantMsg: Message = {
         toolProviders={toolProviders}
         mcpStatuses={mcpStatuses}
         onSelectProvider={(id) => openSettings('mcp', id)}
-        remindersBadge={remindersBadge || undefined}
-        onShowReminders={() => setShowRemindersPopup(true)}
         onOpenApps={() => setShowApps(true)}
+        appsOpen={showApps}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
       />
@@ -1592,6 +1587,7 @@ const assistantMsg: Message = {
             onOpenGroceries={handleOpenGroceries}
             onOpenFood={handleOpenFood}
             onOpenDistrict={handleOpenDistrict}
+            onOpenApps={() => setShowApps(true)}
             onToggleLeft={() => setIsSidebarCollapsed((v) => !v)}
             isSidebarCollapsed={isSidebarCollapsed}
             connectedCount={
@@ -1665,7 +1661,17 @@ const assistantMsg: Message = {
         )}
       </div>
 
-      <AppsModal isOpen={showApps} onClose={() => setShowApps(false)} />
+      <AppsModal
+        isOpen={showApps}
+        initialProvider={appsInitialProvider}
+        onClose={() => {
+          setShowApps(false);
+          setAppsInitialProvider(null);
+          // A connect/disconnect may have happened inside — refresh so the
+          // grocery "Search in" chips reflect the new status immediately.
+          refreshAllMcpStatuses();
+        }}
+      />
 
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -1684,17 +1690,6 @@ const assistantMsg: Message = {
       />
 
       <AnimatePresence>
-        {showRemindersPopup && (
-          <RemindersPopup
-            isOpen={showRemindersPopup}
-            onClose={() => setShowRemindersPopup(false)}
-            reminders={reminders}
-            onToggleReminder={handleToggleReminder}
-            onAddReminder={handleAddReminder}
-            onDeleteReminder={handleDeleteReminder}
-            onClearCompleted={handleClearCompletedReminders}
-          />
-        )}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -1710,6 +1705,7 @@ const assistantMsg: Message = {
         )}
       </AnimatePresence>
     </div>
+    </McpProviderProvider>
     </ZeptoAddressProvider>
     </InstamartAddressProvider>
   );

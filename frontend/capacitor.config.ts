@@ -8,7 +8,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
  */
 const config: CapacitorConfig = {
   appId: 'com.jatayulabs.companion',
-  appName: 'Companion',
+  appName: 'omi',
   webDir: 'dist',
   plugins: {
     SystemBars: {

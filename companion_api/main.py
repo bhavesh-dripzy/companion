@@ -38,13 +38,19 @@ from companion_api.voice_routes import (
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Companion API", version="2.0.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: in prod the Lambda Function URL adds the CORS headers at the edge (see infra
+# FunctionUrlCorsOptions). Adding them here too would emit DUPLICATE Access-Control-Allow-Origin
+# headers — which browsers/WebViews reject (the native APK login failed with "Failed to fetch").
+# So enable the app-level middleware ONLY for local dev (uvicorn ↔ vite is cross-origin with no
+# Function URL in front); in Lambda, AWS_LAMBDA_FUNCTION_NAME is set and the Function URL owns CORS.
+if not os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.get("/api/")
@@ -348,6 +354,17 @@ def spa_fallback(full_path: str):
     """
     if full_path == "api" or full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found")
+    # A real root-level build asset (favicon, manifest, brand logos Vite copies from public/ to the
+    # dist root) must be served as the FILE, not the HTML shell. Without this, <img src="/omi-logo.png">
+    # got index.html back (200 text/html) and rendered broken on prod. Guard against path traversal.
+    if full_path:
+        candidate = (_FRONTEND_DIST / full_path).resolve()
+        try:
+            candidate.relative_to(_FRONTEND_DIST.resolve())
+            if candidate.is_file():
+                return FileResponse(str(candidate))
+        except ValueError:
+            pass
     return food_ui()
 
 

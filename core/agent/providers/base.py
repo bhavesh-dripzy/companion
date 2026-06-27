@@ -8,14 +8,17 @@ Capabilities are simple string flags so the DomainHandler can branch + fall back
 
 from __future__ import annotations
 
+import contextlib
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
 from core.agent.contracts import Cart, CartResult, Product
 from core.agent.errors import classify
+from core.providers.mcp import connection_cache
 from core.providers.mcp.connection import call_tool, mcp_session
-from core.providers.mcp.remote import repo_root, stdio_spec
+from core.providers.mcp.remote import hydrate_tokens, repo_root, stdio_spec
+from core.providers.mcp.token_store import has_usable_tokens
 
 # Capability flags
 SEARCHABLE = "searchable"
@@ -62,6 +65,25 @@ class ProviderAdapter:
 
     def has(self, cap: str) -> bool:
         return cap in self.capabilities
+
+    def is_connected(self, user_id: str) -> bool:
+        """Non-interactive: does this user have usable MCP tokens for this provider?
+
+        Restores any vault-stored tokens to disk (no browser / OAuth — that only happens
+        when an MCP *session* opens), then checks the file. Used to gate the search/cart
+        fan-out so a disconnected app is SKIPPED, never auth-prompted.
+
+        Memoized in `connection_cache` (TTL + invalidated on connect/disconnect) so a hot
+        path doesn't re-read the token vault every turn; on a miss we do the real check."""
+        cached = connection_cache.get(user_id, self.mcp_url)
+        if cached is not None:
+            return cached
+        root = repo_root()
+        with contextlib.suppress(Exception):
+            hydrate_tokens(self.mcp_url, user_id=user_id, root=root)
+        connected = has_usable_tokens(root=root, mcp_url=self.mcp_url, user_id=user_id)
+        connection_cache.set(user_id, self.mcp_url, connected)
+        return connected
 
     def classify(self, message: str):
         return classify(self.id, message)

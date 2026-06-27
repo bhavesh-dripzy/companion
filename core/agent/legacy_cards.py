@@ -67,6 +67,9 @@ def products_attachment(pid: str, query: str, products: list[Product]) -> dict[s
                     "mrp_inr": _mrp_inr(p),
                     "pack_size": p.variation or None,
                     "image_url": p.image_url or None,
+                    # Carry the query so the FE groups a multi-item search into per-item sections,
+                    # exactly like Instamart (without it, sooji+besan collapse into one scroller).
+                    "query": query,
                 }
                 for p in products
             ],

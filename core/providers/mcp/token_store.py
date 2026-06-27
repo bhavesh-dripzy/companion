@@ -174,6 +174,12 @@ def _write_secret(payload: dict[str, Any]) -> None:
 
 
 def merge_mcp_token_secret(user_id: str | None = None, **updates: Any) -> dict[str, Any]:
+    # A change to `files` = tokens added (connect) or removed (disconnect) → drop this user's
+    # cached connection status so the next is_connected re-checks instead of trusting a stale answer.
+    if "files" in updates:
+        from core.providers.mcp import connection_cache
+
+        connection_cache.invalidate(user_id)
     if user_id:
         payload = _root_secret()
         payload = payload if isinstance(payload, dict) else {}

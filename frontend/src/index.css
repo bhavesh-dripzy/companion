@@ -15,6 +15,9 @@
   --safe-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
   --safe-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  /* The visible app height — defaults to the dynamic viewport, then JS (safeArea.ts) pins it to the
+     VISUAL viewport so the shell shrinks above the keyboard on mobile web instead of behind it. */
+  --app-height: 100dvh;
 }
 
 /* ===========================================================================
@@ -161,6 +164,16 @@
 @keyframes mandala-rotate { to { transform: rotate(360deg); } }
 .mandala-spin { animation: mandala-rotate 180s linear infinite; transform-origin: 50% 50%; will-change: transform; }
 
+/* Pin the document to the DYNAMIC viewport so mobile browsers anchor the shell
+   like the APK: the header + composer stay fixed and only the inner message list
+   scrolls. Without this, #root's min-height:100vh (= large viewport) let the whole
+   page scroll, so opening the keyboard pushed the top bar down + the input up. */
+html, body {
+  height: var(--app-height);
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -255,7 +268,8 @@ h1, h2, h3, .font-display {
 
 body > #root {
   background: transparent;
-  min-height: 100vh;
+  height: var(--app-height);
+  overflow: hidden;
   position: relative;
   z-index: 1;
 }

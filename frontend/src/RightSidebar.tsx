@@ -133,7 +133,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             >
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <BrainCircuit size={13} className="text-slate-600" />
-              <span className="truncate max-w-[140px]">Companion · {username || 'Guest'}</span>
+              <span className="truncate max-w-[140px]">omi · {username || 'Guest'}</span>
             </button>
 
             <button
@@ -320,7 +320,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         <div className="mt-8 pt-4 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-400">
           <div className="flex items-center gap-1">
             <SettingsIcon size={11} />
-            <span>Companion · Live Sync</span>
+            <span>omi · Live Sync</span>
           </div>
           <span className="font-mono">Secure</span>
         </div>

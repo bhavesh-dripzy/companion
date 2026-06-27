@@ -52,12 +52,10 @@ interface LeftSidebarProps {
   mcpStatuses: Record<string, McpStatus>;
   onSelectProvider: (id: string) => void;
 
-  // Reminders popup (local-only)
-  remindersBadge?: number;
-  onShowReminders: () => void;
-
   // Apps onboarding (Swiggy)
   onOpenApps?: () => void;
+  /** Whether the Apps modal is open — drives the nav highlight so it clears when the modal closes. */
+  appsOpen?: boolean;
 
   // Layout
   isCollapsed: boolean;
@@ -86,6 +84,9 @@ const PROVIDER_THEME: Record<string, { bg: string; fg: string }> = {
 };
 
 const NEUTRAL_THEME = { bg: 'bg-slate-700', fg: 'text-white' };
+
+// Only these providers (the grocery apps we actually use) appear in the Apps/connection grid.
+const APPS_ALLOWLIST = new Set(['swiggy_instamart', 'instamart', 'zepto']);
 
 const themeForProvider = (id: string) => PROVIDER_THEME[id?.toLowerCase()] || NEUTRAL_THEME;
 
@@ -147,13 +148,11 @@ export function LeftSidebar({
   toolProviders,
   mcpStatuses,
   onSelectProvider,
-  remindersBadge,
-  onShowReminders,
   onOpenApps,
+  appsOpen,
   isCollapsed,
   onToggleCollapse,
 }: LeftSidebarProps) {
-  const [activeTab, setActiveTab] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   // Auto-clear the delete confirm overlay after a few seconds so a
@@ -164,8 +163,9 @@ export function LeftSidebar({
     return () => clearTimeout(t);
   }, [pendingDelete]);
 
+  // Only the providers we actually use today (Instamart + Zepto) show in the Apps/connection grid.
   const availableProviders = useMemo(
-    () => toolProviders.filter((p) => p && p.available !== false),
+    () => toolProviders.filter((p) => p && p.available !== false && APPS_ALLOWLIST.has(p.id)),
     [toolProviders],
   );
 
@@ -199,21 +199,24 @@ export function LeftSidebar({
     bg: string;
     badge?: number;
     onClick?: () => void;
+    // Visible placeholder for a not-yet-built feature: rendered, but a click is a no-op
+    // (no action, no active highlight) until we wire it up.
+    inert?: boolean;
   };
   const navigationPages: NavPage[] = [
     {
       id: 'reminders',
       label: 'Reminders',
       icon: Bell,
-      badge: remindersBadge,
       bg: 'bg-purple-50 text-purple-600 border-purple-100',
-      onClick: onShowReminders,
+      inert: true,
     },
     {
       id: 'health',
       label: 'Health',
       icon: Heart,
       bg: 'bg-rose-50 text-rose-500 border-rose-100',
+      inert: true,
     },
     {
       id: 'apps',
@@ -227,6 +230,7 @@ export function LeftSidebar({
       label: 'Daily Tasks',
       icon: CheckSquare,
       bg: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+      inert: true,
     },
   ];
 
@@ -317,12 +321,14 @@ export function LeftSidebar({
       <div className="pt-[calc(var(--safe-top)+0.875rem)] pb-3.5 px-4 flex items-center justify-between shrink-0 border-b border-[#E9EEF5]">
         <div className="flex items-center gap-2.5">
           {/* Logo mark */}
-          <div className="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #2b2f72 0%, #6c4fbd 100%)' }}>
-            <span className="text-white font-bold text-[15px] leading-none select-none">C</span>
-          </div>
+          <img
+            src="/omi-logo.png"
+            alt="omi"
+            draggable={false}
+            className="w-8 h-8 rounded-xl shrink-0 object-cover select-none"
+          />
           <span className="text-slate-900 font-semibold text-[15px] font-sans tracking-tight leading-none">
-            Companion
+            Omi
           </span>
         </div>
 
@@ -363,12 +369,12 @@ export function LeftSidebar({
         <nav className="space-y-0.5 py-1">
           {navigationPages.map((page) => {
             const IconComponent = page.icon;
-            const isTabActive = activeTab === page.id;
+            const isTabActive = page.id === 'apps' && !!appsOpen;
             return (
               <button
                 key={page.id}
                 onClick={() => {
-                  setActiveTab(page.id);
+                  if (page.inert) return; // placeholder option — no-op until the feature ships
                   page.onClick?.();
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all duration-150 text-[13px] font-sans text-left cursor-pointer group ${
@@ -495,7 +501,7 @@ export function LeftSidebar({
             {(username || 'C').charAt(0).toUpperCase()}
           </div>
           <span className="text-[13px] font-medium text-slate-700 truncate capitalize">
-            {username || 'Companion'}
+            {username || 'omi'}
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">

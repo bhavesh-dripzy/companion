@@ -1,8 +1,7 @@
-"""Provider selection/inference (§6b) + narrator deterministic-fallback grounding.
+"""Provider fan-out plan (plan_intents) + narrator deterministic-fallback grounding.
 
-No live deps: the LLM resolver is unavailable in tests, so resolution falls back to the
-deterministic name-overlap matcher — which is exactly the path we assert here. The LLM-only
-behaviour (price-qualified "120 waala amul taaza") is covered by the live e2e.
+No live deps. `plan_intents` is pure/deterministic: one router intent → {provider: its items}.
+Untagged items fan out to every app; per-item `provider` tags route each item to its own app.
 """
 
 from __future__ import annotations
@@ -11,11 +10,9 @@ import asyncio
 
 import pytest
 
-from core.agent.contracts import Product
 from core.agent.domains import grocery_resolve as R
 from core.agent.llm.roles import narrate
 from core.agent.registry import REGISTRY
-from core.agent.state import ConversationState
 
 
 @pytest.fixture(autouse=True)
@@ -29,93 +26,71 @@ def _offline_llm(monkeypatch):
     monkeypatch.setattr("core.agent.llm.roles._complete", _empty)
 
 
-def _state_with(*products: Product) -> ConversationState:
-    st = ConversationState(user_id="u", chat_id="c")
-    st.catalog.append(list(products))
-    return st
-
-
-def _p(provider, name, rupees, brand=""):
-    return Product(
-        provider=provider,
-        item_id=f"{provider}:{name}",
-        name=name,
-        price_minor=int(rupees * 100),
-        brand=brand,
-    )
-
-
 PROVIDERS = REGISTRY.providers_for("grocery")
-IDS = {p.id for p in PROVIDERS}
+IDS = [p.id for p in PROVIDERS]
 
 
-def _intent(action="add", hint=None, phrase="amul bread"):
-    return {
-        "action": action,
-        "provider_hint": hint,
-        "item_refs": [{"phrase": phrase, "qty": 1}] if phrase else [],
-    }
+def _intent(action="add", hint=None, phrase="amul bread", item_refs=None):
+    if item_refs is None:
+        item_refs = [{"phrase": phrase, "qty": 1}] if phrase else []
+    return {"action": action, "provider_hint": hint, "item_refs": item_refs}
 
 
-# ---------------- choose_providers (§6b ladder) ----------------
-def test_explicit_hint_wins():
-    st = _state_with(_p("instamart", "Amul Bread", 40))
-    chosen, ask = asyncio.run(R.choose_providers(st, _intent(hint="zepto"), PROVIDERS))
-    assert ask is None and chosen == ["zepto"] and st.active_provider == "zepto"
+# ---------------- plan_intents (deterministic provider fan-out) ----------------
+def test_explicit_hint_scopes_to_one_app():
+    plan = R.plan_intents(_intent(hint="zepto"), IDS)
+    assert set(plan) == {"zepto"}
+    assert [r["phrase"] for r in plan["zepto"]] == ["amul bread"]
 
 
-def test_search_fans_out():
-    st = _state_with()
-    chosen, ask = asyncio.run(R.choose_providers(st, _intent(action="search"), PROVIDERS))
-    assert ask is None and set(chosen) == IDS
+def test_no_app_fans_out_to_both():
+    plan = R.plan_intents(_intent(hint=None, phrase="bread"), IDS)
+    assert set(plan) == set(IDS)
+    assert all([r["phrase"] for r in items] == ["bread"] for items in plan.values())
 
 
-def test_fanout_sets_active_both():
-    st = _state_with()
-    asyncio.run(R.choose_providers(st, _intent(action="search"), PROVIDERS))
-    assert st.active_provider == "both"  # both apps active, not a single sticky one
+def test_both_hint_fans_out():
+    assert set(R.plan_intents(_intent(hint="both", phrase="sasta sooji"), IDS)) == set(IDS)
 
 
-def test_after_fanout_cart_op_infers_not_sticky():
-    # fan-out leaves active="both"; an add for an item that lives only on instamart must infer it,
-    # NOT get stuck on a stale single sticky app.
-    st = _state_with(
-        _p("instamart", "Amul Taaza Milky Milk", 30, "Amul"),
-        _p("zepto", "Country Delight Milk", 46, ""),
-    )
-    st.active_provider = "both"
-    chosen, ask = asyncio.run(
-        R.choose_providers(st, _intent(phrase="amul taaza milky milk"), PROVIDERS)
-    )
-    assert ask is None and chosen == ["instamart"]
+def test_search_no_app_fans_out():
+    assert set(R.plan_intents(_intent(action="search", phrase="milk"), IDS)) == set(IDS)
 
 
-def test_sticky_active_provider():
-    st = _state_with()
-    st.active_provider = "zepto"
-    chosen, ask = asyncio.run(R.choose_providers(st, _intent(), PROVIDERS))
-    assert ask is None and chosen == ["zepto"]
+def test_per_item_provider_routes_each_to_its_app():
+    refs = [
+        {"phrase": "bread", "qty": 1, "provider": "instamart"},
+        {"phrase": "sooji", "qty": 1, "provider": "zepto"},
+    ]
+    plan = R.plan_intents(_intent(item_refs=refs), IDS)
+    assert [r["phrase"] for r in plan["instamart"]] == ["bread"]
+    assert [r["phrase"] for r in plan["zepto"]] == ["sooji"]
 
 
-def test_infer_from_item_unique_provider():
-    # "amul bread" exists only on instamart → inferred, no ask
-    st = _state_with(
-        _p("instamart", "Amul Bread", 40, "Amul"),
-        _p("zepto", "Mother Dairy Milk", 30, "Mother Dairy"),
-    )
-    chosen, ask = asyncio.run(R.choose_providers(st, _intent(phrase="amul bread"), PROVIDERS))
-    assert ask is None and chosen == ["instamart"]
+def test_same_app_items_merge_into_one_bucket():
+    refs = [
+        {"phrase": "doodh", "qty": 1, "provider": "instamart"},
+        {"phrase": "bread", "qty": 1, "provider": "instamart"},
+    ]
+    plan = R.plan_intents(_intent(item_refs=refs), IDS)
+    assert set(plan) == {"instamart"}
+    assert [r["phrase"] for r in plan["instamart"]] == ["doodh", "bread"]
 
 
-def test_true_tie_asks_with_note():
-    # "amul taaza" in BOTH → infer returns None → clean need_provider ask carrying a note
-    st = _state_with(
-        _p("instamart", "Amul Taaza Milk", 120, "Amul"), _p("zepto", "Amul Taaza Toned", 30, "Amul")
-    )
-    chosen, ask = asyncio.run(R.choose_providers(st, _intent(phrase="amul taaza"), PROVIDERS))
-    assert chosen == [] and ask is not None
-    assert ask["status"] == "need_provider" and ask["note"]
-    assert "instamart" in ask["note"].lower() and "zepto" in ask["note"].lower()
+def test_itemless_action_fans_out_empty():
+    plan = R.plan_intents(_intent(action="clear", hint=None, phrase=""), IDS)
+    assert set(plan) == set(IDS) and all(items == [] for items in plan.values())
+
+
+def test_itemless_action_with_hint_one_app():
+    plan = R.plan_intents(_intent(action="show_cart", hint="zepto", phrase=""), IDS)
+    assert set(plan) == {"zepto"} and plan["zepto"] == []
+
+
+def test_unknown_provider_tag_falls_back_to_both():
+    # a bogus per-item provider (not a real app) → treated as untagged → fans out to both
+    refs = [{"phrase": "bread", "qty": 1, "provider": "blinkit"}]
+    assert set(R.plan_intents(_intent(item_refs=refs), IDS)) == set(IDS)
 
 
 # ---------------- narrate fallback never lies (LLM unavailable in tests) ----------------
