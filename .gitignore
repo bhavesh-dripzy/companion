@@ -95,7 +95,11 @@ scripts/*_poc*.py
 scripts/*_login.py
 scripts/*_test.py
 scripts/*_e2e.py
+scripts/*_probe.py
 scripts/run_local.sh
+# Per-provider POC capture dumps (real account/catalog data) + MCP directory snapshot
+*_POC.json
+official_mcp_directory.json
 # POC scratch docs / one-off architecture notes (often hold pasted real data)
 swiggy_bhavesh.md
 swiggy_food_poc.md
