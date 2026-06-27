@@ -31,17 +31,6 @@ function readInjectedInset(edge: InsetEdge): number {
   return parseFloat(raw) || 0;
 }
 
-function readViewportInsets(): Record<InsetEdge, number> {
-  const vv = window.visualViewport;
-  if (!vv) return { top: 0, right: 0, bottom: 0, left: 0 };
-  return {
-    top: Math.max(0, Math.round(vv.offsetTop)),
-    right: Math.max(0, Math.round(window.innerWidth - vv.width - vv.offsetLeft)),
-    bottom: Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)),
-    left: Math.max(0, Math.round(vv.offsetLeft)),
-  };
-}
-
 /** Keep --safe-area-inset-* and --app-height in sync with env(), native injection, and the visual
  *  viewport (which shrinks when the on-screen keyboard opens). */
 export function syncSafeAreaInsets(): void {
@@ -56,17 +45,18 @@ export function syncSafeAreaInsets(): void {
     '--app-height',
     keyboardOpen ? `${Math.round(vv!.height)}px` : '100dvh',
   );
+  // When the keyboard closes, iOS can leave the LAYOUT viewport scrolled (it scrolled to reveal the
+  // focused input) — which shows up as a blank strip at the top with the shell pushed down. Reset it.
+  if (!keyboardOpen && (window.scrollY || window.scrollX)) {
+    window.scrollTo(0, 0);
+  }
 
-  const viewport = readViewportInsets();
+  // Real safe insets come ONLY from env() (iOS notch / home indicator / rounded corners) and native
+  // injection (Capacitor SystemBars on Android edge-to-edge). We deliberately do NOT fold in
+  // visualViewport offsets: offsetTop/height shift with scroll + the keyboard, so baking them into
+  // --safe-* (which the no-reset guard then never clears) left the shell permanently displaced.
   for (const edge of EDGES) {
-    // The viewport-derived BOTTOM inset IS the on-screen keyboard, not a real safe inset — and the
-    // shell already excludes the keyboard via --app-height, so folding it into --safe-bottom would
-    // double-pad (and displace) the composer. Bottom uses env()/native injection only.
-    const candidates =
-      edge === 'bottom'
-        ? [readEnvInset(edge), readInjectedInset(edge)]
-        : [readEnvInset(edge), readInjectedInset(edge), viewport[edge]];
-    const next = Math.max(...candidates);
+    const next = Math.max(readEnvInset(edge), readInjectedInset(edge));
     if (next > 0) {
       document.documentElement.style.setProperty(`--safe-area-inset-${edge}`, `${next}px`);
     }

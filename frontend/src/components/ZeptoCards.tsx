@@ -87,7 +87,7 @@ const ZeptoProductTile: React.FC<{
   return (
     <div
       className={cn(
-        'group flex flex-col w-[28vw] max-w-[110px] sm:w-[132px] shrink-0 snap-start',
+        'group flex flex-col w-[26vw] max-w-[102px] sm:w-[132px] shrink-0 snap-start',
         'rounded-2xl border border-slate-200/70 bg-white shadow-sm hover:shadow-md hover:border-slate-300/80 transition-all duration-200',
         outOfStock && 'opacity-60',
       )}

@@ -185,7 +185,7 @@ export function ChatMessageItem({
           // For a content-LESS card message (e.g. the grocery category picker), cancel
           // AttachmentList's own mt-1 so the inter-message gap matches a plain text turn. Messages
           // WITH narration keep the mt-1 as the separator between the bubble and the cards.
-          <div className={(msg.content || '').trim() ? '' : '-mt-1'}>
+          <div className={(msg.content || '').trim() ? '' : '-mt-3'}>
             <AttachmentList
               attachments={msg.attachments}
               onQuickPrompt={onQuickPrompt}

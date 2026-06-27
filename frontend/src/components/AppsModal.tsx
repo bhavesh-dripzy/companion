@@ -696,8 +696,8 @@ export const AppsModal: React.FC<AppsModalProps> = ({ isOpen, onClose, initialPr
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 pt-[max(0.5rem,var(--safe-top))] pb-[max(0.5rem,var(--safe-bottom))] bg-slate-950/40 backdrop-blur-md">
-      <div className="w-full max-w-lg bg-white/95 border border-slate-200 rounded-2xl md:rounded-3xl shadow-2xl shadow-slate-900/20 flex flex-col max-h-[95vh] md:max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-x-0 top-0 z-50 h-[var(--app-height)] flex items-center justify-center p-2 md:p-4 pt-[max(0.5rem,var(--safe-top))] pb-[max(0.5rem,var(--safe-bottom))] bg-slate-950/40 backdrop-blur-md">
+      <div className="w-full max-w-lg bg-white/95 border border-slate-200 rounded-2xl md:rounded-3xl shadow-2xl shadow-slate-900/20 flex flex-col max-h-full overflow-hidden">
         <div className="px-4 md:px-7 py-4 md:py-5 border-b border-slate-200">
           <div className="flex items-center justify-between gap-2">
             <div className="font-sans text-xl md:text-[22px] font-bold flex items-center gap-1.5 text-slate-900 min-w-0">
