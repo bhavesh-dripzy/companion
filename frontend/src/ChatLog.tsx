@@ -1903,7 +1903,7 @@ export const AttachmentList: React.FC<{
 
   if (cards.length === 0 && compareColumns.length === 0) return null;
   return (
-    <div className="flex flex-col gap-3 mt-1">
+    <div className="flex flex-col gap-3 mt-3">
       {compareColumns.length >= 2 && (
         <CompareStrip
           columns={compareColumns}

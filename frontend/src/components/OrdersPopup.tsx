@@ -104,7 +104,7 @@ export function OrdersPopup({
   const todayCount = orders.filter((o) => o.category === "today" && o.status !== "Cancelled" && o.status !== "Delivered").length;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]">
+    <div className="fixed inset-x-0 top-0 z-[200] h-[var(--app-height)] flex items-center justify-center p-4 pt-[max(1rem,var(--safe-top))] pb-[max(1rem,var(--safe-bottom))]">
       {/* Intense dark backdrop blur */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -120,7 +120,7 @@ export function OrdersPopup({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
         transition={{ type: "spring", duration: 0.4, bounce: 0.15 }}
-        className="relative bg-white border border-slate-100 rounded-3xl w-full max-w-2xl shadow-[0_30px_70px_-15px_rgba(15,23,42,0.22)] flex flex-col max-h-[88vh] overflow-hidden text-slate-800"
+        className="relative bg-white border border-slate-100 rounded-3xl w-full max-w-2xl shadow-[0_30px_70px_-15px_rgba(15,23,42,0.22)] flex flex-col max-h-full overflow-hidden text-slate-800"
       >
         {/* Subtle orange-amber upper glow line */}
         <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500" />
