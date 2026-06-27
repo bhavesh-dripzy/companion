@@ -205,9 +205,24 @@ const ZeptoDeliveryAddressBar: React.FC<{
   wrapClassName?: string;
   /** Open the address menu UPWARD (default, bar at the bottom) or DOWNWARD (search grid, bar at top). */
   dropUp?: boolean;
-}> = ({ addressId, addresses, onQuickPrompt, disabled, promptForAddress, wrapClassName, dropUp = true }) => {
+  /** Bump this to programmatically open the picker (e.g. the cart's "Change Address" button when the
+      store is unavailable) — so that button behaves exactly like tapping "Change" on this bar. */
+  openSignal?: number;
+  /** Cart usage: switch the address DETERMINISTICALLY via a `switch_context` client_action (pins the
+      exact id on the backend, re-checks serviceability, returns the updated cart) instead of a
+      natural-language prompt. The search grid leaves this off so a switch re-searches at the new address. */
+  deterministicSwitch?: boolean;
+}> = ({ addressId, addresses, onQuickPrompt, disabled, promptForAddress, wrapClassName, dropUp = true, openSignal, deterministicSwitch }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // External trigger: when openSignal changes (and there's a choice to make), open the menu and bring
+  // the bar into view so the dropdown is visible.
+  useEffect(() => {
+    if (!openSignal) return;
+    setOpen(true);
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [openSignal]);
   const theme = themeFor('zepto');
   const ctx = useZeptoAddresses();
 
@@ -248,6 +263,17 @@ const ZeptoDeliveryAddressBar: React.FC<{
   const handleSelect = (addr: ZeptoDeliveryAddr) => {
     setOpen(false);
     if (!onQuickPrompt || disabled || addr.id === (current?.id ?? effectiveId)) return;
+    if (deterministicSwitch) {
+      // Deterministic switch — pins the exact id on the backend (no LLM), re-checks serviceability,
+      // returns the updated cart; App syncs the new selected_zepto_address_id from the result.
+      onQuickPrompt(
+        `@@A@@${JSON.stringify({
+          type: 'switch_context',
+          payload: { provider: 'zepto', address_id: addr.id, label: addr.tag || addr.line },
+        })}`,
+      );
+      return;
+    }
     onQuickPrompt(
       promptForAddress
         ? promptForAddress(addr)
@@ -577,6 +603,9 @@ export const ZeptoCartCard: React.FC<{
   disabled?: boolean;
 }> = ({ cart, addressId, addresses, onQuickPrompt, disabled }) => {
   if (!cart) return null;
+  // Bumped by the "Change Address" button (store-unavailable warning) to open the delivery-address
+  // picker below — so it behaves like tapping "Change" on the delivery bar, not a dead-end chat prompt.
+  const [addrPickerSignal, setAddrPickerSignal] = useState(0);
   const theme = themeFor('zepto');
   const items = Array.isArray(cart.items) ? cart.items : [];
   const isEmpty = !!cart.is_empty || items.length === 0;
@@ -651,7 +680,7 @@ export const ZeptoCartCard: React.FC<{
                   {onQuickPrompt && (
                     <button
                       type="button"
-                      onClick={() => onQuickPrompt('Zepto ka delivery address change karna hai')}
+                      onClick={() => setAddrPickerSignal((s) => s + 1)}
                       disabled={disabled}
                       className="shrink-0 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-all active:scale-95 disabled:opacity-50"
                     >
@@ -734,9 +763,8 @@ export const ZeptoCartCard: React.FC<{
         addresses={addresses}
         onQuickPrompt={onQuickPrompt}
         disabled={disabled}
-        promptForAddress={(addr) =>
-          `Switch my Zepto delivery address to ${addr.tag || addr.line.split(',')[0]} and show my updated cart.`
-        }
+        openSignal={addrPickerSignal}
+        deterministicSwitch
       />
     </div>
   );

@@ -1544,7 +1544,7 @@ const assistantMsg: Message = {
         },
       }}
     >
-    <div className="flex h-[100dvh] w-screen overflow-hidden font-sans select-none relative pt-[var(--safe-top)] box-border">
+    <div className="flex h-[var(--app-height)] w-screen overflow-hidden font-sans select-none relative pt-[var(--safe-top)] box-border">
       <LeftSidebar
         username={username}
         isAdmin={isAdmin}

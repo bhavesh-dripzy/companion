@@ -155,7 +155,9 @@ async def _search_one(state, pid: str, phrases, flt, emit: Emit):
             for q in [p for p in phrases if p]:
                 products = await adapter.search(s, q, ctx)
                 shown = shown_for(pid, apply_filter(products, flt))
-                state.catalog.append(shown)  # sync between awaits → safe under concurrency
+                # query=q builds the structured notepad bucket (provider, item) for the grounded
+                # selection step; the flat ref index (taps/resolver) is unchanged either way.
+                state.catalog.append(shown, query=q)  # sync between awaits → safe under concurrency
                 log.debug("SEARCH %s q=%r → %d raw, %d shown", pid, q, len(products), len(shown))
                 pcards.append(product_card(pid, q, shown, flt))
                 if att := products_attachment(pid, q, shown):

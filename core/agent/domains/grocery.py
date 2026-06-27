@@ -56,6 +56,13 @@ def _opener(action: str, intent: dict[str, Any]) -> str | None:
 
 class GroceryDomainHandler:
     async def handle(self, state, intent: dict[str, Any], emit: Emit = noop) -> dict[str, Any]:
+        # The router only picked the DOMAIN. Every conversational (text) turn goes to the grounded
+        # grocery brain — it decides the action, resolves the items, and writes the reply. Card TAPS
+        # stay on the deterministic path below (they carry the exact item_id — no LLM needed).
+        if not intent.get("from_tap"):
+            from core.agent.domains import grocery_agent
+
+            return await grocery_agent.handle(state, intent, emit)
         action = intent["action"]
         # Fan out ONLY to apps this user has connected — a disconnected app is skipped, never
         # auth-prompted (no OAuth browser mid-search). Non-interactive token check.

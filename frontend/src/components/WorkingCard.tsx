@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Sparkles } from 'lucide-react';
 import type { TurnStatus } from '../types';
 
 /**
@@ -62,14 +61,12 @@ export function WorkingCard({ status }: { status?: TurnStatus | null }) {
       transition={{ duration: 0.28, ease: 'easeOut' }}
       className="flex items-center gap-3 w-fit max-w-full rounded-2xl border border-[#ece3d6]/80 bg-gradient-to-br from-[#f4f0ff] via-white/70 to-white/60 px-4 py-3 shadow-2xs backdrop-blur-sm"
     >
-      {/* Minimalist animated icon — a softly breathing, gently rocking spark. */}
-      <motion.span
-        className="grid place-items-center w-8 h-8 rounded-xl bg-gradient-to-br from-[#a855f7] to-[#6366f1] text-white shrink-0 shadow-sm"
-        animate={{ scale: [1, 1.12, 1], rotate: [0, 9, -9, 0] }}
-        transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <Sparkles size={15} strokeWidth={2.4} />
-      </motion.span>
+      {/* Animated typing dots (replaces the boxed icon). */}
+      <span className="flex items-center gap-1 shrink-0">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#6366f1] animate-bounce [animation-delay:-0.3s]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-[#8b5cf6] animate-bounce [animation-delay:-0.15s]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-[#a855f7] animate-bounce" />
+      </span>
       <div className="min-w-0">
         <div className="text-[13.5px] font-semibold text-[#2b2f72] leading-tight">{title}</div>
         <div className="relative h-4 overflow-hidden">

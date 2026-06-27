@@ -350,11 +350,24 @@ const DeliveryAddressBar: React.FC<{
   /** Open the address menu UPWARD (default, for a bar at the bottom of a block) or DOWNWARD
       (search grid, where the bar sits at the top so the menu must drop into the content). */
   dropUp?: boolean;
-}> = ({ addressId, addresses, query, onQuickPrompt, disabled, promptForAddress, wrapClassName, dropUp = true }) => {
+  /** Bump to programmatically open the picker (e.g. a cart's store-unavailable "Change Address"). */
+  openSignal?: number;
+  /** Cart usage: switch DETERMINISTICALLY via a `switch_context` client_action (pins the exact id on
+      the backend, re-checks serviceability, returns the updated cart) instead of a natural-language
+      prompt. Search grid leaves this off so a switch re-searches at the new address. */
+  deterministicSwitch?: boolean;
+}> = ({ addressId, addresses, query, onQuickPrompt, disabled, promptForAddress, wrapClassName, dropUp = true, openSignal, deterministicSwitch }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const theme = themeFor('instamart');
   const ctx = useInstamartAddresses();
+
+  // External trigger: when openSignal changes, open the picker + scroll it into view.
+  useEffect(() => {
+    if (!openSignal) return;
+    setOpen(true);
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [openSignal]);
 
   // Close the address menu on any tap/click outside it. onMouseLeave alone never
   // fires on touch devices, so without this the menu was un-dismissable on mobile.
@@ -396,6 +409,17 @@ const DeliveryAddressBar: React.FC<{
   const handleSelect = (addr: DeliveryAddr) => {
     setOpen(false);
     if (disabled || addr.id === (current?.id ?? effectiveId)) return;
+    if (deterministicSwitch && onQuickPrompt) {
+      // Deterministic switch — pins the exact id on the backend (no LLM), re-checks serviceability,
+      // returns the updated cart; App syncs the new selected_instamart_address_id from the result.
+      onQuickPrompt(
+        `@@A@@${JSON.stringify({
+          type: 'switch_context',
+          payload: { provider: 'instamart', address_id: addr.id, label: addr.tag || addr.line },
+        })}`,
+      );
+      return;
+    }
     const prompt = promptForAddress
       ? promptForAddress(addr)
       : `Search ${query || 'groceries'} on Swiggy Instamart, deliver to ${addr.tag || addr.line.split(',')[0]}`;
@@ -839,9 +863,7 @@ export const InstamartCartCard: React.FC<{
         addresses={addresses}
         onQuickPrompt={onQuickPrompt}
         disabled={disabled}
-        promptForAddress={(addr) =>
-          `Switch my Swiggy Instamart delivery address to ${addr.tag || addr.line.split(',')[0]} and show my updated cart.`
-        }
+        deterministicSwitch
       />
     </div>
   );

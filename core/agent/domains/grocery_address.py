@@ -15,6 +15,7 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
+from core.agent import address_store
 from core.agent.debug import log, short
 from core.agent.domains import grocery_view as V
 from core.agent.llm import resolve
@@ -29,7 +30,11 @@ def _short_label(label: str) -> str:
 
 
 def _note(state, pid: str, msg: str) -> dict[str, Any]:
-    return V.cart_result(state, pid, state.cart(pid), note=msg, **V.addr_keys(state, [pid]))
+    # say=msg → the address outcome is spoken VERBATIM (deterministic), never re-narrated by the
+    # legacy narrator (which could misread an empty post-switch cart as "cart clear kar diya").
+    return V.cart_result(
+        state, pid, state.cart(pid), note=msg, say=msg, **V.addr_keys(state, [pid])
+    )
 
 
 async def _match(addrs: list[dict[str, Any]], phrase: str) -> dict[str, Any] | None:
@@ -89,13 +94,20 @@ async def _probe_move(adapter, s, state, pid, new_ctx, old_addr) -> bool:
 
 async def switch_context(state, intent, pid: str) -> dict[str, Any]:
     adapter = REGISTRY.provider(pid)
+    # A UI picker carries the EXACT address id → pin it directly (no LLM match). A chat phrase
+    # ("ghar wale address pe") still resolves via the resolver / token fallback.
+    direct_id = intent.get("address_id")
     phrase = (intent.get("item_refs") or [{}])[0].get("phrase") or intent.get("raw_query", "")
     old_addr = (state.provider_session.get(pid) or {}).get("address_id")
     async with adapter.open_session(state.user_id) as s:
         addrs = await adapter.list_addresses(s)
         if not addrs:
             return _note(state, pid, "Is app mein koi saved address nahi mila.")
-        chosen = await _match(addrs, phrase)
+        chosen = (
+            next((a for a in addrs if str(a.get("id")) == str(direct_id)), None)
+            if direct_id
+            else await _match(addrs, phrase)
+        )
         if chosen is None:
             opts = ", ".join(_short_label(a["label"]) for a in addrs[:6])
             return _note(
@@ -130,14 +142,19 @@ async def switch_context(state, intent, pid: str) -> dict[str, Any]:
         "device_id": f"companion-{state.user_id}",
         "label": chosen["label"],
     }
+    # Persist to the GLOBAL store (DynamoDB-backed) so the selection survives restarts and is
+    # consistent across containers — every later turn hydrates from here.
+    address_store.set(state.user_id, pid, {"address_id": chosen["id"], "label": chosen["label"]})
     # Server is source of truth: read (+ price) the live cart AT THE NEW ADDRESS so "show my updated
     # cart" reflects reality, not a stale/empty in-memory copy (e.g. after a restart). Both providers.
     await V.read_into_cache(state, pid)
     log.debug("SWITCH %s → address=%s (%s)", pid, chosen["id"], short(chosen["label"]))
+    msg = f"Address badal diya — ab delivery {_short_label(chosen['label'])} par hogi."
     return V.cart_result(
         state,
         pid,
         state.cart(pid),
-        note=f"Address badal diya — ab delivery {_short_label(chosen['label'])} par hogi.",
+        note=msg,
+        say=msg,
         **V.addr_keys(state, [pid]),
     )
