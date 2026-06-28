@@ -15,8 +15,6 @@ from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 from starlette.responses import Response as StarletteResponse
 
-import companion_api.settings  # loads .env before auth reads LEGACY_ADMIN_*
-
 from companion_api.auth import (
     get_current_user,
 )
@@ -27,13 +25,6 @@ from companion_api.models import (
     ReminderEvent,
 )
 from companion_api.reminders import ReminderScheduler
-from companion_api.voice_routes import (
-    voice_gemini_token_endpoint,
-    voice_log_turn_endpoint,
-    voice_romanize_endpoint,
-    voice_token_endpoint,
-    voice_tool_execute_endpoint,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -311,12 +302,6 @@ def scheduled_reminder_handler(event: dict[str, Any], _context: Any) -> dict[str
     }
 
 
-app.post("/api/voice/tool-execute/")(voice_tool_execute_endpoint)
-app.post("/api/voice/token/")(voice_token_endpoint)
-app.post("/api/voice/gemini-token/")(voice_gemini_token_endpoint)
-app.post("/api/voice/log-turn/")(voice_log_turn_endpoint)
-app.post("/api/voice/romanize/")(voice_romanize_endpoint)
-
 # Routers extracted from this module (#29 — main.py decomposition).
 from companion_api.routers.agent import router as agent_router  # noqa: E402
 from companion_api.routers.auth import router as auth_router  # noqa: E402
@@ -329,6 +314,7 @@ from companion_api.routers.profile import router as profile_router  # noqa: E402
 from companion_api.routers.reminders import router as reminders_router  # noqa: E402
 from companion_api.routers.tools import router as tools_router  # noqa: E402
 from companion_api.routers.whatsapp import router as whatsapp_router  # noqa: E402
+from companion_api.voice_stream import router as voice_router  # noqa: E402
 
 app.include_router(chats_router)
 app.include_router(reminders_router)
@@ -341,6 +327,7 @@ app.include_router(auth_router)
 app.include_router(mcp_router)
 app.include_router(agent_router)
 app.include_router(ondc_router)
+app.include_router(voice_router)
 
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)

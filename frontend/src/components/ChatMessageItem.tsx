@@ -16,6 +16,7 @@ import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { AddressChoices, AttachmentList, looksLikeAddressPrompt } from '../ChatLog';
 import { AgentCards } from './AgentCards';
 import { LocationPicker } from './LocationPicker';
+import { SpeakButton } from './SpeakButton';
 import { StreamingTurn } from './StreamingTurn';
 import type { GeoCoordinate, Message, SessionAddress } from '../types';
 
@@ -235,6 +236,12 @@ export function ChatMessageItem({
           <span>{formatBubbleTimestamp(msg.created_at)}</span>
           {!isUser && (
             <div className="flex items-center gap-1">
+              {(msg.content || '').trim() && !msg.streaming && (
+                <SpeakButton
+                  text={msg.content || ''}
+                  className="p-1 rounded transition-all cursor-pointer text-slate-400 hover:text-[#7B6FBE] hover:bg-[#7B6FBE]/10 inline-flex items-center justify-center"
+                />
+              )}
               <button
                 onClick={() => setLiked((prev) => (prev === 'up' ? null : 'up'))}
                 className={`p-1 rounded transition-all cursor-pointer hover:text-emerald-600 hover:bg-emerald-50 ${
