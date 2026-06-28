@@ -379,8 +379,10 @@ export function ChatArea({
             )}
           </div>
 
-          {/* Bottom composer */}
-          <div className="px-3 sm:px-4 pt-2.5 sm:pt-4 pb-[calc(0.75rem+var(--safe-bottom))] sm:pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#F3F7FD]/98 via-[#F3F7FD]/50 to-transparent sticky bottom-0 left-0 right-0 z-20">
+          {/* Bottom composer — a fixed bottom bar (shrink-0): the scroll list above takes all the
+              flex space and is the ONLY thing that shrinks when the keyboard opens, so the header +
+              composer stay put and the composer rides above the keyboard instead of collapsing. */}
+          <div className="shrink-0 px-3 sm:px-4 pt-2.5 sm:pt-4 pb-[calc(0.75rem+var(--safe-bottom))] sm:pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#F3F7FD]/98 via-[#F3F7FD]/50 to-transparent sticky bottom-0 left-0 right-0 z-20">
             {/* Delivery address chip — visible + switchable BEFORE any
                 food/grocery search runs (no more wrong-house surprises). */}
             {sessionAddresses.length > 0 && onPickAddress && (

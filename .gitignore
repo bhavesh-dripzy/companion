@@ -1,35 +1,27 @@
 node_modules/
 .env
-
 # Scratch APK copy at repo root (the served one lives in frontend/public/)
 /companion-debug.apk
-
 # Python
 __pycache__/
 *.py[cod]
 *.pyd
 .Python
-
 # Virtual environments
 .venv/
 venv/
 ENV/
 env/
-
-
 # Cursor IDE local config
 .cursor/
-
 # mcp-remote Zomato OAuth token store (never commit)
 .mcp-auth/
 staticfiles/
 cdk.out/
 infra/.venv/
-
 # Local-only credentials bundles (never commit)
 CREDENTIALS.local.txt
 *.credentials.local.*
-
 # Local debugging artifacts — raw MCP responses, ad-hoc probe scripts.
 # Kept out of git so contributors don't see noisy diffs.
 outputs/
@@ -39,7 +31,6 @@ scripts/swiggy_e2e_probe.py
 scripts/zomato_call.py
 scripts/zomato_e2e_probe.py
 scripts/zomato_oauth_selftest.py
-
 # Loose credential / token dumps + ad-hoc probe artifacts that have
 # accumulated in the working tree (OAuth tokens, SCPs, raw responses).
 # Never commit — these hold live secrets. Kept on disk, out of git.
@@ -54,10 +45,8 @@ ssm_run.py
 test_lambda_secret.py
 test_parse.py
 /test_api.py
-
 # Sisyphus planning artifacts
 .sisyphus/credentials.txt
-
 # Build artifacts & tool caches (never commit)
 cdk.out/
 infra/cdk.out/
@@ -65,28 +54,21 @@ infra/cdk.out/
 .pytest_cache/
 .pycache_tmp/
 db.sqlite3
-
 # Local IDE / assistant scratch dirs
 .antigravitycli/
-
 # Legacy pre-teardown pipeline — deleted in 3e598ee; core/ is the only pipeline.
 # Stale local copies still sit in the working tree; keep them out of git.
 app/
-
 # Local dev fallback store for the Instamart default address (prod uses DynamoDB)
 .instamart_prefs/
-
 # One-off local probe/e2e scripts (not part of the shipped toolset)
 scripts/e2e_instamart_cart_flow.py
 scripts/fetch_instamart_category_images.py
 scripts/probe_instamart_cart.py
-
 # Zepto per-user default location (local dev fallback)
 .zepto_prefs/
-
 # Raw Swiggy POC dumps (contain real address/order data)
 swiggy_updated_outputs/
-
 # Local dev / POC artifacts — probes, logins, live e2e tests, data dumps, scratch notes.
 # These contain real account data (addresses, phone, tokens) and are never meant to be pushed.
 /instamart_poc_outputs/
@@ -106,3 +88,11 @@ swiggy_food_poc.md
 zepto_poc.md
 district_poc.md
 ARCHITECTURE_*.md
+# WhatsApp (open-wa) POC — session tokens, chromium, real numbers
+/poc/
+
+# managed by open-wa
+**.data.json
+**.node-persist**
+**_IGNORE_**
+# end managed by open-wa

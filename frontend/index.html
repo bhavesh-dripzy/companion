@@ -6,7 +6,11 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#000000" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- interactive-widget=resizes-content: when the on-screen keyboard opens, the browser shrinks the
+         LAYOUT viewport (and 100dvh) instead of only the visual viewport — so the bottom-anchored
+         composer lifts ABOVE the keyboard (ChatGPT-style) natively. safeArea.ts is the JS fallback for
+         browsers that don't support this property. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>omi</title>
   </head>
   <body>
