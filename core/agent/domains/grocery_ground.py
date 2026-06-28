@@ -8,6 +8,44 @@ from typing import Any
 from core.agent.domains import grocery_view as V
 
 
+def did_summary(outcomes: list[dict[str, Any]]) -> list[str]:
+    """The CODE-OWNED, authoritative list of what actually happened this turn — derived ONLY from
+    real outcomes, never from the user's request. The narrator is bound to this: it may claim an
+    add/remove/change ONLY if the matching line is here. A search-only turn has NO 'ADDED' line, so
+    the narrator literally has nothing that lets it say 'added' — killing the false-'added' hallucination."""
+    did: list[str] = []
+    for o in outcomes:
+        app = o.get("app", "")
+        action = o.get("action")
+        if action == "search":
+            n = len(o.get("found") or [])
+            did.append(
+                f"SEARCHED '{o.get('query')}' on {app} → showed {n} options. (Did NOT add anything.)"
+            )
+        elif action == "cart_update":
+            if o.get("added"):
+                did.append(f"ADDED to {app} cart: {', '.join(o['added'])}")
+            if o.get("removed"):
+                did.append(f"REMOVED from {app} cart: {', '.join(o['removed'])}")
+            if o.get("changed"):
+                did.append(f"CHANGED qty in {app} cart: {', '.join(o['changed'])}")
+        elif action == "cart_failed":
+            did.append(
+                f"FAILED to change {app} cart ({o.get('reason')}) — NOTHING was added or changed."
+            )
+        elif action == "clear":
+            did.append(f"CLEARED the {app} cart (now empty).")
+        elif action == "show_cart":
+            did.append(f"SHOWED the {app} cart (no change made).")
+        elif action == "checkout":
+            did.append(f"Checkout on {app} is unavailable — NOTHING was ordered.")
+        elif action == "not_found":
+            did.append(f"Could NOT find '{o.get('query')}' on {app} — NOTHING added.")
+    if not did:
+        did.append("Did NOT touch any cart this turn — only answering / chit-chat.")
+    return did
+
+
 def _money(minor: int) -> float | int:
     """Paise → rupees, as an int when whole (so we say '₹232', not '₹232.0')."""
     return minor // 100 if minor % 100 == 0 else round(minor / 100, 2)
