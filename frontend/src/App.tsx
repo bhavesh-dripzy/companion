@@ -8,7 +8,6 @@ import { LeftSidebar } from './components/LeftSidebar';
 import { ChatArea } from './components/ChatArea';
 import { OrdersPopup } from './components/OrdersPopup';
 import { CartDock } from './components/CartDock';
-import { VoiceStage } from './components/VoiceStage';
 import { api, clearToken, clearRefreshToken, getToken, streamPost } from './api';
 import type { StreamSegment } from './types';
 import { lastKnownUser, prefetchHeroGreeting, rememberLastUser } from './heroGreeting';
@@ -16,7 +15,6 @@ import { InstamartAddressProvider, type InstamartSavedAddress } from './Instamar
 import { McpProviderProvider } from './McpProviderContext';
 import { ZeptoAddressProvider, type ZeptoSavedAddress } from './ZeptoAddressContext';
 import type {
-  Attachment,
   ChatSummary,
   GeoCoordinate,
   McpStatus,
@@ -45,9 +43,6 @@ import type {
   SessionKiteOrderTicket,
   SessionKitePositions,
   ToolProvider,
-  VoiceSessionState,
-  VoiceToolCallRequest,
-  VoiceToolCallResponse,
 } from './types';
 import { useUserLocation } from './useUserLocation';
 import { mapsStatus } from './maps';
@@ -378,12 +373,6 @@ function App() {
   const [sessionVenues, setSessionVenues] = useState<SessionVenue[]>([]);
   const [sessionArtists, setSessionArtists] = useState<SessionArtist[]>([]);
   const [sessionReservation, setSessionReservation] = useState<SessionReservation | null>(null);
-  const [voiceSessionState, setVoiceSessionState] = useState<VoiceSessionState>('inactive');
-  // Voice stage signals — phase + live captions + a status line while the
-  // backend tool call runs (so dead air has a face).
-  const [voicePhase, setVoicePhase] = useState<'listening' | 'thinking' | 'speaking'>('listening');
-  const [voiceUserCaption, setVoiceUserCaption] = useState('');
-  const [voiceAssistantCaption, setVoiceAssistantCaption] = useState('');
   // Delivery address the user pinned via the AddressChip; threaded as
   // address_id on every agent request and as the carried __ADDRESS_ID__.
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
@@ -1012,10 +1001,11 @@ const assistantMsg: Message = {
   // Stream a turn over SSE: one assistant message plays out as the backend narrates — text lines
   // type in, each tool's cards build in (completion order). Falls back to the plain endpoint if the
   // stream can't open (e.g. behind API Gateway). The FE imposes NO ordering — it renders as it arrives.
-  const streamSend = async (sendBody: Record<string, any>) => {
+  const streamSend = async (sendBody: Record<string, any>): Promise<string> => {
     const sid = `sm-${Date.now()}`;
     let added = false;
     let sawCards = false;
+    let finalText = '';
     const ensure = () => {
       if (!added) {
         added = true;
@@ -1031,6 +1021,7 @@ const assistantMsg: Message = {
       setMessages((p) => p.map((m) => (m.message_id === sid ? { ...m, ...u } : m)));
     const finalize = (data: any) => {
       if ((data as any).chat_id) agentChatIdRef.current = (data as any).chat_id;
+      finalText = data.assistant_message || '';
       applySessionState(data);
       // If the turn produced cards but never streamed a `cards` event (e.g. a cart op), show them now.
       if (!sawCards && Array.isArray(data.attachments) && data.attachments.length) {
@@ -1059,15 +1050,17 @@ const assistantMsg: Message = {
       const data = await runTurn(sendBody);
       if (added) finalize(data);
       else finalizeAssistant(data);
+      finalText = data.assistant_message || finalText;
     }
+    return finalText;
   };
 
   const handleSendMessage = async (
     content: string,
     geoOverride?: import('./types').GeoCoordinate | null,
-  ) => {
+  ): Promise<string> => {
     const text = (content || '').trim();
-    if (!text) return;
+    if (!text) return '';
     // Card taps arrive as "@@A@@<json>" → a deterministic client_action (no user bubble, no LLM).
     const isAction = text.startsWith('@@A@@');
     const clientAction = isAction
@@ -1111,13 +1104,14 @@ const assistantMsg: Message = {
       // Everything streams the SAME way — taps (add / qty change) and NL alike — so the response
       // always types out and builds up live (opener → narration → cards), never appearing all at
       // once. streamSend falls back to the plain endpoint internally if SSE is unavailable.
-      await streamSend(sendBody);
+      return await streamSend(sendBody);
     } catch (err: any) {
       const errorMsg: Message = {
         role: 'assistant',
         content: `Error: ${err.message || 'Something went wrong'}`,
       };
       setMessages((prev) => [...prev, errorMsg]);
+      return '';
     } finally {
       setIsThinking(false);
     }
@@ -1164,213 +1158,6 @@ const assistantMsg: Message = {
       { role: 'user', content: "What's on near me" },
       { role: 'assistant', content: '', attachments: [{ kind: 'district_categories' }] },
     ]);
-  };
-
-  // Cards (menu/restaurant/cart) returned by the most recent voice tool call,
-  // held until that turn completes so we can attach them to the rendered
-  // assistant message in the chat log.
-  const pendingVoiceAttachmentsRef = useRef<Attachment[] | null>(null);
-
-  // Live mirror of the conversation state the voice handlers need. The Gemini
-  // Live session captures handleVoiceToolCall / handleVoiceTurnComplete ONCE at
-  // connect() time (the WebSocket message handler closes over them), so reading
-  // `messages` / `chatId` / session indices directly would send a stale,
-  // session-start snapshot — empty history and a null chat_id — making every
-  // voice tool call mint a brand-new chat and lose context. Reading through this
-  // ref (whose .current is refreshed every render) always sees the latest state.
-  const voiceCtxRef = useRef({
-    messages,
-    sessionState,
-    chatId,
-    sessionRestaurants,
-    sessionAddresses,
-    sessionCart,
-    sessionMenu,
-    userLocation,
-  });
-  voiceCtxRef.current = {
-    messages,
-    sessionState,
-    chatId,
-    sessionRestaurants,
-    sessionAddresses,
-    sessionCart,
-    sessionMenu,
-    userLocation,
-  };
-
-  const handleVoiceTurn = (userText: string, assistantText: string) => {
-    // OpenAI path only (batch at disconnect). The Gemini path renders each
-    // turn live via handleVoiceTurnComplete.
-    const userMsg: Message = { role: 'user', content: userText };
-    const assistantMsg: Message = { role: 'assistant', content: assistantText };
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-  };
-
-  const handleVoiceTurnComplete = async (
-    userText: string,
-    assistantText: string,
-    hadToolCall: boolean,
-  ) => {
-    // Render this turn in the chat log, attaching any cards from the tool call.
-    // Consume the stash whenever it is non-null, NOT only when this turn made
-    // the tool call: Gemini often closes the spoken status-line segment before
-    // the tool returns, so the cards land between that turnComplete (which
-    // resets hadToolCall) and the answer's turnComplete. Gating on hadToolCall
-    // silently dropped the cards in exactly that (common) case — the "cards
-    // sometimes don't show in voice mode" bug.
-    const attachments = pendingVoiceAttachmentsRef.current ?? undefined;
-    pendingVoiceAttachmentsRef.current = null;
-    setMessages((prev) => {
-      const next = [...prev];
-      if (userText) next.push({ role: 'user', content: userText });
-      if (assistantText || attachments) {
-        next.push({ role: 'assistant', content: assistantText, attachments });
-      }
-      return next;
-    });
-
-    // Gemini Live transcribes Hindi speech in Devanagari; the product speaks
-    // romanized Hinglish. Patch the just-rendered user bubble (and the text we
-    // persist below) once the backend transliterates it. Best-effort: on any
-    // failure the original transcript stays.
-    let persistedUserText = userText;
-    if (userText && /[ऀ-ॿ]/.test(userText)) {
-      try {
-        const romanized = await api.post('/api/voice/romanize/', { text: userText });
-        if (romanized?.text && romanized.text !== userText) {
-          persistedUserText = romanized.text;
-          setMessages((prev) => {
-            const next = [...prev];
-            for (let i = next.length - 1; i >= 0; i--) {
-              if (next[i].role === 'user' && next[i].content === userText) {
-                next[i] = { ...next[i], content: romanized.text };
-                break;
-              }
-            }
-            return next;
-          });
-        }
-      } catch (err) {
-        console.error('[Voice] romanize failed', err);
-      }
-    }
-
-    // Tool turns are already persisted + leadgen-enqueued server-side by
-    // /api/voice/tool-execute/. Persist conversational turns here so voice
-    // history and the leadgen pipeline stay complete.
-    if (!hadToolCall && (userText || assistantText)) {
-      try {
-        // Live chatId via the ref — the captured closure is frozen at
-        // session-start (null for a fresh chat), which would fork a new chat
-        // for every conversational voice turn.
-        const liveChatId = voiceCtxRef.current.chatId;
-        const data = await api.post('/api/voice/log-turn/', {
-          user_text: persistedUserText,
-          assistant_text: assistantText,
-          chat_id: liveChatId,
-        });
-        if (data?.chat_id && data.chat_id !== liveChatId) {
-          setChatId(data.chat_id);
-          localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
-        }
-      } catch (err) {
-        console.error('[Voice] log-turn failed', err);
-      }
-    }
-    refreshChatList();
-  };
-
-  const handleVoiceToolCall = async (intent: string): Promise<string> => {
-    // Read live state via the ref — the captured closure would be stale (see
-    // voiceCtxRef), which is what made each voice tool call look like a new chat.
-    const {
-      messages: liveMessages,
-      sessionState: liveSessionState,
-      chatId: liveChatId,
-      sessionRestaurants: liveSessionRestaurants,
-      sessionAddresses: liveSessionAddresses,
-      sessionCart: liveSessionCart,
-      sessionMenu: liveSessionMenu,
-      userLocation: liveUserLocation,
-    } = voiceCtxRef.current;
-    const body: VoiceToolCallRequest = {
-      intent,
-      history: liveMessages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-      session_state: Object.keys(liveSessionState).length > 0 ? liveSessionState : undefined,
-      chat_id: liveChatId,
-      // Live GPS so the backend can default location-aware queries to the
-      // user's current spot. Planner-detected places ("near Saket") still
-      // win — see _resolve_coords precedence on the backend.
-      ...(liveUserLocation
-        ? {
-            geo: {
-              latitude: liveUserLocation.latitude,
-              longitude: liveUserLocation.longitude,
-              ...(liveUserLocation.accuracyMeters !== undefined
-                ? { accuracy_meters: liveUserLocation.accuracyMeters }
-                : {}),
-            },
-          }
-        : {}),
-      ...(liveSessionRestaurants.length > 0 ? { session_restaurants: liveSessionRestaurants } : {}),
-      ...(liveSessionAddresses.length > 0 ? { session_addresses: liveSessionAddresses } : {}),
-      ...(liveSessionCart ? { session_cart: liveSessionCart } : {}),
-      // Round-trip the menu the user was just shown. Without this, the next
-      // turn ("add Rasmalai to cart") arrives with no variant_id and no
-      // res_id stamp, so the planner can't build a valid create_cart and the
-      // add silently fails — the exact bug where voice "doesn't show menu"
-      // and cart adds never land, while text chat (which always echoes
-      // session_menu) works.
-      ...(liveSessionMenu.length > 0 ? { session_menu: liveSessionMenu } : {}),
-    };
-
-    try {
-      const data: VoiceToolCallResponse = await api.post('/api/voice/tool-execute/', body);
-      if (data.success) {
-        if (data.session_state && Object.keys(data.session_state).length > 0) {
-          setSessionState(data.session_state);
-        }
-        if (data.session_cart !== undefined) {
-          setSessionCart(data.session_cart && data.session_cart.cart_id ? data.session_cart : null);
-        }
-        if (data.session_restaurants && data.session_restaurants.length > 0) {
-          setSessionRestaurants(data.session_restaurants);
-        }
-        if (Array.isArray(data.session_menu) && data.session_menu.length > 0) {
-          setSessionMenu(data.session_menu);
-        }
-        // Stash cards for handleVoiceTurnComplete to render on this turn. If no
-        // turn-complete consumes them (Gemini already closed the turn and stays
-        // silent), flush them as a cards-only message so they are never lost.
-        pendingVoiceAttachmentsRef.current =
-          Array.isArray(data.attachments) && data.attachments.length > 0 ? data.attachments : null;
-        if (pendingVoiceAttachmentsRef.current) {
-          window.setTimeout(() => {
-            const orphaned = pendingVoiceAttachmentsRef.current;
-            if (orphaned && orphaned.length > 0) {
-              pendingVoiceAttachmentsRef.current = null;
-              setMessages((prev) => [...prev, { role: 'assistant', content: '', attachments: orphaned }]);
-            }
-          }, 6000);
-        }
-        if (data.chat_id && data.chat_id !== chatId) {
-          setChatId(data.chat_id);
-          localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, data.chat_id);
-        }
-        return data.result;
-      }
-      return `I couldn't complete that request: ${data.error || 'Unknown error'}`;
-    } catch (err: any) {
-      return `Something went wrong: ${err.message || 'Unknown error'}`;
-    }
-  };
-
-  const handleVoiceStateChange = (state: VoiceSessionState) => {
-    setVoiceSessionState(state);
   };
 
   const handleVoiceError = (message: string) => {
@@ -1608,25 +1395,7 @@ const assistantMsg: Message = {
             }}
             quickPromptDisabled={isThinking}
             onGrantLocation={handleGrantLocation}
-            onVoiceTurn={handleVoiceTurn}
-            onVoiceTurnComplete={handleVoiceTurnComplete}
-            onVoiceToolCall={handleVoiceToolCall}
-            onVoiceStateChange={handleVoiceStateChange}
             onVoiceError={handleVoiceError}
-            onVoicePhase={setVoicePhase}
-            onVoiceCaption={(role, text) => {
-              if (role === 'user') setVoiceUserCaption(text);
-              else setVoiceAssistantCaption(text);
-            }}
-            getVoiceContext={() => ({
-              // Read through voiceCtxRef so a (re)connect sees the LIVE chat,
-              // not a stale closure — same pattern as handleVoiceToolCall (#20).
-              chatId: voiceCtxRef.current.chatId,
-              history: voiceCtxRef.current.messages.map((m) => ({
-                role: m.role,
-                content: m.content,
-              })),
-            })}
             selectedAddressId={selectedAddressId ?? sessionState['__ADDRESS_ID__'] ?? null}
             onPickAddress={(addr) => {
               const id = String(addr.address_id || '').trim();
@@ -1634,16 +1403,6 @@ const assistantMsg: Message = {
               setSelectedAddressId(id);
               setSessionState((prev) => ({ ...prev, __ADDRESS_ID__: id }));
             }}
-          />
-        )}
-
-        {voiceSessionState !== 'inactive' && !isAdminOpen && (
-          <VoiceStage
-            phase={voicePhase}
-            userCaption={voiceUserCaption}
-            assistantCaption={voiceAssistantCaption}
-            statusLine="Kaam ho raha hai — ek second…"
-            connecting={voiceSessionState === 'connecting'}
           />
         )}
 

@@ -13,21 +13,19 @@ from __future__ import annotations
 
 import hashlib
 import os
-from datetime import datetime, timedelta, timezone
-from functools import lru_cache
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+import companion_api.settings  # noqa: F401 — load .env before legacy cred reads
 from companion_api.cognito_auth import (
     CognitoTokenError,
     cognito_enabled,
     verify_cognito_token,
 )
 from companion_api.secrets import secret_or_env
-import companion_api.settings  # noqa: F401 — load .env before legacy cred reads
 
 # ---------------------------------------------------------------------------
 # Legacy admin (env vars only — no hardcoded credentials)
@@ -78,8 +76,8 @@ def create_access_token(username: str, long_lived: bool = False) -> str:
     hours = REMEMBER_ME_EXPIRE_HOURS if long_lived else ACCESS_TOKEN_EXPIRE_HOURS
     payload = {
         "sub": username,
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(hours=hours),
+        "iat": datetime.now(UTC),
+        "exp": datetime.now(UTC) + timedelta(hours=hours),
     }
     return jwt.encode(payload, _jwt_secret(), algorithm="HS256")
 
@@ -114,7 +112,7 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> str:
     """Extract and validate the authenticated user from the Authorization header.
 

@@ -42,15 +42,8 @@ interface ChatAreaProps {
   onSelectAddress?: (addr: SessionAddress) => void;
   onQuickPrompt?: (prompt: string) => void;
   quickPromptDisabled?: boolean;
-  onVoiceTurn?: (userText: string, assistantText: string) => void;
-  onVoiceTurnComplete?: (userText: string, assistantText: string, hadToolCall: boolean) => void;
-  onVoiceToolCall?: (intent: string) => Promise<string>;
-  onVoiceStateChange?: (state: import('../types').VoiceSessionState) => void;
+  // Dictation: spoken text from the mic is reported here so we can drop it in the composer.
   onVoiceError?: (message: string) => void;
-  onVoicePhase?: (phase: 'listening' | 'thinking' | 'speaking') => void;
-  onVoiceCaption?: (role: 'user' | 'assistant', fullText: string) => void;
-  // Live reader for the ongoing chat — voice (re)connect resumes it (#20).
-  getVoiceContext?: () => { chatId: string | null; history: { role: string; content: string }[] };
   // Delivery address chip above the composer (food/grocery context).
   selectedAddressId?: string | null;
   onPickAddress?: (addr: SessionAddress) => void;
@@ -125,19 +118,14 @@ export function ChatArea({
   onSelectAddress,
   onQuickPrompt,
   quickPromptDisabled,
-  onVoiceTurn,
-  onVoiceTurnComplete,
-  onVoiceToolCall,
-  onVoiceStateChange,
   onVoiceError,
-  onVoicePhase,
-  onVoiceCaption,
-  getVoiceContext,
   selectedAddressId,
   onPickAddress,
   onGrantLocation,
 }: ChatAreaProps) {
   const [inputValue, setInputValue] = useState('');
+  // Composer text captured when dictation starts, so live transcript appends to (not replaces) it.
+  const dictationBaseRef = useRef('');
   // Ribbon / nudge dispatcher: the Groceries chip (issue #59) drops an
   // in-chat category picker card into the conversation instead of firing a
   // fixed prompt; every other chip fires its prompt immediately, as before.
@@ -454,14 +442,12 @@ export function ChatArea({
 
               <div className="shrink-0 [&_button]:!w-8 [&_button]:!h-8 [&_button]:!rounded-full [&_button]:!bg-slate-100 [&_button]:!text-slate-500">
                 <VoiceInput
-                  onVoiceTurn={onVoiceTurn}
-                  onVoiceTurnComplete={onVoiceTurnComplete}
-                  onVoiceStateChange={onVoiceStateChange}
-                  onVoiceToolCall={onVoiceToolCall}
-                  onVoiceError={onVoiceError}
-                  onVoicePhase={onVoicePhase}
-                  onVoiceCaption={onVoiceCaption}
-                  getVoiceContext={getVoiceContext}
+                  onStart={() => { dictationBaseRef.current = inputValue.trim(); }}
+                  onUpdate={(live) => {
+                    const base = dictationBaseRef.current;
+                    setInputValue(base ? `${base} ${live}` : live);
+                  }}
+                  onError={onVoiceError}
                   disabled={isThinking}
                 />
               </div>

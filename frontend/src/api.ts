@@ -10,7 +10,7 @@ const API_BASE = Capacitor.isNativePlatform()
   ? ((import.meta.env.VITE_API_BASE as string | undefined) || 'https://app.jatayulabs.com')
   : '';
 
-function apiUrl(path: string): string {
+export function apiUrl(path: string): string {
   return path.startsWith('/') ? `${API_BASE}${path}` : path;
 }
 
@@ -121,6 +121,21 @@ export const api = {
 
   delete(path: string) {
     return request(path, { method: 'DELETE' });
+  },
+
+  /** POST returning a binary Blob (e.g. TTS audio) instead of JSON. */
+  async postBlob(path: string, body?: any): Promise<Blob> {
+    const token = getToken();
+    const resp = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`postBlob ${path} failed: ${resp.status}`);
+    return resp.blob();
   },
 };
 
