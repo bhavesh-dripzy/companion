@@ -27,6 +27,7 @@ from core.agent.domains.grocery_ground import (
     _money,
     _old_items,
     _resolve_selector,
+    did_summary,
 )
 from core.agent.errors import user_message
 from core.agent.events import Emit, noop, say
@@ -276,6 +277,9 @@ async def handle(state, intent: dict[str, Any], emit: Emit = noop) -> dict[str, 
             "message": message,
             "history": state.recent_history(),
             "connected_apps": connected,
+            "actions_taken": did_summary(
+                outcomes
+            ),  # code-owned truth of what happened (narrator-bound)
             "outcomes": outcomes,
             "notepad": {pid: state.catalog.structured(pid).get(pid, {}) for pid in connected},
             "cart": _cart_compact(state, connected),
