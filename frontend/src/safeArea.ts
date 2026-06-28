@@ -31,30 +31,46 @@ function readInjectedInset(edge: InsetEdge): number {
   return parseFloat(raw) || 0;
 }
 
-/** Keep --safe-area-inset-* and --app-height in sync with env(), native injection, and the visual
- *  viewport (which shrinks when the on-screen keyboard opens). */
+const _VP_DEBUG =
+  typeof location !== 'undefined' && location.search.includes('vpdebug');
+let _badge: HTMLDivElement | null = null;
+
+function _drawDebug(vv: VisualViewport | null | undefined): void {
+  if (!_VP_DEBUG || typeof document === 'undefined' || !document.body) return;
+  if (!_badge) {
+    _badge = document.createElement('div');
+    _badge.style.cssText =
+      'position:fixed;top:4px;left:4px;z-index:99999;background:rgba(0,0,0,.82);color:#0f0;' +
+      'font:11px/1.35 monospace;padding:5px 7px;border-radius:6px;pointer-events:none;white-space:pre';
+    document.body.appendChild(_badge);
+  }
+  const appH = getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim();
+  _badge.textContent =
+    `vv.height=${Math.round(vv?.height || 0)}\n` +
+    `vv.offsetTop=${Math.round(vv?.offsetTop || 0)}\n` +
+    `innerHeight=${window.innerHeight}\n` +
+    `--app-height=${appH}`;
+}
+
+/** Pin the app shell to the VISUAL VIEWPORT (height + top) and keep --safe-* in sync.
+ *
+ *  The composer-above-keyboard problem on iOS Safari: Safari ignores the `interactive-widget`
+ *  viewport property and does NOT shrink the layout viewport / dvh when the keyboard opens, so a
+ *  bottom-anchored composer ends up behind it. The reliable fix is to bind the shell directly to
+ *  `window.visualViewport` — which IS the visible area above the keyboard — and let #root be
+ *  position:fixed at {top: offsetTop, height: vv.height}. No gap heuristic, no dvh guesswork. */
 export function syncSafeAreaInsets(): void {
   const vv = window.visualViewport;
-  // Shrink the shell to the visible height ONLY when the keyboard is OPEN (a big gap between the
-  // layout viewport and the visual viewport). Then the header + composer stay put above the keyboard
-  // and only the message list scrolls, like the APK. With NO keyboard we keep the full dynamic
-  // viewport (100dvh) — visualViewport.height can read short on iOS otherwise, leaving an empty strip.
-  const gap = vv ? Math.round(window.innerHeight - vv.height) : 0;
-  const keyboardOpen = !!vv && gap > 120;
-  document.documentElement.style.setProperty(
-    '--app-height',
-    keyboardOpen ? `${Math.round(vv!.height)}px` : '100dvh',
-  );
-  // When the keyboard closes, iOS can leave the LAYOUT viewport scrolled (it scrolled to reveal the
-  // focused input) — which shows up as a blank strip at the top with the shell pushed down. Reset it.
-  if (!keyboardOpen && (window.scrollY || window.scrollX)) {
-    window.scrollTo(0, 0);
+  if (vv) {
+    const r = document.documentElement.style;
+    r.setProperty('--app-height', `${Math.round(vv.height)}px`);
+    r.setProperty('--app-vtop', `${Math.round(vv.offsetTop)}px`);
   }
+  _drawDebug(vv);
 
   // Real safe insets come ONLY from env() (iOS notch / home indicator / rounded corners) and native
-  // injection (Capacitor SystemBars on Android edge-to-edge). We deliberately do NOT fold in
-  // visualViewport offsets: offsetTop/height shift with scroll + the keyboard, so baking them into
-  // --safe-* (which the no-reset guard then never clears) left the shell permanently displaced.
+  // injection (Capacitor SystemBars on Android edge-to-edge) — NEVER visualViewport offsets (those
+  // shift with scroll/keyboard and would bake a transient gap into --safe-*).
   for (const edge of EDGES) {
     const next = Math.max(readEnvInset(edge), readInjectedInset(edge));
     if (next > 0) {

@@ -15,9 +15,11 @@
   --safe-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
   --safe-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
-  /* The visible app height — defaults to the dynamic viewport, then JS (safeArea.ts) pins it to the
-     VISUAL viewport so the shell shrinks above the keyboard on mobile web instead of behind it. */
+  /* The visible app box — defaults to the dynamic viewport, then JS (safeArea.ts) pins it to the
+     VISUAL viewport (height + top) so the shell sits exactly over the area above the keyboard on
+     mobile web (iOS Safari ignores interactive-widget, so this JS binding is what actually works). */
   --app-height: 100dvh;
+  --app-vtop: 0px;
 }
 
 /* ===========================================================================
@@ -273,11 +275,17 @@ h1, h2, h3, .font-display {
 
 ::selection { background: rgba(255, 138, 30, 0.22); color: var(--color-ink); }
 
+/* #root is a FIXED shell pinned to the visual viewport (top + height set by safeArea.ts). Using
+   `top` (not transform) avoids creating a containing block for descendant position:fixed modals.
+   This is what keeps the composer above the on-screen keyboard on iOS Safari. */
 body > #root {
   background: transparent;
+  position: fixed;
+  top: var(--app-vtop, 0px);
+  left: 0;
+  right: 0;
   height: var(--app-height);
   overflow: hidden;
-  position: relative;
   z-index: 1;
 }
 
