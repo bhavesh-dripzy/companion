@@ -131,6 +131,18 @@ async def _dispatch(
     domain = intent["domain"]
     if domain == "grocery":
         return await GROCERY.handle(state, intent, emit)
+    if domain == "news":
+        from core.agent.domains.news_agent import handle as news_handle
+
+        return await news_handle(state, intent, emit)
+    if domain == "flights":
+        from core.agent.domains.flights_agent import handle as flights_handle
+
+        return await flights_handle(state, intent, emit)
+    if domain == "hotels":
+        from core.agent.domains.hotels_agent import handle as hotels_handle
+
+        return await hotels_handle(state, intent, emit)
     if domain == "chitchat":
         return {"domain": "chitchat", "status": "ok", "cards": [], "error": None}
     return {
