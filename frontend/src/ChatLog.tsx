@@ -57,6 +57,7 @@ import {
   ShopProductCardGrid,
   VideoCardGrid,
 } from './components/SerpCards';
+import { TripPlannerCard } from './components/TripPlannerCard';
 import {
   ExternalLink,
   MapPin,
@@ -1818,6 +1819,8 @@ export const AttachmentList: React.FC<{
             leg={att.leg}
             outboundDate={att.outbound_date}
             returnDate={att.return_date}
+            departBefore={att.depart_before}
+            departAfter={att.depart_after}
             onQuickPrompt={onQuickPrompt}
             disabled={quickPromptDisabled}
           />
@@ -1846,8 +1849,25 @@ export const AttachmentList: React.FC<{
       if (kind === 'video_cards' && att.videos?.length) {
         return <VideoCardGrid key={`videos-${idx}`} videos={att.videos} keyword={att.keyword} />;
       }
+      if (kind === 'trip_planner') {
+        return (
+          <TripPlannerCard
+            key={`trip-${idx}`}
+            onSubmit={(p) => onQuickPrompt?.(p)}
+            disabled={quickPromptDisabled}
+          />
+        );
+      }
       if (kind === 'news_cards' && att.articles?.length) {
-        return <NewsCardGrid key={`news-${idx}`} articles={att.articles} keyword={att.keyword} />;
+        return (
+          <NewsCardGrid
+            key={`news-${idx}`}
+            articles={att.articles}
+            keyword={att.keyword}
+            onQuickPrompt={onQuickPrompt}
+            disabled={quickPromptDisabled}
+          />
+        );
       }
       if (kind === 'metric_card' && att.metric) {
         return <MetricCard key={`metric-${idx}`} metric={att.metric} provider={att.provider} />;

@@ -567,6 +567,9 @@ export interface Attachment {
   outbound_date?: string;
   return_date?: string;
   lowest_price?: number;
+  // Departure-time preference parsed from the request ("before 10am") → pre-applied filter.
+  depart_before?: string;
+  depart_after?: string;
   hotel_options?: HotelOption[];
   place_results?: PlaceResult[];
   shop_products?: ShopProduct[];
@@ -648,7 +651,9 @@ export interface ShopProduct {
 
 export interface NewsArticle {
   title?: string;
+  description?: string;
   source?: string;
+  icon?: string;
   date?: string;
   link?: string;
   image?: string;

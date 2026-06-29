@@ -32,6 +32,8 @@ interface ChatAreaProps {
   /** Drops the in-chat District discovery picker (movies / events / dining /
    *  theatres) into the conversation — fired by the Movies & Events chip. */
   onOpenDistrict?: () => void;
+  /** Drops the in-chat trip planner (from/to/dates) — fired by the Plan a Trip chip. */
+  onOpenTrip?: () => void;
   /** Opens the connect-providers (Apps) modal — fired by the header Apps button. */
   onOpenApps?: () => void;
   onToggleLeft?: () => void;
@@ -95,9 +97,9 @@ const PROMPT_OPTIONS = [
     id: 'trip',
     label: 'Plan a Trip',
     prompt: '',
-    comingSoon: true,
     icon: Plane,
-    color: 'bg-[#2b2f72]/8 border-[#2b2f72]/15 text-[#2b2f72]',
+    color:
+      'bg-[#2b2f72]/8 border-[#2b2f72]/15 hover:border-[#2b2f72]/45 text-[#2b2f72] hover:bg-[#2b2f72]/12',
   },
 ];
 
@@ -109,6 +111,7 @@ export function ChatArea({
   onOpenGroceries,
   onOpenFood,
   onOpenDistrict,
+  onOpenTrip,
   onOpenApps,
   onToggleLeft,
   connectedCount: _connectedCount = 0,
@@ -141,6 +144,10 @@ export function ChatArea({
     }
     if (option.id === 'movie' && onOpenDistrict) {
       onOpenDistrict();
+      return;
+    }
+    if (option.id === 'trip' && onOpenTrip) {
+      onOpenTrip();
       return;
     }
     onSuggestionClick(option.prompt);
@@ -393,25 +400,18 @@ export function ChatArea({
                 <div className="w-full flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 mb-1 no-scrollbar scroll-smooth">
                   {PROMPT_OPTIONS.map((option) => {
                     const IconComponent = option.icon;
-                    const soon = 'comingSoon' in option && option.comingSoon;
                     return (
                       <button
                         key={option.id}
                         type="button"
-                        onClick={() => !soon && handleQuickAction(option)}
+                        onClick={() => handleQuickAction(option)}
                         disabled={isThinking}
-                        title={soon ? 'Coming soon' : undefined}
-                        className={`shrink-0 flex items-center gap-1 sm:gap-1.5 border px-3 py-1.5 rounded-[11px] sm:rounded-[12px] text-[11px] sm:text-[12px] font-semibold transition-all duration-200 ${soon ? 'cursor-default' : 'active:scale-95 cursor-pointer hover:shadow-sm'} disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] ${option.color}`}
+                        className={`shrink-0 flex items-center gap-1 sm:gap-1.5 border px-3 py-1.5 rounded-[11px] sm:rounded-[12px] text-[11px] sm:text-[12px] font-semibold transition-all duration-200 active:scale-95 cursor-pointer hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 shadow-[0_6px_18px_-14px_rgba(60,40,30,0.4)] ${option.color}`}
                       >
                         <div className="p-0.5 rounded-md shrink-0">
                           <IconComponent className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                         </div>
                         <span>{option.label}</span>
-                        {soon && (
-                          <span className="ml-0.5 text-[8px] font-bold uppercase tracking-wide px-1.5 py-[2px] rounded-full bg-white/80 border border-slate-300/50 text-slate-500 leading-none">
-                            Soon
-                          </span>
-                        )}
                       </button>
                     );
                   })}

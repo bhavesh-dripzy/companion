@@ -1160,6 +1160,21 @@ const assistantMsg: Message = {
     ]);
   };
 
+  // Plan a Trip quick-action: drop an in-chat trip planner (from/to/dates/pax). Submitting it
+  // fires a normal flights query via handleSendMessage, which routes to the flights domain.
+  const handleOpenTrip = () => {
+    if (isThinking) return;
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: 'Plan a trip' },
+      {
+        role: 'assistant',
+        content: "Let's plan your trip! ✈️\nI can help you find the best flights for your journey.",
+        attachments: [{ kind: 'trip_planner' }],
+      },
+    ]);
+  };
+
   const handleVoiceError = (message: string) => {
     console.error('[Voice] Error:', message);
   };
@@ -1374,6 +1389,7 @@ const assistantMsg: Message = {
             onOpenGroceries={handleOpenGroceries}
             onOpenFood={handleOpenFood}
             onOpenDistrict={handleOpenDistrict}
+            onOpenTrip={handleOpenTrip}
             onOpenApps={() => setShowApps(true)}
             onToggleLeft={() => setIsSidebarCollapsed((v) => !v)}
             isSidebarCollapsed={isSidebarCollapsed}

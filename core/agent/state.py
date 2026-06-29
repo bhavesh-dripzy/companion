@@ -154,6 +154,9 @@ class ConversationState:
     # Direct chat-screen cart actions (UI taps) since the user last spoke — given to the brain so it
     # has full context of what changed in the UI. Consumed (cleared) once the brain has seen them.
     recent_ui_actions: list[str] = field(default_factory=list)
+    # Scratch memory for the read-only SERP domains (news/flights/hotels): e.g. the last flight
+    # options + their departure_tokens, so a "return flights for the ₹X one" follow-up can resolve.
+    serp_session: dict[str, Any] = field(default_factory=dict)
 
     def cart(self, provider: str) -> Cart:
         return self.carts.setdefault(provider, Cart(provider=provider))
