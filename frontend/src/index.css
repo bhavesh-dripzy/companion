@@ -189,7 +189,7 @@ body {
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  background: linear-gradient(135deg, #FAFCFF 0%, #F3F7FD 100%);
+  background: linear-gradient(180deg, #fdfaf3 0%, #faf5ea 100%);
   background-attachment: fixed;
 }
 

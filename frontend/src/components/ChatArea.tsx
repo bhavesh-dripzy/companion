@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Menu, Send, Sparkles, ShoppingCart, Plane, LayoutGrid } from 'lucide-react';
+import { Menu, Send, ShoppingCart, Plane, LayoutGrid } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ChatMessageItem } from './ChatMessageItem';
@@ -377,7 +377,7 @@ export function ChatArea({
           {/* Bottom composer — a fixed bottom bar (shrink-0): the scroll list above takes all the
               flex space and is the ONLY thing that shrinks when the keyboard opens, so the header +
               composer stay put and the composer rides above the keyboard instead of collapsing. */}
-          <div className="shrink-0 px-3 sm:px-4 pt-2.5 sm:pt-4 pb-[calc(0.75rem+var(--safe-bottom))] sm:pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#F3F7FD]/98 via-[#F3F7FD]/50 to-transparent sticky bottom-0 left-0 right-0 z-20">
+          <div className="shrink-0 px-3 sm:px-4 pt-2.5 sm:pt-4 pb-[calc(0.75rem+var(--safe-bottom))] sm:pb-[calc(1rem+var(--safe-bottom))] md:pb-4 bg-gradient-to-t from-[#fdfaf3]/98 via-[#fdfaf3]/60 to-transparent sticky bottom-0 left-0 right-0 z-20">
             {/* Delivery address chip — visible + switchable BEFORE any
                 food/grocery search runs (no more wrong-house surprises). */}
             {sessionAddresses.length > 0 && onPickAddress && (
@@ -421,13 +421,8 @@ export function ChatArea({
 
             <form
               onSubmit={handleSubmit}
-              className="w-full bg-white shadow-[0_2px_16px_rgba(0,0,0,0.08)] rounded-2xl flex items-center pl-4 pr-2 py-3 gap-2 transition-all duration-200"
+              className="w-full bg-white border border-[#ece3d6]/80 shadow-[0_2px_16px_rgba(34,27,46,0.06)] focus-within:border-[#ddd0bf] focus-within:shadow-[0_4px_22px_rgba(34,27,46,0.09)] rounded-2xl flex items-center pl-4 pr-2 py-3 gap-2 transition-all duration-200"
             >
-              {/* Sparkle icon */}
-              <span className="shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                <Sparkles className="w-4 h-4" />
-              </span>
-
               <textarea
                 ref={textareaRef}
                 value={inputValue}
@@ -436,11 +431,11 @@ export function ChatArea({
                 placeholder="Ask omi anything…"
                 disabled={isThinking}
                 rows={1}
-                className="flex-1 bg-transparent border-none outline-none text-[14px] text-[#1a1530] placeholder-slate-400 focus:ring-0 min-w-0 resize-none overflow-hidden self-center"
+                className="flex-1 bg-transparent border-none outline-none text-[14px] text-[#221b2e] placeholder-[#b3aa9e] focus:ring-0 min-w-0 resize-none overflow-hidden self-center"
                 style={{ height: '24px', lineHeight: '24px', padding: 0 }}
               />
 
-              <div className="shrink-0 [&_button]:!w-8 [&_button]:!h-8 [&_button]:!rounded-full [&_button]:!bg-slate-100 [&_button]:!text-slate-500">
+              <div className="shrink-0 [&_button]:!w-8 [&_button]:!h-8 [&_button]:!rounded-full [&_button]:!bg-[#f6f1e7] [&_button]:!text-[#7a7388]">
                 <VoiceInput
                   onStart={() => { dictationBaseRef.current = inputValue.trim(); }}
                   onUpdate={(live) => {
@@ -458,8 +453,8 @@ export function ChatArea({
                 aria-label="Send message"
                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer ${
                   inputValue.trim() && !isThinking
-                    ? 'bg-[#7B6FBE] text-white hover:bg-[#6a5fad] active:scale-95'
-                    : 'bg-[#EAE8F5] text-[#B8B0D8] cursor-not-allowed'
+                    ? 'bg-[#221b2e] text-white hover:bg-[#14101d] active:scale-95'
+                    : 'bg-[#f1ece1] text-[#c9c0b2] cursor-not-allowed'
                 }`}
               >
                 <Send className="w-3.5 h-3.5 stroke-[2]" />
