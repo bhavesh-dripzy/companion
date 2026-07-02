@@ -29,8 +29,11 @@ async def narrate(
     result: dict[str, Any],
     history: list[dict[str, str]] | None = None,
     mode: str = "text",
+    user_memory: str = "",
 ) -> str:
     payload = {"mode": mode, "history": (history or [])[-8:], "result": result}
+    if user_memory:
+        payload["user_memory"] = user_memory
     out = await _complete(NARRATOR_SYSTEM, payload)
     msg = out.get("message")
     # Guard: even if the LLM ignores instructions, never surface a Report ID / raw error code.
