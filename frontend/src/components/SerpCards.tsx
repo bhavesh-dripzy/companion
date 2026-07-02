@@ -717,7 +717,7 @@ export const NewsCardGrid: React.FC<{
   <div className="w-full max-w-full md:max-w-2xl rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden animate-fade-in">
     {/* Header */}
     <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2.5">
-      <span className="w-7 h-7 rounded-lg bg-[#7B6FBE]/10 text-[#7B6FBE] flex items-center justify-center shrink-0">
+      <span className="w-7 h-7 rounded-lg bg-[#2b2f72]/10 text-[#2b2f72] flex items-center justify-center shrink-0">
         <Newspaper size={15} strokeWidth={2.2} />
       </span>
       <span className="text-[14px] font-bold text-[#221b2e]">Top Headlines</span>
@@ -791,7 +791,7 @@ export const NewsCardGrid: React.FC<{
         type="button"
         onClick={() => !disabled && onQuickPrompt('aur latest news dikhao')}
         disabled={disabled}
-        className="w-full py-3 border-t border-slate-100 text-[12.5px] font-semibold text-[#7B6FBE] hover:bg-[#7B6FBE]/5 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+        className="w-full py-3 border-t border-slate-100 text-[12.5px] font-semibold text-[#2b2f72] hover:bg-[#2b2f72]/5 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
       >
         <RefreshCw size={13} strokeWidth={2.4} /> More latest news
       </button>

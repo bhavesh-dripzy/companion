@@ -117,6 +117,15 @@ class CompanionStack(Stack):
                 temp_password_validity=Duration.days(7),
             ),
             account_recovery=cognito.AccountRecovery.EMAIL_ONLY,
+            # Passwordless email-OTP sign-in (USER_AUTH flow) needs the
+            # ESSENTIALS feature plan + EMAIL_OTP as an allowed first factor.
+            feature_plan=cognito.FeaturePlan.ESSENTIALS,
+            sign_in_policy=cognito.SignInPolicy(
+                allowed_first_auth_factors=cognito.AllowedFirstAuthFactors(
+                    password=True,
+                    email_otp=True,
+                ),
+            ),
             removal_policy=RemovalPolicy.RETAIN,
         )
 
@@ -128,6 +137,7 @@ class CompanionStack(Stack):
             auth_flows=cognito.AuthFlow(
                 user_password=True,
                 user_srp=True,
+                user=True,  # ALLOW_USER_AUTH — choice-based flow for EMAIL_OTP
             ),
             generate_secret=False,
             o_auth=cognito.OAuthSettings(
@@ -316,6 +326,13 @@ class CompanionStack(Stack):
         api_function.add_environment("GRAPH_SERVICE_URL", f"https://graph.{domain_name}")
         api_function.add_environment("GRAPH_SERVICE_TOKEN_SECRET", f"{project_name}/graph-service-token")
         app_secret.grant_read(api_function)
+        # Email-OTP sign-in lazily provisions a Cognito user on first login
+        # (create + random permanent password so EMAIL_OTP works passwordless).
+        user_pool.grant(
+            api_function,
+            "cognito-idp:AdminCreateUser",
+            "cognito-idp:AdminSetUserPassword",
+        )
         app_downloads.grant_read(api_function)
         api_function.add_environment("APP_DOWNLOADS_BUCKET", app_downloads.bucket_name)
         # Let the GitHub Actions deploy role upload the freshly-built APK.

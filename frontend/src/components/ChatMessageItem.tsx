@@ -229,7 +229,7 @@ export function ChatMessageItem({
             the narration bubble, not the logo. */}
         {isGroupTail && (
         <div
-          className={`text-[9px] text-slate-400 font-sans font-medium mt-1 px-1.5 select-none flex items-center gap-3 ${
+          className={`text-[9px] text-[#a49db1] font-sans font-medium mt-1 px-1.5 select-none flex items-center gap-3 ${
             isUser ? 'self-end mr-1' : hasProductGrid ? 'self-start ml-[42px]' : 'self-start ml-1'
           }`}
         >
@@ -239,7 +239,7 @@ export function ChatMessageItem({
               {(msg.content || '').trim() && !msg.streaming && (
                 <SpeakButton
                   text={msg.content || ''}
-                  className="p-1 rounded transition-all cursor-pointer text-slate-400 hover:text-[#7B6FBE] hover:bg-[#7B6FBE]/10 inline-flex items-center justify-center"
+                  className="p-1 rounded transition-all cursor-pointer text-slate-400 hover:text-[#2b2f72] hover:bg-[#2b2f72]/10 inline-flex items-center justify-center"
                 />
               )}
               <button
