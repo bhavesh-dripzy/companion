@@ -5,8 +5,9 @@ full graph extraction (facts + interests + leads). This one runs ON the request 
 and extracts ONLY durable personal columns, so the agent has them on the very next
 turn instead of waiting for the async pipeline. Same LLM client, much smaller prompt.
 
-Addresses are deliberately excluded — delivery addresses come only from the user's
-saved provider addresses, never from conversation.
+Office/home locations are captured as INFORMATIONAL facts ("book a cab to my office"
+needs to know where the office is) — they are never used as delivery addresses, which
+still come only from the user's saved provider addresses.
 """
 
 from __future__ import annotations
@@ -19,14 +20,28 @@ logger = logging.getLogger(__name__)
 
 # The cache personal columns this extractor may fill (mirror of the graph User props).
 _PERSONAL_COLUMNS = (
-    "name", "age", "city", "language", "phone", "email",
-    "occupation", "family_size", "family_composition",
+    "name",
+    "age",
+    "city",
+    "language",
+    "phone",
+    "email",
+    "occupation",
+    "family_size",
+    "family_composition",
+    "family_names",
+    "office_location",
+    "home_location",
 )
 
+_MAX_PREFERENCES = 20
+_MAX_PREFERENCE_LEN = 80
+
 PERSONAL_FACT_SYSTEM_PROMPT = """
-You extract DURABLE PERSONAL FACTS about the user from a single conversation turn.
-Return ONLY facts the user clearly stated or that are clearly implied about THEM —
-never guesses, never facts about other people, products, or places.
+You extract DURABLE PERSONAL FACTS and PREFERENCES about the user from a single
+conversation turn. Return ONLY things the user clearly stated or that are clearly
+implied about THEM or their immediate family — never guesses, never facts about
+unrelated third parties, and never specific products they want to buy right now.
 
 Extract only these fields (omit any you are not confident about):
 - name: the user's name
@@ -38,19 +53,31 @@ Extract only these fields (omit any you are not confident about):
 - occupation: job / profession (e.g. "doctor", "software engineer")
 - family_size: number of family members
 - family_composition: family roles, comma-separated (e.g. "spouse, child, parent")
+- family_names: immediate family members' names with their relation, comma-separated
+  (e.g. "wife Priya, son Aarav") — only when the user names them
+- office_location: where the user's office / workplace is, as they stated it
+  (e.g. "DLF Cyber City Tower B, Gurugram")
+- home_location: the user's home area / locality as they stated it
+  (e.g. "Sector 45, Gurgaon")
+- preferences: a list of SHORT durable preference phrases about how THEY like things
+  — dietary ("vegetarian", "no onion garlic"), tastes ("loves spicy food", "prefers
+  filter coffee"), habits/style ("pays via UPI", "likes concise answers"), or topics
+  they follow ("follows cricket"). NOT one-off product purchases or shopping lists.
 
-Do NOT extract home/work/delivery addresses or street locations.
-Do NOT invent values. If the turn contains no personal facts, return an empty object.
+Do NOT invent values. A location counts only when the user actually states where it
+is — "book a cab to my office" alone names no place. If the turn reveals nothing
+durable, return an empty object.
 
 Output MUST be a JSON object with only the fields you found, e.g.:
-{"occupation": "doctor", "city": "Gurugram", "family_composition": "spouse, child"}
+{"occupation": "doctor", "office_location": "Cyber City, Gurugram",
+ "preferences": ["vegetarian", "follows cricket"]}
 """
 
 
 def _coerce(key: str, value: Any) -> Any:
     if value is None:
         return None
-    if key == "family_composition" and isinstance(value, (list, tuple)):
+    if key in ("family_composition", "family_names") and isinstance(value, list | tuple):
         value = ", ".join(str(v).strip() for v in value if str(v).strip())
     text = str(value).strip()
     return text or None
@@ -68,6 +95,24 @@ def normalize_personal_facts(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def normalize_preferences(raw: dict[str, Any]) -> list[str]:
+    """Clean the freeform preference list — short non-empty phrases, de-duped, capped."""
+    value = raw.get("preferences") if isinstance(raw, dict) else None
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list | tuple):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        pref = str(item or "").strip()[:_MAX_PREFERENCE_LEN]
+        key = pref.lower()
+        if pref and key not in seen:
+            seen.add(key)
+            out.append(pref)
+    return out[:_MAX_PREFERENCES]
+
+
 async def extract_personal_facts(
     *,
     user_message: str,
@@ -75,7 +120,8 @@ async def extract_personal_facts(
     complete_json: Callable[..., Awaitable[dict[str, Any]]],
     llm: Any,
 ) -> dict[str, Any]:
-    """Single narrow LLM call → dict of personal columns (possibly empty). Fail-open."""
+    """Single narrow LLM call → dict of personal columns (+ `preferences` list when
+    stated). Possibly empty. Fail-open."""
     if not (user_message or "").strip():
         return {}
     prompt = (
@@ -89,4 +135,8 @@ async def extract_personal_facts(
     except Exception as exc:
         logger.warning("personal-fact extraction failed: %s", exc)
         return {}
-    return normalize_personal_facts(raw)
+    facts = normalize_personal_facts(raw)
+    preferences = normalize_preferences(raw)
+    if preferences:
+        facts["preferences"] = preferences
+    return facts

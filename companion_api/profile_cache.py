@@ -1,9 +1,11 @@
 from __future__ import annotations
-from typing import Any
-from companion_api import settings
-from companion_api.dynamodb import _resource, _json_safe, utc_now_iso
+
 import json
 from decimal import Decimal
+from typing import Any
+
+from companion_api import settings
+from companion_api.dynamodb import _json_safe, _resource, utc_now_iso
 
 
 class ProfileCacheRepository:
@@ -16,12 +18,17 @@ class ProfileCacheRepository:
         return _json_safe(item) if item else None
 
     def put(self, user_id: str, profile: dict[str, Any]) -> None:
-        item = json.loads(json.dumps({
-            "PK": f"USER#{user_id}",
-            "SK": "PROFILE",
-            **profile,
-            "updated_at": utc_now_iso(),
-        }), parse_float=Decimal)
+        item = json.loads(
+            json.dumps(
+                {
+                    "PK": f"USER#{user_id}",
+                    "SK": "PROFILE",
+                    **profile,
+                    "updated_at": utc_now_iso(),
+                }
+            ),
+            parse_float=Decimal,
+        )
         self.table.put_item(Item=item)
 
     def update_fields(self, user_id: str, fields: dict[str, Any]) -> None:
@@ -59,6 +66,25 @@ class ProfileCacheRepository:
             return
         fields["updated_at_personal"] = utc_now_iso()
         self.update_fields(user_id, fields)
+
+    def merge_preferences(self, user_id: str, new: list[str], cap: int = 20) -> None:
+        """Union durable personal preferences into the profile (Tier-1), newest last,
+        case-insensitively de-duped and capped. Read-merge-write: preferences
+        accumulate across turns (unlike scalar columns, which are overwritten)."""
+        incoming = [str(p).strip() for p in new if str(p).strip()]
+        if not incoming:
+            return
+        existing = (self.get(user_id) or {}).get("preferences") or []
+        merged: list[str] = []
+        seen: set[str] = set()
+        for pref in [*existing, *incoming]:
+            key = str(pref).strip().lower()
+            if str(pref).strip() and key not in seen:
+                seen.add(key)
+                merged.append(str(pref).strip())
+        self.update_fields(
+            user_id, {"preferences": merged[-cap:], "updated_at_personal": utc_now_iso()}
+        )
 
     def merge_projection(self, user_id: str, projection: dict[str, Any]) -> None:
         """Persist the worker's graph projection (Tier-2) as a merge, stamping updated_at_leads."""
