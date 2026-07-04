@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Eye, EyeOff, KeyRound, Lock, Mail, User } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, KeyRound, Lock, Smartphone, User } from 'lucide-react';
 import { api, setToken, setRefreshToken, clearRefreshToken } from './api';
 import { prefetchHeroGreeting, rememberLastUser } from './heroGreeting';
 import type { AuthResponse } from './types';
@@ -8,11 +8,11 @@ interface LoginProps {
   onLoginSuccess: (username: string) => void;
 }
 
-// Sign-in surface. Primary flow is passwordless email OTP (Cognito USER_AUTH
-// + EMAIL_OTP): enter email → 6-digit code lands in the inbox → verified into
-// tokens. Password sign-in stays available as a fallback (and is the only
-// mode when the backend runs without Cognito, e.g. bare local dev).
-type OtpStep = 'email' | 'code';
+// Sign-in surface. Primary flow is passwordless SMS OTP (Cognito USER_AUTH
+// + SMS_OTP): enter mobile number → 6-digit code arrives by SMS → verified
+// into tokens. Username/password sign-in stays available as a fallback (and is
+// the only mode when the backend runs without Cognito, e.g. bare local dev).
+type OtpStep = 'phone' | 'code';
 
 const RESEND_COOLDOWN_S = 30;
 
@@ -26,10 +26,11 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState(false);
 
   // OTP flow
-  const [otpStep, setOtpStep] = useState<OtpStep>('email');
-  const [email, setEmail] = useState('');
+  const [otpStep, setOtpStep] = useState<OtpStep>('phone');
+  const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [otpSession, setOtpSession] = useState('');
+  const [otpUsername, setOtpUsername] = useState('');
   const [destination, setDestination] = useState('');
   const [resendIn, setResendIn] = useState(0);
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -84,8 +85,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setError('');
     setLoading(true);
     try {
-      const data = await api.post('/api/auth/otp/start/', { email: email.trim() });
+      const data = await api.post('/api/auth/otp/start/', { phone: phone.trim() });
       setOtpSession(data.session);
+      setOtpUsername(data.username || '');
       setDestination(data.destination || '');
       setOtpStep('code');
       setCode('');
@@ -100,7 +102,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   const handleOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (otpStep === 'email') {
+    if (otpStep === 'phone') {
       await sendCode();
       return;
     }
@@ -108,7 +110,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setLoading(true);
     try {
       const data: AuthResponse = await api.post('/api/auth/otp/verify/', {
-        username: email.trim(),
+        username: otpUsername,
         session: otpSession,
         code: code.trim(),
         remember_me: rememberMe,
@@ -142,7 +144,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const switchMode = (next: 'otp' | 'password') => {
     setMode(next);
     setError('');
-    setOtpStep('email');
+    setOtpStep('phone');
     setCode('');
   };
 
@@ -171,40 +173,43 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       >
         {mode === 'otp' ? (
           <>
-            {otpStep === 'email' ? (
+            {otpStep === 'phone' ? (
               <>
-                <h2 className="text-[16px] font-bold text-[#221b2e]">Sign in with email</h2>
+                <h2 className="text-[16px] font-bold text-[#221b2e]">Sign in with mobile</h2>
                 <p className="text-[#a49db1] text-[12.5px] mt-1 mb-5 font-medium">
-                  We'll email you a one-time code — no password needed
+                  We'll text you a one-time code — no password needed
                 </p>
               </>
             ) : (
               <>
                 <h2 className="text-[16px] font-bold text-[#221b2e]">Enter your code</h2>
                 <p className="text-[#a49db1] text-[12.5px] mt-1 mb-5 font-medium">
-                  Sent to {destination || email}
+                  Sent to {destination || phone}
                 </p>
               </>
             )}
 
             <form onSubmit={handleOtpSubmit} className="space-y-3.5">
-              {otpStep === 'email' ? (
+              {otpStep === 'phone' ? (
                 <div>
-                  <label className="block text-[12.5px] font-semibold text-[#3d3550] mb-1.5">Email</label>
+                  <label className="block text-[12.5px] font-semibold text-[#3d3550] mb-1.5">
+                    Mobile number
+                  </label>
                   <div className="relative">
-                    <Mail
+                    <Smartphone
                       size={16}
                       className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a49db1] pointer-events-none"
                     />
                     <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
                       className="w-full bg-white border border-[#ece3d6] rounded-xl pl-10 pr-4 py-2.5 text-[14px] text-[#221b2e] placeholder:text-[#b3aa9e] focus:outline-none focus:border-[#2b2f72] focus:ring-2 focus:ring-[#2b2f72]/15"
-                      placeholder="you@example.com"
+                      placeholder="+91 98765 43210"
                       autoCapitalize="none"
                       autoCorrect="off"
-                      autoComplete="email"
+                      autoComplete="tel"
+                      inputMode="tel"
                       required
                     />
                   </div>
@@ -237,12 +242,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     <button
                       type="button"
                       onClick={() => {
-                        setOtpStep('email');
+                        setOtpStep('phone');
                         setError('');
                       }}
                       className="text-[12px] font-semibold text-[#7a7388] hover:text-[#221b2e] inline-flex items-center gap-1"
                     >
-                      <ArrowLeft size={12} /> Change email
+                      <ArrowLeft size={12} /> Change number
                     </button>
                     <button
                       type="button"
@@ -278,8 +283,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 className="btn-ink w-full font-bold py-3 text-[14px] rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 mt-1"
               >
                 {loading
-                  ? otpStep === 'email' ? 'Sending code…' : 'Verifying…'
-                  : otpStep === 'email' ? 'Send code' : 'Verify & sign in'}
+                  ? otpStep === 'phone' ? 'Sending code…' : 'Verifying…'
+                  : otpStep === 'phone' ? 'Send code' : 'Verify & sign in'}
                 {!loading && <ArrowRight size={16} />}
               </button>
             </form>
@@ -378,7 +383,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 onClick={() => switchMode('otp')}
                 className="w-full text-center text-[12.5px] font-semibold text-[#7a7388] hover:text-[#221b2e] mt-4"
               >
-                Email me a code instead
+                Text me a code instead
               </button>
             )}
           </>
