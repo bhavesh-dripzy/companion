@@ -284,6 +284,7 @@ async def handle(state, intent: dict[str, Any], emit: Emit = noop) -> dict[str, 
             "notepad": {pid: state.catalog.structured(pid).get(pid, {}) for pid in connected},
             "cart": _cart_compact(state, connected),
             "old_items": _old_items(state, connected) or None,
+            "user_memory": intent.get("user_memory") or None,
         }
     )
     log.debug("RESPONSE → %s", short(say_text, 120))

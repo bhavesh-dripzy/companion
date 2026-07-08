@@ -117,7 +117,45 @@ class CompanionStack(Stack):
                 temp_password_validity=Duration.days(7),
             ),
             account_recovery=cognito.AccountRecovery.EMAIL_ONLY,
+            # Passwordless SMS-OTP sign-in (USER_AUTH flow) needs the ESSENTIALS
+            # feature plan + SMS_OTP as an allowed first factor. Password stays
+            # allowed as the fallback sign-in.
+            feature_plan=cognito.FeaturePlan.ESSENTIALS,
+            sign_in_policy=cognito.SignInPolicy(
+                allowed_first_auth_factors=cognito.AllowedFirstAuthFactors(
+                    password=True,
+                    sms_otp=True,
+                ),
+            ),
             removal_policy=RemovalPolicy.RETAIN,
+        )
+
+        # Cognito needs an SNS-publish role to deliver the SMS_OTP codes. We
+        # attach it via the L1 escape hatch so we can enable SMS delivery
+        # WITHOUT turning on SMS MFA or phone auto-verification (which would
+        # change the pool's sign-up behaviour). The external-id condition is
+        # AWS's recommended confused-deputy guard for the Cognito→SNS assume.
+        sms_external_id = f"{project_name}-cognito-sms"
+        cognito_sms_role = iam.Role(
+            self,
+            "CognitoSmsRole",
+            assumed_by=iam.ServicePrincipal(
+                "cognito-idp.amazonaws.com",
+                conditions={"StringEquals": {"sts:ExternalId": sms_external_id}},
+            ),
+            inline_policies={
+                "AllowSnsPublish": iam.PolicyDocument(
+                    statements=[
+                        iam.PolicyStatement(actions=["sns:Publish"], resources=["*"])
+                    ]
+                )
+            },
+        )
+        cfn_user_pool = user_pool.node.default_child
+        cfn_user_pool.sms_configuration = cognito.CfnUserPool.SmsConfigurationProperty(
+            sns_caller_arn=cognito_sms_role.role_arn,
+            external_id=sms_external_id,
+            sns_region=self.region,
         )
 
         user_pool_client = cognito.UserPoolClient(
@@ -128,6 +166,7 @@ class CompanionStack(Stack):
             auth_flows=cognito.AuthFlow(
                 user_password=True,
                 user_srp=True,
+                user=True,  # ALLOW_USER_AUTH — choice-based flow for EMAIL_OTP
             ),
             generate_secret=False,
             o_auth=cognito.OAuthSettings(
@@ -316,6 +355,13 @@ class CompanionStack(Stack):
         api_function.add_environment("GRAPH_SERVICE_URL", f"https://graph.{domain_name}")
         api_function.add_environment("GRAPH_SERVICE_TOKEN_SECRET", f"{project_name}/graph-service-token")
         app_secret.grant_read(api_function)
+        # Email-OTP sign-in lazily provisions a Cognito user on first login
+        # (create + random permanent password so EMAIL_OTP works passwordless).
+        user_pool.grant(
+            api_function,
+            "cognito-idp:AdminCreateUser",
+            "cognito-idp:AdminSetUserPassword",
+        )
         app_downloads.grant_read(api_function)
         api_function.add_environment("APP_DOWNLOADS_BUCKET", app_downloads.bucket_name)
         # Let the GitHub Actions deploy role upload the freshly-built APK.

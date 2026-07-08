@@ -7,9 +7,11 @@ routes/narrates; the DomainHandler + CartStrategies do the deterministic work. A
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from typing import Any
 
-from core.agent import address_store
+from core.agent import address_store, memory
 from core.agent.contracts import fmt_minor
 from core.agent.debug import log, short
 from core.agent.domains.grocery import HANDLER as GROCERY
@@ -46,6 +48,16 @@ async def run_turn(
         client_action or short(message, 90),
     )
 
+    # User memory: recall runs for every turn (personalizes the reply); capture only for real
+    # text turns worth reading. Both are kicked off here so they overlap the domain work, and
+    # both are fail-open inside — a memory hiccup never breaks the turn.
+    recall_task = asyncio.create_task(memory.recall(user_id))
+    capture_task = (
+        asyncio.create_task(memory.capture(user_id, message))
+        if not client_action and memory.worth_capturing(message)
+        else None
+    )
+
     if client_action:
         intent = _intent_from_action(client_action, state)
         log.debug("INTENT (tap) %s", short(intent))
@@ -68,6 +80,7 @@ async def run_turn(
     )
     # The handler narrates its own progress (per-tool `say` + `cards`, in completion order) via emit.
     intent["message"] = message  # raw user text, for the grounded grocery brain
+    intent["user_memory"] = await recall_task  # durable facts/preferences, for grounded repliers
     result = await _dispatch(state, intent, emit)
     if client_action and intent.get("domain") == "grocery":
         _record_ui_action(state, intent)  # so the grounded brain knows what the user did via the UI
@@ -82,7 +95,10 @@ async def run_turn(
     # Grounded handlers (grocery agent) already wrote the reply in the same step as the actions — use
     # it directly so words + actions can't diverge. Classic handlers carry no `say` → narrate as before.
     assistant = result.get("say") or await narrate(
-        _for_narrator(intent, result, message), state.recent_history(), mode
+        _for_narrator(intent, result, message),
+        state.recent_history(),
+        mode,
+        user_memory=intent["user_memory"],
     )
     log.debug("NARRATOR → %s", short(assistant, 120))
     state.add_history("assistant", assistant)
@@ -90,6 +106,11 @@ async def run_turn(
         state.active_domain = intent["domain"]
     STORE.save(state)
     await emit(say(assistant))  # the closing line types out last (after any cards have landed)
+    # Let the concurrent fact-capture finish before returning — on Lambda a pending task
+    # would be frozen with the container; locally this is a no-op (it's long done).
+    if capture_task is not None:
+        with contextlib.suppress(Exception):
+            await capture_task
     return _response(state, chat_id, assistant, intent, result)
 
 

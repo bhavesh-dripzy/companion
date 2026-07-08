@@ -97,3 +97,6 @@ ARCHITECTURE_*.md
 **_IGNORE_**
 # end managed by open-wa
 samples/
+
+# Local system-design POC scratch (not tracked)
+poc_system design/
