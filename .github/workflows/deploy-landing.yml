@@ -1,0 +1,83 @@
+name: Deploy landing (fast)
+
+# Fast path for landing-page-only changes. The landing site is just static files
+# on S3 + CloudFront, so it does NOT need `cdk deploy --all` (every stack) or an
+# Android APK rebuild — those are what make the full Deploy workflow take ~10 min.
+# This syncs `landing/` straight to the bucket and invalidates CloudFront, in
+# well under a minute. Bucket + distribution are read from the companion-landing
+# CloudFormation outputs, so nothing is hardcoded.
+#
+# Trigger: run on demand (Actions → Deploy landing (fast) → Run workflow), on any
+# ref. The full Deploy workflow still owns backend/graph/APK.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: companion-deploy-landing
+  cancel-in-progress: true
+
+jobs:
+  deploy-landing:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_ACCOUNT_ID: "616551057455"
+      AWS_REGION: ap-south-1
+      AWS_DEPLOY_ROLE_ARN: "arn:aws:iam::616551057455:role/GitHubActionsDeployRole"
+      LANDING_STACK: companion-landing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS target account
+        run: |
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          if [ "$ACCOUNT_ID" != "$AWS_ACCOUNT_ID" ]; then
+            echo "Refusing to deploy to AWS account $ACCOUNT_ID; expected $AWS_ACCOUNT_ID."
+            exit 1
+          fi
+
+      - name: Resolve bucket + distribution from CloudFormation outputs
+        id: cfn
+        run: |
+          out() {
+            aws cloudformation describe-stacks --stack-name "$LANDING_STACK" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
+          }
+          BUCKET="$(out LandingBucketName)"
+          DIST="$(out DistributionId)"
+          if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ] || [ -z "$DIST" ] || [ "$DIST" = "None" ]; then
+            echo "Could not resolve LandingBucketName/DistributionId from $LANDING_STACK outputs." >&2
+            exit 1
+          fi
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+          echo "dist=$DIST"   >> "$GITHUB_OUTPUT"
+          echo "Bucket: $BUCKET · Distribution: $DIST"
+
+      - name: Sync landing/ to S3
+        run: |
+          aws s3 sync landing/ "s3://${{ steps.cfn.outputs.bucket }}" \
+            --delete \
+            --cache-control "public,max-age=300"
+
+      - name: Invalidate CloudFront
+        run: |
+          ID="$(aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.cfn.outputs.dist }}" \
+            --paths '/*' --query 'Invalidation.Id' --output text)"
+          echo "Invalidation: $ID"
+
+      - name: Smoke test
+        run: |
+          sleep 5
+          curl -fsSL --max-time 20 https://jatayulabs.com >/dev/null && echo "landing reachable"
