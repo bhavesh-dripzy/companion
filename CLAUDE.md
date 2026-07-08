@@ -128,7 +128,9 @@ cd frontend && npm ci && npx tsc --noEmit && npm run build
    - `APP_SECRETS_JSON` (override JSON) OR individual keys: `SARVAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `FOOD_ROUTER_PROVIDER`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `PUBLIC_BASE_URL`
 6. **Ensure Cognito admin user** — creates/sets password for `ADMIN_USERNAME` in Cognito user pool
 7. **Smoke test** — `GET /api/` against the deployed API URL
-8. **Build APK** (if `frontend/` or `ci/` changed) — rebuilds Android APK with fixed debug keystore, publishes to S3 app-downloads bucket
+8. **Build APK** — **opt-in only.** Rebuilds the Android APK + publishes to the S3 app-downloads bucket, but **only when you dispatch Deploy with `build_apk=true`** *and* app files (`frontend/`, `ci/`) changed. Routine deploys and Promote leave it off (it was the slowest step and fired even for landing/CSS-only changes). Gradle + npm are cached, so it's ~2× faster when it does run. Turn it on when the mobile app actually changed.
+
+> **Landing-page change? Don't use this workflow.** Use **`deploy-landing.yml`** (below) — it ships in seconds instead of ~10 min and skips CDK + the APK entirely.
 
 #### Secrets required (GitHub repo settings → Secrets and variables → Actions)
 
@@ -147,6 +149,22 @@ cd frontend && npm ci && npx tsc --noEmit && npm run build
 | `TWILIO_ACCOUNT_SID` | Twilio account SID |
 | `TWILIO_AUTH_TOKEN` | Twilio auth token |
 | `TWILIO_FROM_NUMBER` | Twilio WhatsApp sender number |
+
+### `deploy-landing.yml` — Fast landing-only deploy ⚡
+
+**Use this for any change under `landing/`.** The landing site is just static files on S3 + CloudFront, so it does **not** need `cdk deploy --all` or an APK rebuild. This syncs `landing/` straight to the bucket and invalidates CloudFront in **well under a minute** (vs ~10 min for the full Deploy).
+
+**Trigger:** `workflow_dispatch` only — Actions → **Deploy landing (fast)** → Run workflow (any branch/ref), or:
+```bash
+gh workflow run deploy-landing.yml --ref main
+```
+
+**Steps:** assume the deploy role (OIDC) → read `LandingBucketName` + `DistributionId` from the **`companion-landing` CloudFormation outputs** (nothing hardcoded) → `aws s3 sync landing/ s3://<bucket> --delete` → CloudFront invalidation `/*` → smoke-test `https://jatayulabs.com`.
+
+**Notes:**
+- Only tracked files under `landing/` are published (CI checkout has no untracked scratch files).
+- Still land the change on the trunk the normal way (PR → `dev`), even though you deployed via this fast path — otherwise the next Promote's full Deploy could serve a stale `landing/`.
+- Separate concurrency group, so it never queues behind a heavy backend deploy.
 
 ### `deploy-staging.yml` — Staging (`staging` branch)
 
@@ -234,8 +252,9 @@ aws secretsmanager create-secret \
 3. Check API Gateway stage variables
 4. If EC2 graph worker: check EC2 instance status and logs
 
-### APK build fails
-**Cause:** Usually Node.js version (Capacitor 8 requires Node ≥22), missing Android SDK, or keystore issues.  
+### APK didn't build / build fails
+**First check:** the APK is **opt-in** — a normal deploy or Promote will **not** build it. Re-run Deploy with `-f build_apk=true` (and app files must have changed).  
+**Cause of failures:** Usually Node.js version (Capacitor 8 requires Node ≥22), missing Android SDK, or keystore issues.  
 **Fix:**
 - Verify Node version in `build-apk` job: uses Node 22
 - Check `ci/companion-debug.keystore` is committed
@@ -306,8 +325,13 @@ gh run list --workflow=CI --limit 5
 # Check deploy status
 gh run list --workflow=Deploy --limit 5
 
-# Trigger a manual deploy (requires gh cli)
+# Fast landing-only deploy (static → S3 + CloudFront, ~30s; use for any landing/ change)
+gh workflow run deploy-landing.yml --ref main
+
+# Trigger a full manual deploy (all CDK stacks; APK stays OFF)
 gh workflow run deploy.yml --ref main
+# Full deploy AND rebuild the Android APK (only when the mobile app changed)
+gh workflow run deploy.yml --ref main -f build_apk=true
 
 # Cancel a running workflow
 gh run cancel <run-id>
