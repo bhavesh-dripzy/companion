@@ -228,8 +228,11 @@
   .ainp .ic svg{width:16px;height:16px}
   /* scene dots (non-interactive progress) */
   .dots{display:flex;gap:7px;justify-content:center;margin-top:18px}
-  .dots i{width:8px;height:8px;border-radius:50%;background:var(--ink);opacity:.22;transition:opacity .3s,width .3s}
-  .dots i.on{opacity:1;width:22px;border-radius:99px;background:var(--green)}
+  .dots .dot{width:8px;height:8px;border-radius:50%;background:var(--ink);opacity:.22;border:none;padding:0;cursor:pointer;position:relative;transition:opacity .3s,width .3s,background .3s}
+  .dots .dot::after{content:"";position:absolute;inset:-11px}
+  .dots .dot.on{opacity:1;width:22px;border-radius:99px;background:var(--green)}
+  .dots .dot:hover{opacity:.6}
+  .dots .dot.on:hover{opacity:1}
 
   /* ── why different ── */
   .rate{background:var(--dark);color:var(--chalk);border-top:2px solid var(--ink);border-bottom:2px solid var(--ink);padding:88px 0}
@@ -311,8 +314,11 @@
     .shelf{grid-template-columns:1fr}
     .show-grid{grid-template-columns:1fr;gap:8px}
     .phone-col{position:static;margin:0 auto 8px}
-    .beat{min-height:0;padding:14px 0}
-    .beat:not(.on){opacity:1}
+    .beat{min-height:0;padding:2px 0 4px;text-align:center;align-items:center}
+    .beat:not(.on){display:none}
+    .beat.on{opacity:1}
+    .beat p{margin-left:auto;margin-right:auto}
+    .beat .via{justify-content:center}
     .rate-grid,.story-grid{grid-template-columns:1fr;gap:40px}
     .nav-links a:not(.btn){display:none}
   }
@@ -323,6 +329,7 @@
     .cta-row .btn{padding:12px 20px;font-size:14px}
     h1{font-size:clamp(34px,10vw,48px)}
     .stats span,.beat .via span{font-size:10.5px}
+    .hero-mark img{width:clamp(120px,33vw,145px)}
   }
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
@@ -499,7 +506,12 @@
             </div>
           </div>
         </div>
-        <div class="dots" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></div>
+        <div class="dots" role="tablist" aria-label="Switch Companion demo">
+          <button class="dot on" data-t="0" aria-label="Food demo"></button>
+          <button class="dot" data-t="1" aria-label="Groceries demo"></button>
+          <button class="dot" data-t="2" aria-label="Going-out demo"></button>
+          <button class="dot" data-t="3" aria-label="Markets demo"></button>
+        </div>
       </div>
       <!-- scrolling beats -->
       <div class="beats">
@@ -619,11 +631,13 @@
   // ── Companion showcase: scrolly (desktop) / auto-rotate (mobile) ──
   const scenes = [...document.querySelectorAll('.ascene')];
   const beats  = [...document.querySelectorAll('.beat')];
-  const dots   = [...document.querySelectorAll('.dots i')];
+  const dots   = [...document.querySelectorAll('.dots .dot')];
   const mqSmall = matchMedia('(max-width:960px)');
   const reduced = matchMedia('(prefers-reduced-motion:reduce)').matches;
 
+  let cur = 0;
   function setScene(i){
+    cur = i;
     scenes.forEach(s => s.classList.toggle('active', +s.dataset.t === i));
     beats.forEach(b => b.classList.toggle('on', +b.dataset.t === i));
     dots.forEach((d, k) => d.classList.toggle('on', k === i));
@@ -638,11 +652,17 @@
   }
   function startAuto(){
     if (reduced) return;
-    let i = 0;
-    timer = setInterval(() => { i = (i + 1) % scenes.length; setScene(i); }, 3800);
+    timer = setInterval(() => setScene((cur + 1) % scenes.length), 3800);
   }
   function stopAll(){ if (scrollyIO){scrollyIO.disconnect();scrollyIO=null;} if (timer){clearInterval(timer);timer=null;} }
   function mount(){ stopAll(); setScene(0); (mqSmall.matches ? startAuto : startScrolly)(); }
+
+  // Tappable dots: switch scene on any viewport; on mobile keep autoplay rolling from the tapped scene.
+  dots.forEach((d, k) => d.addEventListener('click', () => {
+    setScene(k);
+    if (mqSmall.matches && !reduced){ if (timer) clearInterval(timer); startAuto(); }
+  }));
+
   mount();
   mqSmall.addEventListener('change', mount);
 </script>
