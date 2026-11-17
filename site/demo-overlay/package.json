@@ -1,0 +1,22 @@
+{
+  "name": "vaayu-isolated-marketing-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit --jsx react-jsx --lib ES2022,DOM --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck --esModuleInterop --allowSyntheticDefaultImports frontend/src/vite-env.d.ts frontend/src/demo-main.tsx",
+    "build": "npm run typecheck && vite build"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "lucide-react": "0.468.0"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "typescript": "5.9.3",
+    "vite": "6.4.3",
+    "@vitejs/plugin-react": "4.7.0"
+  }
+}
