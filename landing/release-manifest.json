@@ -1,0 +1,161 @@
+{
+  "schema_version": "jatayu-site-release/v1",
+  "domain": "jatayulabs.com",
+  "files": [
+    {
+      "path": ".well-known/security.txt",
+      "sha256": "f660f45b1de3ecdd921833ac93d0d40fe19692f19fc9797a17e64b341091c1b9",
+      "bytes": 281
+    },
+    {
+      "path": "404.html",
+      "sha256": "6baef5b9f8e9d9241f231ec8de991eff830c8b08f253ce61569add42c07ca0d5",
+      "bytes": 648
+    },
+    {
+      "path": "apple-touch-icon.png",
+      "sha256": "4c5636f45a515c53a8d2b0039bfd701bf8df27c6c2cf6310a3a5127174c067bb",
+      "bytes": 45311
+    },
+    {
+      "path": "assets/fonts/52de70091213c9eab340.woff2",
+      "sha256": "52de70091213c9eab340e2a7ac59e7b6b2b94e089bf69ef38479b22cfde4274c",
+      "bytes": 10016
+    },
+    {
+      "path": "assets/fonts/5b7716398b823c97f055.woff2",
+      "sha256": "5b7716398b823c97f0553b4d0d45bdba9b8a6efe73c429d3fc1cbceadd64adb0",
+      "bytes": 10108
+    },
+    {
+      "path": "assets/fonts/IBM-Plex-Mono-OFL.txt",
+      "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da",
+      "bytes": 4456
+    },
+    {
+      "path": "assets/fonts/Inter-OFL.txt",
+      "sha256": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57",
+      "bytes": 4377
+    },
+    {
+      "path": "assets/fonts/c940764593d0fe5d596b.woff2",
+      "sha256": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4",
+      "bytes": 48432
+    },
+    {
+      "path": "assets/fonts/f17f51948d10b67d9073.woff2",
+      "sha256": "f17f51948d10b67d907393ccbac551912f2c2bd2c5af19be3aabe2f456f8fe54",
+      "bytes": 10056
+    },
+    {
+      "path": "assets/fonts/fonts.css",
+      "sha256": "e1b8216a5e99a85637a595261783690bc0a87adc3e4505fac755257990ea8c4a",
+      "bytes": 1476
+    },
+    {
+      "path": "assets/legal.css",
+      "sha256": "8164a6ee43fce0b045a5149ccaa1cee071135d865404b312f023cf4b6aab8f1c",
+      "bytes": 1208
+    },
+    {
+      "path": "assets/logo.png",
+      "sha256": "9f76c55407fa899a2d56169ad8a5e08e5655f785fb786706c030fb9d01591588",
+      "bytes": 62809
+    },
+    {
+      "path": "assets/og-image.png",
+      "sha256": "1adba77d0359f95df800a40d9da987ad389caa389a9bc7b0622af4ddc9b8a4ec",
+      "bytes": 119395
+    },
+    {
+      "path": "assets/product-assets.webp",
+      "sha256": "1d32e18ae8ba11abde3bf62282a32d8570c4f1b407a2e79432633c00625405f4",
+      "bytes": 40234
+    },
+    {
+      "path": "assets/product-evidence.webp",
+      "sha256": "676559035ab4da2e5d02a44e9c89c6079b1bda324f4d397712cd39cb46c7b68d",
+      "bytes": 115020
+    },
+    {
+      "path": "assets/product-overview.webp",
+      "sha256": "521e5ab14cc0d51a510330c24d84f6f01dfe964d498ea0386f78d1f5de1ff32c",
+      "bytes": 109308
+    },
+    {
+      "path": "assets/product-risks.webp",
+      "sha256": "388ca0424d668a36386781767ab8031a73c26247470299a75eca901a1c1abbb0",
+      "bytes": 90526
+    },
+    {
+      "path": "assets/repo-workflow.gif",
+      "sha256": "df97e15db77c3a503f9ac10b08dba7f21a550c60234d3f30b15ac50371f08aec",
+      "bytes": 360393
+    },
+    {
+      "path": "assets/site-abfc31015f638704.css",
+      "sha256": "abfc31015f638704f41ee8a431c918cf8756e6fdc6ea1694d297c24109906dd5",
+      "bytes": 31573
+    },
+    {
+      "path": "assets/site-f4aec7054bd1f0a1.js",
+      "sha256": "f4aec7054bd1f0a1f13d51cf9fe14c190dbbe45b836f74e68225f9d17fe3e647",
+      "bytes": 5916
+    },
+    {
+      "path": "assets/vaayu.png",
+      "sha256": "33f75d81260e5cdaff94b3fe2ef1540b070de7ac454fc27fff1c9518e6a0f44e",
+      "bytes": 25636
+    },
+    {
+      "path": "favicon-192.png",
+      "sha256": "a1e086e04951b7b2b91f9c11ae474ad2f94085d3862531efdc3d359fcb1aa677",
+      "bytes": 49368
+    },
+    {
+      "path": "favicon-32.png",
+      "sha256": "b54398dac202efd93028fbe934157c9775caa89bee49ca77be0f692fad4a9cba",
+      "bytes": 2269
+    },
+    {
+      "path": "index.html",
+      "sha256": "a66bd03163db01a00b767c1d0ce85d9eec9d6e5e1096322f98283f2becc7bcc6",
+      "bytes": 16428
+    },
+    {
+      "path": "privacy.html",
+      "sha256": "4282a5389c7aa1498c2749a967048f11e899c188043f9d5be33d00bf84ad8f2b",
+      "bytes": 2640
+    },
+    {
+      "path": "product/assets/index-Bt-nCy1s.js",
+      "sha256": "08fce675649634bb9eb9f225ba2b2f39497b648b32415d78af2a82e208387fe2",
+      "bytes": 245275
+    },
+    {
+      "path": "product/assets/index-CE3rPKid.css",
+      "sha256": "bf97935d4305faf1bed9491ea0e36a33de22526c0761a7c245444b6955ef7e42",
+      "bytes": 132456
+    },
+    {
+      "path": "product/index.html",
+      "sha256": "796854cd3917140b4536f1cf260260c036d42cc375a6315d776f417207aa4ce7",
+      "bytes": 487
+    },
+    {
+      "path": "product/vaayu-logo.png",
+      "sha256": "33f75d81260e5cdaff94b3fe2ef1540b070de7ac454fc27fff1c9518e6a0f44e",
+      "bytes": 25636
+    },
+    {
+      "path": "robots.txt",
+      "sha256": "f8ec92e4c4a25d24bcfa7602709870e275916d4918354652c6f1b37afef00f93",
+      "bytes": 68
+    },
+    {
+      "path": "sitemap.xml",
+      "sha256": "b42cb89f1952902f7b9935fce348f53b8f142ed0fd99eab486a7df6e3c22ce29",
+      "bytes": 218
+    }
+  ]
+}

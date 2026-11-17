@@ -1,0 +1,7 @@
+{
+  "source_revision": "9cdb493f9eadb404edc17aea16c66b5d51cf8494",
+  "source": "Vaayu product frontend",
+  "fixture_source": "site/demo-overlay",
+  "network_mode": "offline fixtures only; no production API or target traffic",
+  "notes": "Fictional assets and risks; comments are in-memory only; no source maps shipped"
+}

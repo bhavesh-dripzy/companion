@@ -1,0 +1,41 @@
+name: Landing checks
+on:
+  pull_request:
+    branches: [dev, main]
+    paths: ["landing/**", "site/**", "infra/landing_*.py", ".github/workflows/*landing*", ".github/workflows/promote.yml"]
+  push:
+    branches: [dev]
+    paths: ["landing/**", "site/**", "infra/landing_*.py", ".github/workflows/*landing*", ".github/workflows/promote.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: landing-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify deterministic static release and edge routes
+        run: |
+          python site/prepare_static.py
+          python site/check_static.py
+          node site/test-edge-routes.cjs
+          node --check site/source/site.js
+          git diff --exit-code -- landing/
+      - name: Install website infrastructure library
+        run: pip install aws-cdk-lib==2.253.1 constructs==10.6.0
+      - name: Synthesize website without AWS credentials
+        working-directory: infra
+        env:
+          CDK_DEFAULT_ACCOUNT: "616551057455"
+          CDK_DEFAULT_REGION: ap-south-1
+        run: npx --yes aws-cdk@2.1127.0 --app "python landing_app.py" synth companion-landing --quiet
+      - name: Verify isolated infrastructure scope
+        run: python site/check_infrastructure.py infra/cdk.out/companion-landing.template.json

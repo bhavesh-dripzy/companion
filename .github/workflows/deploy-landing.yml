@@ -1,15 +1,6 @@
 name: Deploy landing (fast)
 
-# Fast path for landing-page-only changes. The landing site is just static files
-# on S3 + CloudFront, so it does NOT need `cdk deploy --all` (every stack) or an
-# Android APK rebuild — those are what make the full Deploy workflow take ~10 min.
-# This syncs `landing/` straight to the bucket and invalidates CloudFront, in
-# well under a minute. Bucket + distribution are read from the companion-landing
-# CloudFormation outputs, so nothing is hardcoded.
-#
-# Trigger: run on demand (Actions → Deploy landing (fast) → Run workflow), on any
-# ref. The full Deploy workflow still owns backend/graph/APK.
-
+# Company website only. Never invoke infra/app.py or cdk deploy --all here.
 on:
   workflow_dispatch:
 
@@ -19,7 +10,7 @@ permissions:
 
 concurrency:
   group: companion-deploy-landing
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy-landing:
@@ -28,56 +19,58 @@ jobs:
     env:
       AWS_ACCOUNT_ID: "616551057455"
       AWS_REGION: ap-south-1
-      AWS_DEPLOY_ROLE_ARN: "arn:aws:iam::616551057455:role/GitHubActionsDeployRole"
       LANDING_STACK: companion-landing
     steps:
       - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Require promoted main
+        run: test "$GITHUB_REF" = refs/heads/main
+      - uses: actions/setup-python@v5
         with:
-          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Verify AWS target account
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate static release
         run: |
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-          if [ "$ACCOUNT_ID" != "$AWS_ACCOUNT_ID" ]; then
-            echo "Refusing to deploy to AWS account $ACCOUNT_ID; expected $AWS_ACCOUNT_ID."
-            exit 1
-          fi
-
-      - name: Resolve bucket + distribution from CloudFormation outputs
+          python site/prepare_static.py
+          python site/check_static.py
+          node site/test-edge-routes.cjs
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::616551057455:role/GitHubActionsDeployRole
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Verify target account
+        run: |
+          test "$(aws sts get-caller-identity --query Account --output text)" = "$AWS_ACCOUNT_ID"
+      - name: Install website infrastructure tools
+        run: |
+          pip install aws-cdk-lib==2.253.1 constructs==10.6.0 boto3==1.43.6
+          npm install --global aws-cdk@2.1127.0
+      - name: Synthesize isolated website stack
+        working-directory: infra
+        run: cdk --app "python landing_app.py" synth companion-landing --quiet
+      - name: Reject non-website resources
+        run: python site/check_infrastructure.py infra/cdk.out/companion-landing.template.json
+      - name: Deploy company website only
+        working-directory: infra
+        run: |
+          cdk --app "python landing_app.py" deploy companion-landing \
+            --exclusively --require-approval never \
+            --outputs-file /tmp/landing-outputs.json
+      - name: Resolve distribution
         id: cfn
         run: |
-          out() {
-            aws cloudformation describe-stacks --stack-name "$LANDING_STACK" \
-              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
-          }
-          BUCKET="$(out LandingBucketName)"
-          DIST="$(out DistributionId)"
-          if [ -z "$BUCKET" ] || [ "$BUCKET" = "None" ] || [ -z "$DIST" ] || [ "$DIST" = "None" ]; then
-            echo "Could not resolve LandingBucketName/DistributionId from $LANDING_STACK outputs." >&2
-            exit 1
-          fi
-          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
-          echo "dist=$DIST"   >> "$GITHUB_OUTPUT"
-          echo "Bucket: $BUCKET · Distribution: $DIST"
-
-      - name: Sync landing/ to S3
+          DIST="$(aws cloudformation describe-stacks --stack-name "$LANDING_STACK" \
+            --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text)"
+          test -n "$DIST" && test "$DIST" != None
+          echo "dist=$DIST" >> "$GITHUB_OUTPUT"
+      - name: Invalidate changed site content
         run: |
-          aws s3 sync landing/ "s3://${{ steps.cfn.outputs.bucket }}" \
-            --delete \
-            --cache-control "public,max-age=300"
-
-      - name: Invalidate CloudFront
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.cfn.outputs.dist }}" --paths '/*'
+      - name: Review and repair company-site DNS aliases
         run: |
-          ID="$(aws cloudfront create-invalidation \
-            --distribution-id "${{ steps.cfn.outputs.dist }}" \
-            --paths '/*' --query 'Invalidation.Id' --output text)"
-          echo "Invalidation: $ID"
-
-      - name: Smoke test
-        run: |
-          sleep 5
-          curl -fsSL --max-time 20 https://jatayulabs.com >/dev/null && echo "landing reachable"
+          python site/cutover_dns.py
+          python site/cutover_dns.py --apply
+      - name: Verify live release
+        run: python site/verify_live.py https://jatayulabs.com

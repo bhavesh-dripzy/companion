@@ -1,0 +1,6 @@
+Contact: mailto:founders@jatayulabs.com
+Expires: 2027-11-17T00:00:00Z
+Preferred-Languages: en
+Canonical: https://jatayulabs.com/.well-known/security.txt
+
+This contact does not authorize security testing. Obtain explicit written authorization before testing any Jatayu Labs system.
