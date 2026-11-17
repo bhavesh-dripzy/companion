@@ -39,3 +39,19 @@ jobs:
         run: npx --yes aws-cdk@2.1127.0 --app "python landing_app.py" synth companion-landing --quiet
       - name: Verify isolated infrastructure scope
         run: python site/check_infrastructure.py infra/cdk.out/companion-landing.template.json
+      - name: Install browser QA tools
+        run: |
+          pip install playwright==1.65.2
+          curl --fail --location https://unpkg.com/axe-core@4.10.3/axe.min.js -o /tmp/jatayu-axe.min.js
+          echo '880970c081707360e64f34cea25ff91892f5bc95675b0776925b9709dd8a68bb  /tmp/jatayu-axe.min.js' | sha256sum --check
+      - name: Responsive, accessibility, motion, and offline-demo checks
+        run: |
+          python site/serve_preview.py > /tmp/jatayu-preview.log 2>&1 &
+          python site/qa_browser.py --chrome "$(command -v google-chrome)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: company-site-qa
+          path: /tmp/jatayu-site-qa/
+          if-no-files-found: ignore
+          retention-days: 14

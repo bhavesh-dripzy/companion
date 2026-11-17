@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -42,6 +43,11 @@ def main() -> None:
                 assert 'Inter' in page.evaluate("getComputedStyle(document.body).fontFamily")
                 assert page.evaluate("document.fonts.check('400 15px Inter')")
                 assert page.locator("h1").inner_text().replace("\n", " ").startswith("From attack surface")
+                if width == 1440 and motion == 'reduce':
+                    page.keyboard.press('Tab')
+                    assert page.locator(':focus').inner_text() == 'Skip to content'
+                    page.keyboard.press('Enter')
+                    assert page.evaluate('document.activeElement.id') == 'main-content'
                 assert page.locator("form").count() == 0
                 assert page.locator(".preview-switcher").count() == 0
                 assert page.locator(".demo-email-link").get_attribute("href").startswith("mailto:founders@jatayulabs.com?subject=Vaayu%20demo%20request")
@@ -85,10 +91,11 @@ def main() -> None:
         page.goto(args.base + "/product/", wait_until="networkidle")
         page.get_by_text("api.northstar.example", exact=True).first.click()
         page.locator('.assets-drawer-tabs button').filter(has_text='Risks').click()
-        page.get_by_text("Cross-account access to customer invoices", exact=True).first.click()
+        page.get_by_text(re.compile("Cross.account access to customer invoices", re.I)).first.click()
         page.get_by_role("tab", name="Evidence").click()
-        assert page.get_by_text("GET", exact=True).first.is_visible()
-        page.get_by_role("button", name="Raw").first.click()
+        page.locator('summary').filter(has_text='View raw request').click()
+        assert page.locator('pre').filter(has_text='GET /invoices/example').is_visible()
+        page.locator('summary').filter(has_text='View raw response').click()
         assert page.get_by_text("HTTP/1.1 200 OK", exact=False).first.is_visible()
         page.get_by_role("tab", name="Notes").click()
         page.get_by_role("textbox", name="Add a comment").fill("Synthetic demo review note")

@@ -44,6 +44,10 @@ def main() -> None:
         body = path.read_bytes()
         assert len(body) == item["bytes"], path
         assert hashlib.sha256(body).hexdigest() == item["sha256"], path
+    for path in PUBLIC.rglob("*"):
+        if path.is_file() and path.suffix in {".html", ".css", ".js", ".txt", ".xml", ".json"}:
+            assert chr(8212) not in path.read_text(), f"Disallowed punctuation: {path}"
+    assert (ROOT / "site/source/site.css").read_text().lstrip().startswith(":root"), "Missing base typography rule"
     for path in PUBLIC.rglob("*.html"):
         source = path.read_text()
         document = Document()

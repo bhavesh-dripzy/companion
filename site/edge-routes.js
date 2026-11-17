@@ -2,16 +2,17 @@ function handler(event) {
   var request = event.request;
   var host = request.headers.host ? request.headers.host.value : '';
   var uri = request.uri;
-  if (host === 'www.jatayulabs.com') {
-    var parts = [];
-    Object.keys(request.querystring || {}).forEach(function (key) {
-      var item = request.querystring[key];
-      var values = item.multiValue || [item];
-      values.forEach(function (value) {
-        parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(value.value));
-      });
+  var parts = [];
+  Object.keys(request.querystring || {}).forEach(function (key) {
+    var item = request.querystring[key];
+    var values = item.multiValue || [item];
+    values.forEach(function (value) {
+      // CloudFront supplies URL-encoded query components. Preserve them.
+      parts.push(key + '=' + value.value);
     });
-    var query = parts.length ? '?' + parts.join('&') : '';
+  });
+  var query = parts.length ? '?' + parts.join('&') : '';
+  if (host === 'www.jatayulabs.com') {
     return {
       statusCode: 301,
       statusDescription: 'Moved Permanently',
@@ -25,7 +26,7 @@ function handler(event) {
     return {
       statusCode: 301,
       statusDescription: 'Moved Permanently',
-      headers: { location: { value: '/product/' } }
+      headers: { location: { value: '/product/' + query } }
     };
   }
   if (uri === '/privacy') request.uri = '/privacy.html';

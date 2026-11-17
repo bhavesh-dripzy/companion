@@ -4,5 +4,6 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   publicDir: 'public',
+  esbuild: { charset: 'ascii' },
   build: { outDir: 'dist', emptyOutDir: true, sourcemap: false },
 });
